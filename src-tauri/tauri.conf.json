@@ -12,9 +12,11 @@
   "app": {
     "windows": [
       {
-        "title": "ai-ssh-terminal-client",
-        "width": 800,
-        "height": 600
+        "title": "Agent SSH",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 1280,
+        "minHeight": 800
       }
     ],
     "security": {
