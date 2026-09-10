@@ -1,0 +1,24 @@
+Use case: ui-mockup
+Create one high resolution landscape desktop application prototype screenshot for an AI-agent-SSH intelligent terminal, suitable for direct frontend implementation. Single complete flat screen, 16:10 aspect, ideally 2560x1600. Chinese UI, crisp readable text. Product title "Agent SSH". Restrained premium developer tool aesthetic, charcoal navy background, slate panels, thin subtle borders, muted mint accent, white and gray text, simple consistent line icons. No perspective, device frame, decorative illustrations or marketing headings.
+
+Layout based on a 1600x1000 logical viewport: 48px top application bar; 56px left icon rail; 260px server/files sidebar; central terminal workspace around 830px; right agent panel around 454px. Bottom thin connection status bar. Rigid aligned panes with 1px dividers and restrained 6px radius. UI font like Inter with Noto Sans SC; code JetBrains Mono. Generous readable 13-15px logical text, 8px spacing grid.
+
+Top bar: logo terminal glyph, Agent SSH, project selector "Web 服务", centered small command search "搜索命令、文件或主机  Ctrl K", right settings and avatar.
+Left rail icons for connections, files, commands, history, settings; connections active.
+Left pane top heading "连接" plus +; group "生产环境", active green connected host "web-prod-01" subtitle "root · 10.0.0.12", other "api-prod-02" gray offline. Below divider, heading "远程文件" small refresh and upload icons; breadcrumb "/var/www/app"; compact toolbar "上传" "新建" and more. Tree folders src, public, logs, files package.json, docker-compose.yml, .env.example; selected logs expanded access.log and error.log. Bottom slim transfer row "deploy.tar.gz  已完成".
+Central top tabs "web-prod-01" active with green dot, "本地终端", plus. Terminal toolbar breadcrumb "root@web-prod-01: /var/www/app", split and maximize icons. Main large terminal displays plausible session:
+"root@web-prod-01:/var/www/app$ docker compose ps"
+"NAME        STATUS         PORTS"
+"app-web     Up 2 hours     0.0.0.0:3000->3000/tcp"
+"app-redis   Up 2 hours     6379/tcp"
+blank
+"root@web-prod-01:/var/www/app$ df -h /"
+"Filesystem   Size   Used   Avail   Use%   Mounted on"
+"/dev/vda1     80G    28G    52G     35%    /"
+blank
+"root@web-prod-01:/var/www/app$" mint cursor.
+Make terminal tall and spacious, realistically sparse output, not filled with fake text.
+Central bottom dedicated command shelf taking 240px logical height, heading "常用命令" right "+ 添加命令"; tabs "全部" selected, "系统", "Docker", "日志", "部署"; four compact rows with icon, title, monospace command, right triangle run and copy controls: "磁盘使用 / df -h", "容器状态 / docker compose ps", "实时日志 / tail -f logs/error.log", "查看端口 / ss -tuln". A footer note "点击命令可填入当前终端".
+Right full height panel "智能体" with new chat and overflow icons; small context pills "web-prod-01" "/var/www/app"; user bubble "帮我检查服务运行状态和磁盘空间"; assistant response "我将检查容器状态与磁盘使用情况。"; tool activity compact rows green checks "容器状态 · 已完成" and "磁盘检查 · 已完成"; summary "服务运行正常，磁盘使用率 35%，可用空间 52 GB。" Below short suggestion "建议继续查看最近的错误日志。" with outlined action "查看错误日志". Plenty breathing room. Bottom anchored chat composer "描述任务，或输入 / 选择命令…" with attachment, model text "Agent", "执行前确认" small toggle and mint send arrow. Distinct clearly usable chat input.
+Status bar bottom "SSH 已连接" green dot, "SFTP 就绪", "延迟 24 ms", right "UTF-8" "xterm-256color".
+Render as finished practical software UI, consistent typography and icons, excellent contrast, pixel aligned and immediately buildable with CSS grid. Only one main application screenshot, no multi-screen collage, no annotations outside UI.
