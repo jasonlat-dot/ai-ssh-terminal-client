@@ -247,10 +247,6 @@ progress::-moz-progress-bar { background: var(--mint); }
 .settings-content > div { display: flex; justify-content: space-between; align-items: center; margin-bottom: 22px; }
 .settings-content small { display: block; color: var(--muted); margin-top: 6px; }
 .settings-content p { line-height: 1.8; color: var(--muted); margin: 14px 0 0; }
-.history-list { padding: 8px 20px 20px; max-height: 55vh; overflow: auto; }
-.history-list > div { border-bottom: 1px solid var(--line); padding: 14px 0; }
-.history-list > div > span { display: flex; justify-content: space-between; color: var(--muted); font-size: 11px; }
-.history-list code { display: block; margin-top: 8px; color: var(--mint); overflow-wrap: anywhere; }
 .search-dialog { padding: 18px; }
 .search-input { display: flex; gap: 10px; align-items: center; }
 .search-input svg { color: var(--mint); }

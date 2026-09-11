@@ -1,10 +1,11 @@
-export type Host = { id: string; name: string; user: string; address: string; online: boolean };
+export type Host = { id: string; name: string; user: string; address: string; online: boolean; port?: number; environment?: string; auth?: 'password' | 'key'; keyPath?: string; favorite?: boolean; saved?: boolean };
 export type FileNode = { id: string; name: string; kind: 'file' | 'folder'; children?: FileNode[] };
 export type Category = '系统' | 'Docker' | '日志' | '部署';
 export type SavedCommand = { id: string; name: string; command: string; category: Category; icon: 'disk' | 'box' | 'file' | 'network' };
 export type TerminalEntry = { id: string; command: string; output: string };
-export type TerminalSession = { id: string; hostId: string | null; title: string; input: string; entries: TerminalEntry[]; busy: boolean };
+export type TerminalSession = { id: string; hostId: string | null; title: string; input: string; entries: TerminalEntry[]; busy: boolean; fileState: SessionFileState };
 export type ChatMessage = { id: string; role: 'user' | 'assistant'; text: string; tools?: string[]; summary?: string; suggestion?: boolean };
 export type TransferItem = { id: string; name: string; progress: number };
-export type HistoryItem = { id: string; session: string; command: string; time: string };
-export type Navigation = '连接' | '文件' | '命令' | '历史' | '设置';
+export type Navigation = '连接' | '命令' | '设置';
+
+export type SessionFileState = { open: boolean; files: FileNode[]; selected: string; expanded: Set<string>; transfers: TransferItem[] };

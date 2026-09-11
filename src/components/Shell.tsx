@@ -6,13 +6,11 @@ export function AppHeader({ search, settings, notify }: { search: () => void; se
 }
 const items: { name: Navigation; label: string; subtitle: string; icon: IconName }[] = [
   { name: '连接', label: '连接', subtitle: '远程主机连接', icon: 'server' },
-  { name: '文件', label: '文件', subtitle: '文件管理', icon: 'folder' },
   { name: '命令', label: '终端', subtitle: '在线终端', icon: 'terminal' },
-  { name: '历史', label: '历史', subtitle: '操作记录', icon: 'history' },
   { name: '设置', label: '设置', subtitle: '系统设置', icon: 'settings' },
 ];
-export function ActivityBar({ active, onSelect }: { active: Navigation; onSelect: (name: Navigation) => void }) {
-  return <nav className="activity-bar" aria-label="主导航">{items.map(item => <button key={item.name} aria-label={item.name} className={`activity ${active === item.name ? 'selected' : ''}`} aria-current={active === item.name ? 'page' : undefined} onClick={() => onSelect(item.name)}><Icon name={item.icon} size={23} /><span><strong>{item.label}</strong><small>{item.subtitle}</small></span></button>)}<div className="nav-footer"><div className="planet-art" aria-hidden="true"><i /><span /></div><strong>让开发更简单</strong><small>智能 · 高效 · 安全</small></div></nav>;
+export function ActivityBar({ active, onSelect, collapsed, toggleCollapsed }: { active: Navigation; onSelect: (name: Navigation) => void; collapsed: boolean; toggleCollapsed: () => void }) {
+  return <nav className="activity-bar" aria-label="主导航"><button className="nav-collapse-toggle" onClick={toggleCollapsed} aria-expanded={!collapsed} aria-label={collapsed ? '展开导航栏' : '收起导航栏'} title={collapsed ? '展开导航栏' : '收起导航栏'}><Icon name="split" size={19} /><span>收起导航</span></button>{items.map(item => <button key={item.name} aria-label={item.label} title={collapsed ? item.label : undefined} className={`activity ${active === item.name ? 'selected' : ''}`} aria-current={active === item.name ? 'page' : undefined} onClick={() => onSelect(item.name)}><Icon name={item.icon} size={23} /><span><strong>{item.label}</strong><small>{item.subtitle}</small></span></button>)}<div className="nav-footer"><div className="planet-art" aria-hidden="true"><i /><span /></div><strong>让开发更简单</strong><small>智能 · 高效 · 安全</small></div></nav>;
 }
 export function StatusBar({ host, local, onInfo }: { host?: Host; local: boolean; onInfo: () => void }) {
   return <footer className="status-bar"><div className="status-left"><span><i className={`status-dot ${host?.online || local ? '' : 'offline'}`} />{local ? '本地连接 (SSH)' : host?.online ? 'SSH 已连接' : host ? 'SSH 未连接' : '无活动会话'}</span><span className="sftp-status"><Icon name="box" size={15} />{host?.online ? 'SFTP 就绪' : 'SFTP 未连接'}</span><button className="status-settings" onClick={onInfo}><Icon name="settings" size={15} />设置</button><span className="latency-chip"><Icon name="signal" size={14} />延迟 {host?.online ? '24 ms' : local ? '32 ms' : '—'}</span><span className="demo-badge">演示模式</span></div><div className="status-right"><span>UTF-8</span><span>xterm-256color</span><span>v0.1.0</span></div></footer>;

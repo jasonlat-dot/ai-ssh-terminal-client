@@ -2,6 +2,17 @@ import { useEffect, useId, useRef } from 'react';
 import type { ButtonHTMLAttributes, ReactNode } from 'react';
 
 const paths = {
+  book: 'M12 5v16 M12 5C8 2 4 3 2 4v15c4-2 7-1 10 2 3-3 6-4 10-2V4c-2-1-6-2-10 1 M6 7h2 M16 7h2',
+  bolt: 'm13 2-9 12h7l-1 8 10-13h-8z',
+  shield: 'm12 2 9 4v6c0 5-5 8-9 10-4-2-9-5-9-10V6z M7 12l3 3 7-7',
+  user: 'M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0 M4 21v-2a8 8 0 0 1 16 0v2z',
+  key: 'M14 7a5 5 0 1 1-4 8L3 22H1v-4l7-7 M17 7h.01',
+  panelOpen: 'M4 4h16v16H4z M4 15h16 M9 10l3-3 3 3',
+  panelClose: 'M4 4h16v16H4z M4 15h16 M9 7l3 3 3-3',
+  tabs: 'M3 8h14v12H3z M7 4h14v12 M7 12h6 M10 9v6',
+  restore: 'M8 3v5H3 M16 3v5h5 M3 16h5v5 M21 16h-5v5',
+  star: 'm12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9z',
+  edit: 'm14 5 5 5 M4 20l5-1L21 7l-5-5L4 14z',
   terminal: 'M4 5h16v14H4z M8 9l3 3-3 3 M13 15h3',
   folder: 'M3 7V5h6l2 3h10v12H3z',
   file: 'M6 3h8l4 4v14H6z M14 3v5h4 M9 12h6 M9 16h5',
