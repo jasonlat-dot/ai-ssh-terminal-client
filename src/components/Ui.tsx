@@ -54,20 +54,22 @@ export function IconButton({ icon, label, className = '', ...props }: ButtonHTML
 export function Toggle({ value, onChange, label }: { value: boolean; onChange: (value: boolean) => void; label: string }) {
   return <button type="button" role="switch" aria-checked={value} aria-label={label} className={`toggle ${value ? 'on' : ''}`} onClick={() => onChange(!value)}><span /></button>;
 }
-export function Modal({ title, onClose, children, wide = false }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean }) {
+export function Modal({ title, onClose, children, wide = false, className = '', dismissDisabled = false }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean; className?: string; dismissDisabled?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   const closeRef = useRef(onClose);
-  closeRef.current = onClose;
+  closeRef.current = () => { if (!dismissDisabled) onClose(); };
   const id = useId();
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
     const panel = ref.current;
-    const focusable = () => Array.from(panel?.querySelectorAll<HTMLElement>('button:not(:disabled), input, textarea, select, [tabindex="0"]') ?? []);
-    (panel?.querySelector<HTMLElement>('input, textarea, select') ?? focusable()[0])?.focus();
+    const focusable = () => Array.from(panel?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), [tabindex="0"]') ?? []);
+    (panel?.querySelector<HTMLElement>('[data-autofocus], input, textarea, select') ?? focusable()[0])?.focus();
     const listener = (event: KeyboardEvent) => {
       if (event.key === 'Escape') { event.preventDefault(); closeRef.current(); }
       if (event.key === 'Tab') {
         const items = focusable();
+        if (!items.length) { event.preventDefault(); panel?.focus(); return; }
+        if (!items.includes(document.activeElement as HTMLElement)) { event.preventDefault(); items[0]?.focus(); return; }
         if (event.shiftKey && document.activeElement === items[0]) { event.preventDefault(); items[items.length - 1]?.focus(); }
         else if (!event.shiftKey && document.activeElement === items[items.length - 1]) { event.preventDefault(); items[0]?.focus(); }
       }
@@ -75,5 +77,5 @@ export function Modal({ title, onClose, children, wide = false }: { title: strin
     document.addEventListener('keydown', listener);
     return () => { document.removeEventListener('keydown', listener); previous?.focus(); };
   }, []);
-  return <div className="modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}><div ref={ref} role="dialog" aria-modal="true" aria-labelledby={id} className={`modal ${wide ? 'wide' : ''}`}><header><h2 id={id}>{title}</h2><IconButton icon="close" label="关闭弹窗" onClick={onClose} /></header>{children}</div></div>;
+  return <div className={`modal-backdrop ${className ? `${className}-backdrop` : ''}`} onMouseDown={e => { if (e.target === e.currentTarget) closeRef.current(); }}><div ref={ref} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby={id} className={`modal ${wide ? 'wide' : ''} ${className}`}><header><h2 id={id}>{title}</h2><IconButton icon="close" label="关闭弹窗" disabled={dismissDisabled} onClick={onClose} /></header>{children}</div></div>;
 }

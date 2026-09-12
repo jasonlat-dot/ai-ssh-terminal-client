@@ -1,4 +1,4 @@
-export type Host = { id: string; name: string; user: string; address: string; online: boolean; port?: number; environment?: string; auth?: 'password' | 'key'; keyPath?: string; favorite?: boolean; saved?: boolean };
+export type Host = { status?: 0 | 1 | 2 | 3; userId?: string; id: string; name: string; user: string; address: string; online: boolean; port?: number; environment?: string; auth?: 'password' | 'key'; keyPath?: string; favorite?: boolean; saved?: boolean };
 export type FileNode = { id: string; name: string; kind: 'file' | 'folder'; children?: FileNode[] };
 export type Category = '系统' | 'Docker' | '日志' | '部署';
 export type SavedCommand = { id: string; name: string; command: string; category: Category; icon: 'disk' | 'box' | 'file' | 'network' };

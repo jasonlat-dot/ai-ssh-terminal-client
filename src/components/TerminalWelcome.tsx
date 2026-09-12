@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Icon, Modal } from './Ui';
-import welcomeArt from '../assets/terminal-welcome.png';
+import welcomeArt from '../assets/terminal-welcome-light.png';
 import './TerminalWelcome.css';
 
 export function TerminalWelcome({ add, connections }: { add: () => void; connections: () => void }) {
@@ -27,7 +27,7 @@ export function TerminalWelcome({ add, connections }: { add: () => void; connect
           <article><span className="welcome-feature-icon blue"><Icon name="bot" size={29} /></span><div><h3>智能诊断</h3><p>SSH Agent 协助分析日志</p></div></article>
           <article><span className="welcome-feature-icon"><Icon name="shield" size={29} /></span><div><h3>安全会话</h3><p>会话独立管理，执行前可确认</p></div></article>
         </div>
-        <p className="welcome-demo-note">当前为演示模式，SSH、文件传输与 Agent 回复均为模拟。</p>
+        <p className="welcome-demo-note">SSH 连接管理已接入后端；终端命令、文件传输与 Agent 回复仍为模拟。</p>
       </div>
     </section>
     {guideOpen && <Modal title="终端连接指引" onClose={() => setGuideOpen(false)}>
@@ -38,7 +38,7 @@ export function TerminalWelcome({ add, connections }: { add: () => void; connect
           <li><strong>进入终端会话</strong><span>点击主机卡片上的“进入终端”。“新建终端”按钮会创建一个本地演示会话。</span></li>
           <li><strong>管理文件与命令</strong><span>终端右上角可打开文件面板；每个会话独立保留文件状态。下方可展开常用命令，右侧可与 Agent 对话。</span></li>
         </ol>
-        <p className="muted">连接配置保存在本地。真实 SSH、SFTP 和 AI 服务尚未接入。</p>
+        <p className="muted">SSH 连接配置保存在后端，环境和收藏偏好保存在本地。终端命令、SFTP 和 AI 回复仍为模拟。</p>
         <div className="dialog-actions"><button className="outlined-button" onClick={() => setGuideOpen(false)}>知道了</button><button className="primary-button" onClick={() => { setGuideOpen(false); connections(); }}>打开连接管理<Icon name="right" size={16} /></button></div>
       </div>
     </Modal>}

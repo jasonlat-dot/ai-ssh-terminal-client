@@ -1,0 +1,6 @@
+# 浅色终端欢迎页插画
+
+Generated with the built-in imagegen tool (style-transfer edit).
+Source: `terminal-welcome.png`. Output: `terminal-welcome-light.png`.
+
+Use case: style-transfer. Asset: wide hero illustration for an SSH terminal welcome page, not a full UI screenshot. Edit the attached existing dark illustration into a light-theme version. Preserve the same wide ~2.4:1 composition and recognizable friendly floating white robot with navy face and cyan smiling eyes in the center, small terminal panel upper left, server stack lower left, cloud server upper right, transfer folder lower right, thin cyan connecting orbits. Change the background from dark navy to near-white ice blue #f8fbff with an extremely faint blue grid. Use soft studio daylight, pastel periwinkle and cobalt server/folder surfaces, soft pale blue ground shadows, turquoise connection dots. Keep robot shiny white ceramic with subtle blue shading; face stays navy. Replace dark command panel with white translucent panel and pale blue outline. Panel text: '$ ssh user@server', 'Connecting...', 'Authentication...', 'Welcome!'. Airy, clean and friendly, matching a white/blue desktop app. No dark surrounding region, no harsh neon glow, no page title or buttons or labels. Keep all objects fully visible and plenty of near-white margin for seamless embedding.
