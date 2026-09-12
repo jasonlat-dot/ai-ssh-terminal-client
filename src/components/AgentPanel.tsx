@@ -5,22 +5,22 @@ import { Icon, IconButton, Toggle } from './Ui';
 function Robot() {
   return <div className="robot-art" aria-hidden="true"><span className="robot-antenna" /><div className="robot-head"><span className="robot-face"><i /><i /></span></div><div className="robot-body"><i /></div><span className="robot-hand left" /><span className="robot-hand right" /></div>;
 }
-export function AgentPanel({ host, local, messages, busy, send, clear, confirm, setConfirm, runLogs, notify, disabled, connect, openFiles, openCommands, settings }: {
-  host?: Host; local: boolean; messages: ChatMessage[]; busy: boolean; send: (text: string) => void; clear: () => void;
+export function AgentPanel({ host, messages, busy, send, clear, confirm, setConfirm, runLogs, notify, disabled, connect, manageConnections, openFiles, openCommands, settings }: {
+  host?: Host; messages: ChatMessage[]; busy: boolean; send: (text: string) => void; clear: () => void;
   confirm: boolean; setConfirm: (value: boolean) => void; runLogs: () => void; notify: (text: string) => void; disabled: boolean;
-  connect: () => void; openFiles: () => void; openCommands: () => void; settings: () => void;
+  connect: () => void; manageConnections: () => void; openFiles: () => void; openCommands: () => void; settings: () => void;
 }) {
   const [draft, setDraft] = useState('');
   const [updated, setUpdated] = useState(() => new Date().toLocaleTimeString('zh-CN', { hour12: false }));
   const scrollRef = useRef<HTMLDivElement>(null);
   const submit = () => { if (draft.trim() && !busy) { send(draft.trim()); setDraft(''); } };
   useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, [messages, busy]);
-  const healthy = local || !!host?.online;
+  const healthy = !!host?.online;
   return <aside className="agent-panel">
     <div className="agent-dashboard-scroll">
       <section className="agent-welcome">
         <div className="agent-heading"><h2>智能体</h2>{messages.length > 0 && <button className="text-button new-chat" onClick={() => { clear(); setDraft(''); }}>新建对话</button>}</div>
-        <div className="welcome-body"><button className="connection-select outlined-button" onClick={connect}><i className={`status-dot ${healthy ? '' : 'offline'}`} />{local ? '本地连接' : host?.name ?? '选择连接'}<Icon name="down" size={13} /></button><div className="welcome-note"><p>我可以帮你管理服务器<br />执行命令、分析日志、<br />解决问题～</p><Robot /></div></div>
+        <div className="welcome-body"><button className="connection-select outlined-button" onClick={manageConnections}><i className={`status-dot ${healthy ? '' : 'offline'}`} />{host?.name ?? '选择连接'}<Icon name="down" size={13} /></button><div className="welcome-note"><p>我可以帮你管理服务器<br />执行命令、分析日志、<br />解决问题～</p><Robot /></div></div>
         <div className="quick-actions"><button className="quick-action green" onClick={connect}><span className="quick-icon"><Icon name="server" size={23} /></span><strong>新建连接</strong><small>快速连接主机</small></button><button className="quick-action" onClick={openFiles}><span className="quick-icon"><Icon name="folder" size={23} /></span><strong>打开文件</strong><small>浏览远程文件</small></button><button className="quick-action violet" onClick={openCommands}><span className="quick-icon"><Icon name="terminal" size={23} /></span><strong>执行命令</strong><small>智能命令助手</small></button></div>
       </section>
       <section className="system-card"><header><span className="card-heading"><span className="card-icon"><Icon name="network" size={17} /></span><h3>系统状态</h3></span><small>更新于 {updated}</small><IconButton icon="refresh" label="刷新系统状态" onClick={() => { setUpdated(new Date().toLocaleTimeString('zh-CN', { hour12: false })); notify('系统状态已更新（模拟数据）'); }} /></header><div className="system-results">{['容器状态', '磁盘检查'].map((title, index) => <button key={title} className="system-result" onClick={() => notify(`${title}：${healthy ? '演示环境正常，未查询真实服务器。' : '主机未连接。'}`)}><span className={`check-circle ${healthy ? '' : 'unavailable'}`}><Icon name={healthy ? 'check' : 'close'} size={14} /></span><span>{title}</span><em>{healthy ? index === 0 ? '正常运行' : '正常' : '未连接'}</em><Icon name="right" size={15} /></button>)}<p>{healthy ? '服务器运行正常，磁盘使用率 35%，可用空间 52 GB。' : '当前主机未连接，连接后可查看模拟系统状态。'}</p></div></section>

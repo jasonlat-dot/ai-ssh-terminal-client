@@ -27,18 +27,18 @@ export function TerminalWelcome({ add, connections }: { add: () => void; connect
           <article><span className="welcome-feature-icon blue"><Icon name="bot" size={29} /></span><div><h3>智能诊断</h3><p>SSH Agent 协助分析日志</p></div></article>
           <article><span className="welcome-feature-icon"><Icon name="shield" size={29} /></span><div><h3>安全会话</h3><p>会话独立管理，执行前可确认</p></div></article>
         </div>
-        <p className="welcome-demo-note">SSH 连接管理已接入后端；远程终端已接入；本地终端、文件传输与 Agent 回复仍为模拟。</p>
+        <p className="welcome-demo-note">SSH 连接管理与远程终端已接入后端；文件传输与 Agent 回复仍为模拟。</p>
       </div>
     </section>
     {guideOpen && <Modal title="终端连接指引" onClose={() => setGuideOpen(false)}>
       <div className="connection-guide-content">
-        <p>可以新建本地终端，也可以从已配置的 SSH 主机进入终端。</p>
+        <p>添加云服务器或远程主机后，即可建立真实的 SSH 终端会话。</p>
         <ol>
-          <li><strong>配置远程主机</strong><span>打开“连接”，点击“新建连接”，填写地址、端口、用户名和认证方式并保存。</span></li>
-          <li><strong>进入终端会话</strong><span>点击主机卡片上的“进入终端”。“新建终端”按钮会创建一个本地演示会话。</span></li>
+          <li><strong>配置远程主机</strong><span>点击“新建终端”或连接页的“新建连接”，填写地址、端口、用户名和认证方式。</span></li>
+          <li><strong>进入终端会话</strong><span>从终端入口保存后会直接建立连接；已保存的主机可从连接管理页再次进入。</span></li>
           <li><strong>管理文件与命令</strong><span>终端右上角可打开文件面板；每个会话独立保留文件状态。下方可展开常用命令，右侧可与 Agent 对话。</span></li>
         </ol>
-        <p className="muted">SSH 连接配置保存在后端，环境和收藏偏好保存在本地。远程终端命令真实执行；本地终端、SFTP 和 AI 回复仍为模拟。</p>
+        <p className="muted">SSH 连接配置保存在后端，收藏偏好保存在本地。远程终端命令真实执行；SFTP 和 AI 回复仍为模拟。</p>
         <div className="dialog-actions"><button className="outlined-button" onClick={() => setGuideOpen(false)}>知道了</button><button className="primary-button" onClick={() => { setGuideOpen(false); connections(); }}>打开连接管理<Icon name="right" size={16} /></button></div>
       </div>
     </Modal>}

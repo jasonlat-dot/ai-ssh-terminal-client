@@ -4,8 +4,7 @@ const assert = require('node:assert/strict');
   const browser = await chromium.launch({ channel: 'chrome', headless: true });
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   const calls = [], errors = [];
-  let output = '', failOpen = true, failExec = true, failRead = false, failClose = true;
-  let draining = false;
+  let output = '', readStatus = '', failOpen = true, failCommandWrite = true, failRead = false, failClose = true;
   const row = { connectionId: 'host-one', connectionName: '真实终端测试', host: 'example.test', port: 22, username: 'root', status: 1, authType: 1, userId: 'default' };
   page.on('pageerror', error => errors.push(error.message));
   await page.route('**/ssh/**', async route => {
@@ -30,19 +29,21 @@ const assert = require('node:assert/strict');
       assert.equal(req.method(), endpoint === 'read' ? 'GET' : 'POST'); assert.equal(body, null);
     } else { assert.equal(req.method(), 'POST'); assert.equal(body.sessionId, 'server-shell-id'); }
     if (endpoint === 'read') {
-      assert.equal(draining, false, 'read must not race exec drain');
       if (failRead) { failRead = false; return fail('读取失败测试'); }
-      const data = output; output = ''; return ok({ output: data });
-    }
-    if (endpoint === 'exec') {
-      assert.equal(body.command, 'pwd\r');
-      if (failExec) { failExec = false; return fail('提交失败测试'); }
-      draining = true; await new Promise(resolve => setTimeout(resolve, 350)); draining = false;
-      output = '\r\nLATE_OUTPUT_TEST\r\nroot@test:~$ ';
-      return ok({ output: '\r\n/home/test\r\n' });
+      if (!output && !readStatus) await new Promise(resolve => setTimeout(resolve, 20));
+      const data = output;
+      const status = readStatus || (data ? 'DATA' : 'TIMEOUT');
+      output = ''; readStatus = '';
+      return ok({ status, output: data, hasData: !!data, connected: status !== 'DISCONNECTED', eof: status === 'DISCONNECTED', timeout: status === 'TIMEOUT', bufferOverflow: false });
     }
     if (endpoint === 'resize') { assert.ok(body.cols > 0 && body.rows > 0); return ok(null); }
-    if (endpoint === 'write') { output += '\r\nWRITE_ACK\r\n'; return ok(null); }
+    if (endpoint === 'write') {
+      if (body.input === 'pwd\r') {
+        if (failCommandWrite) { failCommandWrite = false; return fail('提交失败测试'); }
+        output += '\r\n/home/test\r\nLATE_OUTPUT_TEST\r\nroot@test:~$ ';
+      } else output += '\r\nWRITE_ACK\r\n';
+      return ok(null);
+    }
     if (endpoint === 'close') { if (failClose) { failClose = false; return fail('关闭失败测试'); } return ok(null); }
     throw new Error(endpoint);
   });
@@ -65,7 +66,7 @@ const assert = require('node:assert/strict');
     const input = page.getByRole('textbox', { name: '终端命令输入', exact: true });
     await input.fill('pwd'); await input.press('Enter');
     await page.getByText('此命令将在远程主机实际执行，请确认命令内容。').waitFor();
-    assert.equal(calls.filter(call => call.endpoint === 'exec').length, 0);
+    assert.equal(calls.filter(call => call.endpoint === 'write').length, 0);
     await click('确认执行'); await page.getByText(/提交失败测试；未自动重试/).waitFor();
     await input.fill('pwd'); await input.press('Enter'); await click('确认执行');
     await terminalText('/home/test'); await terminalText('LATE_OUTPUT_TEST');
@@ -76,14 +77,14 @@ const assert = require('node:assert/strict');
     assert.equal(calls.filter(call => call.endpoint === 'open').length, 2);
     await click('中断 Ctrl+C');
     await terminalText('WRITE_ACK');
-    assert.equal(calls.find(call => call.endpoint === 'write').body.input, '\x03');
+    assert.ok(calls.some(call => call.endpoint === 'write' && call.body.input === '\x03'));
     // Direct terminal input remains available while command confirmation is enabled.
     await page.locator('.xterm-helper-textarea').focus(); await page.keyboard.type('ls'); await page.keyboard.press('Enter');
     await page.waitForTimeout(500);
     assert.ok(calls.filter(call => call.endpoint === 'write').some(call => call.body.input.includes('l')));
     // A dead server channel must stop polling and offer a full SSH + terminal reconnect.
-    output = '\x1b[31m\r\n[连接已断开]\x1b[0m\r\n';
-    await page.getByRole('alert').filter({ hasText: '与服务器的连接已断开' }).waitFor();
+    readStatus = 'DISCONNECTED';
+    await page.getByRole('alert').filter({ hasText: '当前终端连接不可用' }).waitFor();
     const disconnectedReads = calls.filter(call => call.endpoint === 'read').length;
     await page.waitForTimeout(600);
     assert.equal(calls.filter(call => call.endpoint === 'read').length, disconnectedReads);
@@ -91,7 +92,7 @@ const assert = require('node:assert/strict');
     await terminalText('WELCOME_TEST');
     assert.equal(calls.filter(call => call.endpoint === 'connect').length, 1);
     assert.equal(calls.filter(call => call.endpoint === 'open').length, 3);
-    assert.equal(await page.getByRole('button', { name: '重新连接', exact: true }).count(), 0);
+    assert.equal(await page.getByRole('button', { name: '重新连接', exact: true }).count(), 1);
     const resizes = calls.filter(call => call.endpoint === 'resize').length;
     await page.setViewportSize({ width: 1280, height: 800 }); await page.waitForTimeout(500);
     assert.ok(calls.filter(call => call.endpoint === 'resize').length > resizes);
@@ -109,6 +110,6 @@ const assert = require('node:assert/strict');
     assert.equal(await page.getByRole('tab', { name: row.connectionName }).count(), 0);
     assert.ok(calls.findLastIndex(call => call.endpoint === 'close') < calls.findIndex(call => call.endpoint === 'disconnect'));
     assert.deepEqual(errors, []);
-    console.log('PASS terminal 7 endpoints: open/retry, ANSI/initial/delayed output, Vim alternate-buffer restoration, exec newline/confirmation, ordered read, raw input/Ctrl+C, dropped-session detection/reconnect, resize, tab persistence, read retry, close failure/retry and disconnect ordering.');
+    console.log('PASS terminal streaming: open/retry, ANSI/initial/delayed output, Vim alternate-buffer restoration, command write/confirmation, long-poll read, raw input/Ctrl+C, dropped-session detection/reconnect, resize, tab persistence, read retry, close failure/retry and disconnect ordering.');
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

@@ -21,7 +21,8 @@ const assert = require('node:assert/strict');
     if (url.pathname.includes('/terminal/')) {
       return route.fulfill({ json: { code: 'SUCCESS_0000', data: endpoint === 'open'
         ? { sessionId: 'mock-shell', connectionId: 'mock-host', initialOutput: 'ready\r\n' }
-        : endpoint === 'read' || endpoint === 'exec' ? { output: '' } : null } });
+        : endpoint === 'read' ? { status: 'TIMEOUT', output: '', hasData: false, connected: true, eof: false, timeout: true, bufferOverflow: false }
+        : endpoint === 'exec' ? { output: '' } : null } });
     }
 
     const body = request.postDataJSON();

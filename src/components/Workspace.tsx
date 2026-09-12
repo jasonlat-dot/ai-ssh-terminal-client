@@ -5,8 +5,8 @@ import { categories } from '../data/mock';
 import { Icon, IconButton } from './Ui';
 import { TerminalWelcome } from './TerminalWelcome';
 
-function Prompt({ host, local }: { host?: Host; local: boolean }) {
-  return <span className="terminal-prompt"><span>{local ? 'local' : `${host?.user ?? 'root'}@${host?.name ?? 'web-prod-01'}`}</span>:<span className="terminal-path">{local ? '~' : '/var/www/app'}</span>$ </span>;
+function Prompt({ host }: { host?: Host }) {
+  return <span className="terminal-prompt"><span>{`${host?.user ?? 'root'}@${host?.name ?? 'remote-host'}`}</span>:<span className="terminal-path">/var/www/app</span>$ </span>;
 }
 export function TerminalWorkspace({ remoteViews, sessions, activeId, host, select, close, add, changeInput, run, fillFocus, maximize, isMaximized, filesOpen, toggleFiles, filePanel, copy, connections }: { remoteViews: ReactNode; sessions: TerminalSession[]; activeId: string; host?: Host; select: (id: string) => void; close: (id: string) => void; add: () => void; changeInput: (text: string) => void; run: () => void; fillFocus: number; maximize: () => void; isMaximized: boolean; filesOpen: boolean; toggleFiles: () => void; filePanel: ReactNode; connections: () => void; copy: (text: string) => void }) {
   const active = sessions.find(session => session.id === activeId);
@@ -14,7 +14,39 @@ export function TerminalWorkspace({ remoteViews, sessions, activeId, host, selec
   const scrollRef = useRef<HTMLDivElement>(null);
   useEffect(() => { if (fillFocus) inputRef.current?.focus(); }, [fillFocus]);
   useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, [active?.entries.length, activeId]);
-  return <section className="terminal-workspace" aria-label="终端工作区"><div className="terminal-tabs" role="tablist" aria-label="终端会话">{sessions.map(session => <div className={`terminal-tab ${session.id === activeId ? 'selected' : ''}`} key={session.id}><button role="tab" aria-selected={session.id === activeId} onClick={() => select(session.id)}>{session.hostId ? <i className={`status-dot ${session.id === activeId && !host?.online ? 'offline' : ''}`} /> : <Icon name="terminal" size={18} />}<span>{session.title}</span></button><IconButton icon="close" label={`关闭 ${session.title}`} onClick={() => close(session.id)} /></div>)}<button className="new-terminal-button" onClick={add} title="新建本地终端"><Icon name="tabs" size={17} /><span>新建终端</span></button></div>{active ? <div className={`terminal-body ${filesOpen ? 'with-files' : ''}`}>{filesOpen && filePanel}<div className="terminal-pane"><div className="terminal-toolbar"><i className={`terminal-connection-dot ${active.hostId && !host?.online ? 'offline' : ''}`} aria-hidden="true" /><span>{active.hostId ? `${host?.user ?? ''}@${host?.address ?? ''}` : 'local: ~'}</span><IconButton icon="copy" label={active.hostId ? "复制主机地址" : "复制终端路径"} onClick={() => copy(active.hostId ? host?.address ?? '' : '~')} /><div className="inline-actions"><button className={`terminal-layout-button file-panel-toggle ${filesOpen ? 'selected' : ''}`} onClick={toggleFiles} aria-expanded={filesOpen} aria-controls={filesOpen ? 'files' : undefined} title={filesOpen ? '收起当前终端的文件面板' : '打开当前终端的文件面板'}><Icon name="folder" size={16} /><span>{filesOpen ? '收起文件' : '打开文件'}</span></button><button className="terminal-layout-button" onClick={maximize} title={isMaximized ? '恢复终端与助手布局' : '展开终端，隐藏助手'} aria-label={isMaximized ? '恢复终端布局' : '最大化终端'}><Icon name={isMaximized ? 'restore' : 'maximize'} size={16} /><span>{isMaximized ? '恢复布局' : '专注终端'}</span></button></div></div><>{remoteViews}</><div className={`terminal-output ${active.hostId ? 'remote-command-entry' : ''}`} ref={scrollRef}>{!active.entries.length && !active.input && !active.busy && !active.hostId && <div className="terminal-idle"><div className="terminal-idle-art" aria-hidden="true"><div className="terminal-idle-window"><Icon name="terminal" /></div></div><h2>一切强大的工具，都从一个命令开始</h2><p>连接世界，掌控服务器，让效率触手可及</p><div className="terminal-idle-shortcuts"><span><kbd>Ctrl</kbd> + <kbd>K</kbd> 搜索命令与主机</span><span><kbd>Enter</kbd> 提交命令</span></div></div>}{active.entries.map(entry => <div className="terminal-entry" key={entry.id}><div><Prompt host={host} local={!active.hostId} />{entry.command}</div><pre>{entry.output}</pre></div>)}{active.hostId && !host?.online && <p className="terminal-notice">主机离线，无法运行命令。</p>}<form className="terminal-input-row" onSubmit={e => { e.preventDefault(); run(); }}><label htmlFor="terminal-input">{active.hostId ? <span className="terminal-prompt">命令 &gt; </span> : <Prompt local />}</label><div className="terminal-input-wrap"><input id="terminal-input" ref={inputRef} value={active.input} aria-label="终端命令输入" autoComplete="off" spellCheck={false} disabled={active.busy || (!!active.hostId && !host?.online)} onChange={e => changeInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && e.nativeEvent.isComposing) e.preventDefault(); }} />{!active.input && !active.busy && <span className="block-cursor" />}</div>{active.busy && <span className="terminal-pending">{active.hostId ? '提交中…' : '模拟执行中…'}</span>}</form></div></div></div> : <TerminalWelcome add={add} connections={connections} />}</section>;
+  return <section className="terminal-workspace" aria-label="终端工作区">
+    <div className="terminal-tabs" role="tablist" aria-label="终端会话">
+      {sessions.map(session => <div className={"terminal-tab " + (session.id === activeId ? 'selected' : '')} key={session.id}>
+        <button role="tab" aria-selected={session.id === activeId} onClick={() => select(session.id)}><i className={"status-dot " + (session.id === activeId && !host?.online ? 'offline' : '')} /><span>{session.title}</span></button>
+        <IconButton icon="close" label={'关闭 ' + session.title} onClick={() => close(session.id)} />
+      </div>)}
+      <button className="new-terminal-button" onClick={add} title="添加 SSH 连接"><Icon name="tabs" size={17} /><span>新建终端</span></button>
+    </div>
+    {active ? <div className={"terminal-body " + (filesOpen ? 'with-files' : '')}>
+      {filesOpen && filePanel}
+      <div className="terminal-pane">
+        <div className="terminal-toolbar">
+          <i className={"terminal-connection-dot " + (!host?.online ? 'offline' : '')} aria-hidden="true" />
+          <span>{(host?.user ?? '') + '@' + (host?.address ?? '')}</span>
+          <IconButton icon="copy" label="复制主机地址" onClick={() => copy(host?.address ?? '')} />
+          <div className="inline-actions">
+            <button className={"terminal-layout-button file-panel-toggle " + (filesOpen ? 'selected' : '')} onClick={toggleFiles} aria-expanded={filesOpen} aria-controls={filesOpen ? 'files' : undefined} title={filesOpen ? '收起当前终端的文件面板' : '打开当前终端的文件面板'}><Icon name="folder" size={16} /><span>{filesOpen ? '收起文件' : '打开文件'}</span></button>
+            <button className="terminal-layout-button" onClick={maximize} title={isMaximized ? '恢复终端与助手布局' : '展开终端，隐藏助手'} aria-label={isMaximized ? '恢复终端布局' : '最大化终端'}><Icon name={isMaximized ? 'restore' : 'maximize'} size={16} /><span>{isMaximized ? '恢复布局' : '专注终端'}</span></button>
+          </div>
+        </div>
+        <>{remoteViews}</>
+        <div className="terminal-output remote-command-entry" ref={scrollRef}>
+          {active.entries.map(entry => <div className="terminal-entry" key={entry.id}><div><Prompt host={host} />{entry.command}</div><pre>{entry.output}</pre></div>)}
+          {!host?.online && <p className="terminal-notice">主机离线，请重新连接后运行命令。</p>}
+          <form className="terminal-input-row" onSubmit={event => { event.preventDefault(); run(); }}>
+            <label htmlFor="terminal-input"><span className="terminal-prompt">命令 &gt; </span></label>
+            <div className="terminal-input-wrap"><input id="terminal-input" ref={inputRef} value={active.input} aria-label="终端命令输入" autoComplete="off" spellCheck={false} disabled={active.busy || !host?.online} onChange={event => changeInput(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && event.nativeEvent.isComposing) event.preventDefault(); }} />{!active.input && !active.busy && <span className="block-cursor" />}</div>
+            {active.busy && <span className="terminal-pending">提交中…</span>}
+          </form>
+        </div>
+      </div>
+    </div> : <TerminalWelcome add={add} connections={connections} />}
+  </section>;
 }
 export function CommandShelf({ commands, category, setCategory, fill, run, copy, add, disabled, collapsed, toggleCollapsed }: { commands: SavedCommand[]; category: string; setCategory: (value: string) => void; fill: (command: string) => void; run: (command: string) => void; copy: (text: string) => void; add: () => void; disabled: boolean; collapsed: boolean; toggleCollapsed: () => void }) {
   const filtered = commands.filter(command => category === '全部' || command.category === category);

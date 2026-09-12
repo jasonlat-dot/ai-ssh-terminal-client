@@ -96,7 +96,7 @@
 .terminal-prompt { color: #00885e; font-weight: 500; }
 .terminal-path { color: #276ac0; }
 .terminal-input-wrap input { color: #243b60; caret-color: #00885e; }
-.block-cursor { background: #00996e; width: 9px; height: 18px; }
+.block-cursor { width: 2px; height: 17px; border-radius: 2px; background: #246fe5; }
 .terminal-empty { background: #151d2b; color: #aebdd4; border-radius: 10px; }
 .command-shelf { background: #ffffffd9; border: 1px solid var(--line); border-radius: 14px; padding: 9px 13px 10px; position: relative; }
 .command-shelf > .section-heading { min-height: 34px; margin-bottom: 4px; }
@@ -306,10 +306,13 @@
 .connections-page { grid-column: 2; grid-row: 2; min-width: 0; min-height: 0; overflow: auto; margin: 0 0 10px; padding: 16px 17px 22px; border-radius: 12px; background: #ffffff70; container-type: inline-size; }
 .connections-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 15px; margin-bottom: 12px; }
 .connections-heading h1 { font-size: 23px; letter-spacing: -.6px; line-height: 1.3; margin: 0; }
-.connections-heading p, .connection-editor header p { color: var(--muted); margin: 4px 0 0; font-size: 12px; }
+.connections-heading p { color: var(--muted); margin: 4px 0 0; font-size: 12px; }
 .connections-page .primary-button { background: #2675ff; border-color: #2675ff; border-radius: 6px; gap: 7px; white-space: nowrap; }
 .connections-page .primary-button:hover { background: #1763de; }
 .connections-heading > .primary-button { min-height: 36px; padding: 7px 14px; box-shadow: 0 3px 8px #2675ff24; }
+.connections-page .connection-create-button { border-color: #00b995; background: #00b995; color: #fff; box-shadow: 0 5px 13px #00a98228; }
+.connections-page .connection-create-button:hover:not(:disabled) { border-color: #00a987; background: #00a987; box-shadow: 0 7px 17px #00a98238; transform: translateY(-1px); }
+.connections-page .connection-create-button:active:not(:disabled) { transform: translateY(0) scale(.98); }
 .connection-stats { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 14px; margin-bottom: 20px; }
 .connection-stats > div { display: flex; gap: 13px; align-items: center; background: #ffffffd9; border: 1px solid #e7effb; border-radius: 9px; height: 77px; padding: 12px 14px; min-width: 0; }
 .connection-stats strong { display: block; font-size: 23px; line-height: 1.2; font-variant-numeric: tabular-nums; }
@@ -328,7 +331,6 @@
 .host-search input { border: 0; background: transparent; width: 100%; min-width: 0; font-size: 11px; padding: 9px 0; }
 .host-search:focus-within { outline: 2px solid #8bb5ff; }
 .host-search input:focus-visible { outline: none; }
-.connections-filter > select { font-size: 11px; border-radius: 7px; max-width: 110px; }
 .connection-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; align-items: start; }
 .ssh-host-card { position: relative; display: flex; flex-direction: column; align-items: stretch; height: 216px; min-width: 0; padding: 14px 15px 12px; background: #ffffffeb; border: 1px solid #e3edfa; border-left: 2px solid #bdcde4; border-radius: 8px; transition: border-color .15s, box-shadow .15s; }
 .ssh-host-card:hover { border-color: #a9c9fa; box-shadow: 0 5px 18px #6d99da14; }
@@ -338,8 +340,6 @@
 .host-identity { flex: 1; min-width: 0; }
 .host-title-line { display: flex; align-items: center; gap: 9px; height: 22px; min-width: 0; }
 .host-identity h2 { font-size: 14px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.environment-tag { color: #3c7ad9; background: #edf5ff; border: 1px solid #e1edff; padding: 1px 7px; border-radius: 10px; font-size: 10px; flex-shrink: 0; }
-.environment-tag.production { color: #d15e6c; background: #fff0f2; border-color: #ffe3e7; }
 .ssh-host-card .icon-button { color: #7e92b7; flex-shrink: 0; }
 .ssh-host-card > header > .icon-button { position: absolute; right: 12px; top: 10px; width: 22px; height: 22px; }
 .ssh-host-card > header > .icon-button svg { width: 17px; height: 17px; }
@@ -357,8 +357,20 @@
 .ssh-host-card dl > div { display: grid; grid-template-columns: 89px minmax(0, 1fr); gap: 10px; align-items: center; min-height: 17px; }
 .ssh-host-card dt { display: flex; align-items: center; gap: 10px; color: #8092b4; white-space: nowrap; }
 .ssh-host-card dd { margin: 0; color: #4b628e; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
-.ssh-host-card footer { display: flex; align-items: center; margin-top: auto; padding: 0; border: 0; }
-.ssh-host-card footer .primary-button { font-size: 11px; padding: 6px 10px; height: 32px; font-weight: 500; box-shadow: 0 3px 7px #2675ff21; }
+.ssh-host-card footer { display: flex; align-items: center; gap: 7px; margin-top: auto; padding: 0; border: 0; }
+.host-card-action { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 34px; padding: 6px 11px; border: 1px solid transparent; border-radius: 7px; font-size: 11px; font-weight: 550; white-space: nowrap; transition: color .18s ease, background .18s ease, border-color .18s ease, box-shadow .18s ease, transform .18s ease; }
+.host-card-action:hover:not(:disabled) { transform: translateY(-1px); }
+.host-card-action:active:not(:disabled) { transform: translateY(0) scale(.98); }
+.host-card-action:focus-visible { outline: 3px solid #79a9f56b; outline-offset: 2px; }
+.host-card-action:disabled { opacity: .5; cursor: wait; }
+.host-card-action.action-terminal { flex: 0 0 auto; min-width: 108px; border-color: #00b995; background: #00b995; color: #fff; box-shadow: 0 5px 12px #00a98226; }
+.host-card-action.action-terminal:hover:not(:disabled) { border-color: #00a987; background: #00a987; box-shadow: 0 7px 16px #00a98236; }
+.host-card-action.action-edit { border-color: #cbdcf5; background: #f7faff; color: #3f5f8e; }
+.host-card-action.action-edit:hover:not(:disabled) { border-color: #9abbea; background: #edf4ff; color: #245da8; }
+.host-card-action.action-disconnect { border-color: #f0d6a8; background: #fff9ed; color: #9a6817; }
+.host-card-action.action-disconnect:hover:not(:disabled) { border-color: #e4bc75; background: #fff3d9; color: #7f510a; }
+.host-card-action.action-delete { border-color: #efcfce; background: #fff8f7; color: #b34b47; }
+.host-card-action.action-delete:hover:not(:disabled) { border-color: #e7aaa7; background: #fff0ef; color: #9e302c; }
 .local-terminal-link { color: #6c83ac; font-size: 11px; gap: 7px; margin: 22px 0 0; padding: 8px 0; }
 @container (max-width: 1000px) {
   .connection-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -374,19 +386,45 @@
   .ssh-host-card { max-width: 380px; }
   .connection-filter-tabs { width: 100%; }
 }
-.connection-editor { padding: 18px; border: 1px solid #c7dcff; border-radius: 10px; background: #fff; margin-bottom: 20px; }
-.connection-editor > header { display: flex; justify-content: space-between; margin-bottom: 17px; }
-.connection-editor h2 { font-size: 15px; }
-.connection-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-bottom: 12px; }
-.connection-form-grid label { display: flex; flex-direction: column; gap: 6px; font-size: 11px; color: #526b96; }
-.connection-form-grid input, .connection-form-grid select { width: 100%; min-width: 0; border-radius: 6px; font-size: 12px; }
-.connection-form-grid .key-path { grid-column: 1 / -1; }
-.connection-form-fields { min-width: 0; border: 0; padding: 0; margin: 0; }
-.connection-form-grid textarea { width: 100%; resize: vertical; border: 1px solid #d6e0ee; border-radius: 6px; padding: 10px; font: 12px monospace; }
 .connection-feedback { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; font-size: 12px; }
 .connection-feedback > button { margin-left: auto; }
-.ssh-host-card footer { gap: 6px; flex-wrap: wrap; }
-.ssh-host-card footer .outlined-button { padding: 6px 8px; height: 32px; font-size: 11px; }
+.ssh-host-card footer { flex-wrap: wrap; }
+
+/* Destructive connection actions use a focused confirmation surface. */
+.delete-connection-modal-backdrop { background: #263e6668; backdrop-filter: blur(5px); }
+.modal.delete-connection-modal { position: relative; width: min(620px, 100%); padding: 30px; overflow: hidden; border: 1px solid #c7d9f5; border-radius: 12px; background: #fbfdff; color: #122850; box-shadow: 0 28px 90px #1637614a, 0 0 24px #6599df1c; }
+.modal.delete-connection-modal > header { padding: 4px 0 0 96px; border: 0; }
+.delete-connection-modal > header h2 { font-size: 25px; line-height: 1.4; font-weight: 700; letter-spacing: -.6px; }
+.delete-connection-modal > header .icon-button { position: absolute; top: 18px; right: 18px; color: #617cae; }
+.delete-dialog-warning { position: absolute; top: 30px; left: 30px; display: grid; place-items: center; width: 74px; height: 74px; border-radius: 50%; background: #fde8e8; color: #dc3f3f; }
+.delete-dialog-content { margin-top: 28px; }
+.delete-dialog-content > h3 { margin: 0; color: #122850; font-size: 20px; line-height: 1.4; letter-spacing: -.3px; }
+.delete-dialog-content > p { margin: 8px 0 20px; color: #61769d; font-size: 13px; line-height: 1.7; }
+.delete-host-summary { display: flex; align-items: center; gap: 17px; padding: 15px 18px; border: 1px solid #d9e5f7; border-radius: 9px; background: #fff; box-shadow: 0 4px 12px #376aa00b; }
+.delete-host-summary > span { display: grid; place-items: center; width: 50px; height: 50px; flex: 0 0 50px; border-radius: 50%; background: #f4f8ff; color: #2675ff; }
+.delete-host-summary > div { display: flex; min-width: 0; flex-direction: column; gap: 5px; }
+.delete-host-summary strong { overflow: hidden; color: #142b50; font-size: 16px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.delete-host-summary small { color: #6880a8; font-size: 13px; font-variant-numeric: tabular-nums; }
+.delete-dialog-error { margin: 14px 0 0 !important; padding: 9px 11px; border-radius: 6px; background: #fff0ef; color: #a63732 !important; }
+.delete-dialog-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 22px; padding-top: 18px; border-top: 1px solid #dce6f4; }
+.delete-dialog-actions button { justify-content: center; min-width: 145px; min-height: 44px; border-radius: 8px; font-size: 14px; font-weight: 600; transition: background .18s ease, border-color .18s ease, box-shadow .18s ease, transform .18s ease; }
+.delete-dialog-actions .outlined-button { border-color: #d2dff1; background: #fff; color: #496182; }
+.delete-dialog-actions .outlined-button:hover:not(:disabled) { border-color: #aec4e3; background: #f5f8fc; }
+.delete-dialog-confirm { border: 1px solid #dc3f3f; background: #dc3f3f; color: #fff; box-shadow: 0 5px 14px #dc3f3f29; }
+.delete-dialog-confirm:hover:not(:disabled) { border-color: #c83232; background: #c83232; box-shadow: 0 7px 17px #dc3f3f38; transform: translateY(-1px); }
+.delete-dialog-actions button:active:not(:disabled) { transform: translateY(0) scale(.98); }
+.delete-dialog-actions button:focus-visible { outline: 3px solid #e88c8c69; outline-offset: 2px; }
+.delete-connection-modal button:disabled { opacity: .55; cursor: wait; }
+@media (max-width: 560px) {
+  .modal.delete-connection-modal { padding: 24px; }
+  .modal.delete-connection-modal > header { padding-left: 64px; }
+  .delete-connection-modal > header h2 { font-size: 20px; }
+  .delete-dialog-warning { top: 24px; left: 24px; width: 52px; height: 52px; }
+  .delete-dialog-warning svg { width: 27px; height: 27px; }
+  .delete-dialog-content { margin-top: 30px; }
+  .delete-dialog-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .delete-dialog-actions button { min-width: 0; }
+}
 @media (max-width: 1100px) {
   .connections-page { padding: 12px 10px; }
   .connection-stats > div { padding: 12px 8px; gap: 7px; }
@@ -487,6 +525,8 @@
 .remote-terminal-tools button, .remote-terminal-error button { border: 1px solid #d8e5fa; background: #f5f9ff; color: #3263a7; border-radius: 5px; padding: 4px 8px; white-space: nowrap; }
 .remote-terminal-tool-actions { display: flex; align-items: center; gap: 7px; }
 .remote-terminal-tools .remote-terminal-reconnect { border-color: #bcd5fb; background: #eaf3ff; color: #1767d8; font-weight: 600; }
+.remote-terminal-tools .remote-terminal-disconnect { border-color: #f1c9c6; background: #fff7f6; color: #b64742; font-weight: 600; }
+.remote-terminal-tools .remote-terminal-disconnect:hover { border-color: #e7aaa5; background: #fff0ee; }
 .remote-terminal-error { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: #fff0ed; color: #a53931; padding: 8px; margin-bottom: 8px; font-size: 12px; }
 .remote-terminal-disconnected { display: flex; align-items: center; gap: 12px; border: 1px solid #f0c678; background: #fffaf0; color: #71521b; border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; box-shadow: 0 5px 16px rgba(118, 82, 20, .08); }
 .remote-terminal-disconnected-icon { display: grid; place-items: center; width: 30px; height: 30px; flex: 0 0 30px; border-radius: 50%; background: #fff0ca; color: #b87908; font-size: 21px; font-weight: 700; }
@@ -513,3 +553,82 @@
 @keyframes notice-countdown { to { --notice-progress: 0%; } }
 @media (prefers-reduced-motion: reduce) { .notification-toast { animation: none; } }
 @media (max-width: 600px) { .notification-toast { grid-template-columns: 36px minmax(0, 1fr) 22px; padding: 12px; gap: 10px; } .notification-symbol { width: 36px; height: 36px; } .notification-close { grid-column: 3; grid-row: 1; } .notification-action { grid-column: 2; justify-self: start; } .notification-details { grid-column: 1 / -1; } }
+
+/* SSH dialogs share the light surface and mint actions of the disconnect dialog. */
+.ssh-connection-modal-backdrop { background: #263e665e; backdrop-filter: blur(3px); }
+.modal.ssh-connection-modal { position: relative; width: min(1120px, 100%); max-height: 88vh; overflow: auto; padding: 30px; border: 1px solid #bfd5ff; border-radius: 12px; background: #f8fbff; box-shadow: 0 24px 90px #092c6352, 0 0 22px #66a5ff25; color: #122850; }
+.modal.ssh-connection-modal > header { padding: 4px 0 0 96px; border: 0; background: transparent; }
+.ssh-connection-modal > header h2 { font-size: 25px; line-height: 1.4; font-weight: 700; letter-spacing: -.6px; }
+.ssh-connection-modal > header .icon-button { position: absolute; top: 18px; right: 18px; color: #617cae; }
+.ssh-dialog-intro { padding-left: 96px; margin: 8px 0 30px; }
+.ssh-dialog-intro p { font-size: 14px; line-height: 1.85; margin: 0; color: #526995; }
+.ssh-dialog-symbol { position: absolute; left: 30px; top: 30px; display: grid; place-items: center; width: 74px; height: 74px; border-radius: 50%; background: #e2edff; color: #5b85ff; }
+.ssh-dialog-symbol svg { filter: drop-shadow(0 3px 3px #6293ff44); }
+.ssh-dialog-form { min-width: 0; }
+.ssh-dialog-form fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+.ssh-form-section { min-width: 0; padding: 20px; border: 1px solid #d8e5ff; border-radius: 10px; box-shadow: 0 3px 8px #3375f006; }
+.ssh-form-section + .ssh-form-section { margin-top: 14px; }
+.ssh-auth-layout { display: grid; grid-template-columns: 1fr 1fr; align-items: end; gap: 24px; }
+.ssh-auth-choice { min-width: 0; }
+.ssh-form-section-heading { display: flex; align-items: center; gap: 10px; margin: 0 0 16px; }
+.ssh-form-section-heading.auth { margin-top: 0; margin-bottom: 24px; }
+.ssh-form-section-heading > span { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 7px; background: #e2edff; color: #2857a2; font: 600 12px/1 Consolas, monospace; }
+.ssh-form-section-heading div { display: flex; flex-direction: column; gap: 3px; }
+.ssh-form-section-heading strong { color: #122850; font-size: 14px; font-weight: 600; }
+.ssh-form-section-heading small { color: #7186ac; font-size: 12px; }
+.ssh-dialog-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.ssh-server-grid { grid-template-columns: 1.3fr 1.4fr .8fr 1fr; gap: 20px; }
+.ssh-dialog-grid label, .ssh-credential-field, .ssh-setting-field { display: flex; flex-direction: column; gap: 8px; color: #526995; font-size: 13px; }
+.ssh-dialog-grid input, .ssh-dialog-grid select, .ssh-credential-field input, .ssh-credential-field textarea { width: 100%; min-width: 0; border: 1px solid #d3e2ff; border-radius: 8px; background: #fff; color: #122850; font-size: 14px; transition: border-color .18s, box-shadow .18s; }
+.ssh-dialog-grid input, .ssh-dialog-grid select, .ssh-credential-field input { height: 42px; padding: 9px 12px; }
+.ssh-dialog-grid input::placeholder, .ssh-credential-field input::placeholder, .ssh-credential-field textarea::placeholder { color: #899bb9; font-size: 12px; }
+.ssh-dialog-grid input:focus, .ssh-dialog-grid select:focus, .ssh-credential-field input:focus, .ssh-credential-field textarea:focus { border-color: #6ca2ee; outline: 0; box-shadow: 0 0 0 3px #2875df16; }
+.ssh-credential-field { min-width: 0; margin: 0; }
+.ssh-credential-field textarea { min-height: 100px; padding: 12px; resize: vertical; font: 12px/1.6 Consolas, monospace; }
+.ssh-auth-switch { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.ssh-auth-switch button { justify-content: center; min-height: 42px; border: 1px solid #d3e2ff; border-radius: 8px; background: transparent; color: #526995; font-size: 13px; }
+.ssh-auth-switch button:hover { border-color: #8db4f5; background: #edf4ff; }
+.ssh-auth-switch button.selected { border-color: #71bfb1; background: #e5f8f3; color: #087969; }
+.ssh-boolean-switch { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); overflow: hidden; height: 42px; padding: 3px; border: 1px solid #d3e2ff; border-radius: 8px; background: #f4f8ff; }
+.ssh-boolean-switch button { justify-content: center; border: 0; border-radius: 5px; background: transparent; color: #7186a8; font-size: 12px; font-weight: 550; transition: color .18s ease, background .18s ease, box-shadow .18s ease; }
+.ssh-boolean-switch button:hover:not(.selected) { color: #315c91; background: #eaf1fb; }
+.ssh-boolean-switch button.selected { color: #087969; background: #fff; box-shadow: 0 2px 7px #31557c1c, inset 0 0 0 1px #74c7b7; }
+.ssh-advanced-settings { margin-top: 20px; border-top: 1px solid #dce7fa; }
+.ssh-advanced-settings summary { display: flex; align-items: center; gap: 7px; width: max-content; padding: 16px 0 4px; color: #526995; cursor: pointer; font-size: 13px; list-style: none; }
+.ssh-advanced-settings summary::-webkit-details-marker { display: none; }
+.ssh-advanced-settings[open] summary { margin-bottom: 14px; }
+.ssh-advanced-settings[open] summary svg { transform: rotate(180deg); }
+.ssh-advanced-settings summary svg { transition: transform .2s; }
+.ssh-full-field { grid-column: 1 / -1; }
+.ssh-dialog-form > .form-error { margin: 16px 0 0; padding: 10px 12px; border-radius: 6px; background: #fff0ec; color: #aa392e; font-size: 13px; line-height: 1.6; }
+.ssh-dialog-form > footer { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-top: 22px; }
+.ssh-dialog-form > footer > p { display: flex; align-items: center; gap: 6px; margin: 0; color: #7186ac; font-size: 12px; }
+.ssh-dialog-form > footer > p svg { color: #00ac86; }
+.ssh-dialog-form > footer .dialog-actions { display: grid; grid-template-columns: repeat(2, minmax(150px, 1fr)); width: 38%; gap: 12px; margin: 0; }
+.ssh-dialog-form > footer button { justify-content: center; min-height: 46px; border-radius: 9px; font-size: 14px; }
+.ssh-dialog-form > footer .outlined-button { border-color: #d3e2ff; background: transparent; color: #203c71; }
+.ssh-dialog-form > footer .primary-button { background: #00cfaa; color: #073c46; border: 1px solid #00cfaa; font-weight: 600; }
+.ssh-dialog-form > footer .primary-button:hover:not(:disabled) { background: #00bfa0; }
+.ssh-connection-modal button:focus-visible, .ssh-advanced-settings summary:focus-visible { outline: 3px solid #3687ff; outline-offset: 3px; }
+.ssh-connection-modal button:disabled { opacity: .55; cursor: wait; }
+@media (max-width: 900px) {
+  .ssh-server-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 640px) {
+  .modal.ssh-connection-modal { padding: 24px; }
+  .modal.ssh-connection-modal > header { padding-left: 65px; }
+  .ssh-connection-modal > header h2 { font-size: 20px; }
+  .ssh-dialog-symbol { width: 52px; height: 52px; left: 24px; top: 24px; }
+  .ssh-dialog-symbol svg { width: 28px; height: 28px; }
+  .ssh-dialog-intro { padding-left: 0; margin-top: 25px; }
+  .ssh-form-section { padding: 16px; }
+  .ssh-auth-layout { grid-template-columns: 1fr; gap: 16px; }
+  .ssh-form-section-heading.auth { margin-bottom: 16px; }
+  .ssh-dialog-form > footer { align-items: stretch; flex-direction: column; gap: 14px; }
+  .ssh-dialog-form > footer .dialog-actions { width: 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 480px) {
+  .ssh-dialog-grid { grid-template-columns: 1fr; }
+  .ssh-full-field { grid-column: auto; }
+  .ssh-dialog-form > footer .dialog-actions { gap: 8px; }
+}

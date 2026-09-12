@@ -11,9 +11,10 @@ type Props = {
   online: boolean;
   onDisconnected: (message: string) => void;
   reconnect: () => Promise<boolean>;
+  disconnect: () => void;
 };
 
-export function RemoteTerminalView({ runtime, visible, confirm, online, onDisconnected, reconnect }: Props) {
+export function RemoteTerminalView({ runtime, visible, confirm, online, onDisconnected, reconnect, disconnect }: Props) {
   const element = useRef<HTMLDivElement>(null);
   const term = useRef<Terminal | null>(null);
   const [error, setError] = useState('');
@@ -32,8 +33,8 @@ export function RemoteTerminalView({ runtime, visible, confirm, online, onDiscon
     // Defer allocation so React StrictMode's probe cannot drain initial output.
     const init = setTimeout(() => {
       if (!element.current) return;
-      const terminal = new Terminal({ fontFamily: 'Consolas, "Courier New", monospace', fontSize: 13, cursorBlink: true,
-        scrollback: 5000, allowProposedApi: false, theme: { background: '#ffffff', foreground: '#243b60', cursor: '#00996e', selectionBackground: '#cfe2ff', black: '#243b60', red: '#be3434', green: '#00885e', yellow: '#946500', blue: '#276ac0', magenta: '#8750bb', cyan: '#008c9e', white: '#d2dceb' } });
+      const terminal = new Terminal({ fontFamily: 'Consolas, "Courier New", monospace', fontSize: 13, cursorBlink: true, cursorStyle: 'bar', cursorWidth: 2,
+        scrollback: 5000, allowProposedApi: false, theme: { background: '#ffffff', foreground: '#243b60', cursor: '#246fe5', cursorAccent: '#ffffff', selectionBackground: '#cfe2ff', black: '#243b60', red: '#be3434', green: '#00885e', yellow: '#946500', blue: '#276ac0', magenta: '#8750bb', cyan: '#008c9e', white: '#d2dceb' } });
       const fit = new FitAddon(); terminal.loadAddon(fit); terminal.open(element.current); term.current = terminal;
       const unsubscribe = runtime.subscribe(data => terminal.write(data), setError, message => {
         setError('');
@@ -68,7 +69,7 @@ export function RemoteTerminalView({ runtime, visible, confirm, online, onDiscon
     } catch { setReconnecting(false); }
   };
   return <div className="remote-terminal-view" hidden={!visible}>
-    <div className="remote-terminal-tools"><span>{confirm ? '可直接在终端中输入；下方命令框提交时会显示确认。' : '交互模式：按键直接发送到远程主机，支持 Tab、方向键和 Ctrl+C。'}</span><div className="remote-terminal-tool-actions"><button className="remote-terminal-reconnect" disabled={reconnecting} onClick={() => { void reconnectNow(); }}>{reconnecting ? '正在重连…' : '重新连接'}</button><button disabled={unavailable} onClick={() => { void runtime.write('\x03').catch(error => setError(error.message)); }}>中断 Ctrl+C</button></div></div>
+    <div className="remote-terminal-tools"><span>{confirm ? '可直接在终端中输入；下方命令框提交时会显示确认。' : '交互模式：按键会直接发送到远程服务器。'}</span><div className="remote-terminal-tool-actions"><button className="remote-terminal-reconnect" disabled={reconnecting} onClick={() => { void reconnectNow(); }}>{reconnecting ? '正在重连…' : '重新连接'}</button><button className="remote-terminal-disconnect" onClick={disconnect}>断开连接</button></div></div>
     {unavailable && <div role="alert" className="remote-terminal-disconnected">
       <span className="remote-terminal-disconnected-icon" aria-hidden="true">↻</span>
       <span><strong>{reconnecting ? '正在重新建立连接' : '当前终端连接不可用'}</strong><small>{reconnecting ? '正在连接服务器并创建新的终端会话…' : '点击终端上方的“重新连接”即可恢复会话。'}</small></span>

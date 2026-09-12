@@ -32,14 +32,14 @@ export function useSshConnections() {
   const saveMetadata = (host: Host) => {
     metadata.current = { ...metadata.current, [host.id]: { environment: host.environment, favorite: host.favorite } };
     try { localStorage.setItem(metadataKey, JSON.stringify(metadata.current)); }
-    catch { setError('连接操作已完成，但环境和收藏偏好无法保存到本地。'); }
+    catch { setError('连接操作已完成，但收藏偏好无法保存到本地。'); }
   };
   const save = (draft: ConnectionDraft) => run(async () => {
     const dto = await (draft.id ? sshApi.update(toRequest(draft)) : sshApi.create(toRequest(draft)));
     const host = { ...toHost(dto), environment: draft.environment, favorite: draft.favorite };
     saveMetadata(host);
     setHosts(previous => previous.some(item => item.id === host.id) ? previous.map(item => item.id === host.id ? host : item) : [...previous, host]);
-    return true;
+    return host;
   });
   const detail = (id: string) => run(async () => decorate(toHost(await sshApi.get(id))));
   const connect = (id: string) => run(async () => {
