@@ -11,10 +11,16 @@ const fs = require('node:fs/promises');
   let fail = true;
   const row = { connectionId: 'host-1', connectionName: '我的虚拟机', host: '192.168.1.10', username: 'root', port: 22, authType: 1, status: 1, userId: 'default' };
   page.on('pageerror', error => errors.push(error.message));
-  await page.route('**/ssh/*', async route => {
+  await page.route('**/ssh/**', async route => {
     const request = route.request();
     const url = new URL(request.url());
     const endpoint = url.pathname.split('/').pop();
+    if (url.pathname.includes('/terminal/')) {
+      return route.fulfill({ json: { code: 'SUCCESS_0000', data: endpoint === 'open'
+        ? { sessionId: 'mock-shell', connectionId: 'mock-host', initialOutput: 'ready\r\n' }
+        : endpoint === 'read' || endpoint === 'exec' ? { output: '' } : null } });
+    }
+
     if (endpoint === 'disconnect') {
       calls.push(url.searchParams.get('connectionId'));
       assert.equal(request.method(), 'POST');
@@ -60,7 +66,7 @@ const fs = require('node:fs/promises');
     assert.equal(await page.getByRole('button', { name: '正在断开…' }).isDisabled(), true);
     await page.keyboard.press('Escape');
     assert.equal(await modal.isVisible(), true);
-    await page.getByRole('alert').filter({ hasText: '断开连接失败' }).waitFor();
+    await page.locator('.disconnect-error').filter({ hasText: '断开连接失败' }).waitFor();
     assert.equal(await page.getByRole('tab', { name: '我的虚拟机', exact: true }).count(), 1);
     assert.deepEqual(calls, ['host-1']);
     await click('确认断开');

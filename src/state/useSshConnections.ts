@@ -54,6 +54,9 @@ export function useSshConnections() {
     await sshApi.disconnect(id);
     setHosts(previous => previous.map(host => host.id === id ? { ...host, online: false, status: 0 } : host)); return true;
   });
+  const markDisconnected = (id: string) => {
+    setHosts(previous => previous.map(host => host.id === id ? { ...host, online: false, status: 0 } : host));
+  };
   const remove = (id: string) => run(async () => {
     // The delete endpoint does not close the live SSH session.
     await sshApi.disconnect(id);
@@ -65,5 +68,5 @@ export function useSshConnections() {
     const updated = { ...host, favorite: !host.favorite }; saveMetadata(updated);
     setHosts(previous => previous.map(item => item.id === host.id ? updated : item));
   };
-  return { hosts, busy, loaded, error, refresh, save, detail, connect, disconnect, remove, favorite };
+  return { hosts, busy, loaded, error, refresh, save, detail, connect, disconnect, markDisconnected, remove, favorite };
 }

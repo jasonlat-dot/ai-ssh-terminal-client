@@ -19,7 +19,7 @@ export type SshConnectionRequest = {
 const baseUrl = (import.meta.env.VITE_SSH_API_BASE_URL || 'http://localhost:8888/api/v1/ssh').replace(/\/$/, '');
 export const sshUserId = import.meta.env.VITE_SSH_USER_ID || 'default';
 
-async function request<T>(endpoint: string, method = 'GET', body?: SshConnectionRequest, params?: Record<string, string>): Promise<T> {
+export async function request<T>(endpoint: string, method = 'GET', body?: object, params?: Record<string, string>): Promise<T> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 60000);
   try {

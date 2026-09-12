@@ -14,10 +14,16 @@ const assert = require('node:assert/strict');
   let listNetworkError = false;
   let failConnect = true;
   page.on('pageerror', error => errors.push(error.message));
-  await page.route('**/ssh/*', async route => {
+  await page.route('**/ssh/**', async route => {
     const request = route.request();
     const url = new URL(request.url());
     const endpoint = url.pathname.split('/').pop();
+    if (url.pathname.includes('/terminal/')) {
+      return route.fulfill({ json: { code: 'SUCCESS_0000', data: endpoint === 'open'
+        ? { sessionId: 'mock-shell', connectionId: 'mock-host', initialOutput: 'ready\r\n' }
+        : endpoint === 'read' || endpoint === 'exec' ? { output: '' } : null } });
+    }
+
     const body = request.postDataJSON();
     calls.push({ endpoint, method: request.method(), body, id: url.searchParams.get('connectionId') });
     const success = data => route.fulfill({ json: { code: 'SUCCESS_0000', info: '成功', data } });
@@ -56,7 +62,7 @@ const assert = require('node:assert/strict');
     return success(null);
   });
   const click = name => page.getByRole('button', { name, exact: true }).click();
-  const visible = text => page.getByText(text, { exact: true }).waitFor();
+  const visible = text => page.getByText(text, { exact: true }).first().waitFor();
   try {
     await page.goto(process.env.AGENT_SSH_URL || 'http://127.0.0.1:1420');
     await visible('列表读取失败');
