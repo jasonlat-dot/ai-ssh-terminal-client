@@ -34,9 +34,11 @@ export function RemoteTerminalView({ runtime, visible, confirm, online, onDiscon
     const init = setTimeout(() => {
       if (!element.current) return;
       const terminal = new Terminal({ fontFamily: 'Consolas, "Courier New", monospace', fontSize: 13, cursorBlink: true, cursorStyle: 'bar', cursorWidth: 2,
-        scrollback: 5000, allowProposedApi: false, theme: { background: '#ffffff', foreground: '#243b60', cursor: '#246fe5', cursorAccent: '#ffffff', selectionBackground: '#cfe2ff', black: '#243b60', red: '#be3434', green: '#00885e', yellow: '#946500', blue: '#276ac0', magenta: '#8750bb', cyan: '#008c9e', white: '#d2dceb' } });
+        scrollback: 5000, scrollOnUserInput: true, allowProposedApi: false, overviewRuler: { width: 6 }, theme: { background: '#ffffff', foreground: '#243b60', cursor: '#246fe5', cursorAccent: '#ffffff', selectionBackground: '#cfe2ff', scrollbarSliderBackground: '#aebdd180', scrollbarSliderHoverBackground: '#91a6c1a6', scrollbarSliderActiveBackground: '#7890b3bf', black: '#243b60', red: '#be3434', green: '#00885e', yellow: '#946500', blue: '#276ac0', magenta: '#8750bb', cyan: '#008c9e', white: '#d2dceb' } });
       const fit = new FitAddon(); terminal.loadAddon(fit); terminal.open(element.current); term.current = terminal;
-      const unsubscribe = runtime.subscribe(data => terminal.write(data), setError, message => {
+      // xterm.write() 会异步解析 ANSI 输出。解析完成后再滚到底部，确保 Agent
+      // 命令经 Long Poll 回显时，视口始终跟随最新命令、结果和 Shell 提示符。
+      const unsubscribe = runtime.subscribe(data => terminal.write(data, () => terminal.scrollToBottom()), setError, message => {
         setError('');
         setDisconnected(true);
         disconnectHandler.current(message);

@@ -38,7 +38,7 @@ export const commandOutput = (command: string): string => {
 export const initialEntries: TerminalEntry[] = ['docker compose ps', 'df -h /'].map((command, i) => ({ id: `seed-${i}`, command, output: commandOutput(command) }));
 export const initialMessages: ChatMessage[] = [
   { id: 'user-seed', role: 'user', text: '帮我检查服务运行状态和磁盘空间' },
-  { id: 'assistant-seed', role: 'assistant', text: '我将检查容器状态与磁盘使用情况。', tools: ['容器状态', '磁盘检查'], summary: '服务运行正常，磁盘使用率 35%，可用空间 52 GB。', suggestion: true },
+  { id: 'assistant-seed', role: 'assistant', text: '我将检查容器状态与磁盘使用情况。', tools: [{ id: 'docker', name: '容器状态', status: 'success' }, { id: 'disk', name: '磁盘检查', status: 'success' }], summary: '服务运行正常，磁盘使用率 35%，可用空间 52 GB。', suggestion: true },
 ];
 export function mockReply(task: string): ChatMessage {
   return { id: crypto.randomUUID(), role: 'assistant', text: `已收到：${task}`, summary: '当前为演示环境。你可以通过下方操作查看模拟错误日志，或在常用命令中检查容器与磁盘状态。', suggestion: true };

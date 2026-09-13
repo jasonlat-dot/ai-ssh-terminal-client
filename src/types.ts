@@ -4,8 +4,9 @@ export type Category = '系统' | 'Docker' | '日志' | '部署';
 export type SavedCommand = { id: string; name: string; command: string; category: Category; icon: 'disk' | 'box' | 'file' | 'network' };
 export type TerminalEntry = { id: string; command: string; output: string };
 export type TerminalSession = { id: string; hostId: string | null; title: string; input: string; entries: TerminalEntry[]; busy: boolean; fileState: SessionFileState };
-export type ChatMessage = { id: string; role: 'user' | 'assistant'; text: string; tools?: string[]; summary?: string; suggestion?: boolean };
+export type ChatToolActivity = { id: string; name: string; command?: string; status: 'running' | 'success' | 'error'; output?: string };
+export type ChatMessage = { id: string; role: 'user' | 'assistant'; text: string; tools?: ChatToolActivity[]; summary?: string; suggestion?: boolean; error?: boolean };
 export type TransferItem = { id: string; name: string; progress: number };
-export type Navigation = '连接' | '命令' | '设置';
+export type Navigation = '连接' | '命令';
 
 export type SessionFileState = { open: boolean; files: FileNode[]; selected: string; expanded: Set<string>; transfers: TransferItem[] };

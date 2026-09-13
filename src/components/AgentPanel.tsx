@@ -1,32 +1,112 @@
 import { useEffect, useRef, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import agentRobotAvatar from '../assets/agent-robot-avatar.png';
 import type { ChatMessage, Host } from '../types';
-import { Icon, IconButton, Toggle } from './Ui';
+import { Icon, IconButton } from './Ui';
 
-function Robot() {
-  return <div className="robot-art" aria-hidden="true"><span className="robot-antenna" /><div className="robot-head"><span className="robot-face"><i /><i /></span></div><div className="robot-body"><i /></div><span className="robot-hand left" /><span className="robot-hand right" /></div>;
+function AgentAvatar({ compact = false }: { compact?: boolean }) {
+  return <span className={`agent-avatar ${compact ? 'compact' : ''}`}><img src={agentRobotAvatar} alt="Agent 机器人" /></span>;
 }
-export function AgentPanel({ host, messages, busy, send, clear, confirm, setConfirm, runLogs, notify, disabled, connect, manageConnections, openFiles, openCommands, settings }: {
-  host?: Host; messages: ChatMessage[]; busy: boolean; send: (text: string) => void; clear: () => void;
-  confirm: boolean; setConfirm: (value: boolean) => void; runLogs: () => void; notify: (text: string) => void; disabled: boolean;
-  connect: () => void; manageConnections: () => void; openFiles: () => void; openCommands: () => void; settings: () => void;
+
+/**
+ * 使用 react-markdown 渲染模型回复。
+ * 默认不会执行回复中的原始 HTML；remark-gfm 补充表格、删除线、任务列表等常见 Markdown 语法。
+ */
+function MarkdownMessage({ children }: { children: string }) {
+  return <div className="markdown-body">
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        a: ({ children: linkText, href, title }) => <a href={href} title={title} target="_blank" rel="noreferrer">{linkText}</a>,
+      }}
+    >
+      {children}
+    </ReactMarkdown>
+  </div>;
+}
+
+export function AgentPanel({ host, messages, busy, send, clear, notify, disabled, agentName }: {
+  host?: Host;
+  messages: ChatMessage[];
+  busy: boolean;
+  send: (text: string) => void;
+  clear: () => void;
+  notify: (text: string) => void;
+  disabled: boolean;
+  agentName?: string;
 }) {
   const [draft, setDraft] = useState('');
-  const [updated, setUpdated] = useState(() => new Date().toLocaleTimeString('zh-CN', { hour12: false }));
   const scrollRef = useRef<HTMLDivElement>(null);
-  const submit = () => { if (draft.trim() && !busy) { send(draft.trim()); setDraft(''); } };
-  useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, [messages, busy]);
-  const healthy = !!host?.online;
-  return <aside className="agent-panel">
-    <div className="agent-dashboard-scroll">
-      <section className="agent-welcome">
-        <div className="agent-heading"><h2>智能体</h2>{messages.length > 0 && <button className="text-button new-chat" onClick={() => { clear(); setDraft(''); }}>新建对话</button>}</div>
-        <div className="welcome-body"><button className="connection-select outlined-button" onClick={manageConnections}><i className={`status-dot ${healthy ? '' : 'offline'}`} />{host?.name ?? '选择连接'}<Icon name="down" size={13} /></button><div className="welcome-note"><p>我可以帮你管理服务器<br />执行命令、分析日志、<br />解决问题～</p><Robot /></div></div>
-        <div className="quick-actions"><button className="quick-action green" onClick={connect}><span className="quick-icon"><Icon name="server" size={23} /></span><strong>新建连接</strong><small>快速连接主机</small></button><button className="quick-action" onClick={openFiles}><span className="quick-icon"><Icon name="folder" size={23} /></span><strong>打开文件</strong><small>浏览远程文件</small></button><button className="quick-action violet" onClick={openCommands}><span className="quick-icon"><Icon name="terminal" size={23} /></span><strong>执行命令</strong><small>智能命令助手</small></button></div>
-      </section>
-      <section className="system-card"><header><span className="card-heading"><span className="card-icon"><Icon name="network" size={17} /></span><h3>系统状态</h3></span><small>更新于 {updated}</small><IconButton icon="refresh" label="刷新系统状态" onClick={() => { setUpdated(new Date().toLocaleTimeString('zh-CN', { hour12: false })); notify('系统状态已更新（模拟数据）'); }} /></header><div className="system-results">{['容器状态', '磁盘检查'].map((title, index) => <button key={title} className="system-result" onClick={() => notify(`${title}：${healthy ? '演示环境正常，未查询真实服务器。' : '主机未连接。'}`)}><span className={`check-circle ${healthy ? '' : 'unavailable'}`}><Icon name={healthy ? 'check' : 'close'} size={14} /></span><span>{title}</span><em>{healthy ? index === 0 ? '正常运行' : '正常' : '未连接'}</em><Icon name="right" size={15} /></button>)}<p>{healthy ? '服务器运行正常，磁盘使用率 35%，可用空间 52 GB。' : '当前主机未连接，连接后可查看模拟系统状态。'}</p></div></section>
-      <section className="advice-card"><header><span className="card-heading"><span className="card-icon amber"><Icon name="bulb" size={18} /></span><h3>操作建议</h3></span></header><div><Icon name="file" size={17} /><span>建议定期检查容器运行日志</span><button disabled={disabled} onClick={runLogs}>查看日志</button></div><div><Icon name="upload" size={17} /><span>可设置日志轮转，防止磁盘占满</span><button onClick={settings}>去设置</button></div></section>
-      {messages.length > 0 && <section className="conversation-card"><header><h3>任务对话</h3><IconButton icon="close" label="清空任务对话" onClick={clear} /></header><div className="chat-messages" ref={scrollRef} aria-label="聊天记录" aria-live="polite">{messages.map(message => message.role === 'user' ? <div className="user-message" key={message.id}>{message.text}</div> : <div className="assistant-message" key={message.id}><span className="agent-avatar"><Icon name="bot" size={20} /></span><div className="assistant-content"><p>{message.text}</p><p>{message.summary}</p>{message.suggestion && <button className="text-button" disabled={disabled} onClick={runLogs}>查看错误日志<Icon name="right" size={13} /></button>}</div></div>)}{busy && <div className="chat-pending">正在生成模拟回复<span className="typing-dots">•••</span></div>}</div></section>}
-    </div>
-    <form className="chat-composer" onSubmit={e => { e.preventDefault(); submit(); }}><p>输入任务，让 Agent 帮你完成…</p><div className="composer-input-row"><IconButton icon="attach" label="添加聊天附件" onClick={() => notify('演示版本暂未接入聊天附件。')} /><textarea aria-label="智能体任务输入" placeholder="例如：帮我查看 Nginx 状态" value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); submit(); } }} /><button type="submit" className="send-button" aria-label="发送消息" disabled={!draft.trim() || busy}><Icon name="send" size={20} /></button></div><div className="composer-toolbar"><button type="button" className="model-select outlined-button" onClick={() => notify('当前模型：Agent（本地模拟）。')}>Agent<Icon name="down" size={13} /></button><label className="confirm-label">执行前确认<Toggle value={confirm} onChange={setConfirm} label="执行前确认" /></label></div></form>
+
+  const submit = () => {
+    if (draft.trim() && !busy && !disabled) {
+      send(draft.trim());
+      setDraft('');
+    }
+  };
+
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, [messages, busy]);
+
+  useEffect(() => {
+    const handleShortcut = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 'o') {
+        event.preventDefault();
+        clear();
+        setDraft('');
+      }
+    };
+    window.addEventListener('keydown', handleShortcut);
+    return () => window.removeEventListener('keydown', handleShortcut);
+  }, [clear]);
+
+  return <aside className="agent-panel conversation-only">
+    <section className="conversation-card">
+      <header>
+        <div className="conversation-title">
+          <AgentAvatar compact />
+          <span><h3>智能体对话</h3><small><i className={`status-dot ${host?.online ? '' : 'offline'}`} />{host?.name ?? '尚未选择服务器'}</small></span>
+        </div>
+        <button className="new-agent-session" onClick={() => { clear(); setDraft(''); }} aria-label="新建智能体会话">
+          <Icon name="edit" size={15} />
+          <strong>新会话</strong>
+          <kbd>Ctrl + Shift + O</kbd>
+        </button>
+      </header>
+
+      <div className="chat-messages" ref={scrollRef} aria-label="聊天记录" aria-live="polite">
+        {messages.length === 0 && !busy && <div className="agent-chat-empty">
+          <img className="empty-agent-avatar" src={agentRobotAvatar} alt="Agent 机器人" />
+          <h3>有什么需要我协助？</h3>
+          <p>{disabled ? '智能体正在加载，请稍后再试。' : host?.online ? '可以让我执行命令、检查服务状态或分析日志。' : '可以直接与 Agent 对话；连接服务器后还可以执行 SSH 命令。'}</p>
+        </div>}
+
+        {messages.map((message, index) => message.role === 'user'
+          ? <div className="user-message" key={message.id}>{message.text}</div>
+          : <div className={`assistant-message ${message.error ? 'error' : ''} ${busy && index === messages.length - 1 ? 'active' : ''}`} key={message.id}>
+            <AgentAvatar />
+            <div className="assistant-content">
+              {message.tools?.length ? <div className="tool-activities">{message.tools.map(tool => <details className={`tool-activity ${tool.status}`} key={tool.id}>
+                <summary><Icon name="terminal" size={15} /><span className="tool-identity"><strong>{tool.name === 'executeCommand' ? '执行命令' : tool.name}</strong>{tool.command && <code>{tool.command}</code>}</span><em>{tool.status === 'running' ? '执行中' : tool.status === 'success' ? '已完成' : '失败'}</em></summary>
+                {tool.output && <pre>{tool.output}</pre>}
+              </details>)}</div> : null}
+              {message.text && <MarkdownMessage>{message.text}</MarkdownMessage>}
+              {message.summary && <MarkdownMessage>{message.summary}</MarkdownMessage>}
+              {busy && index === messages.length - 1 && <div className="assistant-processing">
+                <strong>Agent 正在处理 <span className="typing-dots"><i /><i /><i /></span></strong>
+                <span className="processing-status"><i />处理中</span>
+              </div>}
+            </div>
+          </div>)}
+      </div>
+    </section>
+
+    <form className="chat-composer" onSubmit={event => { event.preventDefault(); submit(); }}>
+      <p>{disabled ? '智能体正在加载，请稍后再试' : host?.online ? '输入任务，让 Agent 帮你完成…' : '无需连接终端，也可以直接与 Agent 对话'}</p>
+      <div className="composer-input-row"><IconButton icon="attach" label="添加聊天附件" onClick={() => notify('暂未接入聊天附件。')} /><textarea aria-label="智能体任务输入" placeholder="例如：帮我查看 Nginx 状态" value={draft} disabled={disabled || busy} onChange={event => setDraft(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); submit(); } }} /><button type="submit" className="send-button" aria-label="发送消息" disabled={!draft.trim() || busy || disabled}><Icon name="send" size={20} /></button></div>
+      <div className="composer-toolbar"><button type="button" className="model-select outlined-button" onClick={() => notify(`当前智能体：${agentName || '正在加载'}`)}>{agentName || 'Agent'}<Icon name="down" size={13} /></button></div>
+    </form>
   </aside>;
 }
