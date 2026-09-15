@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import agentRobotAvatar from '../assets/agent-robot-avatar.png';
-import type { ChatMessage, Host } from '../types';
+import type { ChatMessage, ChatToolActivity, Host } from '../types';
 import { Icon, IconButton } from './Ui';
 
 function AgentAvatar({ compact = false }: { compact?: boolean }) {
@@ -24,6 +24,29 @@ function MarkdownMessage({ children }: { children: string }) {
       {children}
     </ReactMarkdown>
   </div>;
+}
+
+function ToolActivity({ tool }: { tool: ChatToolActivity }) {
+  const label = tool.status === 'running' ? '调用中'
+    : tool.status === 'success' ? '成功'
+      : tool.status === 'error' ? '失败' : '状态未知';
+  const title = tool.name === 'executeCommand' ? '执行命令' : tool.name;
+  const header = <>
+    <Icon name="terminal" size={15} />
+    <span className="tool-identity"><span className="tool-name"><strong>{title}</strong>{title !== tool.name && <small>{tool.name}</small>}</span>{tool.command && <code title={tool.command}>{tool.command}</code>}</span>
+    <em className="tool-status"><i aria-hidden="true" />{label}</em>
+  </>;
+
+  if (tool.status === 'running') {
+    return <div className="tool-activity running" aria-label={`${title}：${label}`}>
+      <div className="tool-activity-header">{header}</div>
+    </div>;
+  }
+
+  return <details className={`tool-activity ${tool.status}`}>
+    <summary>{header}<small className="tool-view-result">查看结果</small></summary>
+    {tool.output ? <pre>{tool.output}</pre> : <p className="tool-empty-result">工具没有返回文本。</p>}
+  </details>;
 }
 
 export function AgentPanel({ host, messages, busy, send, clear, notify, disabled, agentName }: {
@@ -87,17 +110,24 @@ export function AgentPanel({ host, messages, busy, send, clear, notify, disabled
           ? <div className="user-message" key={message.id}>{message.text}</div>
           : <div className={`assistant-message ${message.error ? 'error' : ''} ${busy && index === messages.length - 1 ? 'active' : ''}`} key={message.id}>
             <AgentAvatar />
-            <div className="assistant-content">
-              {message.tools?.length ? <div className="tool-activities">{message.tools.map(tool => <details className={`tool-activity ${tool.status}`} key={tool.id}>
-                <summary><Icon name="terminal" size={15} /><span className="tool-identity"><strong>{tool.name === 'executeCommand' ? '执行命令' : tool.name}</strong>{tool.command && <code>{tool.command}</code>}</span><em>{tool.status === 'running' ? '执行中' : tool.status === 'success' ? '已完成' : '失败'}</em></summary>
-                {tool.output && <pre>{tool.output}</pre>}
-              </details>)}</div> : null}
-              {message.text && <MarkdownMessage>{message.text}</MarkdownMessage>}
-              {message.summary && <MarkdownMessage>{message.summary}</MarkdownMessage>}
-              {busy && index === messages.length - 1 && <div className="assistant-processing">
+            <div className="assistant-main">
+              {message.segments
+                ? message.segments.map(segment => segment.type === 'text'
+                  ? <div className="assistant-content" key={segment.id}><MarkdownMessage>{segment.text}</MarkdownMessage></div>
+                  : <section className="tool-activities" aria-label="工具调用记录" key={segment.id}><ToolActivity tool={segment.tool} /></section>)
+                : <>
+                  {(message.text || message.summary) && <div className="assistant-content">
+                    {message.text && <MarkdownMessage>{message.text}</MarkdownMessage>}
+                    {message.summary && <MarkdownMessage>{message.summary}</MarkdownMessage>}
+                  </div>}
+                  {message.tools?.length ? <section className="tool-activities" aria-label="工具调用记录">
+                    {message.tools.map(tool => <ToolActivity tool={tool} key={tool.id} />)}
+                  </section> : null}
+                </>}
+              {busy && index === messages.length - 1 && <div className="assistant-content"><div className="assistant-processing">
                 <strong>Agent 正在处理 <span className="typing-dots"><i /><i /><i /></span></strong>
                 <span className="processing-status"><i />处理中</span>
-              </div>}
+              </div></div>}
             </div>
           </div>)}
       </div>

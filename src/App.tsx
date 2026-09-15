@@ -20,7 +20,7 @@ import { ActivityBar, AppHeader, StatusBar } from './components/Shell';
 import { Modal } from './components/Ui';
 import { CommandShelf, TerminalWorkspace } from './components/Workspace';
 import { createSessionFileState, initialCommands, mockTransferProgress } from './data/mock';
-import type { ChatMessage, Host, Navigation, TerminalSession, SessionFileState } from './types';
+import type { ChatMessage, ChatMessageSegment, ChatToolActivity, Host, Navigation, TerminalSession, SessionFileState } from './types';
 import './App.css';
 import './reference.css';
 
@@ -273,7 +273,7 @@ export default function App() {
     setMessages(previous => [
       ...previous,
       { id: crypto.randomUUID(), role: 'user', text },
-      { id: assistantId, role: 'assistant', text: '' },
+      { id: assistantId, role: 'assistant', text: '', segments: [] },
     ]);
     setChatBusy(true);
 
@@ -281,41 +281,59 @@ export default function App() {
       if (version !== chatVersion.current) return;
       setMessages(previous => previous.map(message => message.id === assistantId ? update(message) : message));
     };
+    const appendText = (message: ChatMessage, content: string): ChatMessage => {
+      if (!content) return message;
+      const segments = [...(message.segments ?? [])];
+      const last = segments[segments.length - 1];
+      if (last?.type === 'text') segments[segments.length - 1] = { ...last, text: last.text + content };
+      else segments.push({ id: crypto.randomUUID(), type: 'text', text: content });
+      return { ...message, text: message.text + content, segments };
+    };
+    const upsertTool = (message: ChatMessage, activity: ChatToolActivity): ChatMessage => {
+      const segments = [...(message.segments ?? [])];
+      const index = segments.findIndex(segment => segment.type === 'tool' && segment.tool.id === activity.id);
+      const segment: ChatMessageSegment = { id: activity.id, type: 'tool', tool: activity };
+      if (index >= 0) segments[index] = segment;
+      else segments.push(segment);
+      return { ...message, segments };
+    };
     const receive = (event: AgentStreamEvent) => {
       if (version !== chatVersion.current) return;
       switch (event.event) {
         case 'text':
-          updateAssistant(message => ({ ...message, text: event.fullText ?? message.text + event.content }));
+          updateAssistant(message => appendText(message, event.content));
           break;
         case 'tool_call':
-          updateAssistant(message => ({
-            ...message,
-            tools: [...(message.tools ?? []).filter(tool => tool.id !== event.toolCallId), {
-               id: event.toolCallId,
-               name: event.toolName,
-               command: event.command,
-               status: event.status === 'error' ? 'error' : 'running',
-            }],
-          }));
+          updateAssistant(message => {
+            const previous = message.segments?.find(segment => segment.type === 'tool' && segment.tool.id === event.toolCallId);
+            const previousTool = previous?.type === 'tool' ? previous.tool : undefined;
+            const finished = previousTool?.status === 'success' || previousTool?.status === 'error';
+            const activity: ChatToolActivity = {
+              id: event.toolCallId,
+              name: event.toolName || previousTool?.name || '工具',
+              command: event.command || previousTool?.command,
+              status: finished && event.status === 'running' ? previousTool.status : event.status,
+              output: previousTool?.output,
+            };
+            return upsertTool(message, activity);
+          });
           break;
         case 'tool_result':
           updateAssistant(message => {
-            const tools = [...(message.tools ?? [])];
-            const index = tools.findIndex(tool => tool.id === event.toolCallId);
-            const completed = {
-              id: event.toolCallId || crypto.randomUUID(),
-              name: index >= 0 ? tools[index].name : event.toolName || 'executeCommand',
-              command: event.command || (index >= 0 ? tools[index].command : undefined),
-              status: event.status === 'error' ? 'error' as const : 'success' as const,
+            const previous = message.segments?.find(segment => segment.type === 'tool' && segment.tool.id === event.toolCallId);
+            const previousTool = previous?.type === 'tool' ? previous.tool : undefined;
+            const completed: ChatToolActivity = {
+              id: event.toolCallId,
+              name: event.toolName || previousTool?.name || '工具',
+              command: event.command || previousTool?.command,
+              status: event.status,
               output: event.content,
             };
-            if (index >= 0) tools[index] = completed;
-            else tools.push(completed);
-            return { ...message, tools };
+            return upsertTool(message, completed);
           });
           break;
         case 'done':
-          updateAssistant(message => ({ ...message, text: message.text || event.content || '任务已完成。' }));
+          updateAssistant(message => message.text ? message : appendText(message, event.content || '任务已完成。'));
           break;
         case 'error':
           throw new Error(event.content || 'Agent 执行失败');
@@ -335,11 +353,11 @@ export default function App() {
         terminalSessionId,
         message: text,
       }, receive, controller.signal);
-      updateAssistant(message => ({ ...message, text: message.text || '任务已完成。' }));
+      updateAssistant(message => message.text ? message : appendText(message, '任务已完成。'));
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') return;
       const message = error instanceof Error ? error.message : 'Agent 对话失败';
-      updateAssistant(current => ({ ...current, text: current.text || message, error: true }));
+      updateAssistant(current => ({ ...(current.text ? current : appendText(current, message)), error: true }));
       notify(message, 'error');
     } finally {
       if (chatAbort.current === controller) chatAbort.current = null;

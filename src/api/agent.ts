@@ -6,10 +6,12 @@ export type AgentConfig = {
   agentDesc: string;
 };
 
+export type AgentToolStatus = 'running' | 'success' | 'error' | 'unknown';
+
 export type AgentStreamEvent =
-  | { event: 'text'; content: string; fullText?: string }
-  | { event: 'tool_call'; toolCallId: string; toolName: string; command?: string; status: string }
-  | { event: 'tool_result'; toolCallId: string; toolName?: string; command?: string; content: string; status: string }
+  | { event: 'text'; content: string }
+  | { event: 'tool_call'; toolCallId: string; toolName: string; command?: string; status: AgentToolStatus }
+  | { event: 'tool_result'; toolCallId: string; toolName?: string; command?: string; content: string; status: AgentToolStatus }
   | { event: 'done'; content: string }
   | { event: 'error'; content: string };
 
@@ -56,6 +58,45 @@ function normalizeContent(content: unknown): string {
   return content;
 }
 
+function isAdkToolTrace(content: string): boolean {
+  return content.includes('Function Call: FunctionCall{')
+    || content.includes('Function Response: FunctionResponse{');
+}
+
+function extractCommand(payload: Record<string, unknown>): string | undefined {
+  const value = payload.command ?? payload.commend ?? payload.arguments;
+  if (typeof value === 'string') {
+    if (!value.trim()) return undefined;
+    try {
+      const args = JSON.parse(value) as unknown;
+      if (args && typeof args === 'object' && 'command' in args) {
+        return normalizeContent(args.command) || undefined;
+      }
+    } catch {
+      return value;
+    }
+    return value;
+  }
+  if (value && typeof value === 'object' && 'command' in value) {
+    return normalizeContent(value.command) || undefined;
+  }
+  return undefined;
+}
+
+function doneContent(value: unknown): string {
+  if (typeof value !== 'string') return normalizeContent(value);
+  try {
+    const result = JSON.parse(value) as unknown;
+    if (result && typeof result === 'object' && 'content' in result) {
+      const content = normalizeContent(result.content);
+      return isAdkToolTrace(content) ? '' : content;
+    }
+  } catch {
+    return value;
+  }
+  return value;
+}
+
 function parseStreamEvent(payload: string): AgentStreamEvent | null {
   const value = payload.trim();
   if (!value || value === '[DONE]') return null;
@@ -65,35 +106,41 @@ function parseStreamEvent(payload: string): AgentStreamEvent | null {
   try {
     parsed = JSON.parse(value) as Record<string, unknown>;
   } catch {
-    return { event: 'text', content: value };
+    return isAdkToolTrace(value) ? null : { event: 'text', content: value };
   }
 
-  const event = String(parsed.event || 'text') as AgentStreamEvent['event'];
+  const event = String(parsed.event || 'text');
   const content = normalizeContent(parsed.content);
   if (event === 'tool_call') {
-    const args = parsed.arguments && typeof parsed.arguments === 'object'
-      ? parsed.arguments as Record<string, unknown>
-      : undefined;
+    const toolCallId = normalizeContent(parsed.toolCallId).trim();
+    if (!toolCallId) return null;
+    const status = parsed.status === 'success' || parsed.status === 'error'
+      ? parsed.status : 'running';
     return {
       event,
-      toolCallId: String(parsed.toolCallId || crypto.randomUUID()),
-      toolName: String(parsed.toolName || 'executeCommand'),
-      command: normalizeContent(parsed.command ?? args?.command) || undefined,
-      status: String(parsed.status || 'running'),
+      toolCallId,
+      toolName: normalizeContent(parsed.toolName) || '工具',
+      command: extractCommand(parsed),
+      status,
     };
   }
   if (event === 'tool_result') {
+    const toolCallId = normalizeContent(parsed.toolCallId).trim();
+    if (!toolCallId) return null;
     return {
       event,
-      toolCallId: String(parsed.toolCallId || ''),
-      toolName: parsed.toolName ? String(parsed.toolName) : undefined,
-      command: normalizeContent(parsed.command) || undefined,
+      toolCallId,
+      toolName: normalizeContent(parsed.toolName) || undefined,
+      command: extractCommand(parsed),
       content,
-      status: String(parsed.status || 'success'),
+      status: parsed.status === 'success' || parsed.status === 'error'
+        ? parsed.status : 'unknown',
     };
   }
-  if (event === 'done' || event === 'error') return { event, content };
-  return { event: 'text', content, fullText: normalizeContent(parsed.fullText) || undefined };
+  if (event === 'done') return { event, content: doneContent(parsed.content) };
+  if (event === 'error') return { event, content };
+  if (event === 'text' && !isAdkToolTrace(content)) return { event, content };
+  return null;
 }
 
 async function chatStream(
@@ -140,7 +187,7 @@ async function chatStream(
       sseData.push(line.slice(5).trimStart());
       return;
     }
-    // 兼容旧版 Controller 直接按行输出 JSON 的格式。
+    // 兼容 case 层按行输出 JSON 的格式。
     dispatch(line);
   };
 

@@ -809,6 +809,20 @@
 .tool-activity.success { border-color: #bfe4d9; background: #f3fbf8; }
 .tool-activity.error { border-color: #efc9ce; background: #fff7f8; }
 .assistant-message.active .assistant-content { border-color: #c9dcf3; }
+.assistant-main { display: flex; flex: 1; flex-direction: column; gap: 9px; min-width: 0; }
+.assistant-main > .tool-activities { margin: 0; }
+.tool-activity .tool-identity { flex-direction: column; align-items: flex-start; gap: 3px; }
+.tool-activity .tool-name { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.tool-activity .tool-name small { color: #647897; font-size: 9px; font-weight: 400; }
+.tool-activity .tool-identity code { max-width: 100%; text-overflow: clip; white-space: pre-wrap; overflow-wrap: anywhere; }
+.tool-activity .tool-activity-header { display: flex; align-items: center; gap: 7px; min-height: 38px; padding: 8px 10px; font-size: 10px; }
+.tool-activity-header .tool-identity { flex: 1; min-width: 0; }
+.tool-status { display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; font-style: normal; font-size: 10px; white-space: nowrap; }
+.tool-status i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.tool-activity.running .tool-status i { animation: blink 1.2s ease-in-out infinite; }
+.tool-view-result { flex-shrink: 0; color: #637b9e; font-size: 9px; white-space: nowrap; }
+.tool-activity[open] .tool-view-result { color: #286b9d; }
+.tool-empty-result { margin: 0; padding: 8px 10px; border-top: 1px solid var(--line); color: #7a89a1; font-size: 10px; }
 .assistant-processing {
   display: flex;
   flex-wrap: wrap;
