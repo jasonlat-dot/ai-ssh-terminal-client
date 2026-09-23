@@ -2,13 +2,29 @@
 ai-ssh-terminal-client
 
 
+## 安装后的后端地址设置
+
+Windows 客户端首次启动会提示填写后端服务器根地址，例如 `https://api.example.com` 或 `http://192.168.1.10:8888`。不要附加 `/agent` 或 `/api/v1/ssh`；应用会分别拼接这两个接口前缀。左侧导航栏的“设置”可随时修改地址，保存在本机客户端存储中，重启仍然有效，**无需重新打包或安装**。切换服务器前请停止正在生成的对话并关闭远程终端标签，以免旧服务器的会话与新服务器混用。
+
+“测试连接”会请求目标服务器的 `/agent/query_ai_agent_config_list`。客户端仍通过 WebView 的 `fetch` 调用后端，因此跨域部署时后端或反向代理必须允许客户端来源（Windows Tauri 正式版通常为 `http://tauri.localhost`；本地开发为 `http://localhost:1420`），并正确处理跨域预检请求。若后端启用 HTTPS，请使用有效证书。开发模式未保存地址时默认连接 `http://localhost:8888`；正式安装包未保存地址时不会发起业务请求，而是先显示设置窗口。
+
+## Windows 打包
+
+在 `ai-ssh-terminal-client` 目录安装依赖并执行：
+
+```powershell
+npm install
+npm run tauri build
+```
+
+当前 `src-tauri/tauri.conf.json` 的 `bundle.targets` 为 `all`。Windows 下构建成功后，可在 `src-tauri/target/release/bundle/nsis/` 找到安装用的 `*-setup.exe`，在 `src-tauri/target/release/bundle/msi/` 找到 MSI。打包需要 Rust/MSVC 工具链和 WebView2；仅需 EXE 安装包时可通过 Tauri CLI 的 `--bundles nsis` 选项构建。后端服务需要单独部署，安装包只包含客户端。
+
 ## SSH HTTP 接口对接
 
-连接管理已对接 `SshConnectionController` 的列表、详情、新增、更新、删除、连接与断开 7 个接口。远程终端已接入真实 SSH；本地终端、SFTP 和 AI 仍为模拟功能。
+连接管理已对接 `SshConnectionController` 的列表、详情、新增、更新、删除、连接与断开 7 个接口。远程终端已接入真实 SSH，Agent 对话调用后端接口；本地终端和 SFTP 仍为模拟功能。
 
-将 `.env.example` 复制为 `.env.local` 后按需修改，重启 Vite 或重新构建生效：
+按需将 `.env.example` 复制为 `.env.local`；以下是构建时选项，修改后需重启 Vite 或重新构建：
 
-- `VITE_SSH_API_BASE_URL`：完整控制器地址，默认 `http://localhost:8888/api/v1/ssh`，只包含一个 `/api/v1`。可在 `.env.local` 中覆盖。
 - `VITE_SSH_USER_ID`：默认 `default`，列表与新增使用同一个用户 ID，避免后端两个默认用户值不一致。此值不是登录认证。
 
 新增、更新提交 JSON；其他单连接操作通过 query 参数传 `connectionId`，成功码严格使用 `SUCCESS_0000`。连接成功后才打开终端；关闭远程终端标签时显示断开确认框，确认后先调用断开接口，成功才关闭标签；失败保留终端供重试。本地标签直接关闭。删除前先断开 SSH，因为后端删除接口不释放会话。
@@ -26,7 +42,7 @@ ai-ssh-terminal-client
 
 ## SSH 交互式终端
 
-`SshTerminalController` 的 7 个接口已接入，地址为 `${VITE_SSH_API_BASE_URL}/terminal`，默认 `http://localhost:8888/api/v1/ssh/terminal`。
+`SshTerminalController` 的 7 个接口已接入，地址为“客户端设置的后端根地址 + `/api/v1/ssh/terminal`”。
 
 - `open`：SSH 连接成功后打开会话，使用后端返回的 `sessionId`，立即呈现 `initialOutput`。
 - `exec`：下方命令框、常用命令和日志操作提交真实命令；补上 `\r`，因为服务按原始字节写入。开启执行确认时先显示确认框。

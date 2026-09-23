@@ -1,4 +1,5 @@
 import { sshUserId } from './ssh';
+import { requireBackendUrl } from '../config/backend';
 
 export type AgentConfig = {
   agentId: string;
@@ -6,12 +7,32 @@ export type AgentConfig = {
   agentDesc: string;
 };
 
+export type AgentSession = {
+  sessionId: string;
+  title: string | null;
+  messageCount: number | null;
+  createdAt: string | number | null;
+  updatedAt: string | number | null;
+};
+
+export type AgentHistoryMessage = {
+  id: number;
+  role: string;
+  content: string;
+  toolName: string | null;
+  toolCallId: string | null;
+  createdAt: string | number | null;
+};
+
 export type AgentToolStatus = 'running' | 'success' | 'error' | 'unknown';
 
 export type AgentStreamEvent =
   | { event: 'text'; content: string }
-  | { event: 'tool_call'; toolCallId: string; toolName: string; command?: string; status: AgentToolStatus }
-  | { event: 'tool_result'; toolCallId: string; toolName?: string; command?: string; content: string; status: AgentToolStatus }
+  | { event: 'agent_start'; agentCallId: string; agentName: string; task: string; parentToolCallId?: string }
+  | { event: 'agent_text'; agentCallId: string; sourceAgent?: string; content: string }
+  | { event: 'agent_result'; agentCallId: string; agentName: string; content: string; status: AgentToolStatus }
+  | { event: 'tool_call'; toolCallId: string; toolName: string; command?: string; status: AgentToolStatus; agentCallId?: string; sourceAgent?: string }
+  | { event: 'tool_result'; toolCallId: string; toolName?: string; command?: string; content: string; status: AgentToolStatus; agentCallId?: string; sourceAgent?: string }
   | { event: 'done'; content: string }
   | { event: 'error'; content: string };
 
@@ -25,13 +46,11 @@ export type AgentChatRequest = {
 
 type ApiResponse<T> = { code: string; info?: string; data?: T };
 
-// AgentController 当前映射为 /agent，可通过 .env.local 覆盖完整地址。
-const baseUrl = (import.meta.env.VITE_AGENT_API_BASE_URL || 'http://localhost:8888/agent').replace(/\/$/, '');
-
-async function request<T>(endpoint: string, method = 'GET', body?: object): Promise<T> {
+async function request<T>(endpoint: string, method = 'GET', body?: object, signal?: AbortSignal): Promise<T> {
   try {
-    const response = await fetch(`${baseUrl}/${endpoint}`, {
+    const response = await fetch(`${requireBackendUrl()}/agent/${endpoint}`, {
       method,
+      signal,
       headers: body ? { 'Content-Type': 'application/json' } : undefined,
       body: body ? JSON.stringify(body) : undefined,
     });
@@ -64,7 +83,7 @@ function isAdkToolTrace(content: string): boolean {
 }
 
 function extractCommand(payload: Record<string, unknown>): string | undefined {
-  const value = payload.command ?? payload.commend ?? payload.arguments;
+  const value = payload.command ?? payload.commend ?? payload.arguments ?? payload.toolArgs;
   if (typeof value === 'string') {
     if (!value.trim()) return undefined;
     try {
@@ -111,6 +130,31 @@ function parseStreamEvent(payload: string): AgentStreamEvent | null {
 
   const event = String(parsed.event || 'text');
   const content = normalizeContent(parsed.content);
+  if (event === 'agent_start') {
+    const agentCallId = normalizeContent(parsed.agentCallId).trim();
+    if (!agentCallId) return null;
+    return {
+      event, agentCallId,
+      agentName: normalizeContent(parsed.agentName) || '子智能体',
+      task: normalizeContent(parsed.task),
+      parentToolCallId: normalizeContent(parsed.parentToolCallId) || undefined,
+    };
+  }
+  if (event === 'agent_text') {
+    const agentCallId = normalizeContent(parsed.agentCallId).trim();
+    if (!agentCallId || !content) return null;
+    return { event, agentCallId, sourceAgent: normalizeContent(parsed.sourceAgent) || undefined, content };
+  }
+  if (event === 'agent_result') {
+    const agentCallId = normalizeContent(parsed.agentCallId).trim();
+    if (!agentCallId) return null;
+    return {
+      event, agentCallId,
+      agentName: normalizeContent(parsed.agentName) || '子智能体',
+      content,
+      status: parsed.status === 'success' || parsed.status === 'error' ? parsed.status : 'unknown',
+    };
+  }
   if (event === 'tool_call') {
     const toolCallId = normalizeContent(parsed.toolCallId).trim();
     if (!toolCallId) return null;
@@ -122,6 +166,8 @@ function parseStreamEvent(payload: string): AgentStreamEvent | null {
       toolName: normalizeContent(parsed.toolName) || '工具',
       command: extractCommand(parsed),
       status,
+      agentCallId: normalizeContent(parsed.agentCallId) || undefined,
+      sourceAgent: normalizeContent(parsed.sourceAgent) || undefined,
     };
   }
   if (event === 'tool_result') {
@@ -135,6 +181,8 @@ function parseStreamEvent(payload: string): AgentStreamEvent | null {
       content,
       status: parsed.status === 'success' || parsed.status === 'error'
         ? parsed.status : 'unknown',
+      agentCallId: normalizeContent(parsed.agentCallId) || undefined,
+      sourceAgent: normalizeContent(parsed.sourceAgent) || undefined,
     };
   }
   if (event === 'done') return { event, content: doneContent(parsed.content) };
@@ -150,7 +198,7 @@ async function chatStream(
 ) {
   let response: Response;
   try {
-    response = await fetch(`${baseUrl}/chat_stream`, {
+    response = await fetch(`${requireBackendUrl()}/agent/chat_stream`, {
       method: 'POST',
       signal,
       headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
@@ -206,8 +254,17 @@ async function chatStream(
 export const agentApi = {
   userId: sshUserId,
   list: () => request<AgentConfig[]>('query_ai_agent_config_list'),
-  createSession: (agentId: string) => request<{ sessionId: string }>(
-    'create_session', 'POST', { agentId, userId: sshUserId },
+  sessions: (agentId: string, limit = 50) => request<AgentSession[]>(
+    `query_session_list?${new URLSearchParams({ agentId, userId: sshUserId, limit: String(limit) })}`,
+  ),
+  messages: (agentId: string, sessionId: string, limit = 100) => request<AgentHistoryMessage[]>(
+    `query_message_list?${new URLSearchParams({ agentId, userId: sshUserId, sessionId, limit: String(limit) })}`,
+  ),
+  createSession: (agentId: string, signal?: AbortSignal) => request<{ sessionId: string }>(
+    'create_session', 'POST', { agentId, userId: sshUserId }, signal,
+  ),
+  stopChat: (agentId: string, sessionId: string, signal?: AbortSignal) => request<boolean>(
+    'stop_chat', 'POST', { agentId, userId: sshUserId, sessionId }, signal,
   ),
   chatStream,
 };

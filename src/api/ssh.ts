@@ -1,4 +1,5 @@
 import type { Host } from '../types';
+import { requireBackendUrl } from '../config/backend';
 
 export type SshConnection = {
   connectionId: string; connectionName: string; host: string; port: number;
@@ -15,15 +16,13 @@ export type SshConnectionRequest = {
   connectTimeout?: number; keepaliveInterval?: number; startupCommand?: string;
   compression?: boolean; strictHostKeyCheck?: boolean;
 };
-// Override the full SSH controller URL in .env.local when needed.
-const baseUrl = (import.meta.env.VITE_SSH_API_BASE_URL || 'http://localhost:8888/api/v1/ssh').replace(/\/$/, '');
 export const sshUserId = import.meta.env.VITE_SSH_USER_ID || 'default';
 
 export async function request<T>(endpoint: string, method = 'GET', body?: object, params?: Record<string, string>): Promise<T> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 60000);
   try {
-    const response = await fetch(`${baseUrl}/${endpoint}${params ? `?${new URLSearchParams(params)}` : ''}`, {
+    const response = await fetch(`${requireBackendUrl()}/api/v1/ssh/${endpoint}${params ? `?${new URLSearchParams(params)}` : ''}`, {
       method, signal: controller.signal,
       headers: body ? { 'Content-Type': 'application/json' } : undefined,
       body: body ? JSON.stringify(body) : undefined,

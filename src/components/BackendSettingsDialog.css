@@ -1,0 +1,15 @@
+.backend-settings-modal-backdrop { background: #263e665e; backdrop-filter: blur(3px); }
+.modal.backend-settings-modal { width: min(540px, calc(100% - 24px)); padding: 25px; border: 1px solid #cdddf2; border-radius: 14px; background: #fbfdff; color: #183456; box-shadow: 0 24px 70px #173b6940; }
+.backend-settings-form { display: flex; flex-direction: column; gap: 10px; }
+.backend-settings-intro { display: flex; align-items: center; gap: 12px; margin: 3px 0 12px; }
+.backend-settings-intro > span { display: grid; place-items: center; flex: 0 0 42px; width: 42px; height: 42px; border-radius: 11px; background: #e9f2ff; color: #3973c7; }
+.backend-settings-intro p { margin: 0; color: #526984; font-size: 13px; line-height: 1.6; }
+.backend-settings-form label { font-size: 13px; font-weight: 600; }
+.backend-settings-form input { width: 100%; min-width: 0; height: 44px; padding: 9px 12px; border: 1px solid #cbdcf1; border-radius: 8px; background: #fff; color: #173454; font-size: 14px; }
+.backend-settings-form input:focus-visible { outline: 2px solid #5594e4; outline-offset: 2px; }
+.backend-settings-help { margin: 0; color: #70839e; font-size: 12px; line-height: 1.65; }
+.backend-settings-error, .backend-settings-success { margin: 5px 0 0; padding: 9px 11px; border-radius: 7px; font-size: 12px; line-height: 1.5; }
+.backend-settings-error { background: #fff0ef; color: #ac3d3d; }
+.backend-settings-success { background: #eaf8f2; color: #15745b; }
+.backend-settings-form .dialog-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 9px; margin: 14px 0 0; }
+.backend-settings-form .dialog-actions button { min-height: 38px; padding: 8px 13px; }

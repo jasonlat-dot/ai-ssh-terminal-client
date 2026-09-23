@@ -2,7 +2,8 @@ import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import type { CSSProperties } from 'react';
 import { updateSessionFiles } from './state/sessionFiles';
 import { agentApi } from './api/agent';
-import type { AgentConfig, AgentStreamEvent } from './api/agent';
+import type { AgentConfig, AgentSession, AgentStreamEvent } from './api/agent';
+import { restoreChatMessages } from './state/agentHistory';
 import { DisconnectDialog } from './components/DisconnectDialog';
 import { recordDisconnect } from './state/connectionHistory';
 import { terminalApi } from './api/terminal';
@@ -17,10 +18,12 @@ import { AgentPanel } from './components/AgentPanel';
 import { AddCommandDialog, CreateFileDialog, SearchDialog } from './components/Dialogs';
 import { SessionFiles } from './components/Sidebar';
 import { ActivityBar, AppHeader, StatusBar } from './components/Shell';
+import { BackendSettingsDialog } from './components/BackendSettingsDialog';
+import { readBackendUrl, saveBackendUrl } from './config/backend';
 import { Modal } from './components/Ui';
 import { CommandShelf, TerminalWorkspace } from './components/Workspace';
 import { createSessionFileState, initialCommands, mockTransferProgress } from './data/mock';
-import type { ChatMessage, ChatMessageSegment, ChatToolActivity, Host, Navigation, TerminalSession, SessionFileState } from './types';
+import type { ChatAgentActivity, ChatMessage, ChatMessageSegment, ChatToolActivity, Host, Navigation, TerminalSession, SessionFileState } from './types';
 import './App.css';
 import './reference.css';
 
@@ -30,7 +33,7 @@ type Dialog = 'command' | 'connection' | 'file' | 'search' | null;
 type PendingCommand = { sessionId: string; command: string };
 const initialSessions: TerminalSession[] = [];
 
-export default function App() {
+function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBackendChange: (url: string) => void }) {
   const [navigation, setNavigation] = useState<Navigation>('连接');
   const connections = useSshConnections();
   const { hosts } = connections;
@@ -42,11 +45,20 @@ export default function App() {
   const [category, setCategory] = useState('全部');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [chatBusy, setChatBusy] = useState(false);
+  const [chatStopping, setChatStopping] = useState(false);
   const [selectedAgent, setSelectedAgent] = useState<AgentConfig | null>(null);
+  const [chatSessions, setChatSessions] = useState<AgentSession[]>([]);
+  const [activeChatSessionId, setActiveChatSessionId] = useState('');
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyLoadingId, setHistoryLoadingId] = useState('');
+  const [historyError, setHistoryError] = useState('');
+  const historyRefreshVersion = useRef(0);
   const confirm = true;
   const [pending, setPending] = useState<PendingCommand | null>(null);
   const [disconnectTarget, setDisconnectTarget] = useState<{ sessionId: string; host: Host } | null>(null);
   const [dialog, setDialog] = useState<Dialog>(null);
+  const [backendSettingsOpen, setBackendSettingsOpen] = useState(false);
   const [fileDialogSessionId, setFileDialogSessionId] = useState<string | null>(null);
   const [toast, setToast] = useState<Notice | null>(null);
   const noticeSequence = useRef(0);
@@ -58,6 +70,8 @@ export default function App() {
   const chatting = useRef(false);
   const chatSessionId = useRef('');
   const chatAbort = useRef<AbortController | null>(null);
+  const stopPending = useRef(false);
+  const historySelection = useRef(0);
   const running = useRef(new Set<string>());
   const remoteClients = useRef(new Map<string, RemoteTerminal>());
   const opening = useRef(new Set<string>());
@@ -76,6 +90,23 @@ export default function App() {
   const notify = useCallback((message: string, type: NoticeType = 'info', durationMs?: number) => {
     setToast({ id: ++noticeSequence.current, message, type, ...(durationMs === undefined ? {} : { durationMs }) });
   }, []);
+  const refreshChatSessions = useCallback(async (agentId: string) => {
+    const version = ++historyRefreshVersion.current;
+    setHistoryLoading(true);
+    try {
+      const sessions = await agentApi.sessions(agentId);
+      if (version === historyRefreshVersion.current) {
+        setChatSessions(sessions);
+        setHistoryError('');
+      }
+    } catch (error) {
+      if (version === historyRefreshVersion.current) {
+        setHistoryError(error instanceof Error ? error.message : '加载历史会话失败');
+      }
+    } finally {
+      if (version === historyRefreshVersion.current) setHistoryLoading(false);
+    }
+  }, []);
   const dismissNotice = useCallback(() => setToast(null), []);
   useEffect(() => { if (connections.error) notify(connections.error, 'error'); }, [connections.error, notify]);
   useEffect(() => {
@@ -92,6 +123,9 @@ export default function App() {
     return () => { cancelled = true; };
   }, [notify]);
   useEffect(() => () => chatAbort.current?.abort(), []);
+  useEffect(() => {
+    if (selectedAgent?.agentId) void refreshChatSessions(selectedAgent.agentId);
+  }, [selectedAgent?.agentId, refreshChatSessions]);
   useEffect(() => {
     const listener = (e: KeyboardEvent) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); if (!pending && !disconnectTarget) setDialog(value => value === 'search' ? null : 'search'); } };
     window.addEventListener('keydown', listener);
@@ -254,7 +288,7 @@ export default function App() {
     notify('开始模拟传输，仅演示进度。');
   };
   const sendMessage = async (text: string) => {
-    if (chatting.current) return;
+    if (chatting.current || stopPending.current || historyLoadingId) return;
     const currentSession = active;
     const client = currentSession ? remoteClients.current.get(currentSession.id) : undefined;
     const terminalSessionId = currentSession?.hostId && client && !client.closed && !client.disconnected && host?.online
@@ -297,16 +331,85 @@ export default function App() {
       else segments.push(segment);
       return { ...message, segments };
     };
+    const upsertAgent = (message: ChatMessage, activity: ChatAgentActivity): ChatMessage => {
+      const segments = [...(message.segments ?? [])];
+      const index = segments.findIndex(segment => segment.id === activity.id && segment.type !== 'text');
+      const segment: ChatMessageSegment = { id: activity.id, type: 'agent', agent: activity };
+      if (index >= 0) segments[index] = segment;
+      else segments.push(segment);
+      return { ...message, segments };
+    };
+    const updateAgentTool = (message: ChatMessage, agentCallId: string, sourceAgent: string | undefined, tool: ChatToolActivity): ChatMessage => {
+      const previous = message.segments?.find(segment => segment.type === 'agent' && segment.agent.id === agentCallId);
+      const agent: ChatAgentActivity = previous?.type === 'agent' ? previous.agent : {
+        id: agentCallId, name: sourceAgent || '子智能体', status: 'running', tools: [],
+      };
+      const tools = [...agent.tools];
+      const index = tools.findIndex(item => item.id === tool.id);
+      if (index >= 0) tools[index] = tool;
+      else tools.push(tool);
+      const segments = [...(agent.segments ?? [])];
+      const segmentIndex = segments.findIndex(item => item.type === 'tool' && item.tool.id === tool.id);
+      if (segmentIndex >= 0) segments[segmentIndex] = { id: tool.id, type: 'tool', tool };
+      else segments.push({ id: tool.id, type: 'tool', tool });
+      return upsertAgent(message, { ...agent, tools, segments });
+    };
     const receive = (event: AgentStreamEvent) => {
-      if (version !== chatVersion.current) return;
+      if (version !== chatVersion.current || controller.signal.aborted || stopPending.current) return;
       switch (event.event) {
         case 'text':
           updateAssistant(message => appendText(message, event.content));
           break;
+        case 'agent_start':
+          updateAssistant(message => {
+            const previous = message.segments?.find(segment => segment.type === 'agent' && segment.agent.id === event.agentCallId);
+            const agent = previous?.type === 'agent' ? previous.agent : undefined;
+            return upsertAgent(message, {
+              id: event.agentCallId,
+              name: event.agentName,
+              task: event.task || agent?.task,
+              parentToolCallId: event.parentToolCallId || agent?.parentToolCallId,
+              status: agent?.status === 'success' || agent?.status === 'error' ? agent.status : 'running',
+              output: agent?.output,
+              tools: agent?.tools ?? [],
+              segments: agent?.segments ?? [],
+            });
+          });
+          break;
+        case 'agent_text':
+          updateAssistant(message => {
+            const previous = message.segments?.find(segment => segment.type === 'agent' && segment.agent.id === event.agentCallId);
+            const agent: ChatAgentActivity = previous?.type === 'agent' ? previous.agent : {
+              id: event.agentCallId, name: event.sourceAgent || '子智能体', status: 'running', tools: [],
+            };
+            const segments = [...(agent.segments ?? [])];
+            const last = segments[segments.length - 1];
+            if (last?.type === 'text') segments[segments.length - 1] = { ...last, text: last.text + event.content };
+            else segments.push({ id: crypto.randomUUID(), type: 'text', text: event.content });
+            return upsertAgent(message, { ...agent, segments });
+          });
+          break;
+        case 'agent_result':
+          updateAssistant(message => {
+            const previous = message.segments?.find(segment => segment.type === 'agent' && segment.agent.id === event.agentCallId);
+            const agent = previous?.type === 'agent' ? previous.agent : undefined;
+            return upsertAgent(message, {
+              id: event.agentCallId, name: event.agentName || agent?.name || '子智能体',
+              task: agent?.task, parentToolCallId: agent?.parentToolCallId,
+              status: event.status, output: event.content, tools: agent?.tools ?? [],
+              segments: agent?.segments ?? [],
+            });
+          });
+          break;
         case 'tool_call':
           updateAssistant(message => {
-            const previous = message.segments?.find(segment => segment.type === 'tool' && segment.tool.id === event.toolCallId);
-            const previousTool = previous?.type === 'tool' ? previous.tool : undefined;
+            const agentSegment = event.agentCallId
+              ? message.segments?.find(segment => segment.type === 'agent' && segment.agent.id === event.agentCallId)
+              : undefined;
+            const previous = event.agentCallId && agentSegment?.type === 'agent'
+              ? agentSegment.agent.tools.find(tool => tool.id === event.toolCallId)
+              : message.segments?.find(segment => segment.type === 'tool' && segment.tool.id === event.toolCallId);
+            const previousTool = previous && 'type' in previous ? previous.type === 'tool' ? previous.tool : undefined : previous;
             const finished = previousTool?.status === 'success' || previousTool?.status === 'error';
             const activity: ChatToolActivity = {
               id: event.toolCallId,
@@ -314,22 +417,38 @@ export default function App() {
               command: event.command || previousTool?.command,
               status: finished && event.status === 'running' ? previousTool.status : event.status,
               output: previousTool?.output,
+              sourceAgent: event.sourceAgent || previousTool?.sourceAgent,
             };
-            return upsertTool(message, activity);
+            return event.agentCallId
+              ? updateAgentTool(message, event.agentCallId, event.sourceAgent, activity)
+              : upsertTool(message, activity);
           });
           break;
         case 'tool_result':
           updateAssistant(message => {
-            const previous = message.segments?.find(segment => segment.type === 'tool' && segment.tool.id === event.toolCallId);
-            const previousTool = previous?.type === 'tool' ? previous.tool : undefined;
+            const matchingAgent = message.segments?.find(segment => segment.type === 'agent' && segment.agent.id === event.toolCallId);
+            if (matchingAgent?.type === 'agent') {
+              return upsertAgent(message, { ...matchingAgent.agent, status: event.status,
+                output: matchingAgent.agent.output || event.content });
+            }
+            const agentSegment = event.agentCallId
+              ? message.segments?.find(segment => segment.type === 'agent' && segment.agent.id === event.agentCallId)
+              : undefined;
+            const previous = event.agentCallId && agentSegment?.type === 'agent'
+              ? agentSegment.agent.tools.find(tool => tool.id === event.toolCallId)
+              : message.segments?.find(segment => segment.type === 'tool' && segment.tool.id === event.toolCallId);
+            const previousTool = previous && 'type' in previous ? previous.type === 'tool' ? previous.tool : undefined : previous;
             const completed: ChatToolActivity = {
               id: event.toolCallId,
               name: event.toolName || previousTool?.name || '工具',
               command: event.command || previousTool?.command,
               status: event.status,
               output: event.content,
+              sourceAgent: event.sourceAgent || previousTool?.sourceAgent,
             };
-            return upsertTool(message, completed);
+            return event.agentCallId
+              ? updateAgentTool(message, event.agentCallId, event.sourceAgent, completed)
+              : upsertTool(message, completed);
           });
           break;
         case 'done':
@@ -342,9 +461,11 @@ export default function App() {
 
     try {
       if (!chatSessionId.current) {
-        const created = await agentApi.createSession(selectedAgent.agentId);
+        const created = await agentApi.createSession(selectedAgent.agentId, controller.signal);
         if (!created?.sessionId) throw new Error('后端未返回 Agent 会话 ID');
+        if (controller.signal.aborted) return;
         chatSessionId.current = created.sessionId;
+        setActiveChatSessionId(created.sessionId);
       }
       await agentApi.chatStream({
         agentId: selectedAgent.agentId,
@@ -353,9 +474,15 @@ export default function App() {
         terminalSessionId,
         message: text,
       }, receive, controller.signal);
+      if (controller.signal.aborted || stopPending.current) return;
       updateAssistant(message => message.text ? message : appendText(message, '任务已完成。'));
     } catch (error) {
-      if (error instanceof DOMException && error.name === 'AbortError') return;
+      if (controller.signal.aborted || stopPending.current
+          || (error instanceof DOMException && error.name === 'AbortError')) {
+        updateAssistant(current => current.text || current.segments?.length
+          ? current : appendText(current, '已停止生成。'));
+        return;
+      }
       const message = error instanceof Error ? error.message : 'Agent 对话失败';
       updateAssistant(current => ({ ...(current.text ? current : appendText(current, message)), error: true }));
       notify(message, 'error');
@@ -365,16 +492,72 @@ export default function App() {
         chatting.current = false;
         setChatBusy(false);
       }
+      void refreshChatSessions(selectedAgent.agentId);
+    }
+  };
+  const stopChat = () => {
+    if (stopPending.current) return;
+    stopPending.current = true;
+    setChatStopping(true);
+    const agentId = selectedAgent?.agentId;
+    const sessionId = chatSessionId.current;
+    const activeController = chatAbort.current;
+    if (agentId && sessionId) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5_000);
+      // 请求服务端先取消正在执行的任务；等待确认期间忽略后续流事件，
+      // 最终再断开本地流。断连回调同时作为服务端取消的兜底。
+      void agentApi.stopChat(agentId, sessionId, controller.signal)
+        .catch(error => {
+          console.warn('服务端停止请求未确认', error);
+          notify('已停止显示，但后端停止未确认；请检查服务端执行状态。', 'error');
+        })
+        .finally(() => {
+          clearTimeout(timeout);
+          activeController?.abort();
+          stopPending.current = false;
+          setChatStopping(false);
+        });
+    } else {
+      chatAbort.current?.abort();
+      stopPending.current = false;
+      setChatStopping(false);
     }
   };
   const clearChat = () => {
+    if (chatting.current) stopChat();
     chatVersion.current += 1;
+    historySelection.current += 1;
     chatAbort.current?.abort();
     chatAbort.current = null;
     chatSessionId.current = '';
+    setActiveChatSessionId('');
+    setHistoryOpen(false);
+    setHistoryLoadingId('');
     chatting.current = false;
     setChatBusy(false);
     setMessages([]);
+  };
+
+  const selectChatSession = async (sessionId: string) => {
+    if (!selectedAgent || chatting.current || stopPending.current) return;
+    const selection = ++historySelection.current;
+    setHistoryLoadingId(sessionId);
+    try {
+      const history = await agentApi.messages(selectedAgent.agentId, sessionId);
+      if (selection !== historySelection.current) return;
+      chatVersion.current += 1;
+      chatSessionId.current = sessionId;
+      setActiveChatSessionId(sessionId);
+      setMessages(restoreChatMessages(history ?? []));
+      setHistoryOpen(false);
+    } catch (error) {
+      if (selection === historySelection.current) {
+        notify(error instanceof Error ? error.message : '加载历史消息失败', 'error');
+      }
+    } finally {
+      if (selection === historySelection.current) setHistoryLoadingId('');
+    }
   };
 
   useEffect(() => {
@@ -395,7 +578,7 @@ export default function App() {
 
   return <div style={{ '--agent-width': `${agentWidth}%` } as CSSProperties} className={`app-shell ${maximized ? 'terminal-maximized' : ''} ${navCollapsed ? 'nav-collapsed' : ''} ${navigation === '连接' ? 'connections-view' : 'terminal-view'}`}>
     <AppHeader search={() => setDialog('search')} notify={notify} />
-    <ActivityBar active={navigation} onSelect={navigate} collapsed={navCollapsed} toggleCollapsed={() => setNavCollapsed(value => !value)} />
+    <ActivityBar active={navigation} onSelect={navigate} onSettings={() => setBackendSettingsOpen(true)} settingsOpen={backendSettingsOpen} collapsed={navCollapsed} toggleCollapsed={() => setNavCollapsed(value => !value)} />
     {navigation === '连接' && <Connections connections={{ ...connections, disconnect: disconnectHost, remove: async id => {
       if (!await closeHostTerminals(id)) return false;
       const removed = await connections.remove(id);
@@ -430,7 +613,18 @@ export default function App() {
       <CommandShelf commands={commands} category={category} setCategory={setCategory} fill={fill} run={requestRun} copy={copy} add={() => setDialog('command')} disabled={!canRun} collapsed={commandCollapsed} toggleCollapsed={() => setCommandCollapsed(value => !value)} />
     </main>
     <PanelDivider value={agentWidth} change={setAgentWidth} />
-    <AgentPanel host={host} messages={messages} busy={chatBusy} send={sendMessage} clear={clearChat} notify={notify} disabled={!selectedAgent} agentName={selectedAgent?.agentName} />
+    <AgentPanel host={host} messages={messages} busy={chatBusy} stopping={chatStopping} send={sendMessage} stop={stopChat}
+      clear={clearChat} disabled={!selectedAgent || Boolean(historyLoadingId) || chatStopping}
+      history={{
+        sessions: chatSessions, activeSessionId: activeChatSessionId, open: historyOpen,
+        loading: historyLoading, loadingSessionId: historyLoadingId, error: historyError,
+        toggle: () => {
+          if (!historyOpen && selectedAgent) void refreshChatSessions(selectedAgent.agentId);
+          setHistoryOpen(value => !value);
+        },
+        refresh: () => { if (selectedAgent) void refreshChatSessions(selectedAgent.agentId); },
+        select: sessionId => { void selectChatSession(sessionId); },
+      }} />
     <StatusBar host={host} />
     {toast && <NotificationToast key={toast.id} notice={toast} close={dismissNotice} />}
     {dialog === 'command' && <AddCommandDialog close={closeDialog} save={command => { setCommands(previous => [...previous, command]); setCategory(command.category); closeDialog(); notify('命令已添加到当前演示', 'success'); }} />}
@@ -439,5 +633,22 @@ export default function App() {
     {dialog === 'search' && <SearchDialog close={closeDialog} hosts={hosts} files={active?.fileState.files ?? []} commands={commands} choose={(kind, value) => { closeDialog(); if (kind === 'host') selectHost(value); if (kind === 'command') { fill(value); later(() => setFocusTick(tick => tick + 1), 0); } if (kind === 'file' && active) { const parts = value.split('/'); updateFiles(active.id, state => ({ ...state, open: true, selected: value, expanded: new Set([...state.expanded, ...parts.slice(0, -1)]) })); setNavigation('命令'); later(() => document.getElementById('files')?.focus(), 0); } }} />}
     {disconnectTarget && <DisconnectDialog key={disconnectTarget.sessionId} host={hosts.find(item => item.id === disconnectTarget.host.id) ?? disconnectTarget.host} busy={connections.busy} error={terminalError || connections.error} close={() => setDisconnectTarget(null)} confirm={confirmDisconnect} />}
     {pending && <Modal title="确认执行命令" onClose={() => setPending(null)}><div className="confirm-content"><p>目标：{sessions.find(session => session.id === pending.sessionId)?.title}</p><pre>{pending.command}</pre><p className="muted">此命令将在远程主机实际执行，请确认命令内容。</p><div className="dialog-actions"><button className="outlined-button" onClick={() => setPending(null)}>取消</button><button className="primary-button" onClick={() => { const request = pending; setPending(null); execute(request); }}>确认执行</button></div></div></Modal>}
+    {backendSettingsOpen && <BackendSettingsDialog currentUrl={backendUrl} onClose={() => setBackendSettingsOpen(false)} onSave={url => {
+      if (chatBusy || chatStopping || sessions.some(session => Boolean(session.hostId))) {
+        throw new Error('请先停止对话并关闭终端标签，再切换后端服务器。');
+      }
+      onBackendChange(url);
+    }} />}
   </div>;
+}
+
+export default function App() {
+  const [backendUrl, setBackendUrl] = useState(readBackendUrl);
+  const changeBackend = (url: string) => setBackendUrl(saveBackendUrl(url));
+
+  if (!backendUrl) {
+    return <BackendSettingsDialog currentUrl="" required onClose={() => {}} onSave={changeBackend} />;
+  }
+
+  return <AppContent key={backendUrl} backendUrl={backendUrl} onBackendChange={changeBackend} />;
 }
