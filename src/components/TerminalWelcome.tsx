@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Icon, Modal } from './Ui';
-import welcomeArt from '../assets/terminal-welcome-light.png';
+import welcomeArtDark from '../assets/terminal-welcome.png';
+import welcomeArtLight from '../assets/terminal-welcome-light.png';
 import './TerminalWelcome.css';
 
 export function TerminalWelcome({ add, connections }: { add: () => void; connections: () => void }) {
@@ -10,7 +11,8 @@ export function TerminalWelcome({ add, connections }: { add: () => void; connect
     <section className="terminal-welcome" aria-labelledby="terminal-welcome-title">
       <div className="terminal-welcome-content">
         <div className="terminal-welcome-art" aria-hidden="true">
-          <img src={welcomeArt} alt="" draggable={false} />
+          <img className="welcome-art-light" src={welcomeArtLight} alt="" draggable={false} />
+          <img className="welcome-art-dark" src={welcomeArtDark} alt="" draggable={false} />
           <span className="welcome-art-label remote">远程主机</span>
           <span className="welcome-art-label cloud">云服务器</span>
           <span className="welcome-art-label welcome-art-transfer">文件传输</span>

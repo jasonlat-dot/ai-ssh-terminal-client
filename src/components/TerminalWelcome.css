@@ -39,6 +39,7 @@
   object-fit: contain;
   mask-image: radial-gradient(ellipse 67% 67% at center, #000 56%, transparent 100%);
 }
+.terminal-welcome-art .welcome-art-dark { display: none; }
 .welcome-art-label { position: absolute; color: #397bda; border: 1px solid #d4e4ff; background: #eff6ffeb; border-radius: 20px; padding: 5px 12px; font-size: clamp(9px, 1cqi, 13px); }
 .welcome-art-label.remote { left: 12%; bottom: 8%; }
 .welcome-art-label.cloud { right: 12%; top: 47%; }
@@ -70,6 +71,56 @@
 .connection-guide-content li span { color: var(--muted); margin-top: 4px; }
 .app-shell .central-workspace.no-session { grid-template-rows: minmax(0, 1fr); }
 .central-workspace.no-session > .command-shelf { display: none; }
+
+:root[data-theme='dark'] .terminal-welcome {
+  border-color: #293d55;
+  background: radial-gradient(ellipse at 50% 28%, #10243a 0, #0d1928 62%, #0a1421 100%);
+  color: #dce8f6;
+  scrollbar-color: #40566f #0d1928;
+}
+:root[data-theme='dark'] .terminal-welcome::before {
+  background-image: linear-gradient(#4c7aa51b 1px, transparent 1px), linear-gradient(90deg, #4c7aa51b 1px, transparent 1px);
+}
+:root[data-theme='dark'] .terminal-welcome-art .welcome-art-light { display: none; }
+:root[data-theme='dark'] .terminal-welcome-art .welcome-art-dark { display: block; }
+:root[data-theme='dark'] .welcome-art-label {
+  color: #8fc2ff;
+  border-color: #315477;
+  background: #152b43e8;
+}
+:root[data-theme='dark'] .welcome-ready {
+  color: #62ddbf;
+  border-color: #28594f;
+  background: #15372f;
+}
+:root[data-theme='dark'] .terminal-welcome h2 { color: #e4eef9; }
+:root[data-theme='dark'] .welcome-description { color: #9eb2cb; }
+:root[data-theme='dark'] .welcome-guide {
+  color: #cfe1f4;
+  border-color: #38526e;
+  background: #172638;
+}
+:root[data-theme='dark'] .welcome-guide:hover {
+  color: #fff;
+  border-color: #52769c;
+  background: #20344a;
+}
+:root[data-theme='dark'] .welcome-features article {
+  border-color: #293e56;
+  background: #142235e6;
+  box-shadow: 0 8px 26px #0207112e;
+}
+:root[data-theme='dark'] .welcome-feature-icon {
+  color: #62ddbf;
+  background: #173a34;
+}
+:root[data-theme='dark'] .welcome-feature-icon.blue {
+  color: #8cbcff;
+  background: #1d3451;
+}
+:root[data-theme='dark'] .welcome-features h3 { color: #dce8f6; }
+:root[data-theme='dark'] .welcome-features p,
+:root[data-theme='dark'] .welcome-demo-note { color: #91a6bf; }
 @media (max-height: 820px) {
   .terminal-welcome-art img { max-height: min(30vh, 260px); }
   .welcome-actions { margin: 18px 0 22px; }
