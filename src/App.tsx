@@ -2,8 +2,13 @@ import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import type { CSSProperties } from 'react';
 import { updateSessionFiles } from './state/sessionFiles';
 import { agentApi } from './api/agent';
-import type { AgentConfig, AgentSession, AgentStreamEvent } from './api/agent';
-import { restoreChatMessages } from './state/agentHistory';
+import type { AgentConfig, AgentStreamEvent } from './api/agent';
+import {
+  listClientChatSessions,
+  loadClientChatSession,
+  saveClientChatSession,
+} from './state/clientChatHistory';
+import type { ClientChatSession } from './state/clientChatHistory';
 import { DisconnectDialog } from './components/DisconnectDialog';
 import { recordDisconnect } from './state/connectionHistory';
 import { terminalApi } from './api/terminal';
@@ -44,10 +49,12 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
   const [commands, setCommands] = useState(initialCommands);
   const [category, setCategory] = useState('全部');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const messagesRef = useRef<ChatMessage[]>([]);
+  const clientHistoryDirty = useRef(false);
   const [chatBusy, setChatBusy] = useState(false);
   const [chatStopping, setChatStopping] = useState(false);
   const [selectedAgent, setSelectedAgent] = useState<AgentConfig | null>(null);
-  const [chatSessions, setChatSessions] = useState<AgentSession[]>([]);
+  const [chatSessions, setChatSessions] = useState<ClientChatSession[]>([]);
   const [activeChatSessionId, setActiveChatSessionId] = useState('');
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -90,11 +97,43 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
   const notify = useCallback((message: string, type: NoticeType = 'info', durationMs?: number) => {
     setToast({ id: ++noticeSequence.current, message, type, ...(durationMs === undefined ? {} : { durationMs }) });
   }, []);
+  const replaceMessages = useCallback((next: ChatMessage[]) => {
+    messagesRef.current = next;
+    clientHistoryDirty.current = false;
+    setMessages(next);
+  }, []);
+  const updateMessages = useCallback((update: (current: ChatMessage[]) => ChatMessage[]) => {
+    const next = update(messagesRef.current);
+    messagesRef.current = next;
+    clientHistoryDirty.current = true;
+    setMessages(next);
+  }, []);
+  const persistClientSession = useCallback(async (
+    agentId: string,
+    sessionId: string,
+    snapshot: ChatMessage[] = messagesRef.current,
+  ) => {
+    if (!sessionId || !snapshot.length) return;
+    const firstUserMessage = snapshot.find(message => message.role === 'user')?.text.trim();
+    const title = firstUserMessage ? firstUserMessage.slice(0, 80) : '新会话';
+    await saveClientChatSession({
+      backendUrl,
+      userId: agentApi.userId,
+      agentId,
+      sessionId,
+    }, title, snapshot);
+    // 保存期间如果又收到了流式内容，messagesRef 已指向新数组，下一轮仍需继续保存。
+    if (messagesRef.current === snapshot) clientHistoryDirty.current = false;
+  }, [backendUrl]);
   const refreshChatSessions = useCallback(async (agentId: string) => {
     const version = ++historyRefreshVersion.current;
     setHistoryLoading(true);
     try {
-      const sessions = await agentApi.sessions(agentId);
+      const sessions = await listClientChatSessions({
+        backendUrl,
+        userId: agentApi.userId,
+        agentId,
+      });
       if (version === historyRefreshVersion.current) {
         setChatSessions(sessions);
         setHistoryError('');
@@ -106,7 +145,7 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
     } finally {
       if (version === historyRefreshVersion.current) setHistoryLoading(false);
     }
-  }, []);
+  }, [backendUrl]);
   const dismissNotice = useCallback(() => setToast(null), []);
   useEffect(() => { if (connections.error) notify(connections.error, 'error'); }, [connections.error, notify]);
   useEffect(() => {
@@ -124,8 +163,26 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
   }, [notify]);
   useEffect(() => () => chatAbort.current?.abort(), []);
   useEffect(() => {
+    const closeWindowTerminals = () => {
+      remoteClients.current.forEach(client => {
+        if (!client.closed) terminalApi.closeOnUnload(client.sessionId);
+      });
+    };
+    window.addEventListener('pagehide', closeWindowTerminals);
+    return () => window.removeEventListener('pagehide', closeWindowTerminals);
+  }, []);
+  useEffect(() => {
     if (selectedAgent?.agentId) void refreshChatSessions(selectedAgent.agentId);
   }, [selectedAgent?.agentId, refreshChatSessions]);
+  useEffect(() => {
+    if (!selectedAgent?.agentId || !activeChatSessionId || !messages.length || !clientHistoryDirty.current) return;
+    // 流式 token 更新频率很高，采用短防抖保存，既能保留实时过程又避免每个 token 都写磁盘。
+    const timer = setTimeout(() => {
+      void persistClientSession(selectedAgent.agentId, activeChatSessionId)
+        .catch(error => console.warn('客户端对话历史自动保存失败', error));
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [messages, activeChatSessionId, selectedAgent?.agentId, persistClientSession]);
   useEffect(() => {
     const listener = (e: KeyboardEvent) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); if (!pending && !disconnectTarget) setDialog(value => value === 'search' ? null : 'search'); } };
     window.addEventListener('keydown', listener);
@@ -161,7 +218,11 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
     } catch (error) { notify(error instanceof Error ? error.message : '打开终端失败', 'error'); }
     finally { opening.current.delete(id); }
   };
-  const handleTerminalDisconnected = (sessionId: string, message: string) => {
+  const handleTerminalDisconnected = (sessionId: string, message: string, sourceRuntime?: RemoteTerminal) => {
+    if (sourceRuntime && remoteClients.current.get(sessionId) !== sourceRuntime) {
+      console.info(`忽略旧终端实例的断开通知 oldTerminalSessionId=${sourceRuntime.sessionId} logicalSessionId=${sessionId}`);
+      return;
+    }
     const session = sessions.find(item => item.id === sessionId);
     if (!session?.hostId) return;
     connections.markDisconnected(session.hostId);
@@ -169,23 +230,36 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
     running.current.delete(sessionId);
     notify(message, 'error');
   };
-  const reconnectTerminal = async (sessionId: string) => {
+  const reconnectTerminal = async (
+    sessionId: string,
+    options?: { automatic?: boolean; attempt?: number },
+    sourceRuntime?: RemoteTerminal,
+  ) => {
+    if (sourceRuntime && remoteClients.current.get(sessionId) !== sourceRuntime) {
+      console.info(`忽略旧终端实例的重连请求 oldTerminalSessionId=${sourceRuntime.sessionId} logicalSessionId=${sessionId}`);
+      return true;
+    }
     const session = sessions.find(item => item.id === sessionId);
     if (!session?.hostId || connections.busy || opening.current.has(session.hostId)) return false;
     opening.current.add(session.hostId);
     remoteClients.current.get(sessionId)?.prepareReconnect();
-    notify('正在重新连接服务器并创建终端会话…');
+    if (options?.automatic) {
+      console.info(`SSH 自动重连请求 hostId=${session.hostId} oldTerminalSessionId=${remoteClients.current.get(sessionId)?.sessionId} attempt=${options.attempt ?? 1}`);
+    } else {
+      notify('正在重新连接服务器并创建终端会话…');
+    }
     try {
       if (!await connections.connect(session.hostId)) return false;
       const opened = await terminalApi.open(session.hostId);
       if (!opened?.sessionId) throw new Error('后端未返回终端会话 ID');
       remoteClients.current.set(sessionId, new RemoteTerminal(opened));
       setSessions(previous => previous.map(item => item.id === sessionId ? { ...item, busy: false } : item));
-      notify('已重新连接，可以继续操作。', 'success');
+      notify(options?.automatic ? `网络已恢复，SSH 自动重连成功（第 ${options.attempt ?? 1} 次）。` : '已重新连接，可以继续操作。', 'success');
       return true;
     } catch (error) {
       connections.markDisconnected(session.hostId);
-      notify(error instanceof Error ? error.message : '重新连接失败', 'error');
+      if (!options?.automatic) notify(error instanceof Error ? error.message : '重新连接失败', 'error');
+      else console.info(`SSH 自动重连请求失败 hostId=${session.hostId} attempt=${options.attempt ?? 1} reason=${error instanceof Error ? error.message : '重新连接失败'}`);
       return false;
     } finally { opening.current.delete(session.hostId); }
   };
@@ -202,6 +276,17 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
   const disconnectHost = async (hostId: string) => {
     if (!await closeHostTerminals(hostId)) return false;
     return connections.disconnect(hostId);
+  };
+  const removeHost = async (hostId: string) => {
+    if (!await closeHostTerminals(hostId)) return false;
+    const removed = await connections.remove(hostId);
+    if (removed) {
+      sessions.filter(session => session.hostId === hostId).forEach(session => remoteClients.current.delete(session.id));
+      const remaining = sessions.filter(session => session.hostId !== hostId);
+      setSessions(remaining);
+      if (!remaining.some(session => session.id === activeId)) setActiveId(remaining[0]?.id ?? '');
+    }
+    return removed;
   };
   const removeSessionTab = (id: string) => {
     const remaining = sessions.filter(session => session.id !== id);
@@ -304,7 +389,7 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
     const assistantId = crypto.randomUUID();
     const controller = new AbortController();
     chatAbort.current = controller;
-    setMessages(previous => [
+    updateMessages(previous => [
       ...previous,
       { id: crypto.randomUUID(), role: 'user', text },
       { id: assistantId, role: 'assistant', text: '', segments: [] },
@@ -313,7 +398,7 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
 
     const updateAssistant = (update: (message: ChatMessage) => ChatMessage) => {
       if (version !== chatVersion.current) return;
-      setMessages(previous => previous.map(message => message.id === assistantId ? update(message) : message));
+      updateMessages(previous => previous.map(message => message.id === assistantId ? update(message) : message));
     };
     const appendText = (message: ChatMessage, content: string): ChatMessage => {
       if (!content) return message;
@@ -492,7 +577,14 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
         chatting.current = false;
         setChatBusy(false);
       }
-      void refreshChatSessions(selectedAgent.agentId);
+      const sessionId = chatSessionId.current;
+      try {
+        await persistClientSession(selectedAgent.agentId, sessionId);
+      } catch (persistError) {
+        console.warn('客户端对话历史最终保存失败', persistError);
+        notify('对话已完成，但客户端历史保存失败。', 'error');
+      }
+      await refreshChatSessions(selectedAgent.agentId);
     }
   };
   const stopChat = () => {
@@ -525,6 +617,13 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
     }
   };
   const clearChat = () => {
+    const previousSessionId = chatSessionId.current;
+    const previousAgentId = selectedAgent?.agentId;
+    if (previousAgentId && previousSessionId && messagesRef.current.length) {
+      void persistClientSession(previousAgentId, previousSessionId)
+        .then(() => refreshChatSessions(previousAgentId))
+        .catch(error => console.warn('新建会话前保存客户端历史失败', error));
+    }
     if (chatting.current) stopChat();
     chatVersion.current += 1;
     historySelection.current += 1;
@@ -536,7 +635,7 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
     setHistoryLoadingId('');
     chatting.current = false;
     setChatBusy(false);
-    setMessages([]);
+    replaceMessages([]);
   };
 
   const selectChatSession = async (sessionId: string) => {
@@ -544,12 +643,18 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
     const selection = ++historySelection.current;
     setHistoryLoadingId(sessionId);
     try {
-      const history = await agentApi.messages(selectedAgent.agentId, sessionId);
+      const history = await loadClientChatSession({
+        backendUrl,
+        userId: agentApi.userId,
+        agentId: selectedAgent.agentId,
+        sessionId,
+      });
       if (selection !== historySelection.current) return;
+      if (!history) throw new Error('客户端中未找到该会话记录');
       chatVersion.current += 1;
       chatSessionId.current = sessionId;
       setActiveChatSessionId(sessionId);
-      setMessages(restoreChatMessages(history ?? []));
+      replaceMessages(history);
       setHistoryOpen(false);
     } catch (error) {
       if (selection === historySelection.current) {
@@ -579,20 +684,19 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
   return <div style={{ '--agent-width': `${agentWidth}%` } as CSSProperties} className={`app-shell ${maximized ? 'terminal-maximized' : ''} ${navCollapsed ? 'nav-collapsed' : ''} ${navigation === '连接' ? 'connections-view' : 'terminal-view'}`}>
     <AppHeader search={() => setDialog('search')} notify={notify} />
     <ActivityBar active={navigation} onSelect={navigate} onSettings={() => setBackendSettingsOpen(true)} settingsOpen={backendSettingsOpen} collapsed={navCollapsed} toggleCollapsed={() => setNavCollapsed(value => !value)} />
-    {navigation === '连接' && <Connections connections={{ ...connections, disconnect: disconnectHost, remove: async id => {
-      if (!await closeHostTerminals(id)) return false;
-      const removed = await connections.remove(id);
-      if (removed) {
-        sessions.filter(session => session.hostId === id).forEach(session => remoteClients.current.delete(session.id));
-        const remaining = sessions.filter(session => session.hostId !== id);
-        setSessions(remaining);
-        if (!remaining.some(session => session.id === activeId)) setActiveId(remaining[0]?.id ?? '');
-      }
-      return removed;
-    } }} terminal={selectHost} create={openNewConnection} copy={copy} />}
+    {navigation === '连接' && <Connections connections={{ ...connections, disconnect: disconnectHost, remove: removeHost }} terminal={selectHost} create={openNewConnection} copy={copy} />}
     <main hidden={navigation !== '命令'} className={`central-workspace ${!active ? 'no-session' : ''} ${commandCollapsed ? 'command-collapsed' : ''}`}>
       <TerminalWorkspace
-        remoteViews={sessions.filter(session => session.hostId && remoteClients.current.has(session.id)).map(session => <Suspense key={session.id} fallback={session.id === activeId ? <p>正在加载终端…</p> : null}><RemoteTerminalView runtime={remoteClients.current.get(session.id)!} visible={session.id === activeId && navigation === '命令'} confirm={confirm} online={!!hosts.find(item => item.id === session.hostId)?.online} onDisconnected={message => handleTerminalDisconnected(session.id, message)} reconnect={() => reconnectTerminal(session.id)} disconnect={() => closeSession(session.id)} /></Suspense>)}
+        remoteViews={sessions.filter(session => session.hostId && remoteClients.current.has(session.id)).map(session => {
+          const runtime = remoteClients.current.get(session.id)!;
+          return <Suspense key={session.id} fallback={session.id === activeId ? <p>正在加载终端…</p> : null}>
+            <RemoteTerminalView key={runtime.sessionId} runtime={runtime} visible={session.id === activeId && navigation === '命令'}
+              confirm={confirm} online={!!hosts.find(item => item.id === session.hostId)?.online}
+              onDisconnected={message => handleTerminalDisconnected(session.id, message, runtime)}
+              reconnect={options => reconnectTerminal(session.id, options, runtime)}
+              disconnect={() => closeSession(session.id)} />
+          </Suspense>;
+        })}
         connections={() => navigate('连接')}
         sessions={sessions}
         activeId={activeId}

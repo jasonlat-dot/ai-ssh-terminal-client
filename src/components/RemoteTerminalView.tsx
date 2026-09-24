@@ -10,26 +10,35 @@ type Props = {
   confirm: boolean;
   online: boolean;
   onDisconnected: (message: string) => void;
-  reconnect: () => Promise<boolean>;
+  reconnect: (options?: { automatic?: boolean; attempt?: number }) => Promise<boolean>;
   disconnect: () => void;
 };
 
 export function RemoteTerminalView({ runtime, visible, confirm, online, onDisconnected, reconnect, disconnect }: Props) {
+  const autoReconnectDelays = [1_000, 2_000, 5_000, 10_000, 20_000, 30_000] as const;
   const element = useRef<HTMLDivElement>(null);
   const term = useRef<Terminal | null>(null);
   const [error, setError] = useState('');
   const [disconnected, setDisconnected] = useState(runtime.disconnected);
   const [reconnecting, setReconnecting] = useState(false);
+  const [autoAttempt, setAutoAttempt] = useState(0);
   const unavailable = disconnected || !online || runtime.closed;
   const allowInput = useRef(!unavailable);
   const disconnectHandler = useRef(onDisconnected);
+  const reconnectHandler = useRef(reconnect);
+  const activeRuntime = useRef(runtime);
+  const reconnectingRef = useRef(false);
+  activeRuntime.current = runtime;
   allowInput.current = !unavailable;
   disconnectHandler.current = onDisconnected;
+  reconnectHandler.current = reconnect;
   useEffect(() => {
     let cleanup = () => {};
     setError('');
     setDisconnected(runtime.disconnected);
     setReconnecting(false);
+    setAutoAttempt(0);
+    reconnectingRef.current = false;
     // Defer allocation so React StrictMode's probe cannot drain initial output.
     const init = setTimeout(() => {
       if (!element.current) return;
@@ -62,19 +71,68 @@ export function RemoteTerminalView({ runtime, visible, confirm, online, onDiscon
     return () => { clearTimeout(init); cleanup(); };
   }, [runtime]);
   useEffect(() => { if (visible && !unavailable) term.current?.focus(); }, [visible, unavailable]);
+
+  useEffect(() => {
+    if (!disconnected || runtime.closed) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const wait = (delay: number) => new Promise<void>(resolve => { timer = setTimeout(resolve, delay); });
+    const reconnectAutomatically = async () => {
+      for (let index = 0; index < autoReconnectDelays.length && !cancelled; index += 1) {
+        const attempt = index + 1;
+        const delay = autoReconnectDelays[index];
+        setAutoAttempt(attempt);
+        console.info(`SSH 自动重连等待 sessionId=${runtime.sessionId} attempt=${attempt} retryDelayMs=${delay}`);
+        await wait(delay);
+        // 重连成功后 App 会创建新的 RemoteTerminal。旧实例的延迟任务即使已经苏醒，
+        // 也绝不能再通过更新后的回调去重连新实例，否则会形成“连接成功后立即断开”的循环。
+        if (cancelled || activeRuntime.current !== runtime) return;
+
+        if (reconnectingRef.current) continue;
+        reconnectingRef.current = true;
+        setReconnecting(true);
+        console.info(`SSH 自动重连开始 sessionId=${runtime.sessionId} attempt=${attempt}`);
+        try {
+          const connected = await reconnectHandler.current({ automatic: true, attempt });
+          if (cancelled || activeRuntime.current !== runtime) return;
+          if (connected) {
+            console.info(`SSH 自动重连成功 oldSessionId=${runtime.sessionId} attempt=${attempt}`);
+            setDisconnected(false);
+            setAutoAttempt(0);
+            return;
+          }
+          console.info(`SSH 自动重连失败 sessionId=${runtime.sessionId} attempt=${attempt}`);
+        } finally {
+          reconnectingRef.current = false;
+          if (!cancelled) setReconnecting(false);
+        }
+      }
+      if (!cancelled) {
+        setError('自动重连已达到 6 次，请检查网络后点击“重新连接”。');
+        console.info(`SSH 自动重连停止 sessionId=${runtime.sessionId} attempts=${autoReconnectDelays.length}`);
+      }
+    };
+
+    void reconnectAutomatically();
+    return () => { cancelled = true; if (timer) clearTimeout(timer); };
+  }, [disconnected, runtime]);
+
   const reconnectNow = async () => {
-    if (reconnecting) return;
+    if (reconnectingRef.current) return;
+    reconnectingRef.current = true;
     setReconnecting(true);
     try {
-      const connected = await reconnect();
+      const connected = await reconnect({ automatic: false });
       if (!connected) setReconnecting(false);
     } catch { setReconnecting(false); }
+    finally { reconnectingRef.current = false; }
   };
   return <div className="remote-terminal-view" hidden={!visible}>
     <div className="remote-terminal-tools"><span>{confirm ? '可直接在终端中输入；下方命令框提交时会显示确认。' : '交互模式：按键会直接发送到远程服务器。'}</span><div className="remote-terminal-tool-actions"><button className="remote-terminal-reconnect" disabled={reconnecting} onClick={() => { void reconnectNow(); }}>{reconnecting ? '正在重连…' : '重新连接'}</button><button className="remote-terminal-disconnect" onClick={disconnect}>断开连接</button></div></div>
     {unavailable && <div role="alert" className="remote-terminal-disconnected">
       <span className="remote-terminal-disconnected-icon" aria-hidden="true">↻</span>
-      <span><strong>{reconnecting ? '正在重新建立连接' : '当前终端连接不可用'}</strong><small>{reconnecting ? '正在连接服务器并创建新的终端会话…' : '点击终端上方的“重新连接”即可恢复会话。'}</small></span>
+      <span><strong>{reconnecting ? '正在重新建立连接' : '当前终端连接不可用'}</strong><small>{reconnecting ? `正在进行第 ${Math.max(autoAttempt, 1)} 次连接并创建新的终端会话…` : autoAttempt > 0 ? `自动重连第 ${autoAttempt} 次正在等待；也可以点击“重新连接”。` : '将自动尝试恢复，也可以点击“重新连接”。'}</small></span>
     </div>}
     {!unavailable && error && <div role="alert" className="remote-terminal-error">{error}<button disabled={!online || runtime.closed} onClick={() => { setError(''); runtime.resume(); }}>重试读取</button></div>}
     <div className="remote-terminal-screen" ref={element} aria-label="远程终端交互区" onClick={() => term.current?.focus()} />

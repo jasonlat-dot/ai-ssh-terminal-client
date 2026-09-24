@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import agentRobotAvatar from '../assets/agent-robot-avatar.png';
-import type { AgentSession } from '../api/agent';
+import type { ClientChatSession } from '../state/clientChatHistory';
 import type { ChatAgentActivity, ChatMessage, ChatToolActivity, Host } from '../types';
 import { Icon } from './Ui';
 
@@ -97,7 +97,7 @@ function AgentActivity({ agent }: { agent: ChatAgentActivity }) {
 }
 
 type HistoryControls = {
-  sessions: AgentSession[];
+  sessions: ClientChatSession[];
   activeSessionId: string;
   open: boolean;
   loading: boolean;
@@ -108,7 +108,7 @@ type HistoryControls = {
   select: (sessionId: string) => void;
 };
 
-function sessionTime(value: AgentSession['updatedAt']): string {
+function sessionTime(value: ClientChatSession['updatedAt']): string {
   if (!value) return '';
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? '' : date.toLocaleString('zh-CN', {

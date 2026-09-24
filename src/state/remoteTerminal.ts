@@ -1,5 +1,8 @@
 import { terminalApi } from '../api/terminal';
 import type { TerminalOpen } from '../api/terminal';
+import { SshRequestError } from '../api/ssh';
+
+const READ_RETRY_DELAYS = [1_000, 2_000, 5_000, 10_000, 20_000, 30_000] as const;
 
 // Long-poll reads must never block keyboard writes. Only writes share a queue so
 // keystrokes and submitted commands keep their original order.
@@ -17,6 +20,7 @@ export class RemoteTerminal {
   private backlog: string;
   private polling = false;
   private lastSize = '';
+  private readFailureCount = 0;
 
   constructor(opened: TerminalOpen) {
     this.sessionId = opened.sessionId;
@@ -57,9 +61,15 @@ export class RemoteTerminal {
   private async poll() {
     if (this.closed || this.closing || this.paused || this.disconnected || this.polling) return;
     this.polling = true;
+    let nextDelay = 0;
     try {
       const result = await terminalApi.read(this.sessionId);
       if (!this.output || this.closed || this.closing || this.paused || this.disconnected) return;
+      if (this.readFailureCount > 0) {
+        console.info(`Terminal Long Poll 网络已恢复 sessionId=${this.sessionId} failures=${this.readFailureCount}`);
+        this.readFailureCount = 0;
+        this.report?.('');
+      }
       const data = result.output || '';
       switch (result.status) {
         case 'DATA':
@@ -74,11 +84,11 @@ export class RemoteTerminal {
           break;
         case 'DISCONNECTED':
           console.info('SSH 已断开，eof=', result.eof);
-          this.markDisconnected(`SSH 已断开${result.eof ? '（已收到 EOF）' : ''}，请点击“重新连接”。`);
+          this.markDisconnected(`SSH 已断开${result.eof ? '（已收到 EOF）' : ''}，客户端将自动尝试重新连接。`);
           break;
         case 'READER_ERROR':
           console.error('SSH Reader 异常');
-          this.markDisconnected('SSH Reader 发生异常，请点击“重新连接”重新建立会话。');
+          this.markDisconnected('SSH Reader 发生异常，客户端将自动尝试重新连接。');
           break;
         default:
           throw new Error(`未知的终端读取状态：${String(result.status)}`);
@@ -87,10 +97,23 @@ export class RemoteTerminal {
     catch (error) {
       if (this.closed || this.closing || this.paused || this.disconnected) return;
       const message = error instanceof Error ? error.message : '读取终端失败';
-      console.error('Terminal Long Poll 请求异常，已停止轮询', error);
-      this.markDisconnected(`${message}，终端读取已停止，请点击“重新连接”。`);
+      if (error instanceof SshRequestError && error.kind === 'application' && error.code === 'S0003') {
+        console.info(`Terminal 后端会话已不存在 sessionId=${this.sessionId}`);
+        this.markDisconnected('后端终端会话已不存在，将尝试重新连接。');
+        return;
+      }
+
+      /*
+       * HTTP Long Poll 失败不代表后端到 SSH 服务器的连接已经断开。
+       * 保留当前 terminalSessionId，只按退避时间重试读取，避免一次客户端网络抖动
+       * 反过来销毁仍然正常的 SSH Shell。
+       */
+      this.readFailureCount += 1;
+      nextDelay = READ_RETRY_DELAYS[Math.min(this.readFailureCount - 1, READ_RETRY_DELAYS.length - 1)];
+      console.info(`Terminal Long Poll 网络波动，准备重试 sessionId=${this.sessionId} failure=${this.readFailureCount} retryDelayMs=${nextDelay} reason=${message}`);
+      this.report?.(`${message}；终端读取将在 ${Math.ceil(nextDelay / 1000)} 秒后自动重试。`);
     }
-    finally { this.polling = false; this.schedule(); }
+    finally { this.polling = false; this.schedule(nextDelay); }
   }
   resume() { if (this.disconnected) return; this.paused = false; this.report?.(''); this.schedule(); }
   prepareReconnect() {

@@ -1,4 +1,5 @@
 import { request } from './ssh';
+import { requireBackendUrl } from '../config/backend';
 
 export type TerminalOpen = { sessionId: string; connectionId: string; initialOutput: string };
 export type TerminalReadStatus = 'DATA' | 'TIMEOUT' | 'DISCONNECTED' | 'READER_ERROR' | 'REPLACED';
@@ -18,4 +19,8 @@ export const terminalApi = {
   read: (sessionId: string) => request<TerminalReadResult>('terminal/read', 'GET', undefined, { sessionId }),
   resize: (sessionId: string, cols: number, rows: number) => request<void>('terminal/resize', 'POST', { sessionId, cols, rows }),
   close: (sessionId: string) => request<void>('terminal/close', 'POST', undefined, { sessionId }),
+  // 页签关闭时普通异步 fetch 可能被浏览器取消；sendBeacon 可把本窗口的终端清理请求可靠地交给浏览器。
+  closeOnUnload: (sessionId: string) => navigator.sendBeacon(
+    `${requireBackendUrl()}/api/v1/ssh/terminal/close?${new URLSearchParams({ sessionId })}`,
+  ),
 };

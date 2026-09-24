@@ -7,23 +7,6 @@ export type AgentConfig = {
   agentDesc: string;
 };
 
-export type AgentSession = {
-  sessionId: string;
-  title: string | null;
-  messageCount: number | null;
-  createdAt: string | number | null;
-  updatedAt: string | number | null;
-};
-
-export type AgentHistoryMessage = {
-  id: number;
-  role: string;
-  content: string;
-  toolName: string | null;
-  toolCallId: string | null;
-  createdAt: string | number | null;
-};
-
 export type AgentToolStatus = 'running' | 'success' | 'error' | 'unknown';
 
 export type AgentStreamEvent =
@@ -254,12 +237,6 @@ async function chatStream(
 export const agentApi = {
   userId: sshUserId,
   list: () => request<AgentConfig[]>('query_ai_agent_config_list'),
-  sessions: (agentId: string, limit = 50) => request<AgentSession[]>(
-    `query_session_list?${new URLSearchParams({ agentId, userId: sshUserId, limit: String(limit) })}`,
-  ),
-  messages: (agentId: string, sessionId: string, limit = 100) => request<AgentHistoryMessage[]>(
-    `query_message_list?${new URLSearchParams({ agentId, userId: sshUserId, sessionId, limit: String(limit) })}`,
-  ),
   createSession: (agentId: string, signal?: AbortSignal) => request<{ sessionId: string }>(
     'create_session', 'POST', { agentId, userId: sshUserId }, signal,
   ),
