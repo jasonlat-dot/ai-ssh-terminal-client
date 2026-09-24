@@ -13,6 +13,15 @@ type Props = {
   disconnect: () => void;
 };
 
+const terminalThemes = {
+  light: { background: '#ffffff', foreground: '#243b60', cursor: '#246fe5', cursorAccent: '#ffffff', selectionBackground: '#cfe2ff', scrollbarSliderBackground: '#aebdd180', scrollbarSliderHoverBackground: '#91a6c1a6', scrollbarSliderActiveBackground: '#7890b3bf', black: '#243b60', red: '#be3434', green: '#00885e', yellow: '#946500', blue: '#276ac0', magenta: '#8750bb', cyan: '#008c9e', white: '#d2dceb' },
+  dark: { background: '#0d1624', foreground: '#d8e5f4', cursor: '#72adff', cursorAccent: '#0d1624', selectionBackground: '#31547a', scrollbarSliderBackground: '#52698380', scrollbarSliderHoverBackground: '#69839fa6', scrollbarSliderActiveBackground: '#7894b5bf', black: '#162235', red: '#ff7b72', green: '#45d3a6', yellow: '#e7bd65', blue: '#70a9ff', magenta: '#c099ff', cyan: '#56d4df', white: '#e5eef8' },
+};
+
+function currentTerminalTheme() {
+  return terminalThemes[document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light'];
+}
+
 export function RemoteTerminalView({ runtime, visible, online, onDisconnected, reconnect, disconnect }: Props) {
   const autoReconnectDelays = [1_000, 2_000, 5_000, 10_000, 20_000, 30_000] as const;
   const element = useRef<HTMLDivElement>(null);
@@ -42,7 +51,7 @@ export function RemoteTerminalView({ runtime, visible, online, onDisconnected, r
     const init = setTimeout(() => {
       if (!element.current) return;
       const terminal = new Terminal({ fontFamily: 'Consolas, "Courier New", monospace', fontSize: 13, cursorBlink: true, cursorStyle: 'bar', cursorWidth: 2,
-        scrollback: 5000, scrollOnUserInput: true, allowProposedApi: false, overviewRuler: { width: 6 }, theme: { background: '#ffffff', foreground: '#243b60', cursor: '#246fe5', cursorAccent: '#ffffff', selectionBackground: '#cfe2ff', scrollbarSliderBackground: '#aebdd180', scrollbarSliderHoverBackground: '#91a6c1a6', scrollbarSliderActiveBackground: '#7890b3bf', black: '#243b60', red: '#be3434', green: '#00885e', yellow: '#946500', blue: '#276ac0', magenta: '#8750bb', cyan: '#008c9e', white: '#d2dceb' } });
+        scrollback: 5000, scrollOnUserInput: true, allowProposedApi: false, overviewRuler: { width: 6 }, theme: currentTerminalTheme() });
       const fit = new FitAddon(); terminal.loadAddon(fit); terminal.open(element.current); term.current = terminal;
       // xterm.write() 会异步解析 ANSI 输出。解析完成后再滚到底部，确保 Agent
       // 命令经 Long Poll 回显时，视口始终跟随最新命令、结果和 Shell 提示符。
@@ -65,7 +74,9 @@ export function RemoteTerminalView({ runtime, visible, online, onDisconnected, r
         }, 120);
       });
       observer.observe(element.current);
-      cleanup = () => { clearTimeout(resizeTimer); observer.disconnect(); input.dispose(); unsubscribe(); terminal.dispose(); term.current = null; };
+      const themeObserver = new MutationObserver(() => { terminal.options.theme = currentTerminalTheme(); });
+      themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+      cleanup = () => { clearTimeout(resizeTimer); observer.disconnect(); themeObserver.disconnect(); input.dispose(); unsubscribe(); terminal.dispose(); term.current = null; };
     }, 0);
     return () => { clearTimeout(init); cleanup(); };
   }, [runtime]);

@@ -1,6 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { updateSessionFiles } from './state/sessionFiles';
+import { useTheme } from './state/useTheme';
 import { agentApi } from './api/agent';
 import type { AgentConfig, AgentStreamEvent } from './api/agent';
 import {
@@ -39,6 +40,7 @@ type CommandRequest = { sessionId: string; command: string };
 const initialSessions: TerminalSession[] = [];
 
 function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBackendChange: (url: string) => void }) {
+  const { theme, setTheme } = useTheme();
   const [navigation, setNavigation] = useState<Navigation>('命令');
   const connections = useSshConnections();
   const { hosts } = connections;
@@ -697,7 +699,7 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
   }, [hosts, sessions, notify]);
 
   return <div style={{ '--agent-width': `${agentWidth}%` } as CSSProperties} className={`app-shell ${agentCollapsed ? 'agent-collapsed' : ''} ${navCollapsed ? 'nav-collapsed' : ''} ${navigation === '连接' ? 'connections-view' : 'terminal-view'}`}>
-    <AppHeader search={() => setDialog('search')} notify={notify} />
+    <AppHeader search={() => setDialog('search')} notify={notify} theme={theme} setTheme={setTheme} />
     <ActivityBar active={manageConnections ? '连接' : navigation} onSelect={navigate} onSettings={() => setBackendSettingsOpen(true)} settingsOpen={backendSettingsOpen} collapsed={navCollapsed} toggleCollapsed={() => setNavCollapsed(value => !value)} />
     <ConnectionSidebar connections={{ ...connections, disconnect: disconnectHost, remove: removeHost }} activeHostId={active?.hostId} terminal={selectHost} create={openNewConnection} manage={manageConnections} setManage={setManageConnections} />
     <main hidden={navigation !== '命令'} className={`central-workspace ${!active ? 'no-session' : ''} ${commandCollapsed ? 'command-collapsed' : ''}`}>
