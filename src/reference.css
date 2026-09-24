@@ -30,8 +30,6 @@
 .project-select { background: #edf3fb; width: 152px; height: 34px; border: 0; border-radius: 9px; font-size: 12px; }
 .project-select > span { margin-right: auto; }
 .project-select > svg { color: #6c82b3; }
-.global-search { width: min(34vw, 510px); height: 36px; border-radius: 11px; background: #ffffffc9; font-size: 12px; left: 54%; }
-.global-search svg { color: #6f8abd; }
 .avatar { background: linear-gradient(145deg, #6485ff, #343ed0); width: 32px; height: 32px; box-shadow: inset 1px 1px 2px #ffffff50; }
 .user-menu { font-size: 12px; }
 .profile { gap: 12px; }
@@ -288,13 +286,11 @@
   .system-results p { font-size: 9px; }
   .advice-card > div { gap: 7px; font-size: 9px; }
   .advice-card > div > button { padding: 5px 9px; font-size: 10px; }
-  .global-search { width: 31vw; font-size: 11px; }
 }
 @media (max-width: 1320px) {
   :root { --rail: 105px; --sidebar: 204px; --agent: 320px; }
   .brand strong { font-size: 18px; }
   .project-select { width: 128px; }
-  .global-search { left: 55%; width: 29vw; font-size: 10px; }
   .activity { gap: 8px; padding: 8px 6px; }
   .activity svg { width: 19px; }
   .nav-footer { padding-left: 5px; }
@@ -987,7 +983,6 @@
 .brand-mark span { width: 14px; height: 14px; border-radius: 4px; }
 .brand strong { font-size: 17px; }
 .brand small { display: none; }
-.global-search { left: 50%; width: min(31vw, 430px); height: 32px; border-radius: 7px; background: #fafbfc; }
 .profile { margin-left: auto; }
 
 .activity-bar {
@@ -1208,7 +1203,6 @@
 }
 @media (max-width: 1180px) {
   .central-workspace { grid-template-columns: minmax(0, 1fr) 215px; }
-  .global-search { width: 300px; }
   .command-name { font-size: 10.5px; }
 }
 
@@ -1777,7 +1771,6 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.985); }
 :root[data-theme='dark'] ::-webkit-scrollbar-thumb { background: #40536a; }
 :root[data-theme='dark'] .app-shell { background: radial-gradient(ellipse at 50% 10%, #172842 0, #0c1320 70%); }
 :root[data-theme='dark'] .app-header { border-color: #243449; background: #101a28e8; }
-:root[data-theme='dark'] .global-search,
 :root[data-theme='dark'] .host-sidebar,
 :root[data-theme='dark'] .connection-sidebar,
 :root[data-theme='dark'] .terminal-tab.selected,
@@ -1859,7 +1852,6 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.985); }
 /* All primary surfaces consume the semantic theme palette. */
 .app-header,
 .activity-bar { background: var(--theme-chrome); border-color: var(--line); }
-.global-search,
 .host-sidebar,
 .connections-page,
 .terminal-tab.selected,
@@ -1962,6 +1954,66 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.985); }
 .ssh-boolean-switch,
 .ssh-boolean-switch button.selected { color: var(--theme-text-strong); background: var(--theme-panel); border-color: var(--line); }
 .status-bar { color: var(--theme-text-muted); background: color-mix(in srgb, var(--theme-panel) 84%, transparent); border-color: var(--line); }
+
+/* Readable typography for dense desktop controls and secondary labels. */
+.app-shell { font-weight: 500; }
+.app-shell small { font-weight: 600; letter-spacing: .01em; }
+.file-source-card .file-row {
+  color: var(--theme-text-strong);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: .005em;
+}
+.file-explorer-title strong,
+.file-source-heading strong { font-size: 11px; font-weight: 700; }
+.file-explorer-title small,
+.file-source-heading small,
+.file-list-heading,
+.file-list-heading small,
+.file-source-card .empty-folder,
+.session-file-panel .transfer-empty {
+  color: var(--theme-text-muted);
+  font-size: 9.5px;
+  font-weight: 600;
+}
+.file-current-path {
+  color: var(--theme-text-muted);
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+.file-source-actions .icon-button,
+.file-mini-action { font-size: 9.5px; font-weight: 650; }
+.activity small,
+.host-sidebar-heading small,
+.sidebar-host-search input,
+.sidebar-host small,
+.sidebar-host em,
+.host-row-meta,
+.panel-title small,
+.command-categories button > small,
+.command-list-heading small,
+.conversation-title small,
+.agent-history-meta,
+.tool-activity .tool-name small,
+.tool-view-result,
+.agent-activity-title small,
+.agent-activity-thought summary > small,
+.command-dialog-preview small {
+  color: var(--theme-text-muted);
+  font-size: 9.5px;
+  font-weight: 600;
+}
+.command-fill code,
+.command-list-heading,
+.command-categories button,
+.agent-chat-empty p,
+.tool-activity,
+.agent-activity-disclosure,
+.agent-activity-task,
+.agent-activity-thought summary,
+.agent-activity-empty,
+.tool-empty-result { font-weight: 550; }
 
 @media (prefers-reduced-motion: reduce) {
   .terminal-body,

@@ -55,9 +55,6 @@ export function createFiles(): FileNode[] {
     ...['package.json', 'docker-compose.yml', '.env.example'].map(name => ({ id: name, name, kind: 'file' as const })),
   ];
 }
-export function flattenFiles(nodes: FileNode[]): FileNode[] {
-  return nodes.flatMap(node => [node, ...flattenFiles(node.children ?? [])]);
-}
 export const initialMessages: ChatMessage[] = [
   { id: 'user-seed', role: 'user', text: '帮我检查服务运行状态和磁盘空间' },
   { id: 'assistant-seed', role: 'assistant', text: '我将检查容器状态与磁盘使用情况。', tools: [{ id: 'docker', name: '容器状态', status: 'success' }, { id: 'disk', name: '磁盘检查', status: 'success' }], summary: '服务运行正常，磁盘使用率 35%，可用空间 52 GB。', suggestion: true },

@@ -1,16 +1,14 @@
 import type { Navigation } from '../types';
 import type { ThemePreference } from '../state/useTheme';
-import { Icon, IconButton } from './Ui';
+import { Icon } from './Ui';
 import type { IconName } from './Ui';
-export function AppHeader({ search, notify, theme, setTheme }: {
-  search: () => void;
+export function AppHeader({ notify, theme, setTheme }: {
   notify: (text: string) => void;
   theme: ThemePreference;
   setTheme: (theme: ThemePreference) => void;
 }) {
   return <header className="app-header">
     <div className="brand"><span className="brand-mark"><span /></span><div><strong>Agent SSH</strong><small>智能远程开发助手</small></div></div>
-    <button className="global-search" onClick={search}><Icon name="search" /><span>搜索命令、文件或主机… (Ctrl + K)</span></button>
     <div className="profile">
       <div className="theme-switcher" role="group" aria-label="界面主题">
         {([
@@ -19,7 +17,6 @@ export function AppHeader({ search, notify, theme, setTheme }: {
           ['dark', 'moon', '深色模式'],
         ] as const).map(([value, icon, label]) => <button type="button" key={value} className={theme === value ? 'selected' : ''} aria-label={label} title={label} aria-pressed={theme === value} onClick={() => setTheme(value)}><Icon name={icon} size={15} /></button>)}
       </div>
-      <IconButton icon="bulb" label="通知" onClick={() => notify('目前没有新的通知。')} />
       <span className="header-divider" />
       <button className="user-menu" onClick={() => notify('zhangsan · 本地演示账户')}><span className="avatar">Z</span><span>zhangsan</span><Icon name="down" size={14} /></button>
     </div>

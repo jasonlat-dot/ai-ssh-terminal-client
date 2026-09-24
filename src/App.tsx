@@ -22,7 +22,7 @@ import { SshConnectionDialog } from './components/SshConnectionDialog';
 import { useSshConnections } from './state/useSshConnections';
 import { PanelDivider } from './components/PanelDivider';
 import { AgentPanel } from './components/AgentPanel';
-import { AddCommandDialog, CreateFileDialog, SearchDialog } from './components/Dialogs';
+import { AddCommandDialog, CreateFileDialog } from './components/Dialogs';
 import { SessionFiles } from './components/Sidebar';
 import { ActivityBar, AppHeader } from './components/Shell';
 import { BackendSettingsDialog } from './components/BackendSettingsDialog';
@@ -35,7 +35,7 @@ import './reference.css';
 
 const RemoteTerminalView = lazy(() => import('./components/RemoteTerminalView').then(module => ({ default: module.RemoteTerminalView })));
 
-type Dialog = 'command' | 'connection' | 'file' | 'search' | null;
+type Dialog = 'command' | 'connection' | 'file' | null;
 type CommandRequest = { sessionId: string; command: string };
 const initialSessions: TerminalSession[] = [];
 
@@ -203,12 +203,6 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
     }, 300);
     return () => clearTimeout(timer);
   }, [messages, activeChatSessionId, selectedAgent?.agentId, persistClientSession]);
-  useEffect(() => {
-    const listener = (e: KeyboardEvent) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); if (!disconnectTarget) setDialog(value => value === 'search' ? null : 'search'); } };
-    window.addEventListener('keydown', listener);
-    return () => window.removeEventListener('keydown', listener);
-  }, [disconnectTarget]);
-
   const closeDialog = () => { setDialog(null); setFileDialogSessionId(null); };
   const copy = async (text: string) => {
     try { await navigator.clipboard.writeText(text); notify('已复制到剪贴板', 'success'); }
@@ -699,7 +693,7 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
   }, [hosts, sessions, notify]);
 
   return <div style={{ '--agent-width': `${agentWidth}%` } as CSSProperties} className={`app-shell ${agentCollapsed ? 'agent-collapsed' : ''} ${navCollapsed ? 'nav-collapsed' : ''} ${navigation === '连接' ? 'connections-view' : 'terminal-view'}`}>
-    <AppHeader search={() => setDialog('search')} notify={notify} theme={theme} setTheme={setTheme} />
+    <AppHeader notify={notify} theme={theme} setTheme={setTheme} />
     <ActivityBar active={manageConnections ? '连接' : navigation} onSelect={navigate} onSettings={() => setBackendSettingsOpen(true)} settingsOpen={backendSettingsOpen} collapsed={navCollapsed} toggleCollapsed={() => setNavCollapsed(value => !value)} />
     <ConnectionSidebar connections={{ ...connections, disconnect: disconnectHost, remove: removeHost }} activeHostId={active?.hostId} terminal={selectHost} create={openNewConnection} manage={manageConnections} setManage={setManageConnections} />
     <main hidden={navigation !== '命令'} className={`central-workspace ${!active ? 'no-session' : ''} ${commandCollapsed ? 'command-collapsed' : ''}`}>
@@ -756,7 +750,6 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
     }} />}
     {dialog === 'file' && fileDialogSessionId && <CreateFileDialog close={closeDialog} path="/var/www/app" files={sessions.find(session => session.id === fileDialogSessionId)?.fileState.files ?? []} save={file => { updateFiles(fileDialogSessionId, state => ({ ...state, files: [...state.files, file], selected: file.id })); closeDialog(); notify('已在当前终端的演示文件树中创建', 'success'); }} />}
     {dialog === 'connection' && <SshConnectionDialog connections={connections} connectAfterSave={connectAfterSave} onClose={closeDialog} onSaved={saved => { if (connectAfterSave) void selectHost(saved.id, saved); else notify('SSH 连接已保存。', 'success'); }} />}
-    {dialog === 'search' && <SearchDialog close={closeDialog} hosts={hosts} files={active?.fileState.files ?? []} commands={commands} choose={(kind, value) => { closeDialog(); if (kind === 'host') selectHost(value); if (kind === 'command') fill(value); if (kind === 'file' && active) { const parts = value.split('/'); updateFiles(active.id, state => ({ ...state, open: true, selected: value, expanded: new Set([...state.expanded, ...parts.slice(0, -1)]) })); setNavigation('命令'); later(() => document.getElementById('files')?.focus(), 0); } }} />}
     {disconnectTarget && <DisconnectDialog key={disconnectTarget.sessionId} host={hosts.find(item => item.id === disconnectTarget.host.id) ?? disconnectTarget.host} busy={connections.busy} error={terminalError || connections.error} close={() => setDisconnectTarget(null)} confirm={confirmDisconnect} />}
     {backendSettingsOpen && <BackendSettingsDialog currentUrl={backendUrl} onClose={() => setBackendSettingsOpen(false)} onSave={url => {
       if (chatBusy || chatStopping || sessions.some(session => Boolean(session.hostId))) {
