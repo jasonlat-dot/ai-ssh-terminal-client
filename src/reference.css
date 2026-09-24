@@ -1748,8 +1748,8 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.985); }
   --line-strong: #35475e;
   --workbench-line: #293b51;
   --text: #dce8f6;
-  --muted: #9fb0c5;
-  --faint: #76899f;
+  --muted: #aec0d4;
+  --faint: #91a4bb;
   --mint: #35c7a1;
   --mint-soft: #173b36;
   --blue: #68a7ff;
@@ -1762,7 +1762,7 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.985); }
   --theme-hover: #203146;
   --theme-selected: #1d3a57;
   --theme-text-strong: #dce8f6;
-  --theme-text-muted: #9fb0c5;
+  --theme-text-muted: #aec0d4;
   --theme-accent-text: #8fc2ff;
   --theme-shadow: #02071152;
   color: var(--text);
@@ -2014,6 +2014,203 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.985); }
 .agent-activity-thought summary,
 .agent-activity-empty,
 .tool-empty-result { font-weight: 550; }
+
+/* Keep nested labels readable when a dark surface replaces a light one. */
+.connections-heading h1,
+.connection-stats strong,
+.host-identity h2,
+.host-row-identity strong,
+.terminal-tab.selected > button[role=tab],
+.panel-title h2,
+.command-name,
+.command-list-heading,
+.agent-history-heading,
+.agent-history-title,
+.tool-activity .tool-identity strong,
+.agent-activity-title strong,
+.ssh-connection-modal > header h2,
+.ssh-form-section-heading strong,
+.add-command-dialog > header h2,
+.command-dialog-fields label,
+.command-category-picker legend,
+.command-dialog-preview strong,
+.delete-connection-modal > header h2,
+.delete-dialog-content > h3,
+.delete-host-summary strong,
+.disconnect-dialog > header h2,
+.disconnect-intro strong,
+.disconnect-host dd,
+.connection-history h3,
+.connection-history li strong,
+.backend-settings-form label {
+  color: var(--theme-text-strong);
+}
+.connections-heading p,
+.connection-stats small,
+.host-address,
+.ssh-host-card dt,
+.ssh-host-card dd,
+.host-row-identity small,
+.host-row-meta,
+.local-terminal-link,
+.terminal-tab > button[role=tab],
+.terminal-toolbar .icon-button,
+.remote-terminal-tools,
+.agent-history-note,
+.tool-activity summary em,
+.tool-status,
+.ssh-dialog-intro p,
+.ssh-form-section-heading small,
+.ssh-dialog-grid label,
+.ssh-credential-field,
+.ssh-setting-field,
+.ssh-auth-switch button,
+.ssh-boolean-switch button,
+.ssh-advanced-settings summary,
+.ssh-dialog-form > footer > p,
+.compact-delete-dialog > p,
+.command-dialog-intro,
+.command-dialog-preview code,
+.command-persistence-note,
+.delete-dialog-content > p,
+.delete-host-summary small,
+.disconnect-intro p,
+.disconnect-host dt,
+.connection-history li small,
+.backend-settings-intro p,
+.backend-settings-help {
+  color: var(--theme-text-muted);
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+}
+:root[data-theme='dark'] button:disabled {
+  opacity: .62;
+}
+:root[data-theme='dark'] .panel-count,
+:root[data-theme='dark'] .command-categories button > small,
+:root[data-theme='dark'] .connection-filter-tabs span,
+:root[data-theme='dark'] .sidebar-host em,
+:root[data-theme='dark'] .host-status {
+  color: var(--theme-text-muted);
+  background: var(--theme-control);
+}
+:root[data-theme='dark'] .command-categories button.selected > small,
+:root[data-theme='dark'] .sidebar-host:has(.status-dot:not(.offline)) em,
+:root[data-theme='dark'] .host-status.online {
+  color: #78ddc1;
+  background: #173b36;
+}
+:root[data-theme='dark'] .command-add-button {
+  color: var(--theme-accent-text);
+  background: var(--theme-control) !important;
+  border-color: var(--line-strong);
+}
+:root[data-theme='dark'] .command-add-button:hover {
+  color: #b5d7ff;
+  background: var(--theme-hover) !important;
+}
+:root[data-theme='dark'] .command-fill > svg,
+:root[data-theme='dark'] .command-row .icon-button,
+:root[data-theme='dark'] .command-categories button > svg {
+  color: #8fa9c7;
+}
+:root[data-theme='dark'] .command-row:hover {
+  color: var(--theme-text-strong);
+  background: var(--theme-hover);
+}
+:root[data-theme='dark'] .command-row:hover .command-name,
+:root[data-theme='dark'] .command-row:hover .command-fill > svg,
+:root[data-theme='dark'] .command-categories button:hover {
+  color: var(--theme-accent-text);
+}
+:root[data-theme='dark'] .command-list-heading,
+:root[data-theme='dark'] .command-row,
+:root[data-theme='dark'] .command-dialog-form .dialog-actions,
+:root[data-theme='dark'] .connection-history,
+:root[data-theme='dark'] .connection-history li {
+  border-color: var(--line);
+}
+:root[data-theme='dark'] .command-category-picker button,
+:root[data-theme='dark'] .command-dialog-preview small,
+:root[data-theme='dark'] .host-row-secondary,
+:root[data-theme='dark'] .delete-dialog-actions .outlined-button,
+:root[data-theme='dark'] .disconnect-actions .outlined-button {
+  color: var(--theme-text-muted);
+  background: var(--theme-control);
+  border-color: var(--line-strong);
+}
+:root[data-theme='dark'] .command-category-picker button.selected,
+:root[data-theme='dark'] .command-dialog-preview small {
+  color: var(--theme-accent-text);
+  background: var(--theme-selected);
+  border-color: #496b91;
+  box-shadow: none;
+}
+:root[data-theme='dark'] .command-preview-icon,
+:root[data-theme='dark'] .host-row-main .host-symbol,
+:root[data-theme='dark'] .stat-icon {
+  color: #8fc2ff;
+  background: #203752;
+}
+:root[data-theme='dark'] .modal.disconnect-dialog,
+:root[data-theme='dark'] .modal.backend-settings-modal {
+  color: var(--theme-text-strong);
+  background: var(--theme-panel);
+  border-color: var(--line-strong);
+}
+:root[data-theme='dark'] .disconnect-host,
+:root[data-theme='dark'] .delete-host-summary,
+:root[data-theme='dark'] .backend-settings-form input,
+:root[data-theme='dark'] .ssh-form-section {
+  color: var(--theme-text-strong);
+  background: var(--theme-panel-soft);
+  border-color: var(--line);
+}
+:root[data-theme='dark'] .disconnect-host dl > div,
+:root[data-theme='dark'] .delete-dialog-actions,
+:root[data-theme='dark'] .ssh-advanced-settings {
+  border-color: var(--line);
+}
+:root[data-theme='dark'] .host-sidebar > footer > button:first-child,
+:root[data-theme='dark'] .remote-terminal-tools,
+:root[data-theme='dark'] .ssh-dialog-form > footer .outlined-button,
+:root[data-theme='dark'] .ssh-auth-switch button,
+:root[data-theme='dark'] .ssh-boolean-switch button {
+  color: var(--theme-text-muted);
+}
+:root[data-theme='dark'] .ssh-auth-switch button:hover,
+:root[data-theme='dark'] .ssh-boolean-switch button:hover:not(.selected) {
+  color: var(--theme-accent-text);
+  background: var(--theme-hover);
+  border-color: var(--line-strong);
+}
+:root[data-theme='dark'] .ssh-auth-switch button.selected,
+:root[data-theme='dark'] .ssh-boolean-switch button.selected {
+  color: #78ddc1;
+  background: #173b36;
+  border-color: #397164;
+  box-shadow: none;
+}
+:root[data-theme='dark'] .remote-terminal-disconnected {
+  color: #e5c88d;
+  background: #2c261a;
+  border-color: #695a37;
+  box-shadow: none;
+}
+:root[data-theme='dark'] .remote-terminal-disconnected strong { color: #f0d59c; }
+:root[data-theme='dark'] .remote-terminal-disconnected small { color: #c6ad79; }
+:root[data-theme='dark'] .remote-terminal-disconnected-icon {
+  color: #f0bd55;
+  background: #453719;
+}
+:root[data-theme='dark'] .remote-terminal-error,
+:root[data-theme='dark'] .assistant-message.error .assistant-content {
+  color: #f0a29b;
+  background: #341d23;
+  border-color: #70404a;
+}
 
 @media (prefers-reduced-motion: reduce) {
   .terminal-body,
