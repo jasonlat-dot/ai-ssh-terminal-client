@@ -1719,6 +1719,18 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.985); }
 }
 
 /* Three-state theme switcher and dark palette ---------------------------- */
+:root {
+  --theme-chrome: #fbfcfd;
+  --theme-panel: #ffffff;
+  --theme-panel-soft: #fbfdff;
+  --theme-control: #f5f8fc;
+  --theme-hover: #eef4fb;
+  --theme-selected: #e8f1fc;
+  --theme-text-strong: #25364c;
+  --theme-text-muted: #65748a;
+  --theme-accent-text: #175fa6;
+  --theme-shadow: #315f8f14;
+}
 .theme-switcher { display: flex; align-items: center; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel); }
 .theme-switcher button { width: 26px; height: 25px; border-radius: 6px; color: var(--faint); }
 .theme-switcher button:hover { color: #2468a8; background: var(--surface-hover); }
@@ -1749,6 +1761,16 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.985); }
   --blue: #68a7ff;
   --surface-hover: #1d2c3f;
   --surface-active: #27394f;
+  --theme-chrome: #0f1825;
+  --theme-panel: #172233;
+  --theme-panel-soft: #111c2b;
+  --theme-control: #1a293b;
+  --theme-hover: #203146;
+  --theme-selected: #1d3a57;
+  --theme-text-strong: #dce8f6;
+  --theme-text-muted: #9fb0c5;
+  --theme-accent-text: #8fc2ff;
+  --theme-shadow: #02071152;
   color: var(--text);
   background: var(--bg);
 }
@@ -1833,6 +1855,113 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.985); }
 :root[data-theme='dark'] .new-agent-session { color: var(--muted); background: #172537; border-color: var(--line); }
 :root[data-theme='dark'] .markdown-body pre,
 :root[data-theme='dark'] .markdown-body code { color: #cadcf0; background: #0b1420; border-color: var(--line); }
+
+/* All primary surfaces consume the semantic theme palette. */
+.app-header,
+.activity-bar { background: var(--theme-chrome); border-color: var(--line); }
+.global-search,
+.host-sidebar,
+.connections-page,
+.terminal-tab.selected,
+.terminal-pane,
+.command-shelf-inner,
+.agent-panel.conversation-only,
+.conversation-only .conversation-card,
+.conversation-only .conversation-card > header,
+.conversation-only .conversation-card .chat-messages,
+.chat-composer,
+.agent-history-popover,
+.session-file-panel { color: var(--text); background: var(--theme-panel); border-color: var(--line); }
+.host-sidebar-heading,
+.host-sidebar > footer,
+.sidebar-host-search,
+.terminal-toolbar,
+.workspace-panel-controls,
+.chat-composer textarea,
+.model-select,
+.agent-history-button,
+.new-terminal-button,
+.outlined-button { color: var(--theme-text-muted); background: var(--theme-control); border-color: var(--line); }
+.host-sidebar-heading strong,
+.sidebar-host strong,
+.conversation-title h3,
+.agent-chat-empty h3,
+.assistant-processing > strong,
+.markdown-body,
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4,
+.markdown-body strong { color: var(--theme-text-strong); }
+.host-sidebar-heading span,
+.host-sidebar-heading small,
+.sidebar-host small,
+.conversation-title small,
+.agent-chat-empty p,
+.agent-history-meta { color: var(--theme-text-muted); }
+.activity,
+.nav-collapsed .activity > svg,
+.sidebar-host { color: var(--theme-text-muted); }
+.activity:hover,
+.nav-collapsed .activity:hover > svg,
+.sidebar-host:hover,
+.host-sidebar > footer > button:first-child:hover,
+.agent-history-button:hover,
+.agent-history-item:hover,
+.agent-activity-header:hover,
+.agent-activity-thought summary:hover { color: var(--theme-accent-text); background: var(--theme-hover); border-color: var(--line-strong); }
+.activity.selected,
+.nav-collapsed .activity.selected > svg,
+.sidebar-host.selected,
+.agent-history-item.active { color: var(--theme-accent-text); background: var(--theme-selected); border-color: var(--line-strong); }
+.sidebar-host.selected strong { color: var(--theme-accent-text); }
+.host-sidebar-heading .icon-button,
+.sidebar-host-actions .icon-button,
+.connection-refresh,
+.host-search,
+.connection-filter-tabs,
+.ssh-host-row,
+.connection-stats > div,
+.command-row,
+.command-categories button,
+.command-fill code { color: var(--theme-text-muted); background: var(--theme-panel); border-color: var(--line); }
+.assistant-content,
+.tool-activity,
+.agent-activity,
+.agent-activity-thought,
+.agent-history-item { color: var(--theme-text-muted); background: var(--theme-panel-soft); border-color: var(--line); box-shadow: 0 8px 22px var(--theme-shadow); }
+.tool-activity.running,
+.agent-activity.running,
+.processing-status { color: var(--theme-text-muted); background: var(--theme-control); border-color: var(--line); }
+.markdown-body blockquote,
+.markdown-body th,
+.markdown-body tr:nth-child(even) td { color: var(--theme-text-muted); background: var(--theme-control); border-color: var(--line); }
+.markdown-body code,
+.tool-activity .tool-identity code,
+.tool-activity pre { color: var(--theme-text-strong); background: color-mix(in srgb, var(--theme-panel-soft) 76%, #07101b); border-color: var(--line); }
+.agent-activity-header,
+.agent-activity-task,
+.agent-activity-thought summary,
+.agent-activity-text,
+.tool-view-result { color: var(--theme-text-muted); }
+.agent-activity-body,
+.agent-activity-thought > .agent-activity-text,
+.assistant-processing { border-color: var(--line); }
+.chat-composer:focus-within { border-color: #568fd1; box-shadow: 0 0 0 3px color-mix(in srgb, #568fd1 22%, transparent); }
+.remote-terminal-tools button,
+.remote-terminal-error button { background: var(--theme-control); border-color: var(--line-strong); }
+.remote-terminal-tools .remote-terminal-reconnect { color: #72adff; background: color-mix(in srgb, #2d6fac 24%, var(--theme-control)); }
+.remote-terminal-tools .remote-terminal-disconnect { color: #ef8b82; background: color-mix(in srgb, #a94b45 18%, var(--theme-control)); }
+.modal.delete-connection-modal,
+.modal.ssh-connection-modal,
+.delete-host-summary,
+.ssh-dialog-grid input,
+.ssh-dialog-grid select,
+.ssh-credential-field input,
+.ssh-credential-field textarea,
+.ssh-boolean-switch,
+.ssh-boolean-switch button.selected { color: var(--theme-text-strong); background: var(--theme-panel); border-color: var(--line); }
+.status-bar { color: var(--theme-text-muted); background: color-mix(in srgb, var(--theme-panel) 84%, transparent); border-color: var(--line); }
 
 @media (prefers-reduced-motion: reduce) {
   .terminal-body,
