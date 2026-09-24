@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type { SavedCommand } from '../types';
 import { isTauriRuntime } from './runtime';
 
-const validIcons = new Set<SavedCommand['icon']>(['disk', 'box', 'file', 'network']);
+const validIcons = new Set<SavedCommand['icon']>(['disk', 'box', 'file', 'network', 'terminal', 'signal', 'server']);
 const browserStorageKey = 'agent-ssh-commands-v1';
 
 function isSavedCommand(value: unknown): value is SavedCommand {

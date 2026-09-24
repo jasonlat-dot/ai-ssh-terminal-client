@@ -97,8 +97,15 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
     void loadClientCommands()
       .then(stored => {
         if (cancelled) return;
-        if (stored) setCommands(stored);
-        else void saveClientCommands(initialCommands);
+        const persisted = stored ?? [];
+        const merged = [
+          ...persisted,
+          ...initialCommands.filter(defaultCommand => !persisted.some(command => command.id === defaultCommand.id || command.command === defaultCommand.command)),
+        ];
+        setCommands(merged);
+        if (!stored || merged.length !== stored.length) {
+          void saveClientCommands(merged).catch(error => console.warn('更新客户端默认命令失败', error));
+        }
       })
       .catch(error => {
         if (!cancelled) console.warn('加载客户端常用命令失败', error);
@@ -738,14 +745,13 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
         select: sessionId => { void selectChatSession(sessionId); },
       }} />
     {toast && <NotificationToast key={toast.id} notice={toast} close={dismissNotice} />}
-    {dialog === 'command' && <AddCommandDialog close={closeDialog} categories={[...new Set(commands.map(command => command.category))]} save={command => {
+    {dialog === 'command' && <AddCommandDialog close={closeDialog} categories={[...new Set(commands.map(command => command.category))]} save={async command => {
       const next = [...commands, command];
+      await saveClientCommands(next);
       setCommands(next);
       setCategory(command.category);
       closeDialog();
-      void saveClientCommands(next)
-        .then(() => notify('命令已保存到客户端', 'success'))
-        .catch(error => notify(error instanceof Error ? error.message : '命令保存失败', 'error'));
+      notify('命令已保存到客户端', 'success');
     }} />}
     {dialog === 'file' && fileDialogSessionId && <CreateFileDialog close={closeDialog} path="/var/www/app" files={sessions.find(session => session.id === fileDialogSessionId)?.fileState.files ?? []} save={file => { updateFiles(fileDialogSessionId, state => ({ ...state, files: [...state.files, file], selected: file.id })); closeDialog(); notify('已在当前终端的演示文件树中创建', 'success'); }} />}
     {dialog === 'connection' && <SshConnectionDialog connections={connections} connectAfterSave={connectAfterSave} onClose={closeDialog} onSaved={saved => { if (connectAfterSave) void selectHost(saved.id, saved); else notify('SSH 连接已保存。', 'success'); }} />}

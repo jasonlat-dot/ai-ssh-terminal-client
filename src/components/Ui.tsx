@@ -8,8 +8,6 @@ const paths = {
   user: 'M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0 M4 21v-2a8 8 0 0 1 16 0v2z',
   key: 'M14 7a5 5 0 1 1-4 8L3 22H1v-4l7-7 M17 7h.01',
   alert: 'M12 3 22 20H2z M12 9v4 M12 17h.01',
-  panelOpen: 'M4 4h16v16H4z M4 15h16 M9 10l3-3 3 3',
-  panelClose: 'M4 4h16v16H4z M4 15h16 M9 7l3 3 3-3',
   tabs: 'M3 8h14v12H3z M7 4h14v12 M7 12h6 M10 9v6',
   restore: 'M8 3v5H3 M16 3v5h5 M3 16h5v5 M21 16h-5v5',
   star: 'M7 5.5A2.5 2.5 0 0 1 9.5 3h5A2.5 2.5 0 0 1 17 5.5V21l-5-3.2L7 21z',
