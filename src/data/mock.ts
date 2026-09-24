@@ -1,4 +1,4 @@
-import type { ChatMessage, FileNode, Host, SessionFileState, SavedCommand, TerminalEntry } from '../types';
+import type { ChatMessage, FileNode, Host, SessionFileState, SavedCommand } from '../types';
 
 export const hosts: Host[] = [
   { id: 'web', name: 'web-prod-01', user: 'root', address: '10.0.0.12', online: true },
@@ -25,17 +25,6 @@ export function createFiles(): FileNode[] {
 export function flattenFiles(nodes: FileNode[]): FileNode[] {
   return nodes.flatMap(node => [node, ...flattenFiles(node.children ?? [])]);
 }
-export const commandOutput = (command: string): string => {
-  switch (command.trim()) {
-    case 'docker compose ps': return 'NAME        STATUS         PORTS\napp-web     Up 2 hours     0.0.0.0:3000->3000/tcp\napp-redis   Up 2 hours     6379/tcp';
-    case 'df -h':
-    case 'df -h /': return 'Filesystem   Size   Used   Avail   Use%   Mounted on\n/dev/vda1     80G    28G    52G     35%    /';
-    case 'tail -f logs/error.log': return '[模拟日志] 最近 24 小时未发现服务错误。\n[模拟日志] 日志快照结束，未启动持续监听。';
-    case 'ss -tuln': return 'Netid  State   Local Address:Port\ntcp    LISTEN  0.0.0.0:22\ntcp    LISTEN  0.0.0.0:3000\ntcp    LISTEN  127.0.0.1:6379';
-    default: return '演示模式暂不支持此命令';
-  }
-};
-export const initialEntries: TerminalEntry[] = ['docker compose ps', 'df -h /'].map((command, i) => ({ id: `seed-${i}`, command, output: commandOutput(command) }));
 export const initialMessages: ChatMessage[] = [
   { id: 'user-seed', role: 'user', text: '帮我检查服务运行状态和磁盘空间' },
   { id: 'assistant-seed', role: 'assistant', text: '我将检查容器状态与磁盘使用情况。', tools: [{ id: 'docker', name: '容器状态', status: 'success' }, { id: 'disk', name: '磁盘检查', status: 'success' }], summary: '服务运行正常，磁盘使用率 35%，可用空间 52 GB。', suggestion: true },

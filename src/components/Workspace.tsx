@@ -1,19 +1,10 @@
-import { useEffect, useRef } from 'react';
 import type { ReactNode } from 'react';
 import type { Host, SavedCommand, TerminalSession } from '../types';
-import { categories } from '../data/mock';
 import { Icon, IconButton } from './Ui';
 import { TerminalWelcome } from './TerminalWelcome';
 
-function Prompt({ host }: { host?: Host }) {
-  return <span className="terminal-prompt"><span>{`${host?.user ?? 'root'}@${host?.name ?? 'remote-host'}`}</span>:<span className="terminal-path">/var/www/app</span>$ </span>;
-}
-export function TerminalWorkspace({ remoteViews, sessions, activeId, host, select, close, add, changeInput, run, fillFocus, maximize, isMaximized, filesOpen, toggleFiles, filePanel, copy, connections }: { remoteViews: ReactNode; sessions: TerminalSession[]; activeId: string; host?: Host; select: (id: string) => void; close: (id: string) => void; add: () => void; changeInput: (text: string) => void; run: () => void; fillFocus: number; maximize: () => void; isMaximized: boolean; filesOpen: boolean; toggleFiles: () => void; filePanel: ReactNode; connections: () => void; copy: (text: string) => void }) {
+export function TerminalWorkspace({ remoteViews, sessions, activeId, host, select, close, add, maximize, isMaximized, filesOpen, toggleFiles, filePanel, copy, connections }: { remoteViews: ReactNode; sessions: TerminalSession[]; activeId: string; host?: Host; select: (id: string) => void; close: (id: string) => void; add: () => void; maximize: () => void; isMaximized: boolean; filesOpen: boolean; toggleFiles: () => void; filePanel: ReactNode; connections: () => void; copy: (text: string) => void }) {
   const active = sessions.find(session => session.id === activeId);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
-  useEffect(() => { if (fillFocus) inputRef.current?.focus(); }, [fillFocus]);
-  useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, [active?.entries.length, activeId]);
   return <section className="terminal-workspace" aria-label="终端工作区">
     <div className="terminal-tabs" role="tablist" aria-label="终端会话">
       {sessions.map(session => <div className={"terminal-tab " + (session.id === activeId ? 'selected' : '')} key={session.id}>
@@ -35,20 +26,12 @@ export function TerminalWorkspace({ remoteViews, sessions, activeId, host, selec
           </div>
         </div>
         <>{remoteViews}</>
-        <div className="terminal-output remote-command-entry" ref={scrollRef}>
-          {active.entries.map(entry => <div className="terminal-entry" key={entry.id}><div><Prompt host={host} />{entry.command}</div><pre>{entry.output}</pre></div>)}
-          {!host?.online && <p className="terminal-notice">主机离线，请重新连接后运行命令。</p>}
-          <form className="terminal-input-row" onSubmit={event => { event.preventDefault(); run(); }}>
-            <label htmlFor="terminal-input"><span className="terminal-prompt">命令 &gt; </span></label>
-            <div className="terminal-input-wrap"><input id="terminal-input" ref={inputRef} value={active.input} aria-label="终端命令输入" autoComplete="off" spellCheck={false} disabled={active.busy || !host?.online} onChange={event => changeInput(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && event.nativeEvent.isComposing) event.preventDefault(); }} />{!active.input && !active.busy && <span className="block-cursor" />}</div>
-            {active.busy && <span className="terminal-pending">提交中…</span>}
-          </form>
-        </div>
       </div>
     </div> : <TerminalWelcome add={add} connections={connections} />}
   </section>;
 }
 export function CommandShelf({ commands, category, setCategory, fill, run, copy, add, disabled, collapsed, toggleCollapsed }: { commands: SavedCommand[]; category: string; setCategory: (value: string) => void; fill: (command: string) => void; run: (command: string) => void; copy: (text: string) => void; add: () => void; disabled: boolean; collapsed: boolean; toggleCollapsed: () => void }) {
   const filtered = commands.filter(command => category === '全部' || command.category === category);
-  return <section className={`command-shelf ${collapsed ? 'collapsed' : ''}`} id="commands" tabIndex={-1}><div className="section-heading"><button className="panel-title" onClick={toggleCollapsed} aria-expanded={!collapsed} title={collapsed ? '展开常用命令' : '收起常用命令'}><span className="command-toggle-icon"><Icon name={collapsed ? 'panelOpen' : 'panelClose'} size={19} /></span><h2>常用命令</h2><span className="panel-count">{commands.length}</span><span className="collapse-caption">{collapsed ? '展开' : '收起'}</span></button><button className="text-button" onClick={add}><Icon name="plus" />添加命令</button></div>{!collapsed && <><div className="command-categories" role="tablist" aria-label="命令分类">{categories.map(item => <button key={item} role="tab" aria-selected={category === item} className={category === item ? 'selected' : ''} onClick={() => setCategory(item)}>{item}</button>)}</div><div className="command-list">{filtered.map(command => <div className="command-row" key={command.id}><button className="command-fill" onClick={() => fill(command.command)} title={`填入命令：${command.command}`}><Icon name={command.icon} size={20} /><span className="command-name">{command.name}</span><code>{command.command}</code></button><button className="run-command labeled-run" aria-label={`运行 ${command.name}`} disabled={disabled} onClick={() => run(command.command)}><Icon name="play" size={14} />运行</button><IconButton icon="copy" label={`复制 ${command.name}`} onClick={() => copy(command.command)} /></div>)}{!filtered.length && <div className="empty-state">此分类暂无命令<button className="text-button mint" onClick={add}>添加第一条命令</button></div>}</div><p className="command-hint">点击命令可填入当前终端</p></>}</section>;
+  const categoryCards = ['全部', ...new Set(commands.map(command => command.category))];
+  return <section className={`command-shelf ${collapsed ? 'collapsed' : ''}`} id="commands" tabIndex={-1}><div className="section-heading"><button className="panel-title" onClick={toggleCollapsed} aria-expanded={!collapsed} title={collapsed ? '展开常用命令' : '收起常用命令'}><span className="command-toggle-icon"><Icon name={collapsed ? 'panelOpen' : 'panelClose'} size={19} /></span><h2>常用命令</h2><span className="panel-count">{commands.length}</span><span className="collapse-caption">{collapsed ? '展开' : '收起'}</span></button><button className="text-button" onClick={add}><Icon name="plus" />添加命令</button></div>{!collapsed && <><div className="command-categories" role="tablist" aria-label="命令分类">{categoryCards.map(item => { const count = item === '全部' ? commands.length : commands.filter(command => command.category === item).length; const icon = item === '全部' ? 'terminal' : commands.find(command => command.category === item)?.icon ?? 'file'; return <button key={item} role="tab" aria-selected={category === item} className={category === item ? 'selected' : ''} onClick={() => setCategory(item)}><Icon name={icon} size={16} /><span>{item}</span><small>{count}</small></button>; })}</div><div className="command-list">{filtered.map(command => <div className="command-row" key={command.id}><button className="command-fill" onClick={() => fill(command.command)} title={`填入终端：${command.command}`}><Icon name={command.icon} size={20} /><span className="command-name">{command.name}</span><code>{command.command}</code></button><button className="run-command labeled-run" aria-label={`运行 ${command.name}`} disabled={disabled} onClick={() => run(command.command)}><Icon name="play" size={14} />运行</button><IconButton icon="copy" label={`复制 ${command.name}`} onClick={() => copy(command.command)} /></div>)}{!filtered.length && <div className="empty-state">此分类暂无命令<button className="text-button mint" onClick={add}>添加第一条命令</button></div>}</div><p className="command-hint">点击命令可填入当前终端</p></>}</section>;
 }

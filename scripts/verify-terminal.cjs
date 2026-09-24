@@ -38,7 +38,7 @@ const assert = require('node:assert/strict');
     }
     if (endpoint === 'resize') { assert.ok(body.cols > 0 && body.rows > 0); return ok(null); }
     if (endpoint === 'write') {
-      if (body.input === 'pwd\r') {
+      if (body.input === 'df -h\r') {
         if (failCommandWrite) { failCommandWrite = false; return fail('提交失败测试'); }
         output += '\r\n/home/test\r\nLATE_OUTPUT_TEST\r\nroot@test:~$ ';
       } else output += '\r\nWRITE_ACK\r\n';
@@ -63,12 +63,9 @@ const assert = require('node:assert/strict');
     assert.equal(await page.locator('.xterm-rows').getByText('VIM_FILE_CONTENT', { exact: false }).count(), 0);
     await page.waitForTimeout(400);
     await page.screenshot({ path: require('node:path').join(require('node:os').tmpdir(), 'ssh-terminal-real-qa.png') });
-    const input = page.getByRole('textbox', { name: '终端命令输入', exact: true });
-    await input.fill('pwd'); await input.press('Enter');
-    await page.getByText('此命令将在远程主机实际执行，请确认命令内容。').waitFor();
-    assert.equal(calls.filter(call => call.endpoint === 'write').length, 0);
-    await click('确认执行'); await page.getByText(/提交失败测试；未自动重试/).waitFor();
-    await input.fill('pwd'); await input.press('Enter'); await click('确认执行');
+    await click('运行 磁盘使用');
+    await page.getByText(/提交失败测试；未自动重试/).waitFor();
+    await click('运行 磁盘使用');
     await terminalText('/home/test'); await terminalText('LATE_OUTPUT_TEST');
     // Local tab switching must preserve the same server session and screen.
     await page.getByRole('tab', { name: '本地终端', exact: true }).click();
@@ -78,7 +75,7 @@ const assert = require('node:assert/strict');
     await click('中断 Ctrl+C');
     await terminalText('WRITE_ACK');
     assert.ok(calls.some(call => call.endpoint === 'write' && call.body.input === '\x03'));
-    // Direct terminal input remains available while command confirmation is enabled.
+    // Direct terminal input remains available alongside command shortcuts.
     await page.locator('.xterm-helper-textarea').focus(); await page.keyboard.type('ls'); await page.keyboard.press('Enter');
     await page.waitForTimeout(500);
     assert.ok(calls.filter(call => call.endpoint === 'write').some(call => call.body.input.includes('l')));
@@ -110,6 +107,6 @@ const assert = require('node:assert/strict');
     assert.equal(await page.getByRole('tab', { name: row.connectionName }).count(), 0);
     assert.ok(calls.findLastIndex(call => call.endpoint === 'close') < calls.findIndex(call => call.endpoint === 'disconnect'));
     assert.deepEqual(errors, []);
-    console.log('PASS terminal streaming: open/retry, ANSI/initial/delayed output, Vim alternate-buffer restoration, command write/confirmation, long-poll read, raw input/Ctrl+C, dropped-session detection/reconnect, resize, tab persistence, read retry, close failure/retry and disconnect ordering.');
+    console.log('PASS terminal streaming: open/retry, ANSI/initial/delayed output, Vim alternate-buffer restoration, command shortcut write, long-poll read, raw input/Ctrl+C, dropped-session detection/reconnect, resize, tab persistence, read retry, close failure/retry and disconnect ordering.');
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

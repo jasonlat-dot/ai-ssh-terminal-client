@@ -4,9 +4,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, State};
 
-const HISTORY_DIRECTORY: &str = "chat-history-v1";
+use crate::cache::cache_directory;
 
 /// 串行化本地会话文件的读写，避免流式保存与历史列表刷新同时访问同一文件。
 #[derive(Default)]
@@ -55,10 +55,7 @@ pub struct ChatSessionSummary {
 }
 
 fn history_directory(app: &AppHandle) -> Result<PathBuf, String> {
-    app.path()
-        .app_data_dir()
-        .map(|path| path.join(HISTORY_DIRECTORY))
-        .map_err(|error| format!("无法定位客户端应用数据目录: {error}"))
+    cache_directory(app, "chat")
 }
 
 fn now_millis() -> Result<u64, String> {

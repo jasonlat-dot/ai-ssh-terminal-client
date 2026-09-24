@@ -1,14 +1,14 @@
 import { useState } from 'react';
-import type { Category, FileNode, Host, SavedCommand } from '../types';
-import { categories, flattenFiles } from '../data/mock';
+import type { FileNode, Host, SavedCommand } from '../types';
+import { flattenFiles } from '../data/mock';
 import { Icon, Modal } from './Ui';
 
-export function AddCommandDialog({ close, save }: { close: () => void; save: (command: SavedCommand) => void }) {
+export function AddCommandDialog({ close, save, categories }: { close: () => void; save: (command: SavedCommand) => void; categories: string[] }) {
   const [name, setName] = useState('');
   const [command, setCommand] = useState('');
-  const [category, setCategory] = useState<Category>('系统');
+  const [category, setCategory] = useState('系统');
   const [error, setError] = useState('');
-  return <Modal title="添加常用命令" onClose={close}><form className="dialog-form" onSubmit={e => { e.preventDefault(); if (!name.trim() || !command.trim()) { setError('请填写命令名称和命令内容。'); return; } save({ id: crypto.randomUUID(), name: name.trim(), command: command.trim(), category, icon: category === 'Docker' ? 'box' : 'file' }); }}><label htmlFor="new-command-name">名称</label><input id="new-command-name" value={name} maxLength={40} onChange={e => setName(e.target.value)} placeholder="例如：检查磁盘" /><label htmlFor="new-command-category">分类</label><select id="new-command-category" value={category} onChange={e => setCategory(e.target.value as Category)}>{categories.filter(item => item !== '全部').map(item => <option key={item}>{item}</option>)}</select><label htmlFor="new-command-value">命令</label><input id="new-command-value" className="code-input" value={command} onChange={e => setCommand(e.target.value)} placeholder="例如：df -h" />{error && <p className="form-error" role="alert">{error}</p>}<p className="muted">仅保存在本次演示中，刷新页面后恢复默认。</p><div className="dialog-actions"><button type="button" className="outlined-button" onClick={close}>取消</button><button className="primary-button" type="submit">保存命令</button></div></form></Modal>;
+  return <Modal title="添加常用命令" onClose={close}><form className="dialog-form" onSubmit={e => { e.preventDefault(); const normalizedCategory = category.trim(); if (!name.trim() || !command.trim() || !normalizedCategory) { setError('请填写命令名称、分类和命令内容。'); return; } save({ id: crypto.randomUUID(), name: name.trim(), command: command.trim(), category: normalizedCategory, icon: normalizedCategory === 'Docker' ? 'box' : 'file' }); }}><label htmlFor="new-command-name">名称</label><input id="new-command-name" value={name} maxLength={40} onChange={e => setName(e.target.value)} placeholder="例如：检查磁盘" /><label htmlFor="new-command-category">分类</label><input id="new-command-category" value={category} maxLength={24} onChange={e => setCategory(e.target.value)} list="command-category-options" placeholder="输入或选择分类" /><datalist id="command-category-options">{categories.map(item => <option key={item} value={item} />)}</datalist><label htmlFor="new-command-value">命令</label><input id="new-command-value" className="code-input" value={command} onChange={e => setCommand(e.target.value)} placeholder="例如：df -h" />{error && <p className="form-error" role="alert">{error}</p>}<p className="muted">命令将持久保存在客户端安装目录的 .cache/command 中。</p><div className="dialog-actions"><button type="button" className="outlined-button" onClick={close}>取消</button><button className="primary-button" type="submit">保存命令</button></div></form></Modal>;
 }
 export function CreateFileDialog({ close, files, save, path }: { path: string; close: () => void; files: FileNode[]; save: (file: FileNode) => void }) {
   const [name, setName] = useState('');

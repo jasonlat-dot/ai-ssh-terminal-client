@@ -45,9 +45,9 @@ npm run tauri build
 `SshTerminalController` 的 7 个接口已接入，地址为“客户端设置的后端根地址 + `/api/v1/ssh/terminal`”。
 
 - `open`：SSH 连接成功后打开会话，使用后端返回的 `sessionId`，立即呈现 `initialOutput`。
-- `exec`：下方命令框、常用命令和日志操作提交真实命令；补上 `\r`，因为服务按原始字节写入。开启执行确认时先显示确认框。
+- `exec`：常用命令的“运行”和日志操作提交真实命令，并补上 `\r`，因为服务按原始字节写入。
 - `read`：每次请求完成后间隔 250ms 继续读取，支持延迟输出、长时间日志输出；与 exec 串行，避免同时读取并清空同一缓冲区。错误后暂停，手动重试读取，不重放命令。
-- `write`：xterm 区域始终支持按键、粘贴、Tab、方向键等直接发往远端；“执行确认”只作用于下方命令框和快捷命令。“中断 Ctrl+C”始终可用。
+- `write`：xterm 区域始终支持按键、粘贴、Tab、方向键等直接发往远端；点击常用命令正文可将内容写入当前终端。“中断 Ctrl+C”始终可用。
 - `resize`：根据终端区域实际大小同步 cols / rows，文件面板、窗口尺寸和专注模式变化均会适配。
 - `close`：关闭标签或在连接管理断开、删除主机时，先关闭 shell 再断开 SSH。关闭失败保留标签并提示重试。切换标签或导航不重新打开 shell。
 
@@ -55,4 +55,8 @@ npm run tauri build
 
 后端创建 PTY 时声明 `xterm-256color`，使 Vim、less、top 等全屏程序使用备用屏幕缓冲区；程序退出后 xterm.js 会恢复进入程序前的终端历史，避免 Vim 的 `~` 填充行残留或覆盖历史。
 
-验证：启动 Vite 后运行 `node scripts/verify-terminal.cjs`。使用 Playwright / Chrome 和拦截的 HTTP 响应，覆盖 7 个接口、初始及延迟输出、回车、确认、按键、尺寸、切换标签、错误重试和先关闭终端再断开连接的顺序。
+验证：启动 Vite 后运行 `node scripts/verify-terminal.cjs`。使用 Playwright / Chrome 和拦截的 HTTP 响应，覆盖 7 个接口、初始及延迟输出、回车、按键、尺寸、切换标签、错误重试和先关闭终端再断开连接的顺序。
+
+## 客户端磁盘缓存
+
+桌面客户端在可执行文件所在目录创建 `.cache`：聊天历史按会话写入 `.cache/chat`，用户添加的常用命令写入 `.cache/command/commands.json`。命令分类由已保存的命令动态生成，添加命令时可以选择已有分类或直接输入新分类。

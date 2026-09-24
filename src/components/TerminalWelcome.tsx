@@ -36,7 +36,7 @@ export function TerminalWelcome({ add, connections }: { add: () => void; connect
         <ol>
           <li><strong>配置远程主机</strong><span>点击“新建终端”或连接页的“新建连接”，填写地址、端口、用户名和认证方式。</span></li>
           <li><strong>进入终端会话</strong><span>从终端入口保存后会直接建立连接；已保存的主机可从连接管理页再次进入。</span></li>
-          <li><strong>管理文件与命令</strong><span>终端右上角可打开文件面板；每个会话独立保留文件状态。下方可展开常用命令，右侧可与 Agent 对话。</span></li>
+          <li><strong>管理文件与命令</strong><span>终端右上角可打开文件面板；每个会话独立保留文件状态。终端右侧可按分类使用常用命令，并与 Agent 对话。</span></li>
         </ol>
         <p className="muted">SSH 连接配置保存在后端，收藏偏好保存在本地。远程终端命令真实执行；SFTP 和 AI 回复仍为模拟。</p>
         <div className="dialog-actions"><button className="outlined-button" onClick={() => setGuideOpen(false)}>知道了</button><button className="primary-button" onClick={() => { setGuideOpen(false); connections(); }}>打开连接管理<Icon name="right" size={16} /></button></div>

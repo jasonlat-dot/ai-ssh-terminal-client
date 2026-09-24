@@ -169,7 +169,6 @@
 .send-button:hover { background: #1965ee; }
 .composer-toolbar { margin: 6px 0 0 31px; gap: 18px; }
 .model-select { width: 110px; border-radius: 9px; min-height: 26px; padding: 2px 10px; font-size: 11px; }
-.confirm-label { margin-left: 12px; gap: 8px; font-size: 9px; }
 .toggle { width: 28px; height: 15px; padding: 1px; border-color: #b9c9dd; }
 .toggle span { width: 11px; height: 11px; }
 .toggle.on { background: #00b893; border-color: #00b893; }
@@ -328,7 +327,6 @@
   .advice-card > div { font-size: 8px; }
   .advice-card > div > button { font-size: 9px; padding: 5px 7px; }
   .composer-toolbar { gap: 8px; }
-  .confirm-label { margin-left: 7px; }
 }
 
 /* Navigation modes share the workspace without displaying inactive tools. */
@@ -557,7 +555,7 @@
   .terminal-layout-button { padding: 5px 6px; gap: 4px; font-size: 10px; }
 }
 
-/* Light terminal empty-session guidance, kept below the live input row. */
+/* Light terminal empty-session guidance. */
 .terminal-idle { position: absolute; inset: 70px 24px 30px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; pointer-events: none; color: #7487a8; font-family: var(--sans, sans-serif); }
 .terminal-idle-art { position: relative; width: 140px; height: 130px; margin-bottom: 25px; }
 .terminal-idle-window { position: absolute; inset: 15px 12px 5px; border: 1px solid #d7e5ff; border-top: 20px solid #bad1ff; background: linear-gradient(135deg, #f7faff, #e7efff); border-radius: 13px; display: grid; place-items: center; color: #7e9eff; transform: perspective(450px) rotateY(-20deg) rotateZ(7deg); box-shadow: 10px 12px 22px #79a2ee14; }
@@ -571,8 +569,6 @@
 .terminal-idle-shortcuts { display: flex; flex-wrap: wrap; justify-content: center; gap: 24px; margin-top: 34px; font-size: 12px; }
 .terminal-idle-shortcuts span { display: flex; align-items: center; gap: 8px; }
 .terminal-idle-shortcuts kbd { padding: 5px 9px; background: #f0f5fd; color: #4e6691; border-radius: 6px; font: inherit; }
-.terminal-output ::selection { background: #cfe2ff; color: #122c53; }
-.terminal-output .terminal-input-row { position: relative; z-index: 1; }
 .terminal-layout-button:focus-visible { outline: 2px solid #2675ff; outline-offset: 2px; }
 @media (max-height: 650px) { .terminal-idle-art { width: 105px; height: 85px; margin-bottom: 14px; } .terminal-idle-shortcuts { margin-top: 16px; } }
 
@@ -609,8 +605,6 @@
 .remote-terminal-disconnected > span:nth-child(2) { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
 .remote-terminal-disconnected strong { color: #5b4012; font-size: 13px; }
 .remote-terminal-disconnected small { color: #92713d; font-size: 11px; }
-.terminal-output.remote-command-entry { flex: 0 0 auto; min-height: 45px; max-height: 100px; border-top: 1px solid #e6eefb; padding: 12px 16px 4px; }
-
 @property --notice-progress { syntax: '<percentage>'; inherits: false; initial-value: 100%; }
 .notification-toast { --notice-accent: #2874df; --notice-tint: #e7f0ff; --notice-border: #c8dcfb; --notice-progress: 100%; position: fixed; z-index: 100; top: max(76px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); width: min(520px, calc(100vw - 28px)); display: grid; grid-template-columns: 38px minmax(0, 1fr) auto 24px; align-items: center; gap: 12px; padding: 13px 15px; background: #f6faff; border: 1px solid var(--notice-border); border-radius: 8px; box-shadow: 0 9px 28px #29456b1c, 0 2px 4px #29456b08; animation: notice-enter .2s ease-out; pointer-events: none; }
 .notification-toast::before { content: ''; position: absolute; z-index: 2; inset: -2px; padding: 2px; border-radius: 10px; background: conic-gradient(from -90deg, var(--notice-accent) var(--notice-progress), transparent 0); -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; pointer-events: none; animation: notice-countdown var(--notice-duration, 5000ms) linear forwards; }
@@ -1452,3 +1446,65 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.985); }
   .command-row,
   .terminal-layout-button { transition: none; }
 }
+
+/* The command library follows the terminal pane's top and bottom edges. */
+.command-shelf {
+  margin-top: 38px;
+}
+.remote-terminal-tools {
+  justify-content: flex-end;
+}
+.command-categories {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  margin: 0 0 11px;
+  padding: 1px;
+  border: 0;
+  overflow: visible;
+}
+.command-categories button {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 42px;
+  padding: 7px 8px;
+  border: 1px solid #dfe8f3;
+  border-radius: 7px;
+  color: #52657c;
+  background: #f9fbfd;
+  text-align: left;
+}
+.command-categories button > svg { color: #6284aa; }
+.command-categories button > span {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 10px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.command-categories button > small {
+  min-width: 18px;
+  padding: 1px 5px;
+  border-radius: 9px;
+  color: #70839a;
+  background: #eaf0f6;
+  font-size: 9px;
+  text-align: center;
+}
+.command-categories button:hover {
+  border-color: #bdd2e9;
+  color: #285f9b;
+  background: #f0f5fa;
+}
+.command-categories button.selected {
+  border-color: #9fc2e7;
+  color: #175da8;
+  background: #e7f1fc;
+  box-shadow: inset 3px 0 #4b86c6;
+}
+.command-categories button.selected > svg { color: #2871bd; }
+.command-categories button.selected > small { color: #175da8; background: #d4e6f8; }

@@ -1,9 +1,8 @@
 export type Host = { status?: 0 | 1 | 2 | 3; userId?: string; id: string; name: string; user: string; address: string; online: boolean; port?: number; environment?: string; auth?: 'password' | 'key'; keyPath?: string; favorite?: boolean; saved?: boolean };
 export type FileNode = { id: string; name: string; kind: 'file' | 'folder'; children?: FileNode[] };
-export type Category = '系统' | 'Docker' | '日志' | '部署';
+export type Category = string;
 export type SavedCommand = { id: string; name: string; command: string; category: Category; icon: 'disk' | 'box' | 'file' | 'network' };
-export type TerminalEntry = { id: string; command: string; output: string };
-export type TerminalSession = { id: string; hostId: string | null; title: string; input: string; entries: TerminalEntry[]; busy: boolean; fileState: SessionFileState };
+export type TerminalSession = { id: string; hostId: string | null; title: string; busy: boolean; fileState: SessionFileState };
 export type ChatToolActivity = { id: string; name: string; command?: string; status: 'running' | 'success' | 'error' | 'unknown'; output?: string; sourceAgent?: string };
 export type ChatAgentSegment = { id: string; type: 'text'; text: string } | { id: string; type: 'tool'; tool: ChatToolActivity };
 export type ChatAgentActivity = { id: string; name: string; task?: string; status: 'running' | 'success' | 'error' | 'unknown'; output?: string; parentToolCallId?: string; tools: ChatToolActivity[]; segments?: ChatAgentSegment[] };

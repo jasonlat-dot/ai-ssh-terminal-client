@@ -52,7 +52,7 @@ function isChatMessage(value: unknown): value is ChatMessage {
 }
 
 /**
- * 将桌面客户端历史写入 Tauri 应用数据目录。这里不使用 localStorage，
+ * 将桌面客户端历史写入安装目录下的 .cache/chat。这里不使用 localStorage，
  * 因而历史不会受到 WebView 缓存清理影响，也不会发送给后端历史查询接口。
  */
 export async function saveClientChatSession(

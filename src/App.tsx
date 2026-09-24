@@ -11,6 +11,7 @@ import {
 import type { ClientChatSession } from './state/clientChatHistory';
 import { DisconnectDialog } from './components/DisconnectDialog';
 import { recordDisconnect } from './state/connectionHistory';
+import { loadClientCommands, saveClientCommands } from './state/clientCommands';
 import { terminalApi } from './api/terminal';
 import { RemoteTerminal } from './state/remoteTerminal';
 import { NotificationToast } from './components/NotificationToast';
@@ -25,7 +26,6 @@ import { SessionFiles } from './components/Sidebar';
 import { ActivityBar, AppHeader } from './components/Shell';
 import { BackendSettingsDialog } from './components/BackendSettingsDialog';
 import { readBackendUrl, saveBackendUrl } from './config/backend';
-import { Modal } from './components/Ui';
 import { CommandShelf, TerminalWorkspace } from './components/Workspace';
 import { createSessionFileState, initialCommands, mockTransferProgress } from './data/mock';
 import type { ChatAgentActivity, ChatMessage, ChatMessageSegment, ChatToolActivity, Host, Navigation, TerminalSession, SessionFileState } from './types';
@@ -35,7 +35,7 @@ import './reference.css';
 const RemoteTerminalView = lazy(() => import('./components/RemoteTerminalView').then(module => ({ default: module.RemoteTerminalView })));
 
 type Dialog = 'command' | 'connection' | 'file' | 'search' | null;
-type PendingCommand = { sessionId: string; command: string };
+type CommandRequest = { sessionId: string; command: string };
 const initialSessions: TerminalSession[] = [];
 
 function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBackendChange: (url: string) => void }) {
@@ -62,15 +62,12 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
   const [historyLoadingId, setHistoryLoadingId] = useState('');
   const [historyError, setHistoryError] = useState('');
   const historyRefreshVersion = useRef(0);
-  const confirm = true;
-  const [pending, setPending] = useState<PendingCommand | null>(null);
   const [disconnectTarget, setDisconnectTarget] = useState<{ sessionId: string; host: Host } | null>(null);
   const [dialog, setDialog] = useState<Dialog>(null);
   const [backendSettingsOpen, setBackendSettingsOpen] = useState(false);
   const [fileDialogSessionId, setFileDialogSessionId] = useState<string | null>(null);
   const [toast, setToast] = useState<Notice | null>(null);
   const noticeSequence = useRef(0);
-  const [focusTick, setFocusTick] = useState(0);
   const [maximized, setMaximized] = useState(false);
   const [commandCollapsed, setCommandCollapsed] = useState(false);
   const timers = useRef(new Set<ReturnType<typeof setTimeout>>());
@@ -95,6 +92,19 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
     return timer;
   }, []);
   useEffect(() => () => { timers.current.forEach(clearTimeout); }, []);
+  useEffect(() => {
+    let cancelled = false;
+    void loadClientCommands()
+      .then(stored => {
+        if (cancelled) return;
+        if (stored) setCommands(stored);
+        else void saveClientCommands(initialCommands);
+      })
+      .catch(error => {
+        if (!cancelled) console.warn('加载客户端常用命令失败', error);
+      });
+    return () => { cancelled = true; };
+  }, []);
   const notify = useCallback((message: string, type: NoticeType = 'info', durationMs?: number) => {
     setToast({ id: ++noticeSequence.current, message, type, ...(durationMs === undefined ? {} : { durationMs }) });
   }, []);
@@ -185,18 +195,18 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
     return () => clearTimeout(timer);
   }, [messages, activeChatSessionId, selectedAgent?.agentId, persistClientSession]);
   useEffect(() => {
-    const listener = (e: KeyboardEvent) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); if (!pending && !disconnectTarget) setDialog(value => value === 'search' ? null : 'search'); } };
+    const listener = (e: KeyboardEvent) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); if (!disconnectTarget) setDialog(value => value === 'search' ? null : 'search'); } };
     window.addEventListener('keydown', listener);
     return () => window.removeEventListener('keydown', listener);
-  }, [pending, disconnectTarget]);
+  }, [disconnectTarget]);
 
   const closeDialog = () => { setDialog(null); setFileDialogSessionId(null); };
   const copy = async (text: string) => {
     try { await navigator.clipboard.writeText(text); notify('已复制到剪贴板', 'success'); }
     catch { notify('复制失败：请选中文字后使用 Ctrl+C 复制。', 'error'); }
   };
-  const openNewConnection = () => { setPending(null); setConnectAfterSave(false); setDialog('connection'); };
-  const openNewTerminal = () => { setPending(null); setConnectAfterSave(true); setDialog('connection'); };
+  const openNewConnection = () => { setConnectAfterSave(false); setDialog('connection'); };
+  const openNewTerminal = () => { setConnectAfterSave(true); setDialog('connection'); };
   const selectHost = async (id: string, suppliedHost?: Host) => {
     if ((!suppliedHost && connections.busy) || opening.current.has(id)) return;
     const nextHost = suppliedHost ?? hosts.find(item => item.id === id);
@@ -212,7 +222,7 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
         if (!opened?.sessionId) throw new Error('后端未返回终端会话 ID');
         remoteClients.current.set(sessionId, new RemoteTerminal(opened));
       }
-      if (!existing) setSessions(previous => [...previous, { id: sessionId, hostId: id, title: nextHost.name, input: '', entries: [], busy: false, fileState: createSessionFileState() }]);
+      if (!existing) setSessions(previous => [...previous, { id: sessionId, hostId: id, title: nextHost.name, busy: false, fileState: createSessionFileState() }]);
       else setSessions(previous => [...previous]);
       setActiveId(sessionId); setNavigation('命令');
       notify('远程终端已打开，可以开始操作。', 'success');
@@ -302,7 +312,7 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
     if (!session.hostId) { removeSessionTab(id); return; }
     const targetHost = hosts.find(item => item.id === session.hostId);
     if (!targetHost) { removeSessionTab(id); return; }
-    setDialog(null); setPending(null);
+    setDialog(null);
     setTerminalError('');
     setDisconnectTarget({ sessionId: id, host: targetHost });
   };
@@ -327,15 +337,16 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
   const fill = (command: string) => {
     setNavigation('命令');
     if (!active) { openNewTerminal(); notify('请先添加并连接一台远程服务器。'); return; }
-    setSessions(previous => previous.map(session => session.id === active.id ? { ...session, input: command } : session));
-    setFocusTick(value => value + 1);
+    const client = remoteClients.current.get(active.id);
+    if (!client || client.closed || client.disconnected) { notify('当前终端连接不可用，请点击“重新连接”。'); return; }
+    void client.write(command).catch(error => notify(error instanceof Error ? error.message : '命令写入失败', 'error'));
   };
-  const execute = async (request: PendingCommand) => {
+  const execute = async (request: CommandRequest) => {
     const session = sessions.find(item => item.id === request.sessionId);
     if (!session || running.current.has(session.id)) return;
     if (session.hostId && !hosts.find(item => item.id === session.hostId)?.online) { notify('当前终端连接不可用，请点击“重新连接”。', 'error'); return; }
     running.current.add(session.id);
-    setSessions(previous => previous.map(item => item.id === session.id ? { ...item, busy: true, input: '' } : item));
+    setSessions(previous => previous.map(item => item.id === session.id ? { ...item, busy: true } : item));
     try {
       const client = remoteClients.current.get(session.id);
       if (!session.hostId || !client) throw new Error('当前终端会话不可用，请点击“重新连接”。');
@@ -346,18 +357,16 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
       setSessions(previous => previous.map(item => item.id === session.id ? { ...item, busy: false } : item));
     }
   };
-  const requestRun = (command = active?.input ?? '') => {
+  const requestRun = (command: string) => {
     if (!command.trim()) return;
     if (!active) { openNewTerminal(); notify('请先添加并连接一台远程服务器。'); return; }
     if (!canRun) { notify(active.busy ? '命令正在执行，请稍候。' : '当前终端连接不可用，请点击“重新连接”。'); return; }
-    const request = { sessionId: active.id, command: command.trim() };
-    if (confirm) setPending(request); else execute(request);
+    void execute({ sessionId: active.id, command: command.trim() });
   };
   const navigate = (name: Navigation) => {
     setManageConnections(name === '连接');
     setNavigation('命令');
     setMaximized(false);
-    setFocusTick(value => value + 1);
   };
   const updateFiles = (sessionId: string, update: (state: SessionFileState) => SessionFileState) => {
     setSessions(previous => updateSessionFiles(previous, sessionId, update));
@@ -693,7 +702,7 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
           const runtime = remoteClients.current.get(session.id)!;
           return <Suspense key={session.id} fallback={session.id === activeId ? <p>正在加载终端…</p> : null}>
             <RemoteTerminalView key={runtime.sessionId} runtime={runtime} visible={session.id === activeId && navigation === '命令'}
-              confirm={confirm} online={!!hosts.find(item => item.id === session.hostId)?.online}
+              online={!!hosts.find(item => item.id === session.hostId)?.online}
               onDisconnected={message => handleTerminalDisconnected(session.id, message, runtime)}
               reconnect={options => reconnectTerminal(session.id, options, runtime)}
               disconnect={() => closeSession(session.id)} />
@@ -706,9 +715,6 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
         select={setActiveId}
         close={closeSession}
         add={openNewTerminal}
-        changeInput={input => setSessions(previous => previous.map(session => session.id === activeId ? { ...session, input } : session))}
-        run={() => requestRun()}
-        fillFocus={focusTick}
         maximize={() => setMaximized(value => !value)}
         isMaximized={maximized}
         copy={copy}
@@ -732,12 +738,19 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
         select: sessionId => { void selectChatSession(sessionId); },
       }} />
     {toast && <NotificationToast key={toast.id} notice={toast} close={dismissNotice} />}
-    {dialog === 'command' && <AddCommandDialog close={closeDialog} save={command => { setCommands(previous => [...previous, command]); setCategory(command.category); closeDialog(); notify('命令已添加到当前演示', 'success'); }} />}
+    {dialog === 'command' && <AddCommandDialog close={closeDialog} categories={[...new Set(commands.map(command => command.category))]} save={command => {
+      const next = [...commands, command];
+      setCommands(next);
+      setCategory(command.category);
+      closeDialog();
+      void saveClientCommands(next)
+        .then(() => notify('命令已保存到客户端', 'success'))
+        .catch(error => notify(error instanceof Error ? error.message : '命令保存失败', 'error'));
+    }} />}
     {dialog === 'file' && fileDialogSessionId && <CreateFileDialog close={closeDialog} path="/var/www/app" files={sessions.find(session => session.id === fileDialogSessionId)?.fileState.files ?? []} save={file => { updateFiles(fileDialogSessionId, state => ({ ...state, files: [...state.files, file], selected: file.id })); closeDialog(); notify('已在当前终端的演示文件树中创建', 'success'); }} />}
     {dialog === 'connection' && <SshConnectionDialog connections={connections} connectAfterSave={connectAfterSave} onClose={closeDialog} onSaved={saved => { if (connectAfterSave) void selectHost(saved.id, saved); else notify('SSH 连接已保存。', 'success'); }} />}
-    {dialog === 'search' && <SearchDialog close={closeDialog} hosts={hosts} files={active?.fileState.files ?? []} commands={commands} choose={(kind, value) => { closeDialog(); if (kind === 'host') selectHost(value); if (kind === 'command') { fill(value); later(() => setFocusTick(tick => tick + 1), 0); } if (kind === 'file' && active) { const parts = value.split('/'); updateFiles(active.id, state => ({ ...state, open: true, selected: value, expanded: new Set([...state.expanded, ...parts.slice(0, -1)]) })); setNavigation('命令'); later(() => document.getElementById('files')?.focus(), 0); } }} />}
+    {dialog === 'search' && <SearchDialog close={closeDialog} hosts={hosts} files={active?.fileState.files ?? []} commands={commands} choose={(kind, value) => { closeDialog(); if (kind === 'host') selectHost(value); if (kind === 'command') fill(value); if (kind === 'file' && active) { const parts = value.split('/'); updateFiles(active.id, state => ({ ...state, open: true, selected: value, expanded: new Set([...state.expanded, ...parts.slice(0, -1)]) })); setNavigation('命令'); later(() => document.getElementById('files')?.focus(), 0); } }} />}
     {disconnectTarget && <DisconnectDialog key={disconnectTarget.sessionId} host={hosts.find(item => item.id === disconnectTarget.host.id) ?? disconnectTarget.host} busy={connections.busy} error={terminalError || connections.error} close={() => setDisconnectTarget(null)} confirm={confirmDisconnect} />}
-    {pending && <Modal title="确认执行命令" onClose={() => setPending(null)}><div className="confirm-content"><p>目标：{sessions.find(session => session.id === pending.sessionId)?.title}</p><pre>{pending.command}</pre><p className="muted">此命令将在远程主机实际执行，请确认命令内容。</p><div className="dialog-actions"><button className="outlined-button" onClick={() => setPending(null)}>取消</button><button className="primary-button" onClick={() => { const request = pending; setPending(null); execute(request); }}>确认执行</button></div></div></Modal>}
     {backendSettingsOpen && <BackendSettingsDialog currentUrl={backendUrl} onClose={() => setBackendSettingsOpen(false)} onSave={url => {
       if (chatBusy || chatStopping || sessions.some(session => Boolean(session.hostId))) {
         throw new Error('请先停止对话并关闭终端标签，再切换后端服务器。');
