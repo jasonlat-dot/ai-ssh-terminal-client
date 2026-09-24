@@ -59,4 +59,4 @@ npm run tauri build
 
 ## 客户端磁盘缓存
 
-桌面客户端在可执行文件所在目录创建 `.cache`：聊天历史按会话写入 `.cache/chat`，用户添加的常用命令写入 `.cache/command/commands.json`。命令分类由已保存的命令动态生成，添加命令时可以选择已有分类或直接输入新分类。
+桌面客户端在可执行文件所在目录创建 `.cache`：聊天历史按会话写入 `.cache/chat`，用户添加的常用命令写入 `.cache/command/commands.json`。`npm run tauri dev` 无法解析可执行文件目录时回退到当前项目目录的 `.cache`；纯 `npm run dev` 没有 Tauri 文件接口，因此回退到浏览器 localStorage。命令分类由已保存的命令动态生成，添加命令时可以选择已有分类或直接输入新分类。
