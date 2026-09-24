@@ -116,7 +116,7 @@ function sessionTime(value: ClientChatSession['updatedAt']): string {
   });
 }
 
-export function AgentPanel({ host, messages, busy, stopping, send, stop, clear, disabled, history, collapsed, toggleCollapsed }: {
+export function AgentPanel({ host, messages, busy, stopping, send, stop, clear, disabled, history, collapsed }: {
   host?: Host;
   messages: ChatMessage[];
   busy: boolean;
@@ -127,7 +127,6 @@ export function AgentPanel({ host, messages, busy, stopping, send, stop, clear, 
   disabled: boolean;
   history: HistoryControls;
   collapsed: boolean;
-  toggleCollapsed: () => void;
 }) {
   const [draft, setDraft] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -182,7 +181,6 @@ export function AgentPanel({ host, messages, busy, stopping, send, stop, clear, 
   }, [clear]);
 
   return <aside className={`agent-panel conversation-only ${collapsed ? 'collapsed' : ''}`}>
-    <button type="button" className="agent-panel-toggle panel-edge-toggle" onClick={toggleCollapsed} aria-label={collapsed ? '展开智能体对话' : '收起智能体对话'} aria-expanded={!collapsed} aria-controls="agent-panel-content" title={collapsed ? '展开智能体对话' : '收起智能体对话'}><Icon name="sidebarToggle" size={16} /></button>
     <section className="conversation-card" id="agent-panel-content" aria-hidden={collapsed}>
       <header>
         <div className="conversation-title">

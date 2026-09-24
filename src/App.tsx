@@ -722,12 +722,16 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
         copy={copy}
         filesOpen={!!active?.fileState.open}
         toggleFiles={() => { if (active) updateFiles(active.id, state => ({ ...state, open: !state.open })); }}
+        commandCollapsed={commandCollapsed}
+        toggleCommands={() => setCommandCollapsed(value => !value)}
+        agentCollapsed={agentCollapsed}
+        toggleAgent={() => setAgentCollapsed(value => !value)}
         filePanel={active && <SessionFiles key={active.id} sessionTitle={active.title} files={active.fileState.files} selected={active.fileState.selected} expanded={active.fileState.expanded} select={selected => updateFiles(active.id, state => ({ ...state, selected }))} toggle={id => updateFiles(active.id, state => { const expanded = new Set(state.expanded); if (expanded.has(id)) expanded.delete(id); else expanded.add(id); return { ...state, expanded }; })} transfers={active.fileState.transfers} upload={chosen => upload(active.id, chosen)} refresh={() => { updateFiles(active.id, state => ({ ...createSessionFileState(), open: state.open, transfers: state.transfers })); notify('已恢复当前终端的演示文件树', 'success'); }} create={() => { setFileDialogSessionId(active.id); setDialog('file'); }} close={() => updateFiles(active.id, state => ({ ...state, open: false }))} copy={copy} notify={notify} />}
       />
-      <CommandShelf commands={commands} category={category} setCategory={setCategory} fill={fill} run={requestRun} copy={copy} add={() => setDialog('command')} disabled={!canRun} collapsed={commandCollapsed} toggleCollapsed={() => setCommandCollapsed(value => !value)} />
+      <CommandShelf commands={commands} category={category} setCategory={setCategory} fill={fill} run={requestRun} copy={copy} add={() => setDialog('command')} disabled={!canRun} collapsed={commandCollapsed} />
     </main>
     <PanelDivider value={agentWidth} change={setAgentWidth} />
-    <AgentPanel host={host} messages={messages} busy={chatBusy} stopping={chatStopping} send={sendMessage} stop={stopChat} collapsed={agentCollapsed} toggleCollapsed={() => setAgentCollapsed(value => !value)}
+    <AgentPanel host={host} messages={messages} busy={chatBusy} stopping={chatStopping} send={sendMessage} stop={stopChat} collapsed={agentCollapsed}
       clear={clearChat} disabled={!selectedAgent || Boolean(historyLoadingId) || chatStopping}
       history={{
         sessions: chatSessions, activeSessionId: activeChatSessionId, open: historyOpen,

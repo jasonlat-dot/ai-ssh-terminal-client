@@ -9,7 +9,6 @@ const paths = {
   key: 'M14 7a5 5 0 1 1-4 8L3 22H1v-4l7-7 M17 7h.01',
   alert: 'M12 3 22 20H2z M12 9v4 M12 17h.01',
   sidebar: 'M4 5h16v14H4z M9 5v14 M12 9h5 M12 13h5',
-  sidebarToggle: 'M4 5h16v14H4z M15 5v14 M9 9l3 3-3 3',
   tabs: 'M3 8h14v12H3z M7 4h14v12 M7 12h6 M10 9v6',
   star: 'M7 5.5A2.5 2.5 0 0 1 9.5 3h5A2.5 2.5 0 0 1 17 5.5V21l-5-3.2L7 21z',
   edit: 'M13.5 5.5 18.5 10.5 M5 19l3.8-.8L20 6a2.1 2.1 0 0 0-3-3L5.8 15.2z M4 21h16',
