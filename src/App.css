@@ -212,8 +212,6 @@ progress::-moz-progress-bar { background: var(--mint); }
 .status-right { gap: 16px; font-size: 9px; }
 .status-right .icon-button { width: 15px; }
 .status-right svg { width: 14px; }
-.terminal-maximized .connection-sidebar, .terminal-maximized .agent-panel, .terminal-maximized .command-shelf { display: none; }
-.terminal-maximized .central-workspace { grid-column: 2 / -1; grid-template-rows: minmax(0, 1fr); }
 .modal-backdrop { position: fixed; inset: 0; z-index: 20; background: #26344252; display: flex; justify-content: center; align-items: center; padding: 24px; }
 .modal { background: var(--raised); border: 1px solid var(--line-strong); border-radius: 8px; width: min(480px, 100%); max-height: 85vh; overflow: auto; box-shadow: 0 24px 80px #26344235; }
 .modal.wide { width: min(620px, 100%); }

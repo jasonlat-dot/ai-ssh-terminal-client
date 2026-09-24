@@ -16,7 +16,7 @@ export function AppHeader({ search, notify }: {
   </header>;
 }
 const items: { name: Navigation; label: string; subtitle: string; icon: IconName }[] = [
-  { name: '连接', label: '连接', subtitle: '远程主机连接', icon: 'server' },
+  { name: '连接', label: '连接', subtitle: '远程主机连接', icon: 'database' },
   { name: '命令', label: '终端', subtitle: '在线终端', icon: 'terminal' },
 ];
 export function ActivityBar({ active, onSelect, onSettings, settingsOpen, collapsed, toggleCollapsed }: {
@@ -28,7 +28,7 @@ export function ActivityBar({ active, onSelect, onSettings, settingsOpen, collap
   toggleCollapsed: () => void;
 }) {
   return <nav className="activity-bar" aria-label="主导航">
-    <button className="nav-collapse-toggle" onClick={toggleCollapsed} aria-expanded={!collapsed} aria-label={collapsed ? '展开导航栏' : '收起导航栏'} title={collapsed ? '展开导航栏' : '收起导航栏'}><Icon name="split" size={19} /><span>收起导航</span></button>
+    <button className="nav-collapse-toggle" onClick={toggleCollapsed} aria-expanded={!collapsed} aria-label={collapsed ? '展开导航栏' : '收起导航栏'} title={collapsed ? '展开导航栏' : '收起导航栏'}><Icon name="sidebar" size={19} /><span>收起导航</span></button>
     {items.map(item => <button key={item.name} aria-label={item.label} title={collapsed ? item.label : undefined} className={`activity ${active === item.name ? 'selected' : ''}`} aria-current={active === item.name ? 'page' : undefined} onClick={() => onSelect(item.name)}><Icon name={item.icon} size={23} /><span><strong>{item.label}</strong><small>{item.subtitle}</small></span></button>)}
     <button className={`activity ${settingsOpen ? 'selected' : ''}`} aria-label="客户端设置" title={collapsed ? '客户端设置' : undefined} aria-haspopup="dialog" aria-expanded={settingsOpen} onClick={onSettings}><Icon name="settings" size={23} /><span><strong>设置</strong><small>后端服务器</small></span></button>
     <div className="nav-footer"><div className="planet-art" aria-hidden="true"><i /><span /></div><strong>让开发更简单</strong><small>智能 · 高效 · 安全</small></div>

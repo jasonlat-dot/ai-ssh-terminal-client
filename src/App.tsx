@@ -68,8 +68,8 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
   const [fileDialogSessionId, setFileDialogSessionId] = useState<string | null>(null);
   const [toast, setToast] = useState<Notice | null>(null);
   const noticeSequence = useRef(0);
-  const [maximized, setMaximized] = useState(false);
   const [commandCollapsed, setCommandCollapsed] = useState(false);
+  const [agentCollapsed, setAgentCollapsed] = useState(false);
   const timers = useRef(new Set<ReturnType<typeof setTimeout>>());
   const chatVersion = useRef(0);
   const chatting = useRef(false);
@@ -310,7 +310,6 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
     const remaining = sessions.filter(session => session.id !== id);
     setSessions(remaining);
     if (activeId === id) setActiveId(remaining[0]?.id ?? '');
-    if (!remaining.length) setMaximized(false);
     running.current.delete(id);
   };
   const closeSession = (id: string) => {
@@ -336,7 +335,6 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
     sessions.filter(session => session.hostId === target.host.id).forEach(session => running.current.delete(session.id));
     setSessions(previous => previous.filter(session => !shouldClose(session)).map(session => session.hostId === target.host.id ? { ...session, busy: false } : session));
     setActiveId(previous => sessions.some(session => session.id === previous && shouldClose(session)) ? remaining[0]?.id ?? '' : previous);
-    if (!remaining.length) setMaximized(false);
     setDisconnectTarget(null);
     notify(historySaved ? `已断开 ${target.host.name}，终端已关闭。` : `已断开 ${target.host.name}，但本机存储不可用，未能保留连接记录。`, historySaved ? 'success' : 'error');
     return true;
@@ -373,7 +371,6 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
   const navigate = (name: Navigation) => {
     setManageConnections(name === '连接');
     setNavigation('命令');
-    setMaximized(false);
   };
   const updateFiles = (sessionId: string, update: (state: SessionFileState) => SessionFileState) => {
     setSessions(previous => updateSessionFiles(previous, sessionId, update));
@@ -699,7 +696,7 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
     }
   }, [hosts, sessions, notify]);
 
-  return <div style={{ '--agent-width': `${agentWidth}%` } as CSSProperties} className={`app-shell ${maximized ? 'terminal-maximized' : ''} ${navCollapsed ? 'nav-collapsed' : ''} ${navigation === '连接' ? 'connections-view' : 'terminal-view'}`}>
+  return <div style={{ '--agent-width': `${agentWidth}%` } as CSSProperties} className={`app-shell ${agentCollapsed ? 'agent-collapsed' : ''} ${navCollapsed ? 'nav-collapsed' : ''} ${navigation === '连接' ? 'connections-view' : 'terminal-view'}`}>
     <AppHeader search={() => setDialog('search')} notify={notify} />
     <ActivityBar active={manageConnections ? '连接' : navigation} onSelect={navigate} onSettings={() => setBackendSettingsOpen(true)} settingsOpen={backendSettingsOpen} collapsed={navCollapsed} toggleCollapsed={() => setNavCollapsed(value => !value)} />
     <ConnectionSidebar connections={{ ...connections, disconnect: disconnectHost, remove: removeHost }} activeHostId={active?.hostId} terminal={selectHost} create={openNewConnection} manage={manageConnections} setManage={setManageConnections} />
@@ -722,8 +719,6 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
         select={setActiveId}
         close={closeSession}
         add={openNewTerminal}
-        maximize={() => setMaximized(value => !value)}
-        isMaximized={maximized}
         copy={copy}
         filesOpen={!!active?.fileState.open}
         toggleFiles={() => { if (active) updateFiles(active.id, state => ({ ...state, open: !state.open })); }}
@@ -732,7 +727,7 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
       <CommandShelf commands={commands} category={category} setCategory={setCategory} fill={fill} run={requestRun} copy={copy} add={() => setDialog('command')} disabled={!canRun} collapsed={commandCollapsed} toggleCollapsed={() => setCommandCollapsed(value => !value)} />
     </main>
     <PanelDivider value={agentWidth} change={setAgentWidth} />
-    <AgentPanel host={host} messages={messages} busy={chatBusy} stopping={chatStopping} send={sendMessage} stop={stopChat}
+    <AgentPanel host={host} messages={messages} busy={chatBusy} stopping={chatStopping} send={sendMessage} stop={stopChat} collapsed={agentCollapsed} toggleCollapsed={() => setAgentCollapsed(value => !value)}
       clear={clearChat} disabled={!selectedAgent || Boolean(historyLoadingId) || chatStopping}
       history={{
         sessions: chatSessions, activeSessionId: activeChatSessionId, open: historyOpen,

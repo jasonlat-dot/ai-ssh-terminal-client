@@ -116,7 +116,7 @@ function sessionTime(value: ClientChatSession['updatedAt']): string {
   });
 }
 
-export function AgentPanel({ host, messages, busy, stopping, send, stop, clear, disabled, history }: {
+export function AgentPanel({ host, messages, busy, stopping, send, stop, clear, disabled, history, collapsed, toggleCollapsed }: {
   host?: Host;
   messages: ChatMessage[];
   busy: boolean;
@@ -126,6 +126,8 @@ export function AgentPanel({ host, messages, busy, stopping, send, stop, clear, 
   clear: () => void;
   disabled: boolean;
   history: HistoryControls;
+  collapsed: boolean;
+  toggleCollapsed: () => void;
 }) {
   const [draft, setDraft] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -179,8 +181,9 @@ export function AgentPanel({ host, messages, busy, stopping, send, stop, clear, 
     return () => window.removeEventListener('keydown', handleShortcut);
   }, [clear]);
 
-  return <aside className="agent-panel conversation-only">
-    <section className="conversation-card">
+  return <aside className={`agent-panel conversation-only ${collapsed ? 'collapsed' : ''}`}>
+    <button type="button" className="agent-panel-toggle panel-edge-toggle" onClick={toggleCollapsed} aria-label={collapsed ? '展开智能体对话' : '收起智能体对话'} aria-expanded={!collapsed} aria-controls="agent-panel-content" title={collapsed ? '展开智能体对话' : '收起智能体对话'}><Icon name="sidebarToggle" size={16} /></button>
+    <section className="conversation-card" id="agent-panel-content" aria-hidden={collapsed}>
       <header>
         <div className="conversation-title">
           <AgentAvatar compact />
@@ -249,7 +252,7 @@ export function AgentPanel({ host, messages, busy, stopping, send, stop, clear, 
       </div>
     </section>
 
-    <form className="chat-composer" onSubmit={event => { event.preventDefault(); submit(); }}>
+    <form className="chat-composer" aria-hidden={collapsed} onSubmit={event => { event.preventDefault(); submit(); }}>
       <div className="composer-input-row"><textarea ref={textareaRef} rows={1} aria-label="智能体任务输入" placeholder="例如：帮我查看 Nginx 状态" value={draft} disabled={disabled || busy} onChange={event => setDraft(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); submit(); } }} />
         {busy || stopping
           ? <button type="button" className="send-button stop-button" aria-label={stopping ? '正在停止' : '停止生成'}
