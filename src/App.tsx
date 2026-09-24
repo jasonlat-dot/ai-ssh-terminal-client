@@ -15,14 +15,14 @@ import { terminalApi } from './api/terminal';
 import { RemoteTerminal } from './state/remoteTerminal';
 import { NotificationToast } from './components/NotificationToast';
 import type { Notice, NoticeType } from './components/NotificationToast';
-import { Connections } from './components/Connections';
+import { ConnectionSidebar } from './components/Connections';
 import { SshConnectionDialog } from './components/SshConnectionDialog';
 import { useSshConnections } from './state/useSshConnections';
 import { PanelDivider } from './components/PanelDivider';
 import { AgentPanel } from './components/AgentPanel';
 import { AddCommandDialog, CreateFileDialog, SearchDialog } from './components/Dialogs';
 import { SessionFiles } from './components/Sidebar';
-import { ActivityBar, AppHeader, StatusBar } from './components/Shell';
+import { ActivityBar, AppHeader } from './components/Shell';
 import { BackendSettingsDialog } from './components/BackendSettingsDialog';
 import { readBackendUrl, saveBackendUrl } from './config/backend';
 import { Modal } from './components/Ui';
@@ -39,11 +39,12 @@ type PendingCommand = { sessionId: string; command: string };
 const initialSessions: TerminalSession[] = [];
 
 function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBackendChange: (url: string) => void }) {
-  const [navigation, setNavigation] = useState<Navigation>('连接');
+  const [navigation, setNavigation] = useState<Navigation>('命令');
   const connections = useSshConnections();
   const { hosts } = connections;
   const [agentWidth, setAgentWidth] = useState(22);
-  const [navCollapsed, setNavCollapsed] = useState(false);
+  const [navCollapsed, setNavCollapsed] = useState(true);
+  const [manageConnections, setManageConnections] = useState(false);
   const [sessions, setSessions] = useState(initialSessions);
   const [activeId, setActiveId] = useState('');
   const [commands, setCommands] = useState(initialCommands);
@@ -71,7 +72,7 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
   const noticeSequence = useRef(0);
   const [focusTick, setFocusTick] = useState(0);
   const [maximized, setMaximized] = useState(false);
-  const [commandCollapsed, setCommandCollapsed] = useState(true);
+  const [commandCollapsed, setCommandCollapsed] = useState(false);
   const timers = useRef(new Set<ReturnType<typeof setTimeout>>());
   const chatVersion = useRef(0);
   const chatting = useRef(false);
@@ -202,7 +203,7 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
     if (!nextHost) return;
     opening.current.add(id);
     try {
-      if (!nextHost.online && !await connections.connect(id)) { setNavigation('连接'); return; }
+      if (!nextHost.online && !await connections.connect(id)) { setNavigation('命令'); return; }
       const existing = sessions.find(session => session.hostId === id);
       const sessionId = existing?.id ?? crypto.randomUUID();
       if (!remoteClients.current.get(sessionId) || remoteClients.current.get(sessionId)?.closed || remoteClients.current.get(sessionId)?.disconnected) {
@@ -353,7 +354,8 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
     if (confirm) setPending(request); else execute(request);
   };
   const navigate = (name: Navigation) => {
-    setNavigation(name);
+    setManageConnections(name === '连接');
+    setNavigation('命令');
     setMaximized(false);
     setFocusTick(value => value + 1);
   };
@@ -683,8 +685,8 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
 
   return <div style={{ '--agent-width': `${agentWidth}%` } as CSSProperties} className={`app-shell ${maximized ? 'terminal-maximized' : ''} ${navCollapsed ? 'nav-collapsed' : ''} ${navigation === '连接' ? 'connections-view' : 'terminal-view'}`}>
     <AppHeader search={() => setDialog('search')} notify={notify} />
-    <ActivityBar active={navigation} onSelect={navigate} onSettings={() => setBackendSettingsOpen(true)} settingsOpen={backendSettingsOpen} collapsed={navCollapsed} toggleCollapsed={() => setNavCollapsed(value => !value)} />
-    {navigation === '连接' && <Connections connections={{ ...connections, disconnect: disconnectHost, remove: removeHost }} terminal={selectHost} create={openNewConnection} copy={copy} />}
+    <ActivityBar active={manageConnections ? '连接' : navigation} onSelect={navigate} onSettings={() => setBackendSettingsOpen(true)} settingsOpen={backendSettingsOpen} collapsed={navCollapsed} toggleCollapsed={() => setNavCollapsed(value => !value)} />
+    <ConnectionSidebar connections={{ ...connections, disconnect: disconnectHost, remove: removeHost }} activeHostId={active?.hostId} terminal={selectHost} create={openNewConnection} manage={manageConnections} setManage={setManageConnections} />
     <main hidden={navigation !== '命令'} className={`central-workspace ${!active ? 'no-session' : ''} ${commandCollapsed ? 'command-collapsed' : ''}`}>
       <TerminalWorkspace
         remoteViews={sessions.filter(session => session.hostId && remoteClients.current.has(session.id)).map(session => {
@@ -729,7 +731,6 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
         refresh: () => { if (selectedAgent) void refreshChatSessions(selectedAgent.agentId); },
         select: sessionId => { void selectChatSession(sessionId); },
       }} />
-    <StatusBar host={host} />
     {toast && <NotificationToast key={toast.id} notice={toast} close={dismissNotice} />}
     {dialog === 'command' && <AddCommandDialog close={closeDialog} save={command => { setCommands(previous => [...previous, command]); setCategory(command.category); closeDialog(); notify('命令已添加到当前演示', 'success'); }} />}
     {dialog === 'file' && fileDialogSessionId && <CreateFileDialog close={closeDialog} path="/var/www/app" files={sessions.find(session => session.id === fileDialogSessionId)?.fileState.files ?? []} save={file => { updateFiles(fileDialogSessionId, state => ({ ...state, files: [...state.files, file], selected: file.id })); closeDialog(); notify('已在当前终端的演示文件树中创建', 'success'); }} />}
