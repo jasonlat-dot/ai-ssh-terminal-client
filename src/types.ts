@@ -3,11 +3,25 @@ export type FileNode = { id: string; name: string; kind: 'file' | 'folder'; chil
 export type Category = string;
 export type SavedCommandIcon = 'disk' | 'box' | 'file' | 'network' | 'terminal' | 'signal' | 'server';
 export type SavedCommand = { id: string; name: string; command: string; category: Category; icon: SavedCommandIcon };
+export type TerminalDisconnectReason =
+  | 'IDLE_TIMEOUT'
+  | 'CLIENT_CLOSED'
+  | 'CHANNEL_DISCONNECTED'
+  | 'READER_ERROR'
+  | 'SESSION_NOT_FOUND';
+export type TerminalConnectionStatus = 'connected' | 'disconnected' | 'reconnecting';
 export type TerminalSession = {
   id: string;
   connectionId: string;
   terminalSessionId: string;
   connected: boolean;
+  connectionStatus: TerminalConnectionStatus;
+  disconnectReason: TerminalDisconnectReason | null;
+  reconnectAllowed: boolean;
+  reconnectAttempts: number;
+  reconnecting: boolean;
+  readLoopGeneration: number;
+  manuallyClosed: boolean;
   host: Host;
   title: string;
   busy: boolean;

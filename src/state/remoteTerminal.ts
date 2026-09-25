@@ -1,72 +1,133 @@
 import { terminalApi } from '../api/terminal';
-import type { TerminalOpen } from '../api/terminal';
+import type { TerminalConnectionState, TerminalOpen } from '../api/terminal';
 import { SshRequestError } from '../api/ssh';
+import type { TerminalDisconnectReason } from '../types';
 
-const READ_RETRY_DELAYS = [1_000, 2_000, 5_000, 10_000, 20_000, 30_000] as const;
+const READ_RETRY_DELAYS = [1_000, 3_000, 5_000, 10_000] as const;
 
-// Long-poll reads must never block keyboard writes. Only writes share a queue so
-// keystrokes and submitted commands keep their original order.
+export type TerminalDisconnectEvent = {
+  reason: TerminalDisconnectReason | null;
+  reconnectAllowed: boolean;
+  message: string;
+};
+
+export function terminalDisconnectMessage(reason: TerminalDisconnectReason | null, reconnectAllowed: boolean) {
+  switch (reason) {
+    case 'IDLE_TIMEOUT': return '终端因长时间未操作已断开，请点击重新连接';
+    case 'CLIENT_CLOSED': return '终端连接已关闭。';
+    case 'SESSION_NOT_FOUND': return '终端会话已失效，请手动重新连接';
+    case 'READER_ERROR': return reconnectAllowed ? '终端读取异常，正在尝试自动重连。' : '终端读取异常，请点击重新连接。';
+    case 'CHANNEL_DISCONNECTED': return reconnectAllowed ? 'SSH Channel 已断开，正在尝试自动重连。' : 'SSH Channel 已断开，请点击重新连接。';
+    default: return reconnectAllowed ? '终端连接已断开，正在尝试自动重连。' : '终端连接已断开，请点击重新连接。';
+  }
+}
+
+// HTTP read failures only retry this backend session. They never open a new SSH shell.
 export class RemoteTerminal {
   readonly sessionId: string;
   readonly connectionId: string;
   closed = false;
   disconnected = false;
+  manuallyClosed = false;
+  disconnectReason: TerminalDisconnectReason | null = null;
+  reconnectAllowed = false;
   private closing = false;
-  private paused = false;
+  private paused: boolean;
   private writeQueue: Promise<unknown> = Promise.resolve();
   private timer?: ReturnType<typeof setTimeout>;
   private output?: (data: string) => void;
   private report?: (error: string) => void;
-  private reportDisconnect?: (message: string) => void;
+  private reportDisconnect?: (event: TerminalDisconnectEvent) => void;
   private backlog: string;
-  private polling = false;
+  private pollingGeneration = 0;
+  private generation = 0;
   private lastSize = '';
   private readFailureCount = 0;
 
-  constructor(opened: TerminalOpen) {
+  constructor(opened: TerminalOpen, startPaused = false) {
     this.sessionId = opened.sessionId;
     this.connectionId = opened.connectionId;
     this.backlog = opened.initialOutput || '';
-    if (this.isDisconnectOutput(this.backlog)) this.disconnected = true;
+    this.paused = startPaused;
+    if (this.isDisconnectOutput(this.backlog)) {
+      this.disconnected = true;
+      this.disconnectReason = 'CHANNEL_DISCONNECTED';
+    }
   }
+
+  get readLoopGeneration() { return this.generation; }
+
   private isDisconnectOutput(data: string) {
     return data.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '').includes('[连接已断开]');
   }
-  private markDisconnected(message = '与服务器的终端连接已断开。') {
-    if (this.disconnected) return;
+
+  private isActive(generation: number) {
+    return generation === this.generation && !!this.output && !this.closed && !this.closing
+      && !this.paused && !this.disconnected && !this.manuallyClosed;
+  }
+
+  private stopReadLoop() {
+    this.generation += 1;
+    clearTimeout(this.timer);
+  }
+
+  private markDisconnected(reason: TerminalDisconnectReason | null, reconnectAllowed: boolean, message = terminalDisconnectMessage(reason, reconnectAllowed)) {
+    if (this.manuallyClosed) return;
+    const changed = !this.disconnected || this.disconnectReason !== reason || this.reconnectAllowed !== reconnectAllowed;
     this.disconnected = true;
     this.paused = true;
-    clearTimeout(this.timer);
-    this.reportDisconnect?.(message);
+    this.disconnectReason = reason;
+    this.reconnectAllowed = reconnectAllowed === true;
+    this.stopReadLoop();
+    if (changed) this.reportDisconnect?.({ reason, reconnectAllowed: this.reconnectAllowed, message });
   }
+
   private emit(data: string) {
     if (!data) return;
     if (this.output) this.output(data); else this.backlog += data;
-    if (this.isDisconnectOutput(data)) this.markDisconnected();
+    // Compatibility guard for older backends; it never opts into automatic reconnect.
+    if (this.isDisconnectOutput(data)) this.markDisconnected('CHANNEL_DISCONNECTED', false);
   }
+
   private enqueueWrite<T>(action: () => Promise<T>): Promise<T> {
     const next = this.writeQueue.then(action);
     this.writeQueue = next.catch(() => undefined);
     return next;
   }
-  subscribe(output: (data: string) => void, report: (error: string) => void, reportDisconnect?: (message: string) => void) {
-    this.output = output; this.report = report; this.reportDisconnect = reportDisconnect;
+
+  subscribe(output: (data: string) => void, report: (error: string) => void, reportDisconnect?: (event: TerminalDisconnectEvent) => void) {
+    this.output = output;
+    this.report = report;
+    this.reportDisconnect = reportDisconnect;
     if (this.backlog) { output(this.backlog); this.backlog = ''; }
-    if (this.disconnected) reportDisconnect?.('与服务器的终端连接已断开。'); else this.schedule();
-    return () => { this.output = undefined; this.report = undefined; this.reportDisconnect = undefined; clearTimeout(this.timer); };
+    const generation = ++this.generation;
+    if (this.disconnected) {
+      reportDisconnect?.({ reason: this.disconnectReason, reconnectAllowed: this.reconnectAllowed,
+        message: terminalDisconnectMessage(this.disconnectReason, this.reconnectAllowed) });
+    } else if (!this.paused) {
+      this.schedule(0, generation);
+    }
+    return () => {
+      if (generation === this.generation) this.stopReadLoop();
+      this.output = undefined;
+      this.report = undefined;
+      this.reportDisconnect = undefined;
+    };
   }
-  private schedule(delay = 0) {
+
+  private schedule(delay = 0, generation = this.generation) {
     clearTimeout(this.timer);
-    if (!this.output || this.closed || this.closing || this.paused || this.disconnected || this.polling) return;
-    this.timer = setTimeout(() => { void this.poll(); }, delay);
+    if (!this.isActive(generation) || this.pollingGeneration === generation) return;
+    this.timer = setTimeout(() => { void this.poll(generation); }, delay);
   }
-  private async poll() {
-    if (this.closed || this.closing || this.paused || this.disconnected || this.polling) return;
-    this.polling = true;
+
+  private async poll(generation: number) {
+    if (!this.isActive(generation) || this.pollingGeneration === generation) return;
+    this.pollingGeneration = generation;
     let nextDelay = 0;
     try {
       const result = await terminalApi.read(this.sessionId);
-      if (!this.output || this.closed || this.closing || this.paused || this.disconnected) return;
+      if (!this.isActive(generation)) return;
       if (this.readFailureCount > 0) {
         console.info(`Terminal Long Poll 网络已恢复 sessionId=${this.sessionId} failures=${this.readFailureCount}`);
         this.readFailureCount = 0;
@@ -79,93 +140,119 @@ export class RemoteTerminal {
           if (result.bufferOverflow) console.warn('Terminal 输出过快，部分旧数据已丢弃');
           break;
         case 'TIMEOUT':
-          // A Long Poll timeout is expected. Start the next request immediately.
           break;
         case 'REPLACED':
-          console.warn('Terminal Long Poll 被新请求替换');
+          console.info(`忽略被替换的 Terminal Long Poll sessionId=${this.sessionId} generation=${generation}`);
           break;
         case 'DISCONNECTED':
-          console.info('SSH 已断开，eof=', result.eof);
-          this.markDisconnected(`SSH 已断开${result.eof ? '（已收到 EOF）' : ''}，客户端将自动尝试重新连接。`);
+          this.markDisconnected(result.disconnectReason, result.reconnectAllowed === true);
           break;
         case 'READER_ERROR':
-          console.error('SSH Reader 异常');
-          this.markDisconnected('SSH Reader 发生异常，客户端将自动尝试重新连接。');
+          this.markDisconnected(result.disconnectReason ?? 'READER_ERROR', result.reconnectAllowed === true);
           break;
         default:
           throw new Error(`未知的终端读取状态：${String(result.status)}`);
       }
-    }
-    catch (error) {
-      if (this.closed || this.closing || this.paused || this.disconnected) return;
+    } catch (error) {
+      if (!this.isActive(generation)) return;
       const message = error instanceof Error ? error.message : '读取终端失败';
-      if (error instanceof SshRequestError && error.kind === 'application' && error.code === 'S0003') {
-        console.info(`Terminal 后端会话已不存在 sessionId=${this.sessionId}`);
-        this.markDisconnected('后端终端会话已不存在，将尝试重新连接。');
-        return;
+      if (error instanceof SshRequestError && error.code === 'S0003') {
+        console.info(`Terminal read 返回 S0003，先校验原会话 sessionId=${this.sessionId}`);
+        try {
+          await this.verifyConnected();
+          if (!this.isActive(generation)) return;
+        } catch (verificationError) {
+          if (!this.isActive(generation)) return;
+          console.info(`Terminal 会话校验请求失败，继续保留原会话 sessionId=${this.sessionId} reason=${verificationError instanceof Error ? verificationError.message : '未知错误'}`);
+        }
       }
-
-      try {
-        if (!await this.verifyConnected()) return;
-      } catch (verificationError) {
-        console.info(`Terminal 会话校验失败 sessionId=${this.sessionId} reason=${verificationError instanceof Error ? verificationError.message : '未知错误'}`);
+      if (this.isActive(generation)) {
+        this.readFailureCount += 1;
+        nextDelay = READ_RETRY_DELAYS[Math.min(this.readFailureCount - 1, READ_RETRY_DELAYS.length - 1)];
+        console.info(`Terminal Long Poll 请求失败，重试原会话 sessionId=${this.sessionId} failure=${this.readFailureCount} retryDelayMs=${nextDelay} reason=${message}`);
+        this.report?.(`${message}；将保留当前会话并在 ${Math.ceil(nextDelay / 1000)} 秒后重试读取。`);
       }
-
-      /*
-       * HTTP Long Poll 失败不代表后端到 SSH 服务器的连接已经断开。
-       * 保留当前 terminalSessionId，只按退避时间重试读取，避免一次客户端网络抖动
-       * 反过来销毁仍然正常的 SSH Shell。
-       */
-      this.readFailureCount += 1;
-      nextDelay = READ_RETRY_DELAYS[Math.min(this.readFailureCount - 1, READ_RETRY_DELAYS.length - 1)];
-      console.info(`Terminal Long Poll 网络波动，准备重试 sessionId=${this.sessionId} failure=${this.readFailureCount} retryDelayMs=${nextDelay} reason=${message}`);
-      this.report?.(`${message}；终端读取将在 ${Math.ceil(nextDelay / 1000)} 秒后自动重试。`);
+    } finally {
+      if (this.pollingGeneration === generation) this.pollingGeneration = 0;
+      if (this.isActive(generation)) this.schedule(nextDelay, generation);
     }
-    finally { this.polling = false; this.schedule(nextDelay); }
   }
-  resume() { if (this.disconnected) return; this.paused = false; this.report?.(''); this.schedule(); }
-  async verifyConnected() {
-    if (this.closed || this.closing) return false;
+
+  resume() {
+    if (this.disconnected || this.manuallyClosed) return;
+    this.paused = false;
+    this.report?.('');
+    this.schedule();
+  }
+
+  async verifyConnected(): Promise<TerminalConnectionState> {
+    if (this.closed || this.closing || this.manuallyClosed) {
+      return { sessionId: this.sessionId, connectionId: this.connectionId, connected: false,
+        disconnectReason: 'CLIENT_CLOSED', reconnectAllowed: false };
+    }
     const state = await terminalApi.connected(this.sessionId);
-    const connected = state.connected === true
-      && state.sessionId === this.sessionId
-      && state.connectionId === this.connectionId;
-    if (!connected) this.markDisconnected('后端终端会话已失效，将尝试重新连接。');
-    else this.report?.('');
-    return connected;
+    const connected = state.connected === true && state.sessionId === this.sessionId && state.connectionId === this.connectionId;
+    if (!connected) {
+      const reason = state.disconnectReason ?? 'SESSION_NOT_FOUND';
+      this.markDisconnected(reason, state.reconnectAllowed === true);
+      return { ...state, connected: false, disconnectReason: reason };
+    }
+    this.disconnected = false;
+    this.disconnectReason = null;
+    this.reconnectAllowed = false;
+    this.paused = false;
+    this.report?.('');
+    this.schedule();
+    return state;
   }
+
   prepareReconnect() {
     this.disconnected = true;
     this.paused = true;
-    clearTimeout(this.timer);
+    this.stopReadLoop();
   }
+
+  markManuallyClosed() {
+    this.manuallyClosed = true;
+    this.reconnectAllowed = false;
+    this.disconnectReason = 'CLIENT_CLOSED';
+    this.disconnected = true;
+    this.paused = true;
+    this.stopReadLoop();
+  }
+
   private assertWritable() {
-    if (this.closed || this.closing) throw new Error('终端会话已关闭，请点击“重新连接”恢复会话。');
+    if (this.closed || this.closing || this.manuallyClosed) throw new Error('终端会话已关闭，请点击“重新连接”恢复会话。');
     if (this.disconnected) throw new Error('终端连接已断开，请先重新连接。');
     if (this.paused) throw new Error('终端读取已暂停，请先重试读取。');
   }
+
   exec(command: string) {
-    return this.enqueueWrite(async () => {
-      this.assertWritable();
-      // Output is collected by the active long-poll read. Using /write avoids a
-      // second reader racing the long poll for the same backend output buffer.
-      await terminalApi.write(this.sessionId, `${command}\r`);
-    });
+    return this.enqueueWrite(async () => { this.assertWritable(); await terminalApi.write(this.sessionId, `${command}\r`); });
   }
-  write(input: string) { return this.enqueueWrite(async () => { this.assertWritable(); await terminalApi.write(this.sessionId, input); }); }
+
+  write(input: string) {
+    return this.enqueueWrite(async () => { this.assertWritable(); await terminalApi.write(this.sessionId, input); });
+  }
+
   async resize(cols: number, rows: number) {
-    if (this.closed || this.closing || this.paused || this.disconnected) return;
+    if (this.closed || this.closing || this.paused || this.disconnected || this.manuallyClosed) return;
     const size = `${cols}:${rows}`;
     if (size === this.lastSize) return;
     await terminalApi.resize(this.sessionId, cols, rows);
     this.lastSize = size;
   }
+
   async close() {
     if (this.closed) return;
-    this.closing = true; clearTimeout(this.timer);
+    this.markManuallyClosed();
+    this.closing = true;
     try {
       await terminalApi.close(this.sessionId);
-      this.closed = true; this.report?.('终端会话已关闭，可点击“重新连接”重新建立会话。');
-    } finally { this.closing = false; this.schedule(); }
+      this.report?.('终端会话已关闭，可点击“重新连接”重新建立会话。');
+    } finally {
+      this.closed = true;
+      this.closing = false;
+    }
   }
 }

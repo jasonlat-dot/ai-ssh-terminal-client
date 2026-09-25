@@ -16,6 +16,8 @@ import { loadClientCommands, saveClientCommands } from './state/clientCommands';
 import { sshApi } from './api/ssh';
 import { terminalApi } from './api/terminal';
 import { RemoteTerminal } from './state/remoteTerminal';
+import type { TerminalDisconnectEvent } from './state/remoteTerminal';
+import { loadTerminalSessions, saveTerminalSessions } from './state/terminalSessions';
 import { NotificationToast } from './components/NotificationToast';
 import type { Notice, NoticeType } from './components/NotificationToast';
 import { ConnectionSidebar } from './components/Connections';
@@ -38,7 +40,6 @@ const RemoteTerminalView = lazy(() => import('./components/RemoteTerminalView').
 
 type Dialog = 'command' | 'connection' | 'file' | null;
 type CommandRequest = { sessionId: string; command: string };
-const initialSessions: TerminalSession[] = [];
 const STALE_TERMINAL_TAB_MS = 5 * 60 * 1000;
 
 function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBackendChange: (url: string) => void }) {
@@ -49,8 +50,10 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
   const [agentWidth, setAgentWidth] = useState(22);
   const [navCollapsed, setNavCollapsed] = useState(true);
   const [manageConnections, setManageConnections] = useState(false);
-  const [sessions, setSessions] = useState(initialSessions);
-  const [activeId, setActiveId] = useState('');
+  const [sessions, setSessions] = useState(() => loadTerminalSessions(backendUrl));
+  const sessionsRef = useRef(sessions);
+  sessionsRef.current = sessions;
+  const [activeId, setActiveId] = useState(() => sessions[0]?.id ?? '');
   const [commands, setCommands] = useState(initialCommands);
   const [category, setCategory] = useState('全部');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -83,6 +86,20 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
   const historySelection = useRef(0);
   const running = useRef(new Set<string>());
   const remoteClients = useRef(new Map<string, RemoteTerminal>());
+  const restoredClientsInitialized = useRef(false);
+  const restoredSessionsVerified = useRef(false);
+  if (!restoredClientsInitialized.current) {
+    sessions.forEach(session => {
+      if (session.terminalSessionId) {
+        remoteClients.current.set(session.id, new RemoteTerminal({
+          sessionId: session.terminalSessionId,
+          connectionId: session.connectionId,
+          initialOutput: '',
+        }, true));
+      }
+    });
+    restoredClientsInitialized.current = true;
+  }
   const opening = useRef(new Set<string>());
   const tabLastUsedAt = useRef(new Map<string, number>());
   const [terminalError, setTerminalError] = useState('');
@@ -100,6 +117,10 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
     return timer;
   }, []);
   useEffect(() => () => { timers.current.forEach(clearTimeout); }, []);
+  useEffect(() => {
+    try { saveTerminalSessions(backendUrl, sessions); }
+    catch (error) { console.warn('保存终端页签恢复信息失败', error); }
+  }, [backendUrl, sessions]);
   useEffect(() => {
     let cancelled = false;
     void loadClientCommands()
@@ -189,15 +210,6 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
   }, [notify]);
   useEffect(() => () => chatAbort.current?.abort(), []);
   useEffect(() => {
-    const closeWindowTerminals = () => {
-      remoteClients.current.forEach(client => {
-        if (!client.closed) terminalApi.closeOnUnload(client.sessionId);
-      });
-    };
-    window.addEventListener('pagehide', closeWindowTerminals);
-    return () => window.removeEventListener('pagehide', closeWindowTerminals);
-  }, []);
-  useEffect(() => {
     if (selectedAgent?.agentId) void refreshChatSessions(selectedAgent.agentId);
   }, [selectedAgent?.agentId, refreshChatSessions]);
   useEffect(() => {
@@ -245,6 +257,13 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
         connectionId: id,
         terminalSessionId: runtime.sessionId,
         connected: true,
+        connectionStatus: 'connected',
+        disconnectReason: null,
+        reconnectAllowed: false,
+        reconnectAttempts: 0,
+        reconnecting: false,
+        readLoopGeneration: runtime.readLoopGeneration,
+        manuallyClosed: false,
         host: nextHost,
         title: nextHost.name,
         busy: false,
@@ -255,24 +274,48 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
     } catch (error) { notify(error instanceof Error ? error.message : '打开终端失败', 'error'); }
     finally { opening.current.delete(tabId); }
   };
-  const handleTerminalDisconnected = (sessionId: string, message: string, sourceRuntime?: RemoteTerminal) => {
+  const handleTerminalDisconnected = (sessionId: string, event: TerminalDisconnectEvent, sourceRuntime?: RemoteTerminal) => {
     if (sourceRuntime && remoteClients.current.get(sessionId) !== sourceRuntime) {
       console.info(`忽略旧终端实例的断开通知 oldTerminalSessionId=${sourceRuntime.sessionId} logicalSessionId=${sessionId}`);
       return;
     }
-    setSessions(previous => previous.map(item => item.id === sessionId ? { ...item, connected: false, busy: false } : item));
+    if (sourceRuntime?.manuallyClosed) return;
+    setSessions(previous => previous.map(item => item.id === sessionId && !item.manuallyClosed ? {
+      ...item,
+      terminalSessionId: event.reconnectAllowed ? item.terminalSessionId : '',
+      connected: false,
+      connectionStatus: 'disconnected',
+      disconnectReason: event.reason,
+      reconnectAllowed: event.reconnectAllowed,
+      reconnecting: false,
+      readLoopGeneration: sourceRuntime?.readLoopGeneration ?? item.readLoopGeneration,
+      busy: false,
+    } : item));
     running.current.delete(sessionId);
-    notify(message, 'error');
+    if (event.reason !== 'CLIENT_CLOSED') notify(event.message, 'error');
   };
   const verifyTerminalSession = useCallback(async (tabId: string, terminalSessionId: string) => {
+    if (!terminalSessionId) return false;
     const runtime = remoteClients.current.get(tabId);
     if (!runtime || runtime.sessionId !== terminalSessionId) return false;
     try {
-      const connected = await runtime.verifyConnected();
-      setSessions(previous => previous.map(session => session.id === tabId && session.terminalSessionId === terminalSessionId
-        ? (session.connected === connected ? session : { ...session, connected, busy: connected ? session.busy : false })
+      const state = await runtime.verifyConnected();
+      if (remoteClients.current.get(tabId) !== runtime || runtime.manuallyClosed) return false;
+      setSessions(previous => previous.map(session => session.id === tabId && session.terminalSessionId === terminalSessionId && !session.manuallyClosed
+        ? {
+          ...session,
+          terminalSessionId: state.connected || state.reconnectAllowed ? terminalSessionId : '',
+          connected: state.connected,
+          connectionStatus: state.connected ? 'connected' : 'disconnected',
+          disconnectReason: state.disconnectReason,
+          reconnectAllowed: state.connected ? false : state.reconnectAllowed === true,
+          reconnectAttempts: state.connected ? 0 : session.reconnectAttempts,
+          reconnecting: false,
+          readLoopGeneration: runtime.readLoopGeneration,
+          busy: state.connected ? session.busy : false,
+        }
         : session));
-      return connected;
+      return state.connected;
     } catch (error) {
       console.info(`查询终端连接状态失败 terminalSessionId=${terminalSessionId} reason=${error instanceof Error ? error.message : '未知错误'}`);
       return undefined;
@@ -285,7 +328,7 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
     const session = sessions.find(item => item.id === tabId);
     tabLastUsedAt.current.set(tabId, now);
     setActiveId(tabId);
-    if (session && (!session.connected || now - lastUsedAt >= STALE_TERMINAL_TAB_MS)) {
+    if (session?.terminalSessionId && (!session.connected || now - lastUsedAt >= STALE_TERMINAL_TAB_MS)) {
       void verifyTerminalSession(tabId, session.terminalSessionId);
     }
   };
@@ -298,11 +341,22 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
       console.info(`忽略旧终端实例的重连请求 oldTerminalSessionId=${sourceRuntime.sessionId} logicalSessionId=${sessionId}`);
       return true;
     }
-    const session = sessions.find(item => item.id === sessionId);
+    const session = sessionsRef.current.find(item => item.id === sessionId);
     if (!session || opening.current.has(sessionId)) return false;
+    if (options?.automatic && (!session.reconnectAllowed || session.manuallyClosed || sourceRuntime?.manuallyClosed)) {
+      console.info(`忽略未获后端允许的自动重连 logicalSessionId=${sessionId}`);
+      return false;
+    }
     opening.current.add(sessionId);
     const previousRuntime = remoteClients.current.get(sessionId);
     previousRuntime?.prepareReconnect();
+    setSessions(previous => previous.map(item => item.id === sessionId ? {
+      ...item,
+      connectionStatus: 'reconnecting',
+      reconnecting: true,
+      reconnectAttempts: options?.attempt ?? item.reconnectAttempts,
+      manuallyClosed: false,
+    } : item));
     if (options?.automatic) {
       console.info(`SSH 自动重连请求 connectionId=${session.connectionId} oldTerminalSessionId=${previousRuntime?.sessionId} attempt=${options.attempt ?? 1}`);
     } else {
@@ -311,18 +365,49 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
     try {
       if (previousRuntime?.sessionId) await terminalApi.close(previousRuntime.sessionId).catch(() => undefined);
       const runtime = await openTerminalRuntime(session.connectionId);
+      const currentSession = sessionsRef.current.find(item => item.id === sessionId);
+      const currentRuntime = remoteClients.current.get(sessionId);
+      if (!currentSession || currentSession.manuallyClosed || previousRuntime?.manuallyClosed
+        || (previousRuntime ? currentRuntime !== previousRuntime : !!currentRuntime)) {
+        await runtime.close().catch(() => undefined);
+        return false;
+      }
       remoteClients.current.set(sessionId, runtime);
       setSessions(previous => previous.map(item => item.id === sessionId ? {
-        ...item, terminalSessionId: runtime.sessionId, connected: true, busy: false,
+        ...item,
+        terminalSessionId: runtime.sessionId,
+        connected: true,
+        connectionStatus: 'connected',
+        disconnectReason: null,
+        reconnectAllowed: false,
+        reconnectAttempts: 0,
+        reconnecting: false,
+        readLoopGeneration: runtime.readLoopGeneration,
+        manuallyClosed: false,
+        busy: false,
       } : item));
-      notify(options?.automatic ? `网络已恢复，SSH 自动重连成功（第 ${options.attempt ?? 1} 次）。` : '已重新连接，可以继续操作。', 'success');
+      notify(options?.automatic ? `SSH 自动重连成功（第 ${options.attempt ?? 1} 次）。` : '已重新连接，可以继续操作。', 'success');
       return true;
     } catch (error) {
-      setSessions(previous => previous.map(item => item.id === sessionId ? { ...item, connected: false, busy: false } : item));
+      setSessions(previous => previous.map(item => item.id === sessionId ? {
+        ...item, connected: false, connectionStatus: 'disconnected', reconnecting: false, busy: false,
+      } : item));
       if (!options?.automatic) notify(error instanceof Error ? error.message : '重新连接失败', 'error');
       else console.info(`SSH 自动重连请求失败 connectionId=${session.connectionId} attempt=${options.attempt ?? 1} reason=${error instanceof Error ? error.message : '重新连接失败'}`);
       return false;
     } finally { opening.current.delete(sessionId); }
+  };
+  const handleReconnectExhausted = (tabId: string, sourceRuntime?: RemoteTerminal) => {
+    if (sourceRuntime && remoteClients.current.get(tabId) !== sourceRuntime) return;
+    setSessions(previous => previous.map(session => session.id === tabId && !session.manuallyClosed ? {
+      ...session,
+      terminalSessionId: '',
+      connected: false,
+      connectionStatus: 'disconnected',
+      reconnectAllowed: false,
+      reconnecting: false,
+      busy: false,
+    } : session));
   };
   const closeTerminalSession = async (tabId: string) => {
     const session = sessions.find(item => item.id === tabId);
@@ -330,9 +415,19 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
     setTerminalError('');
     try {
       const runtime = remoteClients.current.get(tabId);
-      if (runtime?.sessionId === session.terminalSessionId) await runtime.close();
-      else await terminalApi.close(session.terminalSessionId);
-      setSessions(previous => previous.map(item => item.id === tabId ? { ...item, connected: false, busy: false } : item));
+      runtime?.markManuallyClosed();
+      setSessions(previous => previous.map(item => item.id === tabId ? {
+        ...item,
+        connected: false,
+        connectionStatus: 'disconnected',
+        disconnectReason: 'CLIENT_CLOSED',
+        reconnectAllowed: false,
+        reconnecting: false,
+        manuallyClosed: true,
+        busy: false,
+      } : item));
+      if (runtime) await runtime.close();
+      else if (session.terminalSessionId) await terminalApi.close(session.terminalSessionId);
       return true;
     } catch (error) {
       const message = error instanceof Error ? error.message : '关闭终端失败';
@@ -725,8 +820,20 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
   }, [hosts]);
 
   useEffect(() => {
+    if (restoredSessionsVerified.current) return;
+    restoredSessionsVerified.current = true;
+    sessions.forEach(session => {
+      if (session.terminalSessionId) void verifyTerminalSession(session.id, session.terminalSessionId);
+    });
+  }, [sessions, verifyTerminalSession]);
+
+  useEffect(() => {
     const verifyAfterNetworkRestore = () => {
-      sessions.forEach(session => { void verifyTerminalSession(session.id, session.terminalSessionId); });
+      sessions.forEach(session => {
+        if (session.terminalSessionId && !session.manuallyClosed) {
+          void verifyTerminalSession(session.id, session.terminalSessionId);
+        }
+      });
     };
     window.addEventListener('online', verifyAfterNetworkRestore);
     return () => window.removeEventListener('online', verifyAfterNetworkRestore);
@@ -738,12 +845,18 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
     <ConnectionSidebar connections={{ ...connections, remove: removeHost }} sessions={sessions} activeHostId={active?.connectionId} terminal={selectHost} create={openNewConnection} manage={manageConnections} setManage={setManageConnections} />
     <main hidden={navigation !== '命令'} className={`central-workspace ${!active ? 'no-session' : ''} ${commandCollapsed ? 'command-collapsed' : ''}`}>
       <TerminalWorkspace
-        remoteViews={sessions.filter(session => remoteClients.current.has(session.id)).map(session => {
-          const runtime = remoteClients.current.get(session.id)!;
+        remoteViews={sessions.map(session => {
+          const runtime = remoteClients.current.get(session.id);
           return <Suspense key={session.id} fallback={session.id === activeId ? <p>正在加载终端…</p> : null}>
-            <RemoteTerminalView key={runtime.sessionId} runtime={runtime} visible={session.id === activeId && navigation === '命令'}
-              connected={session.connected && runtime.sessionId === session.terminalSessionId}
-              onDisconnected={message => handleTerminalDisconnected(session.id, message, runtime)}
+            <RemoteTerminalView key={runtime?.sessionId ?? `${session.id}:disconnected`} runtime={runtime} visible={session.id === activeId && navigation === '命令'}
+              connected={session.connected && !!runtime && runtime.sessionId === session.terminalSessionId}
+              disconnectReason={session.disconnectReason}
+              reconnectAllowed={session.reconnectAllowed}
+              reconnectAttempts={session.reconnectAttempts}
+              reconnecting={session.reconnecting}
+              manuallyClosed={session.manuallyClosed}
+              onDisconnected={event => handleTerminalDisconnected(session.id, event, runtime)}
+              onReconnectExhausted={() => handleReconnectExhausted(session.id, runtime)}
               reconnect={options => reconnectTerminal(session.id, options, runtime)}
               disconnect={() => closeSession(session.id)} />
           </Suspense>;

@@ -37,8 +37,10 @@ export async function request<T>(endpoint: string, method = 'GET', body?: object
       headers: body ? { 'Content-Type': 'application/json' } : undefined,
       body: body ? JSON.stringify(body) : undefined,
     });
-    if (!response.ok) throw new SshRequestError(`SSH 服务请求失败（HTTP ${response.status}）`, 'http');
-    const result = await response.json() as { code?: string; info?: string; data?: T };
+    const result = await response.json().catch(() => ({})) as { code?: string; info?: string; data?: T };
+    if (!response.ok) {
+      throw new SshRequestError(result.info || `SSH 服务请求失败（HTTP ${response.status}）`, 'http', result.code);
+    }
     if (result.code !== 'SUCCESS_0000') {
       throw new SshRequestError(result.info || 'SSH 操作失败', 'application', result.code);
     }
