@@ -5,7 +5,7 @@ import type { useSshConnections } from '../state/useSshConnections';
 import { Icon, Modal } from './Ui';
 
 export const blankSshConnection: Host = {
-  id: '', name: '', address: '', user: 'root', port: 22, online: false,
+  id: '', name: '', address: '', user: 'root', port: 22,
   environment: '开发', auth: 'password', keyPath: '', saved: true,
 };
 

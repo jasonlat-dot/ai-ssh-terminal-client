@@ -9,7 +9,7 @@ export function TerminalWorkspace({ remoteViews, sessions, activeId, host, selec
   return <section className="terminal-workspace" aria-label="终端工作区">
     <div className="terminal-tabs" role="tablist" aria-label="终端会话">
       {sessions.map(session => <div className={"terminal-tab " + (session.id === activeId ? 'selected' : '')} key={session.id}>
-        <button role="tab" aria-selected={session.id === activeId} onClick={() => select(session.id)}><i className={"status-dot " + (session.id === activeId && !host?.online ? 'offline' : '')} /><span>{session.title}</span></button>
+        <button role="tab" aria-selected={session.id === activeId} onClick={() => select(session.id)}><i className={"status-dot " + (session.connected ? '' : 'offline')} /><span>{session.title}</span></button>
         <IconButton icon="close" label={'关闭 ' + session.title} onClick={() => close(session.id)} />
       </div>)}
       <button className="new-terminal-button" onClick={add} title="添加 SSH 连接"><Icon name="tabs" size={17} /><span>新建终端</span></button>
@@ -18,7 +18,7 @@ export function TerminalWorkspace({ remoteViews, sessions, activeId, host, selec
       {filesOpen && filePanel}
       <div className="terminal-pane">
         <div className="terminal-toolbar">
-          <i className={"terminal-connection-dot " + (!host?.online ? 'offline' : '')} aria-hidden="true" />
+          <i className={"terminal-connection-dot " + (!active.connected ? 'offline' : '')} aria-hidden="true" />
           <span>{(host?.user ?? '') + '@' + (host?.address ?? '')}</span>
           <IconButton icon="copy" label="复制主机地址" onClick={() => copy(host?.address ?? '')} />
           <div className="inline-actions workspace-panel-controls" aria-label="工作区面板">

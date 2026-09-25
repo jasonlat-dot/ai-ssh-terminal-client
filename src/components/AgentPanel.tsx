@@ -116,8 +116,9 @@ function sessionTime(value: ClientChatSession['updatedAt']): string {
   });
 }
 
-export function AgentPanel({ host, messages, busy, stopping, send, stop, clear, disabled, history, collapsed }: {
+export function AgentPanel({ host, connected, messages, busy, stopping, send, stop, clear, disabled, history, collapsed }: {
   host?: Host;
+  connected: boolean;
   messages: ChatMessage[];
   busy: boolean;
   stopping: boolean;
@@ -185,7 +186,7 @@ export function AgentPanel({ host, messages, busy, stopping, send, stop, clear, 
       <header>
         <div className="conversation-title">
           <AgentAvatar compact />
-          <span><h3>智能体对话</h3><small><i className={`status-dot ${host?.online ? '' : 'offline'}`} />{host?.name ?? '尚未选择服务器'}</small></span>
+          <span><h3>智能体对话</h3><small><i className={`status-dot ${connected ? '' : 'offline'}`} />{host?.name ?? '尚未选择服务器'}</small></span>
         </div>
         <button type="button" className="agent-history-button" aria-label="历史会话" aria-expanded={history.open}
           aria-controls="agent-history-list" onClick={history.toggle} disabled={disabled || busy}>
@@ -218,7 +219,7 @@ export function AgentPanel({ host, messages, busy, stopping, send, stop, clear, 
         {messages.length === 0 && !busy && <div className="agent-chat-empty">
           <img className="empty-agent-avatar" src={agentRobotAvatar} alt="Agent 机器人" />
           <h3>有什么需要我协助？</h3>
-          <p>{disabled ? '智能体正在加载，请稍后再试。' : host?.online ? '可以让我执行命令、检查服务状态或分析日志。' : '可以直接与 Agent 对话；连接服务器后还可以执行 SSH 命令。'}</p>
+          <p>{disabled ? '智能体正在加载，请稍后再试。' : connected ? '可以让我执行命令、检查服务状态或分析日志。' : '可以直接与 Agent 对话；当前页签连接服务器后还可以执行 SSH 命令。'}</p>
         </div>}
 
         {messages.map((message, index) => message.role === 'user'

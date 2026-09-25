@@ -7,7 +7,7 @@ import '@xterm/xterm/css/xterm.css';
 type Props = {
   runtime: RemoteTerminal;
   visible: boolean;
-  online: boolean;
+  connected: boolean;
   onDisconnected: (message: string) => void;
   reconnect: (options?: { automatic?: boolean; attempt?: number }) => Promise<boolean>;
   disconnect: () => void;
@@ -22,7 +22,7 @@ function currentTerminalTheme() {
   return terminalThemes[document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light'];
 }
 
-export function RemoteTerminalView({ runtime, visible, online, onDisconnected, reconnect, disconnect }: Props) {
+export function RemoteTerminalView({ runtime, visible, connected, onDisconnected, reconnect, disconnect }: Props) {
   const autoReconnectDelays = [1_000, 2_000, 5_000, 10_000, 20_000, 30_000] as const;
   const element = useRef<HTMLDivElement>(null);
   const term = useRef<Terminal | null>(null);
@@ -30,7 +30,7 @@ export function RemoteTerminalView({ runtime, visible, online, onDisconnected, r
   const [disconnected, setDisconnected] = useState(runtime.disconnected);
   const [reconnecting, setReconnecting] = useState(false);
   const [autoAttempt, setAutoAttempt] = useState(0);
-  const unavailable = disconnected || !online || runtime.closed;
+  const unavailable = disconnected || !connected || runtime.closed;
   const allowInput = useRef(!unavailable);
   const disconnectHandler = useRef(onDisconnected);
   const reconnectHandler = useRef(reconnect);
@@ -81,6 +81,9 @@ export function RemoteTerminalView({ runtime, visible, online, onDisconnected, r
     return () => { clearTimeout(init); cleanup(); };
   }, [runtime]);
   useEffect(() => { if (visible && !unavailable) term.current?.focus(); }, [visible, unavailable]);
+  useEffect(() => {
+    if (!connected && !runtime.closed) setDisconnected(true);
+  }, [connected, runtime]);
 
   useEffect(() => {
     if (!disconnected || runtime.closed) return;
@@ -144,7 +147,7 @@ export function RemoteTerminalView({ runtime, visible, online, onDisconnected, r
       <span className="remote-terminal-disconnected-icon" aria-hidden="true">↻</span>
       <span><strong>{reconnecting ? '正在重新建立连接' : '当前终端连接不可用'}</strong><small>{reconnecting ? `正在进行第 ${Math.max(autoAttempt, 1)} 次连接并创建新的终端会话…` : autoAttempt > 0 ? `自动重连第 ${autoAttempt} 次正在等待；也可以点击“重新连接”。` : '将自动尝试恢复，也可以点击“重新连接”。'}</small></span>
     </div>}
-    {!unavailable && error && <div role="alert" className="remote-terminal-error">{error}<button disabled={!online || runtime.closed} onClick={() => { setError(''); runtime.resume(); }}>重试读取</button></div>}
+    {!unavailable && error && <div role="alert" className="remote-terminal-error">{error}<button disabled={!connected || runtime.closed} onClick={() => { setError(''); runtime.resume(); }}>重试读取</button></div>}
     <div className="remote-terminal-screen" ref={element} aria-label="远程终端交互区" onClick={() => term.current?.focus()} />
   </div>;
 }

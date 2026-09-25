@@ -25,21 +25,20 @@ export function ConnectionSidebar({ connections, activeHostId, terminal, create,
   };
   return <aside className="host-sidebar" aria-label="SSH 连接列表">
     <header className="host-sidebar-heading">
-      <div><span>SSH</span><strong>{manage ? '管理连接' : '服务器'}</strong><small>{connections.hosts.filter(host => host.online).length}/{connections.hosts.length}</small></div>
+      <div><span>SSH</span><strong>{manage ? '管理连接' : '服务器'}</strong><small>{connections.hosts.length}</small></div>
       <IconButton icon="plus" label="添加 SSH 连接" disabled={connections.busy} onClick={create} />
     </header>
     <label className="sidebar-host-search"><Icon name="search" size={14} /><input value={query} onChange={event => setQuery(event.target.value)} placeholder="搜索连接" aria-label="搜索 SSH 连接" /></label>
     <div className="sidebar-host-list">
       {hosts.map(host => <div key={host.id} className={`sidebar-host ${host.id === activeHostId ? 'selected' : ''} ${manage ? 'managing' : ''}`}>
         <button className="sidebar-host-main" disabled={connections.busy} onClick={() => terminal(host.id)}>
-          <i className={`status-dot ${host.online ? '' : 'offline'}`} />
+          <i className="status-dot offline" aria-hidden="true" />
           <span><strong title={host.name}>{host.name}</strong><small title={`${host.user}@${host.address}:${host.port ?? 22}`}>{host.user}@{host.address}:{host.port ?? 22}</small></span>
-          <em>{host.status === 2 ? '连接中' : host.online ? '在线' : '离线'}</em>
+          <em>已保存</em>
         </button>
         {manage && <div className="sidebar-host-actions">
           <IconButton icon="star" className={`favorite-icon ${host.favorite ? 'is-favorite' : ''}`} aria-pressed={!!host.favorite} label={`${host.favorite ? '取消收藏' : '收藏'} ${host.name}`} disabled={connections.busy} onClick={() => connections.favorite(host)} />
           <IconButton icon="edit" className="edit-icon" label={`编辑 ${host.name}`} disabled={connections.busy} onClick={() => edit(host)} />
-          {host.online && <IconButton icon="power" className="disconnect-icon" label={`断开 ${host.name}`} disabled={connections.busy} onClick={() => connections.disconnect(host.id)} />}
           <IconButton icon="trash" className="destructive-icon" label={`删除 ${host.name}`} disabled={connections.busy} onClick={() => setDeleting(host)} />
         </div>}
       </div>)}
@@ -66,14 +65,14 @@ export function Connections({ connections, terminal, create, copy }: Props) {
   const filtered = hosts.filter(h => (!favorites || h.favorite) && `${h.name} ${h.address} ${h.user}`.toLowerCase().includes(query.trim().toLowerCase()));
   return <main className="connections-page" aria-label="SSH 连接管理">
     <header className="connections-heading">
-      <div><span className="eyebrow">REMOTE HOSTS</span><h1>SSH 连接</h1><p><strong>{hosts.filter(h => h.online).length}</strong> 台在线 · {hosts.length} 台主机</p></div>
+      <div><span className="eyebrow">REMOTE HOSTS</span><h1>SSH 连接</h1><p><strong>{hosts.length}</strong> 个已保存配置</p></div>
       <button disabled={busy} className="primary-button connection-create-button" onClick={create}><Icon name="plus" size={17} />添加 SSH</button>
     </header>
     {deleting && <Modal title="删除确认" className="delete-connection-modal" dismissDisabled={busy} onClose={() => setDeleting(null)}>
       <span className="delete-dialog-warning" aria-hidden="true"><Icon name="alert" size={36} /></span>
       <div className="delete-dialog-content">
         <h3>确定要删除该 SSH 连接吗？</h3>
-        <p>删除后无法恢复，连接配置、认证信息与相关终端会话将被移除。</p>
+        <p>删除后无法恢复，连接配置与认证信息将被移除；已经打开的终端页签仍保持各自的会话。</p>
         <div className="delete-host-summary">
           <span><Icon name="server" size={34} /></span>
           <div><strong>{deleting.name}</strong><small>{deleting.address}:{deleting.port ?? 22}</small></div>
@@ -92,18 +91,17 @@ export function Connections({ connections, terminal, create, copy }: Props) {
       <IconButton className="connection-refresh" icon="refresh" label="刷新连接" disabled={busy} onClick={() => connections.refresh()} />
     </div>
     <div className="connection-feedback" aria-live="polite">{busy && <span>正在同步连接…</span>}{apiError && <p role="alert" className="form-error">{apiError}</p>}</div>
-    <div className="connection-list" role="list">{filtered.map(h => <article className={`ssh-host-row ${h.online ? 'is-online' : ''}`} key={h.id} role="listitem">
-      <button className="host-row-main" disabled={busy} onClick={() => terminal(h.id)} aria-label={`${h.online ? '进入' : '连接'} ${h.name}`}>
+    <div className="connection-list" role="list">{filtered.map(h => <article className="ssh-host-row" key={h.id} role="listitem">
+      <button className="host-row-main" disabled={busy} onClick={() => terminal(h.id)} aria-label={`为 ${h.name} 新建终端会话`}>
         <span className="host-symbol"><Icon name="server" size={19} /></span>
         <span className="host-row-identity"><strong title={h.name}>{h.name}</strong><small title={`${h.user}@${h.address}:${h.port ?? 22}`}>{h.user}@{h.address}:{h.port ?? 22}</small></span>
         <span className="host-row-meta"><span><Icon name="key" size={13} />{h.auth === 'key' ? '私钥' : '密码'}</span><span><Icon name="network" size={13} />SSH</span></span>
-        <span className={`host-status ${h.online ? 'online' : ''}`}><i />{h.status === 2 ? '连接中' : h.status === 3 ? '失败' : h.online ? '在线' : '离线'}</span>
+        <span className="host-status"><i />已保存</span>
       </button>
       <div className="host-row-actions">
         <IconButton icon="copy" label={`复制 ${h.name} 地址`} onClick={() => copy(h.address)} />
         <IconButton icon="star" className={`favorite-icon ${h.favorite ? 'is-favorite' : ''}`} aria-pressed={!!h.favorite} label={`${h.favorite ? '取消收藏' : '收藏'} ${h.name}`} disabled={busy} onClick={() => connections.favorite(h)} />
-        <IconButton icon="terminal" className="terminal-icon" label={`${h.online ? '打开' : '连接'} ${h.name}`} disabled={busy} onClick={() => terminal(h.id)} />
-        {h.online && <IconButton icon="power" className="disconnect-icon" label={`断开 ${h.name}`} disabled={busy} onClick={() => connections.disconnect(h.id)} />}
+        <IconButton icon="terminal" className="terminal-icon" label={`为 ${h.name} 新建终端会话`} disabled={busy} onClick={() => terminal(h.id)} />
         <IconButton icon="edit" className="edit-icon" label={`编辑 ${h.name}`} disabled={busy || !!draft} onClick={() => edit(h)} />
         <IconButton icon="trash" className="host-row-delete" label={`删除 ${h.name}`} disabled={busy} onClick={() => setDeleting(h)} />
       </div>

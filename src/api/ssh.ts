@@ -3,7 +3,7 @@ import { requireBackendUrl } from '../config/backend';
 
 export type SshConnection = {
   connectionId: string; connectionName: string; host: string; port: number;
-  username: string; authType: 1 | 2; status: 0 | 1 | 2 | 3 | null;
+  username: string; authType: 1 | 2;
   userId: string; encrypted: number | null; createdAt: string | null; updatedAt: string | null;
 };
 export type ConnectionDraft = Host & {
@@ -57,14 +57,11 @@ export const sshApi = {
   create: (body: SshConnectionRequest) => request<SshConnection>('create_connection', 'POST', body),
   update: (body: SshConnectionRequest) => request<SshConnection>('update_connection', 'POST', body),
   delete: (connectionId: string) => request<void>('delete_connection', 'POST', undefined, { connectionId }),
-  connect: (connectionId: string) => request<void>('connect', 'POST', undefined, { connectionId }),
-  disconnect: (connectionId: string) => request<void>('disconnect', 'POST', undefined, { connectionId }),
 };
 
 export function toHost(dto: SshConnection): Host {
   return { id: dto.connectionId, name: dto.connectionName, address: dto.host, port: dto.port,
-    user: dto.username, auth: dto.authType === 2 ? 'key' : 'password', online: dto.status === 1,
-    status: dto.status ?? 0, userId: dto.userId, saved: true };
+    user: dto.username, auth: dto.authType === 2 ? 'key' : 'password', userId: dto.userId, saved: true };
 }
 
 export function toRequest(draft: ConnectionDraft): SshConnectionRequest {

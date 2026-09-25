@@ -1,8 +1,8 @@
 import type { ChatMessage, FileNode, Host, SessionFileState, SavedCommand, SavedCommandIcon } from '../types';
 
 export const hosts: Host[] = [
-  { id: 'web', name: 'web-prod-01', user: 'root', address: '10.0.0.12', online: true },
-  { id: 'api', name: 'api-prod-02', user: 'root', address: '10.0.0.22', online: false },
+  { id: 'web', name: 'web-prod-01', user: 'root', address: '10.0.0.12' },
+  { id: 'api', name: 'api-prod-02', user: 'root', address: '10.0.0.22' },
 ];
 export const initialCommands: SavedCommand[] = [
   { id: 'disk', name: '磁盘使用', command: 'df -h', category: '系统', icon: 'disk' },

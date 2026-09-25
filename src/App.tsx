@@ -64,7 +64,7 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
   const [historyLoadingId, setHistoryLoadingId] = useState('');
   const [historyError, setHistoryError] = useState('');
   const historyRefreshVersion = useRef(0);
-  const [disconnectTarget, setDisconnectTarget] = useState<{ sessionId: string; host: Host } | null>(null);
+  const [disconnectTarget, setDisconnectTarget] = useState<{ tabId: string; host: Host } | null>(null);
   const [dialog, setDialog] = useState<Dialog>(null);
   const [backendSettingsOpen, setBackendSettingsOpen] = useState(false);
   const [fileDialogSessionId, setFileDialogSessionId] = useState<string | null>(null);
@@ -85,8 +85,11 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
   const [terminalError, setTerminalError] = useState('');
   const [connectAfterSave, setConnectAfterSave] = useState(false);
   const active = sessions.find(session => session.id === activeId);
-  const host = hosts.find(item => item.id === active?.hostId);
-  const canRun = !!active?.hostId && !active.busy && !!host?.online && !!remoteClients.current.get(active.id) && !remoteClients.current.get(active.id)?.closed && !remoteClients.current.get(active.id)?.disconnected;
+  const host = hosts.find(item => item.id === active?.connectionId) ?? active?.host;
+  const activeClient = active ? remoteClients.current.get(active.id) : undefined;
+  const canRun = !!active && active.connected && !active.busy
+    && activeClient?.sessionId === active.terminalSessionId
+    && !activeClient.closed && !activeClient.disconnected;
 
   const later = useCallback((callback: () => void, delay: number) => {
     const timer = setTimeout(() => { timers.current.delete(timer); callback(); }, delay);
@@ -210,37 +213,53 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
   };
   const openNewConnection = () => { setConnectAfterSave(false); setDialog('connection'); };
   const openNewTerminal = () => { setConnectAfterSave(true); setDialog('connection'); };
+  const openTerminalRuntime = async (connectionId: string) => {
+    let opened: Awaited<ReturnType<typeof terminalApi.open>> | undefined;
+    try {
+      opened = await terminalApi.open(connectionId);
+      if (!opened?.sessionId) throw new Error('后端未返回终端会话 ID');
+      const state = await terminalApi.connected(opened.sessionId);
+      if (state.sessionId !== opened.sessionId || state.connectionId !== connectionId || state.connected !== true) {
+        throw new Error('终端会话尚未连接，请重试。');
+      }
+      const runtime = new RemoteTerminal(opened);
+      if (runtime.disconnected) throw new Error('终端会话已断开，请重试。');
+      return runtime;
+    } catch (error) {
+      if (opened?.sessionId) await terminalApi.close(opened.sessionId).catch(() => undefined);
+      throw error;
+    }
+  };
   const selectHost = async (id: string, suppliedHost?: Host) => {
-    if ((!suppliedHost && connections.busy) || opening.current.has(id)) return;
     const nextHost = suppliedHost ?? hosts.find(item => item.id === id);
     if (!nextHost) return;
-    opening.current.add(id);
+    const tabId = crypto.randomUUID();
+    opening.current.add(tabId);
     try {
-      if (!nextHost.online && !await connections.connect(id)) { setNavigation('命令'); return; }
-      const existing = sessions.find(session => session.hostId === id);
-      const sessionId = existing?.id ?? crypto.randomUUID();
-      if (!remoteClients.current.get(sessionId) || remoteClients.current.get(sessionId)?.closed || remoteClients.current.get(sessionId)?.disconnected) {
-        notify('正在打开远程终端…');
-        const opened = await terminalApi.open(id);
-        if (!opened?.sessionId) throw new Error('后端未返回终端会话 ID');
-        remoteClients.current.set(sessionId, new RemoteTerminal(opened));
-      }
-      if (!existing) setSessions(previous => [...previous, { id: sessionId, hostId: id, title: nextHost.name, busy: false, fileState: createSessionFileState() }]);
-      else setSessions(previous => [...previous]);
-      setActiveId(sessionId); setNavigation('命令');
+      notify('正在打开远程终端…');
+      const runtime = await openTerminalRuntime(id);
+      remoteClients.current.set(tabId, runtime);
+      setSessions(previous => [...previous, {
+        id: tabId,
+        connectionId: id,
+        terminalSessionId: runtime.sessionId,
+        connected: true,
+        host: nextHost,
+        title: nextHost.name,
+        busy: false,
+        fileState: createSessionFileState(),
+      }]);
+      setActiveId(tabId); setNavigation('命令');
       notify('远程终端已打开，可以开始操作。', 'success');
     } catch (error) { notify(error instanceof Error ? error.message : '打开终端失败', 'error'); }
-    finally { opening.current.delete(id); }
+    finally { opening.current.delete(tabId); }
   };
   const handleTerminalDisconnected = (sessionId: string, message: string, sourceRuntime?: RemoteTerminal) => {
     if (sourceRuntime && remoteClients.current.get(sessionId) !== sourceRuntime) {
       console.info(`忽略旧终端实例的断开通知 oldTerminalSessionId=${sourceRuntime.sessionId} logicalSessionId=${sessionId}`);
       return;
     }
-    const session = sessions.find(item => item.id === sessionId);
-    if (!session?.hostId) return;
-    connections.markDisconnected(session.hostId);
-    setSessions(previous => previous.map(item => item.id === sessionId ? { ...item, busy: false } : item));
+    setSessions(previous => previous.map(item => item.id === sessionId ? { ...item, connected: false, busy: false } : item));
     running.current.delete(sessionId);
     notify(message, 'error');
   };
@@ -254,103 +273,94 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
       return true;
     }
     const session = sessions.find(item => item.id === sessionId);
-    if (!session?.hostId || connections.busy || opening.current.has(session.hostId)) return false;
-    opening.current.add(session.hostId);
-    remoteClients.current.get(sessionId)?.prepareReconnect();
+    if (!session || opening.current.has(sessionId)) return false;
+    opening.current.add(sessionId);
+    const previousRuntime = remoteClients.current.get(sessionId);
+    previousRuntime?.prepareReconnect();
     if (options?.automatic) {
-      console.info(`SSH 自动重连请求 hostId=${session.hostId} oldTerminalSessionId=${remoteClients.current.get(sessionId)?.sessionId} attempt=${options.attempt ?? 1}`);
+      console.info(`SSH 自动重连请求 connectionId=${session.connectionId} oldTerminalSessionId=${previousRuntime?.sessionId} attempt=${options.attempt ?? 1}`);
     } else {
       notify('正在重新连接服务器并创建终端会话…');
     }
     try {
-      if (!await connections.connect(session.hostId)) return false;
-      const opened = await terminalApi.open(session.hostId);
-      if (!opened?.sessionId) throw new Error('后端未返回终端会话 ID');
-      remoteClients.current.set(sessionId, new RemoteTerminal(opened));
-      setSessions(previous => previous.map(item => item.id === sessionId ? { ...item, busy: false } : item));
+      if (previousRuntime?.sessionId) await terminalApi.close(previousRuntime.sessionId).catch(() => undefined);
+      const runtime = await openTerminalRuntime(session.connectionId);
+      remoteClients.current.set(sessionId, runtime);
+      setSessions(previous => previous.map(item => item.id === sessionId ? {
+        ...item, terminalSessionId: runtime.sessionId, connected: true, busy: false,
+      } : item));
       notify(options?.automatic ? `网络已恢复，SSH 自动重连成功（第 ${options.attempt ?? 1} 次）。` : '已重新连接，可以继续操作。', 'success');
       return true;
     } catch (error) {
-      connections.markDisconnected(session.hostId);
+      setSessions(previous => previous.map(item => item.id === sessionId ? { ...item, connected: false, busy: false } : item));
       if (!options?.automatic) notify(error instanceof Error ? error.message : '重新连接失败', 'error');
-      else console.info(`SSH 自动重连请求失败 hostId=${session.hostId} attempt=${options.attempt ?? 1} reason=${error instanceof Error ? error.message : '重新连接失败'}`);
+      else console.info(`SSH 自动重连请求失败 connectionId=${session.connectionId} attempt=${options.attempt ?? 1} reason=${error instanceof Error ? error.message : '重新连接失败'}`);
       return false;
-    } finally { opening.current.delete(session.hostId); }
+    } finally { opening.current.delete(sessionId); }
   };
-  const closeHostTerminals = async (hostId: string) => {
+  const closeTerminalSession = async (tabId: string) => {
+    const session = sessions.find(item => item.id === tabId);
+    if (!session) return true;
     setTerminalError('');
     try {
-      for (const session of sessions.filter(item => item.hostId === hostId)) await remoteClients.current.get(session.id)?.close();
+      const runtime = remoteClients.current.get(tabId);
+      if (runtime?.sessionId === session.terminalSessionId) await runtime.close();
+      else await terminalApi.close(session.terminalSessionId);
+      setSessions(previous => previous.map(item => item.id === tabId ? { ...item, connected: false, busy: false } : item));
       return true;
     } catch (error) {
       const message = error instanceof Error ? error.message : '关闭终端失败';
       setTerminalError(message); notify(message, 'error'); return false;
     }
   };
-  const disconnectHost = async (hostId: string) => {
-    if (!await closeHostTerminals(hostId)) return false;
-    return connections.disconnect(hostId);
-  };
   const removeHost = async (hostId: string) => {
-    if (!await closeHostTerminals(hostId)) return false;
-    const removed = await connections.remove(hostId);
-    if (removed) {
-      sessions.filter(session => session.hostId === hostId).forEach(session => remoteClients.current.delete(session.id));
-      const remaining = sessions.filter(session => session.hostId !== hostId);
-      setSessions(remaining);
-      if (!remaining.some(session => session.id === activeId)) setActiveId(remaining[0]?.id ?? '');
-    }
-    return removed;
+    return connections.remove(hostId);
   };
   const removeSessionTab = (id: string) => {
     const remaining = sessions.filter(session => session.id !== id);
     setSessions(remaining);
     if (activeId === id) setActiveId(remaining[0]?.id ?? '');
     running.current.delete(id);
+    remoteClients.current.delete(id);
   };
   const closeSession = (id: string) => {
     const session = sessions.find(item => item.id === id);
     if (!session || disconnectTarget) return;
-    if (!session.hostId) { removeSessionTab(id); return; }
-    const targetHost = hosts.find(item => item.id === session.hostId);
-    if (!targetHost) { removeSessionTab(id); return; }
     setDialog(null);
     setTerminalError('');
-    setDisconnectTarget({ sessionId: id, host: targetHost });
+    setDisconnectTarget({ tabId: id, host: hosts.find(item => item.id === session.connectionId) ?? session.host });
   };
   const confirmDisconnect = async () => {
-    if (!disconnectTarget || connections.busy) return false;
+    if (!disconnectTarget) return false;
     const target = disconnectTarget;
-    if (!await disconnectHost(target.host.id)) return false;
+    const targetSession = sessions.find(session => session.id === target.tabId);
+    if (!targetSession || !await closeTerminalSession(target.tabId)) return false;
     let historySaved = true;
     try { recordDisconnect(target.host); }
     catch { historySaved = false; }
-    const shouldClose = (session: TerminalSession) => session.id === target.sessionId || session.hostId === target.host.id;
-    const remaining = sessions.filter(session => !shouldClose(session));
-    sessions.filter(shouldClose).forEach(session => remoteClients.current.delete(session.id));
-    sessions.filter(session => session.hostId === target.host.id).forEach(session => running.current.delete(session.id));
-    setSessions(previous => previous.filter(session => !shouldClose(session)).map(session => session.hostId === target.host.id ? { ...session, busy: false } : session));
-    setActiveId(previous => sessions.some(session => session.id === previous && shouldClose(session)) ? remaining[0]?.id ?? '' : previous);
+    removeSessionTab(target.tabId);
     setDisconnectTarget(null);
-    notify(historySaved ? `已断开 ${target.host.name}，终端已关闭。` : `已断开 ${target.host.name}，但本机存储不可用，未能保留连接记录。`, historySaved ? 'success' : 'error');
+    notify(historySaved ? `当前 ${target.host.name} 终端页签已断开并关闭。` : `当前终端页签已关闭，但本机存储不可用，未能保留连接记录。`, historySaved ? 'success' : 'error');
     return true;
   };
   const fill = (command: string) => {
     setNavigation('命令');
     if (!active) { openNewTerminal(); notify('请先添加并连接一台远程服务器。'); return; }
     const client = remoteClients.current.get(active.id);
-    if (!client || client.closed || client.disconnected) { notify('当前终端连接不可用，请点击“重新连接”。'); return; }
+    if (!active.connected || !client || client.sessionId !== active.terminalSessionId || client.closed || client.disconnected) {
+      notify('当前终端连接不可用，请点击“重新连接”。'); return;
+    }
     void client.write(command).catch(error => notify(error instanceof Error ? error.message : '命令写入失败', 'error'));
   };
   const execute = async (request: CommandRequest) => {
     const session = sessions.find(item => item.id === request.sessionId);
     if (!session || running.current.has(session.id)) return;
-    if (session.hostId && !hosts.find(item => item.id === session.hostId)?.online) { notify('当前终端连接不可用，请点击“重新连接”。', 'error'); return; }
+    if (!session.connected) { notify('当前终端连接不可用，请点击“重新连接”。', 'error'); return; }
     running.current.add(session.id);
     setSessions(previous => previous.map(item => item.id === session.id ? { ...item, busy: true } : item));
     try {
       const client = remoteClients.current.get(session.id);
-      if (!session.hostId || !client) throw new Error('当前终端会话不可用，请点击“重新连接”。');
+      if (!client || client.sessionId !== session.terminalSessionId) throw new Error('当前终端会话不可用，请点击“重新连接”。');
       await client.exec(request.command);
     } catch (error) { notify(`${error instanceof Error ? error.message : '命令提交失败'}；未自动重试，请先检查终端输出。`, 'error'); }
     finally {
@@ -387,8 +397,10 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
     if (chatting.current || stopPending.current || historyLoadingId) return;
     const currentSession = active;
     const client = currentSession ? remoteClients.current.get(currentSession.id) : undefined;
-    const terminalSessionId = currentSession?.hostId && client && !client.closed && !client.disconnected && host?.online
-      ? client.sessionId
+    const terminalSessionId = currentSession?.connected
+      && client?.sessionId === currentSession.terminalSessionId
+      && !client.closed && !client.disconnected
+      ? currentSession.terminalSessionId
       : '';
     if (!selectedAgent) {
       notify('智能体尚未加载完成，请稍后重试。', 'error');
@@ -678,31 +690,52 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
 
   useEffect(() => {
     setSessions(previous => previous.map(session => {
-      const configured = hosts.find(item => item.id === session.hostId);
-      return configured && session.title !== configured.name ? { ...session, title: configured.name } : session;
+      const configured = hosts.find(item => item.id === session.connectionId);
+      return configured && (session.title !== configured.name || session.host !== configured)
+        ? { ...session, title: configured.name, host: configured }
+        : session;
     }));
   }, [hosts]);
 
   useEffect(() => {
-    for (const session of sessions) {
-      const client = remoteClients.current.get(session.id);
-      if (session.hostId && client && !client.closed && !client.disconnected && !hosts.find(item => item.id === session.hostId)?.online) {
-        void client.close().catch(error => notify(error.message, 'error'));
+    const tabId = active?.id;
+    const terminalSessionId = active?.terminalSessionId;
+    const connectionId = active?.connectionId;
+    if (!tabId || !terminalSessionId || !connectionId) return;
+    let cancelled = false;
+    const refreshConnectionState = async () => {
+      try {
+        const state = await terminalApi.connected(terminalSessionId);
+        if (cancelled) return;
+        const connected = state.connected === true
+          && state.sessionId === terminalSessionId
+          && state.connectionId === connectionId;
+        if (!connected) remoteClients.current.get(tabId)?.prepareReconnect();
+        setSessions(previous => previous.map(session => session.id === tabId && session.terminalSessionId === terminalSessionId
+          ? (session.connected === connected ? session : { ...session, connected, busy: connected ? session.busy : false })
+          : session));
+      } catch (error) {
+        console.info(`查询终端连接状态失败 terminalSessionId=${terminalSessionId} reason=${error instanceof Error ? error.message : '未知错误'}`);
       }
-    }
-  }, [hosts, sessions, notify]);
+    };
+    const onFocus = () => { void refreshConnectionState(); };
+    void refreshConnectionState();
+    const timer = setInterval(() => { void refreshConnectionState(); }, 5_000);
+    window.addEventListener('focus', onFocus);
+    return () => { cancelled = true; clearInterval(timer); window.removeEventListener('focus', onFocus); };
+  }, [active?.id, active?.terminalSessionId, active?.connectionId]);
 
   return <div style={{ '--agent-width': `${agentWidth}%` } as CSSProperties} className={`app-shell ${agentCollapsed ? 'agent-collapsed' : ''} ${navCollapsed ? 'nav-collapsed' : ''} ${navigation === '连接' ? 'connections-view' : 'terminal-view'}`}>
     <AppHeader notify={notify} theme={theme} setTheme={setTheme} />
     <ActivityBar active={manageConnections ? '连接' : navigation} onSelect={navigate} onSettings={() => setBackendSettingsOpen(true)} settingsOpen={backendSettingsOpen} collapsed={navCollapsed} toggleCollapsed={() => setNavCollapsed(value => !value)} />
-    <ConnectionSidebar connections={{ ...connections, disconnect: disconnectHost, remove: removeHost }} activeHostId={active?.hostId} terminal={selectHost} create={openNewConnection} manage={manageConnections} setManage={setManageConnections} />
+    <ConnectionSidebar connections={{ ...connections, remove: removeHost }} activeHostId={active?.connectionId} terminal={selectHost} create={openNewConnection} manage={manageConnections} setManage={setManageConnections} />
     <main hidden={navigation !== '命令'} className={`central-workspace ${!active ? 'no-session' : ''} ${commandCollapsed ? 'command-collapsed' : ''}`}>
       <TerminalWorkspace
-        remoteViews={sessions.filter(session => session.hostId && remoteClients.current.has(session.id)).map(session => {
+        remoteViews={sessions.filter(session => remoteClients.current.has(session.id)).map(session => {
           const runtime = remoteClients.current.get(session.id)!;
           return <Suspense key={session.id} fallback={session.id === activeId ? <p>正在加载终端…</p> : null}>
             <RemoteTerminalView key={runtime.sessionId} runtime={runtime} visible={session.id === activeId && navigation === '命令'}
-              online={!!hosts.find(item => item.id === session.hostId)?.online}
+              connected={session.connected && runtime.sessionId === session.terminalSessionId}
               onDisconnected={message => handleTerminalDisconnected(session.id, message, runtime)}
               reconnect={options => reconnectTerminal(session.id, options, runtime)}
               disconnect={() => closeSession(session.id)} />
@@ -727,7 +760,7 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
       <CommandShelf commands={commands} category={category} setCategory={setCategory} fill={fill} run={requestRun} copy={copy} add={() => setDialog('command')} disabled={!canRun} collapsed={commandCollapsed} />
     </main>
     <PanelDivider value={agentWidth} change={setAgentWidth} />
-    <AgentPanel host={host} messages={messages} busy={chatBusy} stopping={chatStopping} send={sendMessage} stop={stopChat} collapsed={agentCollapsed}
+    <AgentPanel host={host} connected={!!active?.connected} messages={messages} busy={chatBusy} stopping={chatStopping} send={sendMessage} stop={stopChat} collapsed={agentCollapsed}
       clear={clearChat} disabled={!selectedAgent || Boolean(historyLoadingId) || chatStopping}
       history={{
         sessions: chatSessions, activeSessionId: activeChatSessionId, open: historyOpen,
@@ -750,9 +783,9 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
     }} />}
     {dialog === 'file' && fileDialogSessionId && <CreateFileDialog close={closeDialog} path="/var/www/app" files={sessions.find(session => session.id === fileDialogSessionId)?.fileState.files ?? []} save={file => { updateFiles(fileDialogSessionId, state => ({ ...state, files: [...state.files, file], selected: file.id })); closeDialog(); notify('已在当前终端的演示文件树中创建', 'success'); }} />}
     {dialog === 'connection' && <SshConnectionDialog connections={connections} connectAfterSave={connectAfterSave} onClose={closeDialog} onSaved={saved => { if (connectAfterSave) void selectHost(saved.id, saved); else notify('SSH 连接已保存。', 'success'); }} />}
-    {disconnectTarget && <DisconnectDialog key={disconnectTarget.sessionId} host={hosts.find(item => item.id === disconnectTarget.host.id) ?? disconnectTarget.host} busy={connections.busy} error={terminalError || connections.error} close={() => setDisconnectTarget(null)} confirm={confirmDisconnect} />}
+    {disconnectTarget && <DisconnectDialog key={disconnectTarget.tabId} host={hosts.find(item => item.id === disconnectTarget.host.id) ?? disconnectTarget.host} connected={sessions.find(session => session.id === disconnectTarget.tabId)?.connected === true} busy={false} error={terminalError} close={() => setDisconnectTarget(null)} confirm={confirmDisconnect} />}
     {backendSettingsOpen && <BackendSettingsDialog currentUrl={backendUrl} onClose={() => setBackendSettingsOpen(false)} onSave={url => {
-      if (chatBusy || chatStopping || sessions.some(session => Boolean(session.hostId))) {
+      if (chatBusy || chatStopping || sessions.length > 0) {
         throw new Error('请先停止对话并关闭终端标签，再切换后端服务器。');
       }
       onBackendChange(url);
