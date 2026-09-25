@@ -13,6 +13,7 @@ import type { ClientChatSession } from './state/clientChatHistory';
 import { DisconnectDialog } from './components/DisconnectDialog';
 import { recordDisconnect } from './state/connectionHistory';
 import { loadClientCommands, saveClientCommands } from './state/clientCommands';
+import { sshApi } from './api/ssh';
 import { terminalApi } from './api/terminal';
 import { RemoteTerminal } from './state/remoteTerminal';
 import { NotificationToast } from './components/NotificationToast';
@@ -216,6 +217,7 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
   const openTerminalRuntime = async (connectionId: string) => {
     let opened: Awaited<ReturnType<typeof terminalApi.open>> | undefined;
     try {
+      await sshApi.connect(connectionId);
       opened = await terminalApi.open(connectionId);
       if (!opened?.sessionId) throw new Error('后端未返回终端会话 ID');
       const state = await terminalApi.connected(opened.sessionId);
