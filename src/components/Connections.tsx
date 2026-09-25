@@ -7,10 +7,9 @@ import { SshConnectionDialog } from './SshConnectionDialog';
 
 type Props = { connections: ReturnType<typeof useSshConnections>; terminal: (id: string) => void; create: () => void; copy: (value: string) => void };
 
-export function ConnectionSidebar({ connections, sessions, activeSessionId, activeHostId, terminal, create, manage, setManage }: {
+export function ConnectionSidebar({ connections, sessions, activeHostId, terminal, create, manage, setManage }: {
   connections: ReturnType<typeof useSshConnections>;
   sessions: TerminalSession[];
-  activeSessionId: string;
   activeHostId?: string | null;
   terminal: (id: string) => void;
   create: () => void;
@@ -35,12 +34,14 @@ export function ConnectionSidebar({ connections, sessions, activeSessionId, acti
       {hosts.map(host => {
         const hostSessions = sessions.filter(session => session.connectionId === host.id);
         const connectedCount = hostSessions.filter(session => session.connected).length;
-        const activeConnected = hostSessions.some(session => session.id === activeSessionId && session.connected);
         return <div key={host.id} className={`sidebar-host ${host.id === activeHostId ? 'selected' : ''} ${manage ? 'managing' : ''}`}>
         <button className="sidebar-host-main" disabled={connections.busy} onClick={() => terminal(host.id)}>
           <i className={`status-dot ${connectedCount ? '' : 'offline'}`} aria-hidden="true" />
           <span><strong title={host.name}>{host.name}</strong><small title={`${host.user}@${host.address}:${host.port ?? 22}`}>{host.user}@{host.address}:{host.port ?? 22}</small></span>
-          <em>{activeConnected ? '已连接' : connectedCount ? `${connectedCount} 个会话` : '已保存'}</em>
+          <div className="sidebar-host-state">
+            <em>{connectedCount ? '已连接' : '已保存'}</em>
+            {!!connectedCount && <small>{connectedCount} 个会话</small>}
+          </div>
         </button>
         {manage && <div className="sidebar-host-actions">
           <IconButton icon="star" className={`favorite-icon ${host.favorite ? 'is-favorite' : ''}`} aria-pressed={!!host.favorite} label={`${host.favorite ? '取消收藏' : '收藏'} ${host.name}`} disabled={connections.busy} onClick={() => connections.favorite(host)} />

@@ -735,7 +735,7 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
   return <div style={{ '--agent-width': `${agentWidth}%` } as CSSProperties} className={`app-shell ${agentCollapsed ? 'agent-collapsed' : ''} ${navCollapsed ? 'nav-collapsed' : ''} ${navigation === '连接' ? 'connections-view' : 'terminal-view'}`}>
     <AppHeader notify={notify} theme={theme} setTheme={setTheme} />
     <ActivityBar active={manageConnections ? '连接' : navigation} onSelect={navigate} onSettings={() => setBackendSettingsOpen(true)} settingsOpen={backendSettingsOpen} collapsed={navCollapsed} toggleCollapsed={() => setNavCollapsed(value => !value)} />
-    <ConnectionSidebar connections={{ ...connections, remove: removeHost }} sessions={sessions} activeSessionId={activeId} activeHostId={active?.connectionId} terminal={selectHost} create={openNewConnection} manage={manageConnections} setManage={setManageConnections} />
+    <ConnectionSidebar connections={{ ...connections, remove: removeHost }} sessions={sessions} activeHostId={active?.connectionId} terminal={selectHost} create={openNewConnection} manage={manageConnections} setManage={setManageConnections} />
     <main hidden={navigation !== '命令'} className={`central-workspace ${!active ? 'no-session' : ''} ${commandCollapsed ? 'command-collapsed' : ''}`}>
       <TerminalWorkspace
         remoteViews={sessions.filter(session => remoteClients.current.has(session.id)).map(session => {

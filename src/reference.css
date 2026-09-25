@@ -1271,7 +1271,9 @@
 .sidebar-host-main > span { display: flex; min-width: 0; flex-direction: column; gap: 4px; }
 .sidebar-host strong { overflow: hidden; font-size: 11px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
 .sidebar-host small { overflow: hidden; color: #65748a; font: 500 10px/1.35 ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: -.02em; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar-host-state { display: flex; min-width: max-content; flex-direction: column; align-items: flex-end; gap: 3px; }
 .sidebar-host em { padding: 2px 5px; border-radius: 3px; color: #6f7c8e; background: #edf0f4; font-size: 9px; font-weight: 600; font-style: normal; white-space: nowrap; }
+.sidebar-host-state small { color: #68788d; font: 650 8.5px/1.1 system-ui, sans-serif; letter-spacing: 0; }
 .sidebar-host:has(.status-dot:not(.offline)) em { color: #087e63; background: #e5f6f1; }
 .sidebar-host.managing { margin-bottom: 4px; border: 1px solid #e3e9f0; border-radius: 5px; background: #fff; }
 .sidebar-host.managing.selected { border-color: #bed4ef; }
