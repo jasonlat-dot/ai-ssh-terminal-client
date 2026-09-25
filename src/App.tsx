@@ -39,6 +39,7 @@ const RemoteTerminalView = lazy(() => import('./components/RemoteTerminalView').
 type Dialog = 'command' | 'connection' | 'file' | null;
 type CommandRequest = { sessionId: string; command: string };
 const initialSessions: TerminalSession[] = [];
+const STALE_TERMINAL_TAB_MS = 5 * 60 * 1000;
 
 function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBackendChange: (url: string) => void }) {
   const { theme, setTheme } = useTheme();
@@ -83,6 +84,7 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
   const running = useRef(new Set<string>());
   const remoteClients = useRef(new Map<string, RemoteTerminal>());
   const opening = useRef(new Set<string>());
+  const tabLastUsedAt = useRef(new Map<string, number>());
   const [terminalError, setTerminalError] = useState('');
   const [connectAfterSave, setConnectAfterSave] = useState(false);
   const active = sessions.find(session => session.id === activeId);
@@ -220,10 +222,6 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
       await sshApi.connect(connectionId);
       opened = await terminalApi.open(connectionId);
       if (!opened?.sessionId) throw new Error('后端未返回终端会话 ID');
-      const state = await terminalApi.connected(opened.sessionId);
-      if (state.sessionId !== opened.sessionId || state.connectionId !== connectionId || state.connected !== true) {
-        throw new Error('终端会话尚未连接，请重试。');
-      }
       const runtime = new RemoteTerminal(opened);
       if (runtime.disconnected) throw new Error('终端会话已断开，请重试。');
       return runtime;
@@ -241,6 +239,7 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
       notify('正在打开远程终端…');
       const runtime = await openTerminalRuntime(id);
       remoteClients.current.set(tabId, runtime);
+      tabLastUsedAt.current.set(tabId, Date.now());
       setSessions(previous => [...previous, {
         id: tabId,
         connectionId: id,
@@ -264,6 +263,31 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
     setSessions(previous => previous.map(item => item.id === sessionId ? { ...item, connected: false, busy: false } : item));
     running.current.delete(sessionId);
     notify(message, 'error');
+  };
+  const verifyTerminalSession = useCallback(async (tabId: string, terminalSessionId: string) => {
+    const runtime = remoteClients.current.get(tabId);
+    if (!runtime || runtime.sessionId !== terminalSessionId) return false;
+    try {
+      const connected = await runtime.verifyConnected();
+      setSessions(previous => previous.map(session => session.id === tabId && session.terminalSessionId === terminalSessionId
+        ? (session.connected === connected ? session : { ...session, connected, busy: connected ? session.busy : false })
+        : session));
+      return connected;
+    } catch (error) {
+      console.info(`查询终端连接状态失败 terminalSessionId=${terminalSessionId} reason=${error instanceof Error ? error.message : '未知错误'}`);
+      return undefined;
+    }
+  }, []);
+  const selectTerminalTab = (tabId: string) => {
+    const now = Date.now();
+    if (activeId && activeId !== tabId) tabLastUsedAt.current.set(activeId, now);
+    const lastUsedAt = tabLastUsedAt.current.get(tabId) ?? 0;
+    const session = sessions.find(item => item.id === tabId);
+    tabLastUsedAt.current.set(tabId, now);
+    setActiveId(tabId);
+    if (session && (!session.connected || now - lastUsedAt >= STALE_TERMINAL_TAB_MS)) {
+      void verifyTerminalSession(tabId, session.terminalSessionId);
+    }
   };
   const reconnectTerminal = async (
     sessionId: string,
@@ -324,6 +348,7 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
     if (activeId === id) setActiveId(remaining[0]?.id ?? '');
     running.current.delete(id);
     remoteClients.current.delete(id);
+    tabLastUsedAt.current.delete(id);
   };
   const closeSession = (id: string) => {
     const session = sessions.find(item => item.id === id);
@@ -700,32 +725,12 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
   }, [hosts]);
 
   useEffect(() => {
-    const tabId = active?.id;
-    const terminalSessionId = active?.terminalSessionId;
-    const connectionId = active?.connectionId;
-    if (!tabId || !terminalSessionId || !connectionId) return;
-    let cancelled = false;
-    const refreshConnectionState = async () => {
-      try {
-        const state = await terminalApi.connected(terminalSessionId);
-        if (cancelled) return;
-        const connected = state.connected === true
-          && state.sessionId === terminalSessionId
-          && state.connectionId === connectionId;
-        if (!connected) remoteClients.current.get(tabId)?.prepareReconnect();
-        setSessions(previous => previous.map(session => session.id === tabId && session.terminalSessionId === terminalSessionId
-          ? (session.connected === connected ? session : { ...session, connected, busy: connected ? session.busy : false })
-          : session));
-      } catch (error) {
-        console.info(`查询终端连接状态失败 terminalSessionId=${terminalSessionId} reason=${error instanceof Error ? error.message : '未知错误'}`);
-      }
+    const verifyAfterNetworkRestore = () => {
+      sessions.forEach(session => { void verifyTerminalSession(session.id, session.terminalSessionId); });
     };
-    const onFocus = () => { void refreshConnectionState(); };
-    void refreshConnectionState();
-    const timer = setInterval(() => { void refreshConnectionState(); }, 5_000);
-    window.addEventListener('focus', onFocus);
-    return () => { cancelled = true; clearInterval(timer); window.removeEventListener('focus', onFocus); };
-  }, [active?.id, active?.terminalSessionId, active?.connectionId]);
+    window.addEventListener('online', verifyAfterNetworkRestore);
+    return () => window.removeEventListener('online', verifyAfterNetworkRestore);
+  }, [sessions, verifyTerminalSession]);
 
   return <div style={{ '--agent-width': `${agentWidth}%` } as CSSProperties} className={`app-shell ${agentCollapsed ? 'agent-collapsed' : ''} ${navCollapsed ? 'nav-collapsed' : ''} ${navigation === '连接' ? 'connections-view' : 'terminal-view'}`}>
     <AppHeader notify={notify} theme={theme} setTheme={setTheme} />
@@ -747,7 +752,7 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
         sessions={sessions}
         activeId={activeId}
         host={host}
-        select={setActiveId}
+        select={selectTerminalTab}
         close={closeSession}
         add={openNewTerminal}
         copy={copy}

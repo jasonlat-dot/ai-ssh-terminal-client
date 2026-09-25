@@ -8,6 +8,7 @@ const READ_RETRY_DELAYS = [1_000, 2_000, 5_000, 10_000, 20_000, 30_000] as const
 // keystrokes and submitted commands keep their original order.
 export class RemoteTerminal {
   readonly sessionId: string;
+  readonly connectionId: string;
   closed = false;
   disconnected = false;
   private closing = false;
@@ -24,6 +25,7 @@ export class RemoteTerminal {
 
   constructor(opened: TerminalOpen) {
     this.sessionId = opened.sessionId;
+    this.connectionId = opened.connectionId;
     this.backlog = opened.initialOutput || '';
     if (this.isDisconnectOutput(this.backlog)) this.disconnected = true;
   }
@@ -103,6 +105,12 @@ export class RemoteTerminal {
         return;
       }
 
+      try {
+        if (!await this.verifyConnected()) return;
+      } catch (verificationError) {
+        console.info(`Terminal 会话校验失败 sessionId=${this.sessionId} reason=${verificationError instanceof Error ? verificationError.message : '未知错误'}`);
+      }
+
       /*
        * HTTP Long Poll 失败不代表后端到 SSH 服务器的连接已经断开。
        * 保留当前 terminalSessionId，只按退避时间重试读取，避免一次客户端网络抖动
@@ -116,6 +124,16 @@ export class RemoteTerminal {
     finally { this.polling = false; this.schedule(nextDelay); }
   }
   resume() { if (this.disconnected) return; this.paused = false; this.report?.(''); this.schedule(); }
+  async verifyConnected() {
+    if (this.closed || this.closing) return false;
+    const state = await terminalApi.connected(this.sessionId);
+    const connected = state.connected === true
+      && state.sessionId === this.sessionId
+      && state.connectionId === this.connectionId;
+    if (!connected) this.markDisconnected('后端终端会话已失效，将尝试重新连接。');
+    else this.report?.('');
+    return connected;
+  }
   prepareReconnect() {
     this.disconnected = true;
     this.paused = true;
