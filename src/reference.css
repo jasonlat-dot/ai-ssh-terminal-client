@@ -1932,7 +1932,7 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.985); }
 .markdown-body tr:nth-child(even) td { color: var(--theme-text-muted); background: var(--theme-control); border-color: var(--line); }
 .markdown-body code,
 .tool-activity .tool-identity code,
-.tool-activity pre { color: var(--theme-text-strong); background: color-mix(in srgb, var(--theme-panel-soft) 76%, #07101b); border-color: var(--line); }
+.tool-activity pre { color: var(--theme-text-strong); background: var(--theme-control); border-color: var(--line); }
 .agent-activity-header,
 .agent-activity-task,
 .agent-activity-thought summary,
