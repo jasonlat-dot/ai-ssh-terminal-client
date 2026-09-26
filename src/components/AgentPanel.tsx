@@ -29,7 +29,7 @@ const MarkdownMessage = memo(function MarkdownMessage({ children }: { children: 
   </div>;
 });
 
-function ToolActivity({ tool }: { tool: ChatToolActivity }) {
+function ToolActivity({ tool, copyable }: { tool: ChatToolActivity; copyable: boolean }) {
   const label = tool.status === 'running' ? '调用中'
     : tool.status === 'success' ? '成功'
       : tool.status === 'error' ? '失败' : '状态未知';
@@ -49,11 +49,11 @@ function ToolActivity({ tool }: { tool: ChatToolActivity }) {
   return <details className={`tool-activity ${tool.status}`}>
     <summary>{header}<small className="tool-view-result">查看结果</small></summary>
     {tool.output ? <pre>{tool.output}</pre> : <p className="tool-empty-result">工具没有返回文本。</p>}
-    <div className="message-copy-actions"><CopyMarkdownButton getText={() => toolToMarkdown(tool)} label="复制工具结果（Markdown）" /></div>
+    {copyable && <div className="message-copy-actions"><CopyMarkdownButton getText={() => toolToMarkdown(tool)} label="复制工具结果（Markdown）" /></div>}
   </details>;
 }
 
-function AgentTextActivity({ text, running }: { text: string; running: boolean }) {
+function AgentTextActivity({ text, running, copyable }: { text: string; running: boolean; copyable: boolean }) {
   return <details className="agent-activity-thought">
     <summary>
       <Icon name="bulb" size={15} />
@@ -63,11 +63,12 @@ function AgentTextActivity({ text, running }: { text: string; running: boolean }
       <Icon name="down" size={14} className="agent-activity-thought-chevron" />
     </summary>
     <div className="agent-activity-text"><MarkdownMessage>{text}</MarkdownMessage></div>
-    <div className="message-copy-actions"><CopyMarkdownButton getText={() => text} /></div>
+    {copyable && !running && <div className="message-copy-actions"><CopyMarkdownButton getText={() => text} /></div>}
   </details>;
 }
 
-function AgentActivity({ agent }: { agent: ChatAgentActivity }) {
+function AgentActivity({ agent, copyable }: { agent: ChatAgentActivity; copyable: boolean }) {
+  const canCopy = copyable && agent.status !== 'running';
   // 子 Agent 的流式文本和工具结果持续更新数据，但只在用户主动展开后渲染。
   // 状态从 running 变为 success/error 时保留用户的展开选择，不自动开合。
   const [expanded, setExpanded] = useState(false);
@@ -89,16 +90,28 @@ function AgentActivity({ agent }: { agent: ChatAgentActivity }) {
     {expanded && <div className="agent-activity-body" aria-label={`${agent.name} 执行过程`}>
       {agent.segments?.length
         ? agent.segments.map(segment => segment.type === 'text'
-          ? <AgentTextActivity text={segment.text} running={agent.status === 'running'} key={segment.id} />
-          : <ToolActivity tool={segment.tool} key={segment.id} />)
-        : agent.tools.map(tool => <ToolActivity tool={tool} key={tool.id} />)}
-      {showFinalFallback && <AgentTextActivity text={agent.output!} running={false} />}
+          ? <AgentTextActivity text={segment.text} running={agent.status === 'running'} copyable={canCopy} key={segment.id} />
+          : <ToolActivity tool={segment.tool} copyable={canCopy} key={segment.id} />)
+        : agent.tools.map(tool => <ToolActivity tool={tool} copyable={canCopy} key={tool.id} />)}
+      {showFinalFallback && <AgentTextActivity text={agent.output!} running={false} copyable={canCopy} />}
       {!agent.segments?.length && !agent.tools.length && !showFinalFallback && <p className="agent-activity-empty">
         {agent.status === 'running' ? '子智能体正在分析…' : '子智能体没有返回文本。'}
       </p>}
-      <div className="message-copy-actions"><CopyMarkdownButton getText={() => agentToMarkdown(agent)} label="复制子智能体结果（Markdown）" /></div>
+      {canCopy && <div className="message-copy-actions"><CopyMarkdownButton getText={() => agentToMarkdown(agent)} label="复制子智能体结果（Markdown）" /></div>}
     </div>}
   </section>;
+}
+
+function ReplyLoading({ message, stopping }: { message: ChatMessage; stopping: boolean }) {
+  const activeAgent = message.segments?.some(segment => segment.type === 'agent' && segment.agent.status === 'running');
+  const activeTool = message.tools?.some(tool => tool.status === 'running')
+    || message.segments?.some(segment => segment.type === 'tool' && segment.tool.status === 'running');
+  const hasText = Boolean(message.text.trim() || message.segments?.some(segment => segment.type === 'text' && segment.text.trim()));
+  const label = stopping ? '正在停止…' : activeAgent ? '智能体正在协作' : activeTool ? '正在执行工具' : hasText ? '正在生成回复' : '正在思考';
+  return <div className="reply-loading" role="status" aria-atomic="true">
+    <span className="reply-loading-wave" aria-hidden="true"><i /><i /><i /></span>
+    <span>{label}</span>
+  </div>;
 }
 
 type HistoryControls = {
@@ -232,29 +245,27 @@ export function AgentPanel({ host, connected, messages, busy, stopping, send, st
             <div className="user-message">{message.text}</div>
             <div className="message-copy-actions"><CopyMarkdownButton getText={() => messageToMarkdown(message)} label="复制请求（Markdown）" /></div>
           </div>
-          : <div className={`assistant-message ${message.error ? 'error' : ''} ${busy && index === messages.length - 1 ? 'active' : ''}`} key={message.id}>
+          : <div className={`assistant-message ${message.error ? 'error' : ''} ${(busy || stopping) && index === messages.length - 1 ? 'active' : ''}`} key={message.id}>
             <AgentAvatar />
             <div className="assistant-main">
               {message.segments
                 ? message.segments.map(segment => segment.type === 'text'
                   ? <div className="assistant-content" key={segment.id}><MarkdownMessage>{segment.text}</MarkdownMessage></div>
                   : segment.type === 'agent'
-                    ? <AgentActivity agent={segment.agent} key={segment.id} />
-                    : <section className="tool-activities" aria-label="工具调用记录" key={segment.id}><ToolActivity tool={segment.tool} /></section>)
+                    ? <AgentActivity agent={segment.agent} copyable={!((busy || stopping) && index === messages.length - 1)} key={segment.id} />
+                    : <section className="tool-activities" aria-label="工具调用记录" key={segment.id}><ToolActivity tool={segment.tool} copyable={!((busy || stopping) && index === messages.length - 1)} /></section>)
                 : <>
                   {(message.text || message.summary) && <div className="assistant-content">
                     {message.text && <MarkdownMessage>{message.text}</MarkdownMessage>}
                     {message.summary && <MarkdownMessage>{message.summary}</MarkdownMessage>}
                   </div>}
                   {message.tools?.length ? <section className="tool-activities" aria-label="工具调用记录">
-                    {message.tools.map(tool => <ToolActivity tool={tool} key={tool.id} />)}
+                    {message.tools.map(tool => <ToolActivity tool={tool} copyable={!((busy || stopping) && index === messages.length - 1)} key={tool.id} />)}
                   </section> : null}
                 </>}
-              {busy && index === messages.length - 1 && <div className="assistant-content"><div className="assistant-processing">
-                <strong>Agent 正在处理 <span className="typing-dots"><i /><i /><i /></span></strong>
-                <span className="processing-status"><i />处理中</span>
-              </div></div>}
-              <div className="message-copy-actions"><CopyMarkdownButton getText={() => messageToMarkdown(message)} label="复制回复（Markdown）" /></div>
+              {(busy || stopping) && index === messages.length - 1
+                ? <ReplyLoading message={message} stopping={stopping} />
+                : <div className="message-copy-actions"><CopyMarkdownButton getText={() => messageToMarkdown(message)} label="复制回复（Markdown）" /></div>}
             </div>
           </div>)}
       </div>

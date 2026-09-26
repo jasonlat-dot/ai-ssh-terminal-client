@@ -4,7 +4,9 @@ import { FitAddon } from '@xterm/addon-fit';
 import { terminalDisconnectMessage } from '../state/remoteTerminal';
 import type { RemoteTerminal, TerminalDisconnectEvent } from '../state/remoteTerminal';
 import type { TerminalDisconnectReason } from '../types';
-import { copyText } from '../state/clipboard';
+import { copyText, readClipboardText } from '../state/clipboard';
+import { isTauriRuntime } from '../state/runtime';
+import { ClipboardFeedback, useClipboardFeedback } from './ClipboardFeedback';
 import { Icon, IconButton } from './Ui';
 import '@xterm/xterm/css/xterm.css';
 
@@ -44,6 +46,14 @@ export function RemoteTerminalView({
   const [localReconnecting, setLocalReconnecting] = useState(false);
   const [pendingAttempt, setPendingAttempt] = useState(0);
   const [hasSelection, setHasSelection] = useState(false);
+  const [pasteFallback, setPasteFallback] = useState(false);
+  const [pasteDraft, setPasteDraft] = useState('');
+  const pasteField = useRef<HTMLTextAreaElement>(null);
+  const { feedback, showFeedback, clearFeedback } = useClipboardFeedback();
+  const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
+  const copyShortcut = isMac ? '⌘C' : 'Ctrl+Shift+C';
+  const pasteShortcut = isMac ? '⌘V' : 'Ctrl+Shift+V';
+  const systemPasteShortcut = isMac ? '⌘V' : 'Ctrl+V';
   const visibleRef = useRef(visible);
   visibleRef.current = visible;
   const unavailable = !connected || !runtime || runtime.closed || runtime.disconnected;
@@ -61,25 +71,50 @@ export function RemoteTerminalView({
   exhaustedHandler.current = onReconnectExhausted;
 
   const copySelection = async () => {
-    const selected = term.current?.getSelection();
-    if (!selected) return;
-    try { await copyText(selected); }
-    catch (error) { setError(error instanceof Error ? error.message : '复制失败'); }
+    const terminal = term.current;
+    const selected = terminal?.getSelection();
+    if (!selected) { showFeedback('请先选中要复制的终端文本', 'info'); return; }
+    try {
+      await copyText(selected);
+      if (term.current === terminal && visibleRef.current) showFeedback('已复制选中文本');
+    } catch {
+      if (term.current === terminal && visibleRef.current) showFeedback('复制失败，请重试', 'error');
+    }
+  };
+  const pasteText = (text: string) => {
+    const terminal = term.current;
+    if (!terminal || !allowInput.current) return;
+    if (!text) { showFeedback('剪贴板中没有文本', 'info'); return; }
+    // Preserve xterm's bracketed-paste mode and newline normalization.
+    terminal.paste(text);
+    terminal.focus();
+    setPasteFallback(false);
+    setPasteDraft('');
+    showFeedback('已粘贴到终端');
   };
   const pasteClipboard = async () => {
     const terminal = term.current;
     const target = activeRuntime.current;
     if (!terminal || !target || !allowInput.current) return;
     try {
-      const text = await navigator.clipboard.readText();
-      if (term.current !== terminal || activeRuntime.current !== target || !allowInput.current) return;
-      // xterm handles bracketed paste and newline normalization for the shell.
-      terminal.paste(text);
-      terminal.focus();
+      const text = await readClipboardText();
+      if (term.current !== terminal || activeRuntime.current !== target || !allowInput.current || !visibleRef.current) return;
+      pasteText(text);
     } catch {
-      setError('无法读取剪贴板，请使用 Ctrl+V（macOS：⌘V）或系统粘贴菜单。');
+      if (term.current !== terminal || activeRuntime.current !== target || !allowInput.current || !visibleRef.current) return;
+      clearFeedback();
+      setPasteFallback(true);
     }
   };
+
+  useEffect(() => {
+    if (pasteFallback) pasteField.current?.focus();
+  }, [pasteFallback]);
+  useEffect(() => {
+    setPasteFallback(false);
+    setPasteDraft('');
+    clearFeedback();
+  }, [runtime, visible, unavailable, clearFeedback]);
 
   useEffect(() => {
     runtime?.setForeground(visible);
@@ -105,12 +140,20 @@ export function RemoteTerminalView({
         const key = event.key.toLowerCase();
         const clipboardShortcut = !event.altKey && ((event.ctrlKey && event.shiftKey && !event.metaKey)
           || (event.metaKey && !event.ctrlKey));
-        if (clipboardShortcut && (key === 'c' || key === 'v')) {
+        if (clipboardShortcut && key === 'c') {
           event.preventDefault();
-          if (event.type === 'keydown' && !event.repeat) {
-            if (key === 'c') void copySelection();
-            else void pasteClipboard();
+          if (event.type === 'keydown' && !event.repeat) void copySelection();
+          return false;
+        }
+        const pasteShortcutPressed = (key === 'v' && (clipboardShortcut || (event.ctrlKey && !event.altKey && !event.metaKey)))
+          || (key === 'insert' && event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey);
+        if (pasteShortcutPressed) {
+          if (isTauriRuntime()) {
+            event.preventDefault();
+            if (event.type === 'keydown' && !event.repeat) void pasteClipboard();
           }
+          // In a browser, allow the OS paste event even when readText is denied.
+          // Returning false only skips xterm's key translation (e.g. Ctrl+V -> ^V).
           return false;
         }
         // Plain Ctrl+C always reaches the shell as SIGINT, even with a selection.
@@ -221,8 +264,18 @@ export function RemoteTerminalView({
   return <div className="remote-terminal-view" hidden={!visible}>
     <div className="remote-terminal-tools">
       <div className="remote-terminal-clipboard" aria-label="终端剪贴板">
-        <IconButton icon="copy" label="复制选中文本 · Ctrl+Shift+C / ⌘C" disabled={!hasSelection} onClick={() => { void copySelection(); }} />
-        <IconButton icon="paste" label="粘贴 · Ctrl+Shift+V / ⌘V" disabled={unavailable} onClick={() => { void pasteClipboard(); }} />
+        <IconButton icon="copy" label={`复制选中文本 · ${copyShortcut}`} disabled={!hasSelection} onClick={() => { void copySelection(); }} />
+        <IconButton icon="paste" label={`粘贴 · ${pasteShortcut}`} disabled={unavailable} onClick={() => { void pasteClipboard(); }} />
+        <span className="terminal-shortcut-hint"><span>复制 <kbd>{copyShortcut}</kbd></span><span>粘贴 <kbd>{pasteShortcut}</kbd></span><span>中断 <kbd>Ctrl+C</kbd></span></span>
+        {!pasteFallback && <ClipboardFeedback feedback={feedback} />}
+        {pasteFallback && <div className="terminal-paste-popover" role="dialog" aria-label="粘贴到终端" onKeyDown={event => {
+          if (event.key === 'Escape') { event.stopPropagation(); setPasteFallback(false); setPasteDraft(''); term.current?.focus(); }
+        }}>
+          <div className="terminal-paste-heading"><strong>粘贴到终端</strong><IconButton icon="close" label="取消粘贴" onClick={() => { setPasteFallback(false); setPasteDraft(''); term.current?.focus(); }} /></div>
+          <p>在下方按 <kbd>{systemPasteShortcut}</kbd> 或使用右键菜单粘贴。</p>
+          <textarea ref={pasteField} rows={3} aria-label="待粘贴文本" placeholder="粘贴你的命令或文本" value={pasteDraft} onChange={event => setPasteDraft(event.target.value)} />
+          <button type="button" disabled={!pasteDraft || unavailable} onClick={() => pasteText(pasteDraft)}>粘贴到终端</button>
+        </div>}
       </div>
       <div className="remote-terminal-tool-actions">
       <button className="remote-terminal-reconnect" disabled={isReconnecting} onClick={() => { void reconnectNow(); }}>{isReconnecting ? '正在重连…' : '重新连接'}</button>
@@ -233,6 +286,11 @@ export function RemoteTerminalView({
       <span>{unavailableMessage}</span>
     </div>}
     {!unavailable && error && <div role="alert" className="remote-terminal-error">{error}<button disabled={!connected || !runtime || runtime.closed} onClick={() => { setError(''); runtime?.resume(); }}>重试读取</button></div>}
-    <div className="remote-terminal-screen" ref={element} aria-label="远程终端交互区" onClick={() => term.current?.focus()} />
+    <div className="remote-terminal-screen" ref={element} aria-label="远程终端交互区" onClick={() => term.current?.focus()}
+      onPasteCapture={event => {
+        event.preventDefault();
+        event.stopPropagation();
+        pasteText(event.clipboardData.getData('text/plain'));
+      }} />
   </div>;
 }

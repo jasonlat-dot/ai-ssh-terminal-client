@@ -1,6 +1,19 @@
+import { invoke } from '@tauri-apps/api/core';
+import { isTauriRuntime } from './runtime';
+
+export async function readClipboardText(): Promise<string> {
+  if (isTauriRuntime()) return invoke<string>('plugin:clipboard-manager|read_text');
+  if (!navigator.clipboard?.readText) throw new Error('请使用系统粘贴快捷键。');
+  return navigator.clipboard.readText();
+}
+
 /** Copy plain text/Markdown, including WebViews without the async clipboard API. */
 export async function copyText(text: string): Promise<void> {
   try {
+    if (isTauriRuntime()) {
+      await invoke('plugin:clipboard-manager|write_text', { text });
+      return;
+    }
     if (navigator.clipboard?.writeText) {
       await navigator.clipboard.writeText(text);
       return;

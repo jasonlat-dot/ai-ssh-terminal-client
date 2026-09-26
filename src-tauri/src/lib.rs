@@ -11,6 +11,7 @@ pub fn run() {
         .manage(ChatHistoryState::default())
         .manage(CommandStoreState::default())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .invoke_handler(tauri::generate_handler![
             save_chat_session,
             list_chat_sessions,
