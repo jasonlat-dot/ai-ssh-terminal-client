@@ -50,16 +50,9 @@ async function request<T>(endpoint: string, method = 'GET', body?: object, signa
 }
 
 function normalizeContent(content: unknown): string {
-  if (typeof content !== 'string') return content == null ? '' : String(content);
-  if (content.startsWith('"') && content.endsWith('"')) {
-    try {
-      const parsed = JSON.parse(content);
-      if (typeof parsed === 'string') return parsed;
-    } catch {
-      // 保留无法解析的原始内容。
-    }
-  }
-  return content;
+  // The transport record has already been JSON-decoded. Decoding a text delta
+  // again would remove literal quotes or turn code such as "\\n" into a newline.
+  return typeof content === 'string' ? content : content == null ? '' : String(content);
 }
 
 function isAdkToolTrace(content: string): boolean {
@@ -108,17 +101,22 @@ function doneContent(value: unknown): string {
  */
 function parseStreamEvent(payload: string): AgentStreamEvent | null {
   const value = payload.trim();
-  if (!value || value === '[DONE]') return null;
+  if (!payload || value === '[DONE]') return null;
   if (value.startsWith('错误:')) return { event: 'error', content: value.slice(3).trim() };
 
-  let parsed: Record<string, unknown>;
+  let decoded: unknown;
   try {
-    parsed = JSON.parse(value) as Record<string, unknown>;
+    decoded = JSON.parse(value);
   } catch {
-    return isAdkToolTrace(value) ? null : { event: 'text', content: value };
+    return isAdkToolTrace(payload) ? null : { event: 'text', content: payload };
   }
 
-  if (!parsed || typeof parsed !== 'object') return null;
+  // Some compatible streams encode each delta as a JSON string rather than an
+  // event object. Whitespace-only deltas are part of the Markdown too.
+  if (typeof decoded === 'string') return isAdkToolTrace(decoded) ? null : { event: 'text', content: decoded };
+  // A raw-text SSE token can also happen to be a JSON number, boolean or null.
+  if (!decoded || typeof decoded !== 'object' || Array.isArray(decoded)) return { event: 'text', content: payload };
+  const parsed = decoded as Record<string, unknown>;
   if (!parsed.event && typeof parsed.code === 'string' && parsed.code !== 'SUCCESS_0000') {
     return { event: 'error', content: normalizeContent(parsed.info) || '对话请求失败', code: parsed.code };
   }
@@ -240,7 +238,9 @@ async function chatStream(
     }
     if (line.startsWith(':') || line.startsWith('event:') || line.startsWith('id:')) return;
     if (line.startsWith('data:')) {
-      sseData.push(line.slice(5).trimStart());
+      // SSE permits removing ONE optional separator space, not content indent.
+      const data = line.slice(5);
+      sseData.push(data.startsWith(' ') ? data.slice(1) : data);
       return;
     }
     // 非 SSE 控制行按 JSON Lines 处理，兼容 Case 层 emitter.send(json + "\n")。

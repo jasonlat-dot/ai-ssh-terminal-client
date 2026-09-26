@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "test:files": "node --experimental-strip-types tests/files.test.ts",
-    "test:chat-attachments": "node --experimental-strip-types tests/chat-attachments.test.ts"
+    "test:chat-attachments": "node --experimental-strip-types tests/chat-attachments.test.ts",
+    "test:markdown": "node --experimental-strip-types tests/markdown.test.ts"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

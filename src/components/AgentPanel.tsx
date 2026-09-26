@@ -1,6 +1,5 @@
-import { memo, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { MarkdownMessage } from './MarkdownMessage';
 import agentRobotAvatar from '../assets/agent-robot-avatar.png';
 import type { ClientChatSession } from '../state/clientChatHistory';
 import type { ChatAttachment, ChatAgentActivity, ChatMessage, ChatToolActivity, Host } from '../types';
@@ -15,22 +14,6 @@ function AgentAvatar({ compact = false }: { compact?: boolean }) {
   return <span className={`agent-avatar ${compact ? 'compact' : ''}`}><img src={agentRobotAvatar} alt="Agent 机器人" /></span>;
 }
 
-/**
- * 使用 react-markdown 渲染模型回复。
- * 默认不会执行回复中的原始 HTML；remark-gfm 补充表格、删除线、任务列表等常见 Markdown 语法。
- */
-const MarkdownMessage = memo(function MarkdownMessage({ children }: { children: string }) {
-  return <div className="markdown-body">
-    <ReactMarkdown
-      remarkPlugins={[remarkGfm]}
-      components={{
-        a: ({ children: linkText, href, title }) => <a href={href} title={title} target="_blank" rel="noreferrer">{linkText}</a>,
-      }}
-    >
-      {children}
-    </ReactMarkdown>
-  </div>;
-});
 
 function ToolActivity({ tool, copyable }: { tool: ChatToolActivity; copyable: boolean }) {
   const label = tool.status === 'running' ? '调用中'
