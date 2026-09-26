@@ -38,7 +38,7 @@ export function loadTerminalSessions(backendUrl: string): TerminalSession[] {
         host: stored.host,
         title: stored.title,
         busy: false,
-        fileState: { open: false, files: [], selected: '', expanded: new Set<string>(), transfers: [] },
+        fileState: { open: false, files: [], selected: '', expanded: new Set<string>() },
       }];
     });
   } catch {

@@ -28,11 +28,13 @@ import { PanelDivider } from './components/PanelDivider';
 import { AgentPanel } from './components/AgentPanel';
 import { AddCommandDialog, CreateFileDialog } from './components/Dialogs';
 import { SessionFiles } from './components/Sidebar';
+import { FileUploadDialog } from './components/FileUploadDialog';
+import { FileUploadQueue } from './state/fileUploads';
 import { ActivityBar, AppHeader } from './components/Shell';
 import { BackendSettingsDialog } from './components/BackendSettingsDialog';
 import { readBackendUrl, saveBackendUrl } from './config/backend';
 import { CommandShelf, TerminalWorkspace } from './components/Workspace';
-import { createSessionFileState, initialCommands, mockTransferProgress } from './data/mock';
+import { createSessionFileState, initialCommands } from './data/mock';
 import type { ChatAgentActivity, ChatMessage, ChatMessageSegment, ChatToolActivity, Host, Navigation, SessionFileState } from './types';
 import './App.css';
 import './reference.css';
@@ -73,12 +75,14 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
   const [disconnectTarget, setDisconnectTarget] = useState<{ tabId: string; host: Host } | null>(null);
   const [dialog, setDialog] = useState<Dialog>(null);
   const [backendSettingsOpen, setBackendSettingsOpen] = useState(false);
+  const [uploadsOpen, setUploadsOpen] = useState(false);
+  const [uploads] = useState(() => new FileUploadQueue());
+  useEffect(() => { uploads.activate(); return uploads.deactivate; }, [uploads]);
   const [fileDialogSessionId, setFileDialogSessionId] = useState<string | null>(null);
   const [toast, setToast] = useState<Notice | null>(null);
   const noticeSequence = useRef(0);
   const [commandCollapsed, setCommandCollapsed] = useState(false);
   const [agentCollapsed, setAgentCollapsed] = useState(false);
-  const timers = useRef(new Set<ReturnType<typeof setTimeout>>());
   const chatVersion = useRef(0);
   const chatting = useRef(false);
   const chatSessionId = useRef('');
@@ -112,12 +116,6 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
     && activeClient?.sessionId === active.terminalSessionId
     && !activeClient.closed && !activeClient.disconnected;
 
-  const later = useCallback((callback: () => void, delay: number) => {
-    const timer = setTimeout(() => { timers.current.delete(timer); callback(); }, delay);
-    timers.current.add(timer);
-    return timer;
-  }, []);
-  useEffect(() => () => { timers.current.forEach(clearTimeout); }, []);
   useEffect(() => {
     try { saveTerminalSessions(backendUrl, sessions); }
     catch (error) { console.warn('保存终端页签恢复信息失败', error); }
@@ -528,18 +526,6 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
   const updateFiles = (sessionId: string, update: (state: SessionFileState) => SessionFileState) => {
     setSessions(previous => updateSessionFiles(previous, sessionId, update));
   };
-  const upload = (sessionId: string, chosen: FileList) => {
-    const items = Array.from(chosen).map(file => ({ id: crypto.randomUUID(), name: file.name, progress: 0 }));
-    updateFiles(sessionId, state => ({ ...state, transfers: [...state.transfers, ...items] }));
-    const tick = (progress: number) => {
-      const next = mockTransferProgress(progress);
-      updateFiles(sessionId, state => ({ ...state, transfers: state.transfers.map(item => items.some(newItem => newItem.id === item.id) ? { ...item, progress: next } : item) }));
-      if (next < 100) later(() => tick(next), 300);
-      else notify('模拟传输完成，未上传到真实服务器。');
-    };
-    later(() => tick(0), 300);
-    notify('开始模拟传输，仅演示进度。');
-  };
   const sendMessage = async (text: string) => {
     if (chatting.current || stopPending.current || historyLoadingId) return;
     const currentSession = active;
@@ -865,7 +851,7 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
   }, [sessions, verifyTerminalSession]);
 
   return <div style={{ '--agent-width': `${agentWidth}%` } as CSSProperties} className={`app-shell ${agentCollapsed ? 'agent-collapsed' : ''} ${navCollapsed ? 'nav-collapsed' : ''} ${navigation === '连接' ? 'connections-view' : 'terminal-view'}`}>
-    <AppHeader notify={notify} theme={theme} setTheme={setTheme} />
+    <AppHeader notify={notify} theme={theme} setTheme={setTheme} uploads={uploads} openUploads={() => setUploadsOpen(true)} />
     <ActivityBar active={manageConnections ? '连接' : navigation} onSelect={navigate} onSettings={() => setBackendSettingsOpen(true)} settingsOpen={backendSettingsOpen} collapsed={navCollapsed} toggleCollapsed={() => setNavCollapsed(value => !value)} />
     <ConnectionSidebar connections={{ ...connections, remove: removeHost }} sessions={sessions} activeHostId={active?.connectionId} terminal={selectHost} create={openNewConnection} manage={manageConnections} setManage={setManageConnections} />
     <main hidden={navigation !== '命令'} className={`central-workspace ${!active ? 'no-session' : ''} ${commandCollapsed ? 'command-collapsed' : ''}`}>
@@ -900,7 +886,7 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
         toggleCommands={() => setCommandCollapsed(value => !value)}
         agentCollapsed={agentCollapsed}
         toggleAgent={() => setAgentCollapsed(value => !value)}
-        filePanel={active && <SessionFiles key={active.id} sessionTitle={active.title} files={active.fileState.files} selected={active.fileState.selected} expanded={active.fileState.expanded} select={selected => updateFiles(active.id, state => ({ ...state, selected }))} toggle={id => updateFiles(active.id, state => { const expanded = new Set(state.expanded); if (expanded.has(id)) expanded.delete(id); else expanded.add(id); return { ...state, expanded }; })} transfers={active.fileState.transfers} upload={chosen => upload(active.id, chosen)} refresh={() => { updateFiles(active.id, state => ({ ...createSessionFileState(), open: state.open, transfers: state.transfers })); notify('已恢复当前终端的演示文件树', 'success'); }} create={() => { setFileDialogSessionId(active.id); setDialog('file'); }} close={() => updateFiles(active.id, state => ({ ...state, open: false }))} copy={copy} notify={notify} />}
+        filePanel={active && <SessionFiles key={active.id} sessionTitle={active.title} files={active.fileState.files} selected={active.fileState.selected} expanded={active.fileState.expanded} select={selected => updateFiles(active.id, state => ({ ...state, selected }))} toggle={id => updateFiles(active.id, state => { const expanded = new Set(state.expanded); if (expanded.has(id)) expanded.delete(id); else expanded.add(id); return { ...state, expanded }; })} openUploads={() => setUploadsOpen(true)} refresh={() => { updateFiles(active.id, state => ({ ...createSessionFileState(), open: state.open })); notify('已恢复当前终端的演示文件树', 'success'); }} create={() => { setFileDialogSessionId(active.id); setDialog('file'); }} close={() => updateFiles(active.id, state => ({ ...state, open: false }))} copy={copy} notify={notify} />}
       />
       <CommandShelf commands={commands} category={category} setCategory={setCategory} fill={fill} run={requestRun} copy={copy} add={() => setDialog('command')} disabled={!canRun} collapsed={commandCollapsed} />
     </main>
@@ -917,6 +903,7 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
         refresh: () => { if (selectedAgent) void refreshChatSessions(selectedAgent.agentId); },
         select: sessionId => { void selectChatSession(sessionId); },
       }} />
+    {uploadsOpen && <FileUploadDialog queue={uploads} close={() => setUploadsOpen(false)} />}
     {toast && <NotificationToast key={toast.id} notice={toast} close={dismissNotice} />}
     {dialog === 'command' && <AddCommandDialog close={closeDialog} categories={[...new Set(commands.map(command => command.category))]} save={async command => {
       const next = [...commands, command];

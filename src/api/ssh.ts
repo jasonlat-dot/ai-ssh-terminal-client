@@ -1,5 +1,7 @@
 import type { Host } from '../types';
-import { requireBackendUrl } from '../config/backend';
+import { apiRequest } from './client';
+export { ApiRequestError as SshRequestError } from './client';
+export type { RequestFailureKind as SshRequestFailureKind } from './client';
 
 export type SshConnection = {
   connectionId: string; connectionName: string; host: string; port: number;
@@ -18,46 +20,9 @@ export type SshConnectionRequest = {
 };
 export const sshUserId = import.meta.env.VITE_SSH_USER_ID || 'default';
 
-export type SshRequestFailureKind = 'timeout' | 'network' | 'http' | 'application';
-
-/** 保留失败类别，终端轮询才能区分“客户端网络抖动”和“SSH 会话已不存在”。 */
-export class SshRequestError extends Error {
-  constructor(message: string, readonly kind: SshRequestFailureKind, readonly code?: string) {
-    super(message);
-    this.name = 'SshRequestError';
-  }
-}
-
-export async function request<T>(endpoint: string, method = 'GET', body?: object, params?: Record<string, string>, signal?: AbortSignal): Promise<T> {
-  const controller = new AbortController();
-  const abort = () => controller.abort(signal?.reason);
-  if (signal?.aborted) abort();
-  else signal?.addEventListener('abort', abort, { once: true });
-  const timeout = setTimeout(() => controller.abort(), 60000);
-  try {
-    const response = await fetch(`${requireBackendUrl()}/api/v1/ssh/${endpoint}${params ? `?${new URLSearchParams(params)}` : ''}`, {
-      method, signal: controller.signal,
-      headers: body ? { 'Content-Type': 'application/json' } : undefined,
-      body: body ? JSON.stringify(body) : undefined,
-    });
-    const result = await response.json().catch(() => ({})) as { code?: string; info?: string; data?: T };
-    if (!response.ok) {
-      throw new SshRequestError(result.info || `SSH 服务请求失败（HTTP ${response.status}）`, 'http', result.code);
-    }
-    if (result.code !== 'SUCCESS_0000') {
-      throw new SshRequestError(result.info || 'SSH 操作失败', 'application', result.code);
-    }
-    return result.data as T;
-  } catch (error) {
-    if (signal?.aborted) throw signal.reason;
-    if (error instanceof SshRequestError) throw error;
-    if (controller.signal.aborted) throw new SshRequestError('SSH 请求超时，请检查网络后重试。', 'timeout');
-    if (error instanceof TypeError) throw new SshRequestError('无法访问 SSH 服务，请检查后端地址和网络连接。', 'network');
-    throw error;
-  } finally {
-    clearTimeout(timeout);
-    signal?.removeEventListener('abort', abort);
-  }
+/** Keep SSH callers and terminal error classification on the shared request client. */
+export function request<T>(endpoint: string, method = 'GET', body?: object, params?: Record<string, string>, signal?: AbortSignal): Promise<T> {
+  return apiRequest<T>(`ssh/${endpoint}`, { method, body, params, signal, service: 'SSH 服务' });
 }
 
 export const sshApi = {

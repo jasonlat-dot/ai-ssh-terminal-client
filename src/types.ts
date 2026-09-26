@@ -32,7 +32,6 @@ export type ChatAgentSegment = { id: string; type: 'text'; text: string } | { id
 export type ChatAgentActivity = { id: string; name: string; task?: string; status: 'running' | 'success' | 'error' | 'unknown'; output?: string; parentToolCallId?: string; tools: ChatToolActivity[]; segments?: ChatAgentSegment[] };
 export type ChatMessageSegment = { id: string; type: 'text'; text: string } | { id: string; type: 'tool'; tool: ChatToolActivity } | { id: string; type: 'agent'; agent: ChatAgentActivity };
 export type ChatMessage = { id: string; role: 'user' | 'assistant'; text: string; segments?: ChatMessageSegment[]; tools?: ChatToolActivity[]; summary?: string; suggestion?: boolean; error?: boolean };
-export type TransferItem = { id: string; name: string; progress: number };
 export type Navigation = '连接' | '命令';
 
-export type SessionFileState = { open: boolean; files: FileNode[]; selected: string; expanded: Set<string>; transfers: TransferItem[] };
+export type SessionFileState = { open: boolean; files: FileNode[]; selected: string; expanded: Set<string> };

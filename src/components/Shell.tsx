@@ -1,15 +1,22 @@
+import { useSyncExternalStore } from 'react';
+import type { FileUploadQueue } from '../state/fileUploads';
 import type { Navigation } from '../types';
 import type { ThemePreference } from '../state/useTheme';
 import { Icon } from './Ui';
 import type { IconName } from './Ui';
-export function AppHeader({ notify, theme, setTheme }: {
+export function AppHeader({ notify, theme, setTheme, uploads, openUploads }: {
+  uploads: FileUploadQueue;
+  openUploads: () => void;
   notify: (text: string) => void;
   theme: ThemePreference;
   setTheme: (theme: ThemePreference) => void;
 }) {
+  const uploadItems = useSyncExternalStore(uploads.subscribe, uploads.getSnapshot);
+  const uploading = uploadItems.filter(item => item.status === 'uploading' || item.status === 'queued').length;
   return <header className="app-header">
     <div className="brand"><span className="brand-mark"><span /></span><div><strong>Agent SSH</strong><small>智能远程开发助手</small></div></div>
     <div className="profile">
+      <button type="button" className="header-upload-button" aria-label="打开独立文件上传" title="文件上传" aria-haspopup="dialog" onClick={openUploads}><Icon name="upload" size={16} /><span>文件上传</span>{uploading > 0 && <small>{uploading}</small>}</button>
       <div className="theme-switcher" role="group" aria-label="界面主题">
         {([
           ['system', 'monitor', '跟随系统'],

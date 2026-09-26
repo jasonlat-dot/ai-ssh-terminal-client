@@ -62,8 +62,7 @@ export const initialMessages: ChatMessage[] = [
 export function mockReply(task: string): ChatMessage {
   return { id: crypto.randomUUID(), role: 'assistant', text: `已收到：${task}`, summary: '当前为演示环境。你可以通过下方操作查看模拟错误日志，或在常用命令中检查容器与磁盘状态。', suggestion: true };
 }
-export const mockTransferProgress = (progress: number) => Math.min(100, progress + 20);
 
 export function createSessionFileState(): SessionFileState {
-  return { open: false, files: createFiles(), selected: 'logs/access.log', expanded: new Set(['logs']), transfers: [] };
+  return { open: false, files: createFiles(), selected: 'logs/access.log', expanded: new Set(['logs']) };
 }
