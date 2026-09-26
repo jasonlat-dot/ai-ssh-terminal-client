@@ -267,7 +267,7 @@ async function chatStream(
 
 export const agentApi = {
   userId: sshUserId,
-  list: () => request<AgentConfig[]>('query_ai_agent_config_list'),
+  list: (signal?: AbortSignal) => request<AgentConfig[]>('query_ai_agent_config_list', 'GET', undefined, signal),
   createSession: (agentId: string, signal?: AbortSignal) => request<{ sessionId: string }>(
     'create_session', 'POST', { agentId, userId: sshUserId }, signal,
   ),

@@ -120,7 +120,7 @@ function sessionTime(value: ClientChatSession['updatedAt']): string {
   });
 }
 
-export function AgentPanel({ chatDraft, draftScope, host, connected, messages, busy, stopping, send, stop, clear, disabled, history, collapsed }: {
+export function AgentPanel({ chatDraft, draftScope, host, connected, messages, busy, stopping, send, stop, clear, disabled, agentAvailability, history, collapsed }: {
   chatDraft: ChatAttachmentDraft;
   draftScope: number;
   host?: Host;
@@ -132,6 +132,7 @@ export function AgentPanel({ chatDraft, draftScope, host, connected, messages, b
   stop: () => void;
   clear: () => void;
   disabled: boolean;
+  agentAvailability: { ready: boolean; loading: boolean; error: string; retry: () => void };
   history: HistoryControls;
   collapsed: boolean;
 }) {
@@ -159,7 +160,7 @@ export function AgentPanel({ chatDraft, draftScope, host, connected, messages, b
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const submit = async () => {
-    if (locked || sendingRef.current) return;
+    if (locked || !agentAvailability.ready || sendingRef.current) return;
     const scope = draftScope;
     try {
       const files = chatDraft.ready();
@@ -225,7 +226,7 @@ export function AgentPanel({ chatDraft, draftScope, host, connected, messages, b
           <span><h3>智能体对话</h3><small><i className={`status-dot ${connected ? '' : 'offline'}`} />{host?.name ?? '尚未选择服务器'}</small></span>
         </div>
         <button type="button" className="agent-history-button" aria-label="历史会话" aria-expanded={history.open}
-          aria-controls="agent-history-list" onClick={history.toggle} disabled={disabled || busy}>
+          aria-controls="agent-history-list" onClick={history.toggle} disabled={disabled || busy || !agentAvailability.ready}>
           <Icon name="history" size={16} /><span>历史</span>
         </button>
         <button type="button" className="new-agent-session" onClick={() => { clear(); setDraft(''); }} aria-label="新建智能体会话">
@@ -255,7 +256,9 @@ export function AgentPanel({ chatDraft, draftScope, host, connected, messages, b
         {messages.length === 0 && !busy && <div className="agent-chat-empty">
           <img className="empty-agent-avatar" src={agentRobotAvatar} alt="Agent 机器人" />
           <h3>有什么需要我协助？</h3>
-          <p>{disabled ? '智能体正在加载，请稍后再试。' : connected ? '可以让我执行命令、检查服务状态或分析日志。' : '可以直接与 Agent 对话；当前页签连接服务器后还可以执行 SSH 命令。'}</p>
+          <p>{agentAvailability.ready
+            ? connected ? '可以让我执行命令、检查服务状态或分析日志。' : '可以直接与 Agent 对话；当前页签连接服务器后还可以执行 SSH 命令。'
+            : '可以先输入问题或添加附件，智能体就绪后再发送。'}</p>
         </div>}
 
         {messages.map((message, index) => message.role === 'user'
@@ -295,6 +298,10 @@ export function AgentPanel({ chatDraft, draftScope, host, connected, messages, b
     </section>
 
     <form className="chat-composer" aria-hidden={collapsed} onSubmit={event => { event.preventDefault(); void submit(); }}>
+      {!agentAvailability.ready && <div className={`composer-agent-status ${agentAvailability.error ? 'error' : ''}`} role="status">
+        <span>{agentAvailability.loading ? '正在加载智能体，你可以先编辑草稿。' : agentAvailability.error || '智能体暂不可用，草稿可以继续编辑。'}</span>
+        {!agentAvailability.loading && <button type="button" onClick={agentAvailability.retry}><Icon name="refresh" size={13} />重试加载</button>}
+      </div>}
       {!!attachments.length && <DraftAttachments items={attachments} draft={chatDraft} locked={locked} report={setAttachmentError} />}
       <div className="composer-input-row"><textarea ref={textareaRef} rows={1} aria-label="智能体任务输入" placeholder="输入问题，或粘贴截图与文件" value={draft} disabled={locked} onChange={event => setDraft(event.target.value)}
         onPaste={event => {
@@ -321,7 +328,7 @@ export function AgentPanel({ chatDraft, draftScope, host, connected, messages, b
         <span className="composer-attachment-note">{attachments.length}/4 · 合计 ≤ 20 MB</span>
         {busy || stopping
           ? <button type="button" className="send-button stop-button" aria-label={stopping ? '正在停止' : '停止生成'} title={stopping ? '正在停止' : '停止生成'} onClick={stop} disabled={stopping}><Icon name="stop" size={16} /></button>
-          : <button type="submit" className="send-button" aria-label="发送消息" disabled={(!draft.trim() && !attachments.length) || locked || notReady}><Icon name="send" size={20} /></button>}
+          : <button type="submit" className="send-button" aria-label="发送消息" title={agentAvailability.ready ? '发送消息' : '智能体就绪后即可发送，草稿会保留'} disabled={(!draft.trim() && !attachments.length) || locked || notReady || !agentAvailability.ready}><Icon name="send" size={20} /></button>}
       </div>
       {(attachmentError || notReady) && <p className="composer-attachment-error" role="status">{attachmentError || (attachments.some(item => item.status === 'error') ? '附件上传失败，请重试或移除后再发送。' : '附件正在准备中，请等待上传完成。')}</p>}
     </form>

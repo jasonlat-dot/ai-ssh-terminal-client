@@ -24,3 +24,9 @@
 .composer-attachment-error, .chat-error-guidance { margin: 8px 0 0; padding: 8px 10px; border-radius: 7px; background: var(--theme-control); color: var(--theme-text-strong); font-size: 12px; line-height: 1.6; }
 .chat-error-guidance { margin: 0; }
 .chat-restore-request { margin-right: 8px; }
+
+.composer-agent-status { display: flex; align-items: center; gap: 8px; padding: 6px 8px; margin-bottom: 8px; border-radius: 6px; background: var(--theme-control); color: var(--theme-text-muted); font-size: 12px; line-height: 1.5; }
+.composer-agent-status > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.composer-agent-status > button { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; padding: 4px 6px; border: 1px solid var(--line); border-radius: 5px; color: var(--theme-accent-text); background: var(--theme-panel); }
+.composer-agent-status > button:hover { background: var(--theme-control); }
+.composer-agent-status.error { border-left: 2px solid var(--theme-accent-text); }

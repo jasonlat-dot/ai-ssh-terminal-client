@@ -67,6 +67,9 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
   const [chatBusy, setChatBusy] = useState(false);
   const [chatStopping, setChatStopping] = useState(false);
   const [selectedAgent, setSelectedAgent] = useState<AgentConfig | null>(null);
+  const [agentLoading, setAgentLoading] = useState(true);
+  const [agentLoadError, setAgentLoadError] = useState('');
+  const [agentLoadAttempt, setAgentLoadAttempt] = useState(0);
   const [chatSessions, setChatSessions] = useState<ClientChatSession[]>([]);
   const [activeChatSessionId, setActiveChatSessionId] = useState('');
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -211,17 +214,31 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
   useEffect(() => { if (connections.error) notify(connections.error, 'error'); }, [connections.error, notify]);
   useEffect(() => {
     let cancelled = false;
-    void agentApi.list()
+    const controller = new AbortController();
+    setAgentLoading(true);
+    setAgentLoadError('');
+    const timeout = setTimeout(() => {
+      if (cancelled) return;
+      controller.abort();
+      setAgentLoading(false);
+      setAgentLoadError('加载智能体超时，请检查后端服务后重试。');
+    }, 15_000);
+    void agentApi.list(controller.signal)
       .then(items => {
-        if (cancelled) return;
-        if (!items.length) throw new Error('后端没有可用的智能体配置。');
-        setSelectedAgent(items[0]);
+        if (cancelled || controller.signal.aborted) return;
+        const agent = Array.isArray(items) ? items.find(item => typeof item?.agentId === 'string' && item.agentId.trim()) : undefined;
+        if (!agent) throw new Error('后端没有可用的智能体配置，请配置后重试。');
+        setSelectedAgent(agent);
       })
       .catch(error => {
-        if (!cancelled) notify(error instanceof Error ? error.message : '加载智能体失败', 'error');
+        if (!cancelled && !controller.signal.aborted) setAgentLoadError(error instanceof Error ? error.message : '加载智能体失败，请重试。');
+      })
+      .finally(() => {
+        clearTimeout(timeout);
+        if (!cancelled) setAgentLoading(false);
       });
-    return () => { cancelled = true; };
-  }, [notify]);
+    return () => { cancelled = true; clearTimeout(timeout); controller.abort(); };
+  }, [agentLoadAttempt]);
   useEffect(() => () => chatAbort.current?.abort(), []);
   useEffect(() => {
     if (selectedAgent?.agentId) void refreshChatSessions(selectedAgent.agentId);
@@ -555,7 +572,7 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
       ? currentSession.terminalSessionId
       : '';
     if (!selectedAgent) {
-      notify('智能体尚未加载完成，请稍后重试。', 'error');
+      notify(agentLoadError || '智能体尚未加载完成，草稿已保留，请稍后发送。', 'error');
       return false;
     }
 
@@ -919,7 +936,8 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
     </main>
     <PanelDivider value={agentWidth} change={setAgentWidth} />
     <AgentPanel chatDraft={chatDraft} draftScope={chatVersion.current} host={host} connected={!!active?.connected} messages={messages} busy={chatBusy} stopping={chatStopping} send={sendMessage} stop={stopChat} collapsed={agentCollapsed}
-      clear={clearChat} disabled={!selectedAgent || Boolean(historyLoadingId) || chatStopping}
+      clear={clearChat} disabled={Boolean(historyLoadingId) || chatStopping}
+      agentAvailability={{ ready: !!selectedAgent, loading: agentLoading, error: agentLoadError, retry: () => setAgentLoadAttempt(attempt => attempt + 1) }}
       history={{
         sessions: chatSessions, activeSessionId: activeChatSessionId, open: historyOpen,
         loading: historyLoading, loadingSessionId: historyLoadingId, error: historyError,
