@@ -33,7 +33,7 @@ import { BackendSettingsDialog } from './components/BackendSettingsDialog';
 import { readBackendUrl, saveBackendUrl } from './config/backend';
 import { CommandShelf, TerminalWorkspace } from './components/Workspace';
 import { createSessionFileState, initialCommands, mockTransferProgress } from './data/mock';
-import type { ChatAgentActivity, ChatMessage, ChatMessageSegment, ChatToolActivity, Host, Navigation, TerminalSession, SessionFileState } from './types';
+import type { ChatAgentActivity, ChatMessage, ChatMessageSegment, ChatToolActivity, Host, Navigation, SessionFileState } from './types';
 import './App.css';
 import './reference.css';
 

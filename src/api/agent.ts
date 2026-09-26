@@ -99,6 +99,11 @@ function doneContent(value: unknown): string {
   return value;
 }
 
+/**
+ * 将后端的一条传输记录收敛为前端事件协议。
+ * agentCallId 负责把子 Agent 文本/工具归到同一张卡片；toolCallId 负责把调用中状态
+ * 更新为最终结果。缺少必要关联 ID 的嵌套事件会被丢弃，避免污染其他活动。
+ */
 function parseStreamEvent(payload: string): AgentStreamEvent | null {
   const value = payload.trim();
   if (!value || value === '[DONE]') return null;
@@ -174,6 +179,11 @@ function parseStreamEvent(payload: string): AgentStreamEvent | null {
   return null;
 }
 
+/**
+ * 使用 POST + Fetch ReadableStream 消费对话长连接。
+ * 不能使用 EventSource，因为请求需要携带 JSON body；解析器同时兼容标准 SSE data 行和
+ * 后端 Case 当前输出的一行一个 JSON（JSON Lines）格式。
+ */
 async function chatStream(
   body: AgentChatRequest,
   onEvent: (event: AgentStreamEvent) => void,
@@ -198,7 +208,9 @@ async function chatStream(
 
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
+  // 一个 JSON/SSE 事件可能被 TCP 分片拆开，buffer 保存最后一条尚未完整换行的数据。
   let buffer = '';
+  // 标准 SSE 允许一个事件包含多条 data: 行，遇到空行后再合并派发。
   let sseData: string[] = [];
 
   const dispatch = (payload: string) => {
@@ -218,7 +230,7 @@ async function chatStream(
       sseData.push(line.slice(5).trimStart());
       return;
     }
-    // 兼容 case 层按行输出 JSON 的格式。
+    // 非 SSE 控制行按 JSON Lines 处理，兼容 Case 层 emitter.send(json + "\n")。
     dispatch(line);
   };
 
