@@ -15,6 +15,8 @@ export type UploadItem = {
   uncertain?: boolean;
   retryable: boolean;
   result?: UploadedFile;
+  previewUrl?: string;
+  referenced?: boolean;
 };
 
 type Upload = (file: File, signal: AbortSignal) => Promise<UploadedFile>;
@@ -27,7 +29,8 @@ export class FileUploadQueue {
   private active = true;
   private upload: Upload;
 
-  constructor(upload: Upload = uploadFile) { this.upload = upload; }
+  private options: { validate?: (file: File) => string | null; preview?: (file: File) => string | undefined; cancelOnRemove?: boolean };
+  constructor(upload: Upload = uploadFile, options: FileUploadQueue['options'] = {}) { this.upload = upload; this.options = options; }
 
   getSnapshot = () => this.items;
   subscribe = (listener: () => void) => {
@@ -51,9 +54,9 @@ export class FileUploadQueue {
         duplicates += 1;
         continue;
       }
-      const error = validateUploadFile(file);
+      const error = (this.options.validate ?? validateUploadFile)(file);
       next.push({ id: crypto.randomUUID(), fingerprint, file, name: file.name, size: file.size,
-        status: error ? 'error' : 'queued', error: error ?? undefined, retryable: !error });
+        status: error ? 'error' : 'queued', error: error ?? undefined, retryable: !error, previewUrl: this.options.preview?.(file) });
     }
     this.publish(next);
     this.pump();
@@ -63,18 +66,32 @@ export class FileUploadQueue {
   retry = (id: string) => {
     const item = this.items.find(item => item.id === id);
     if (!item || item.status !== 'error' || !item.file || !item.retryable) return;
-    const invalid = validateUploadFile(item.file);
+    const invalid = (this.options.validate ?? validateUploadFile)(item.file);
     if (invalid) { this.update(id, { error: invalid, retryable: false }); return; }
     this.update(id, { status: 'queued', error: undefined, errorCode: undefined, uncertain: false });
     this.pump();
   };
 
+  addUploaded = (result: UploadedFile, previewUrl?: string) => {
+    this.publish([...this.items, { id: crypto.randomUUID(), fingerprint: `reference:${result.fileId}`,
+      name: result.fileName, size: result.size, status: 'success', retryable: false, referenced: true, result: { ...result }, previewUrl }]);
+  };
   remove = (id: string) => {
-    // Removal is local only, and cannot hide an in-flight request.
-    if (this.requests.has(id)) return;
+    const controller = this.requests.get(id);
+    if (controller && !this.options.cancelOnRemove) return;
+    // Detach before abort: late responses cannot resurrect an attachment.
+    this.requests.delete(id);
+    controller?.abort();
     this.publish(this.items.filter(item => item.id !== id));
+    this.pump();
   };
 
+  clear = () => {
+    const pending = [...this.requests.values()];
+    this.requests.clear();
+    pending.forEach(controller => controller.abort());
+    this.publish([]);
+  };
   activate = () => { this.active = true; this.pump(); };
   deactivate = () => {
     this.active = false;

@@ -1,11 +1,14 @@
-import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { memo, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import agentRobotAvatar from '../assets/agent-robot-avatar.png';
 import type { ClientChatSession } from '../state/clientChatHistory';
-import type { ChatAgentActivity, ChatMessage, ChatToolActivity, Host } from '../types';
+import type { ChatAttachment, ChatAgentActivity, ChatMessage, ChatToolActivity, Host } from '../types';
 import { Icon } from './Ui';
 import { CopyMarkdownButton } from './CopyMarkdownButton';
+import { ChatAttachmentDraft, chatAttachmentPolicy, pastedFiles, insertPastedText, validateChatContent } from '../state/chatAttachments';
+import { DraftAttachments, MessageAttachments } from './ChatAttachments';
+import { chatErrorGuidance } from '../api/chatErrors';
 import { agentToMarkdown, messageToMarkdown, toolToMarkdown } from '../state/chatMarkdown';
 
 function AgentAvatar({ compact = false }: { compact?: boolean }) {
@@ -134,13 +137,15 @@ function sessionTime(value: ClientChatSession['updatedAt']): string {
   });
 }
 
-export function AgentPanel({ host, connected, messages, busy, stopping, send, stop, clear, disabled, history, collapsed }: {
+export function AgentPanel({ chatDraft, draftScope, host, connected, messages, busy, stopping, send, stop, clear, disabled, history, collapsed }: {
+  chatDraft: ChatAttachmentDraft;
+  draftScope: number;
   host?: Host;
   connected: boolean;
   messages: ChatMessage[];
   busy: boolean;
   stopping: boolean;
-  send: (text: string) => void;
+  send: (text: string, attachments: ChatAttachment[]) => Promise<boolean>;
   stop: () => void;
   clear: () => void;
   disabled: boolean;
@@ -148,16 +153,46 @@ export function AgentPanel({ host, connected, messages, busy, stopping, send, st
   collapsed: boolean;
 }) {
   const [draft, setDraft] = useState('');
+  const [attachmentError, setAttachmentError] = useState('');
+  const [sending, setSending] = useState(false);
+  const sendingRef = useRef(false);
+  const scopeRef = useRef(draftScope);
+  scopeRef.current = draftScope;
+  const attachmentInput = useRef<HTMLInputElement>(null);
+  const attachments = useSyncExternalStore(chatDraft.subscribe, chatDraft.getSnapshot);
+  const locked = disabled || busy || stopping || sending;
+  const notReady = attachments.some(item => item.status !== 'success');
+  const addFiles = (files: File[]) => {
+    try { chatDraft.add(files); setAttachmentError(''); }
+    catch (error) { setAttachmentError((error as Error).message); }
+  };
+  const attachFiles = (files: ChatAttachment[]) => {
+    if (locked) return;
+    try { chatDraft.attach(files); setAttachmentError(''); textareaRef.current?.focus(); }
+    catch (error) { setAttachmentError((error as Error).message); }
+  };
   const scrollRef = useRef<HTMLDivElement>(null);
   const followOutputRef = useRef(true);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const submit = () => {
-    if (draft.trim() && !busy && !disabled) {
-      // 新一轮对话从底部开始；之后是否继续跟随由用户的滚动位置决定。
+  const submit = async () => {
+    if (locked || sendingRef.current) return;
+    const scope = draftScope;
+    try {
+      const files = chatDraft.ready();
+      const invalid = validateChatContent(draft, files);
+      if (invalid) { setAttachmentError(invalid); return; }
       followOutputRef.current = true;
-      send(draft.trim());
-      setDraft('');
+      sendingRef.current = true;
+      setSending(true);
+      setAttachmentError('');
+      const success = await send(draft.trim(), files);
+      if (scopeRef.current !== scope) return;
+      if (success) { setDraft(''); chatDraft.clear(); }
+    } catch (error) {
+      if (scopeRef.current === scope) setAttachmentError((error as Error).message);
+    } finally {
+      if (scopeRef.current === scope) { sendingRef.current = false; setSending(false); }
     }
   };
 
@@ -185,7 +220,7 @@ export function AgentPanel({ host, connected, messages, busy, stopping, send, st
     textarea.style.overflowY = textarea.scrollHeight > 180 ? 'auto' : 'hidden';
   }, [draft]);
 
-  useEffect(() => { setDraft(''); }, [history.activeSessionId]);
+  useEffect(() => { setDraft(''); setAttachmentError(''); setSending(false); sendingRef.current = false; }, [draftScope]);
 
   useEffect(() => {
     const handleShortcut = (event: KeyboardEvent) => {
@@ -242,8 +277,12 @@ export function AgentPanel({ host, connected, messages, busy, stopping, send, st
 
         {messages.map((message, index) => message.role === 'user'
           ? <div className="user-message-group" key={message.id}>
-            <div className="user-message">{message.text}</div>
-            <div className="message-copy-actions"><CopyMarkdownButton getText={() => messageToMarkdown(message)} label="复制请求（Markdown）" /></div>
+            <div className="user-message">{message.text && <div>{message.text}</div>}{!!message.attachments?.length && <MessageAttachments files={message.attachments} attach={attachFiles} disabled={locked} />}</div>
+            <div className="message-copy-actions"><button type="button" className="chat-restore-request" disabled={locked} onClick={() => {
+              if (draft.trim() || attachments.length) { setAttachmentError('请先清空当前草稿，再恢复这条请求。'); return; }
+              try { chatDraft.attach(message.attachments ?? []); setDraft(message.text); setAttachmentError(''); textareaRef.current?.focus(); }
+              catch (error) { setAttachmentError((error as Error).message); }
+            }}>恢复请求</button><CopyMarkdownButton getText={() => messageToMarkdown(message)} label="复制请求（Markdown）" /></div>
           </div>
           : <div className={`assistant-message ${message.error ? 'error' : ''} ${(busy || stopping) && index === messages.length - 1 ? 'active' : ''}`} key={message.id}>
             <AgentAvatar />
@@ -263,6 +302,7 @@ export function AgentPanel({ host, connected, messages, busy, stopping, send, st
                     {message.tools.map(tool => <ToolActivity tool={tool} copyable={!((busy || stopping) && index === messages.length - 1)} key={tool.id} />)}
                   </section> : null}
                 </>}
+              {message.error && <p className="chat-error-guidance">{chatErrorGuidance(message.errorCode)}</p>}
               {(busy || stopping) && index === messages.length - 1
                 ? <ReplyLoading message={message} stopping={stopping} />
                 : <div className="message-copy-actions"><CopyMarkdownButton getText={() => messageToMarkdown(message)} label="复制回复（Markdown）" /></div>}
@@ -271,13 +311,36 @@ export function AgentPanel({ host, connected, messages, busy, stopping, send, st
       </div>
     </section>
 
-    <form className="chat-composer" aria-hidden={collapsed} onSubmit={event => { event.preventDefault(); submit(); }}>
-      <div className="composer-input-row"><textarea ref={textareaRef} rows={1} aria-label="智能体任务输入" placeholder="例如：帮我查看 Nginx 状态" value={draft} disabled={disabled || busy} onChange={event => setDraft(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); submit(); } }} />
+    <form className="chat-composer" aria-hidden={collapsed} onSubmit={event => { event.preventDefault(); void submit(); }}>
+      {!!attachments.length && <DraftAttachments items={attachments} draft={chatDraft} locked={locked} report={setAttachmentError} />}
+      <div className="composer-input-row"><textarea ref={textareaRef} rows={1} aria-label="智能体任务输入" placeholder="输入问题，或粘贴截图与文件" value={draft} disabled={locked} onChange={event => setDraft(event.target.value)}
+        onPaste={event => {
+          const files = pastedFiles(event.clipboardData);
+          if (!files.length) return;
+          event.preventDefault();
+          if (locked) return;
+          const text = event.clipboardData.getData('text/plain');
+          if (text) {
+            const next = insertPastedText(event.currentTarget.value, text, event.currentTarget.selectionStart, event.currentTarget.selectionEnd);
+            setDraft(next.text);
+            const scope = draftScope;
+            requestAnimationFrame(() => { if (scopeRef.current === scope) textareaRef.current?.setSelectionRange(next.cursor, next.cursor); });
+          }
+          addFiles(files);
+        }}
+        onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void submit(); } }} /></div>
+      <div className="composer-bottom-bar">
+        <button type="button" className="composer-attach-button" disabled={locked} onClick={() => attachmentInput.current?.click()} title="选择图片、PDF 或文本文件"><Icon name="attach" size={16} />附件</button>
+        <input ref={attachmentInput} type="file" multiple tabIndex={-1} className="visually-hidden" aria-label="选择聊天附件" accept={chatAttachmentPolicy.extensions.map(ext => `.${ext}`).join(',')} onChange={event => {
+          if (!locked && event.target.files?.length) addFiles(Array.from(event.target.files));
+          event.target.value = '';
+        }} />
+        <span className="composer-attachment-note">{attachments.length}/4 · 合计 ≤ 20 MB</span>
         {busy || stopping
-          ? <button type="button" className="send-button stop-button" aria-label={stopping ? '正在停止' : '停止生成'}
-              title={stopping ? '正在停止' : '停止生成'} onClick={stop} disabled={stopping}><Icon name="stop" size={16} /></button>
-          : <button type="submit" className="send-button" aria-label="发送消息" disabled={!draft.trim() || disabled}><Icon name="send" size={20} /></button>}
+          ? <button type="button" className="send-button stop-button" aria-label={stopping ? '正在停止' : '停止生成'} title={stopping ? '正在停止' : '停止生成'} onClick={stop} disabled={stopping}><Icon name="stop" size={16} /></button>
+          : <button type="submit" className="send-button" aria-label="发送消息" disabled={(!draft.trim() && !attachments.length) || locked || notReady}><Icon name="send" size={20} /></button>}
       </div>
+      {(attachmentError || notReady) && <p className="composer-attachment-error" role="status">{attachmentError || (attachments.some(item => item.status === 'error') ? '附件上传失败，请重试或移除后再发送。' : '附件正在准备中，请等待上传完成。')}</p>}
     </form>
   </aside>;
 }

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { CSSProperties } from 'react';
 import { updateSessionFiles } from './state/sessionFiles';
 import { useTheme } from './state/useTheme';
@@ -30,12 +30,14 @@ import { AddCommandDialog, CreateFileDialog } from './components/Dialogs';
 import { SessionFiles } from './components/Sidebar';
 import { FileUploadDialog } from './components/FileUploadDialog';
 import { FileUploadQueue } from './state/fileUploads';
+import { AttachmentPreviews, ChatAttachmentDraft, attachmentReferences, validateChatContent } from './state/chatAttachments';
+import { ChatRequestError } from './api/chatErrors';
 import { ActivityBar, AppHeader } from './components/Shell';
 import { BackendSettingsDialog } from './components/BackendSettingsDialog';
 import { readBackendUrl, saveBackendUrl } from './config/backend';
 import { CommandShelf, TerminalWorkspace } from './components/Workspace';
 import { createSessionFileState, initialCommands } from './data/mock';
-import type { ChatAgentActivity, ChatMessage, ChatMessageSegment, ChatToolActivity, Host, Navigation, SessionFileState } from './types';
+import type { ChatAttachment, ChatAgentActivity, ChatMessage, ChatMessageSegment, ChatToolActivity, Host, Navigation, SessionFileState } from './types';
 import './App.css';
 import './reference.css';
 
@@ -78,6 +80,19 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
   const [uploadsOpen, setUploadsOpen] = useState(false);
   const [uploads] = useState(() => new FileUploadQueue());
   useEffect(() => { uploads.activate(); return uploads.deactivate; }, [uploads]);
+  const [attachmentPreviews] = useState(() => new AttachmentPreviews());
+  const [chatDraft] = useState(() => new ChatAttachmentDraft(attachmentPreviews));
+  const draftAttachments = useSyncExternalStore(chatDraft.subscribe, chatDraft.getSnapshot);
+  useEffect(() => {
+    chatDraft.activate();
+    return () => { chatDraft.deactivate(); attachmentPreviews.dispose(); };
+  }, [chatDraft, attachmentPreviews]);
+  useEffect(() => {
+    attachmentPreviews.reconcile([
+      ...chatDraft.getSnapshot().map(item => item.previewUrl),
+      ...messagesRef.current.flatMap(message => message.attachments?.map(file => file.previewUrl) ?? []),
+    ]);
+  }, [draftAttachments, messages, chatDraft, attachmentPreviews]);
   const [fileDialogSessionId, setFileDialogSessionId] = useState<string | null>(null);
   const [toast, setToast] = useState<Notice | null>(null);
   const noticeSequence = useRef(0);
@@ -526,8 +541,12 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
   const updateFiles = (sessionId: string, update: (state: SessionFileState) => SessionFileState) => {
     setSessions(previous => updateSessionFiles(previous, sessionId, update));
   };
-  const sendMessage = async (text: string) => {
-    if (chatting.current || stopPending.current || historyLoadingId) return;
+  const sendMessage = async (text: string, selectedAttachments: ChatAttachment[] = []): Promise<boolean> => {
+    if (chatting.current || stopPending.current || historyLoadingId) return false;
+    // Fix this turn's references before any session creation or network await.
+    const attachments = selectedAttachments.map(file => ({ ...file }));
+    const invalid = validateChatContent(text, attachments);
+    if (invalid) { notify(invalid, 'error'); return false; }
     const currentSession = active;
     const client = currentSession ? remoteClients.current.get(currentSession.id) : undefined;
     const terminalSessionId = currentSession?.connected
@@ -537,7 +556,7 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
       : '';
     if (!selectedAgent) {
       notify('智能体尚未加载完成，请稍后重试。', 'error');
-      return;
+      return false;
     }
 
     chatting.current = true;
@@ -547,7 +566,7 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
     chatAbort.current = controller;
     updateMessages(previous => [
       ...previous,
-      { id: crypto.randomUUID(), role: 'user', text },
+      { id: crypto.randomUUID(), role: 'user', text, attachments },
       { id: assistantId, role: 'assistant', text: '', segments: [] },
     ]);
     setChatBusy(true);
@@ -696,7 +715,7 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
           updateAssistant(message => message.text ? message : appendText(message, event.content || '任务已完成。'));
           break;
         case 'error':
-          throw new Error(event.content || 'Agent 执行失败');
+          throw new ChatRequestError(event.content || 'Agent 执行失败', event.code);
       }
     };
 
@@ -704,7 +723,7 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
       if (!chatSessionId.current) {
         const created = await agentApi.createSession(selectedAgent.agentId, controller.signal);
         if (!created?.sessionId) throw new Error('后端未返回 Agent 会话 ID');
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted || version !== chatVersion.current) return false;
         chatSessionId.current = created.sessionId;
         setActiveChatSessionId(created.sessionId);
       }
@@ -714,33 +733,39 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
         sessionId: chatSessionId.current,
         terminalSessionId,
         message: text,
+        ...(attachments.length ? { attachments: attachmentReferences(attachments) } : {}),
       }, receive, controller.signal);
-      if (controller.signal.aborted || stopPending.current) return;
+      if (controller.signal.aborted || stopPending.current || version !== chatVersion.current) return false;
       updateAssistant(message => message.text ? message : appendText(message, '任务已完成。'));
+      return true;
     } catch (error) {
       if (controller.signal.aborted || stopPending.current
           || (error instanceof DOMException && error.name === 'AbortError')) {
         updateAssistant(current => current.text || current.segments?.length
           ? current : appendText(current, '已停止生成。'));
-        return;
+        return false;
       }
+      if (version !== chatVersion.current) return false;
       const message = error instanceof Error ? error.message : 'Agent 对话失败';
-      updateAssistant(current => ({ ...(current.text ? current : appendText(current, message)), error: true }));
+      updateAssistant(current => ({ ...appendText(current, `${current.text ? '\n\n' : ''}${message}`), error: true, errorCode: error instanceof ChatRequestError ? error.code : undefined }));
       notify(message, 'error');
+      return false;
     } finally {
       if (chatAbort.current === controller) chatAbort.current = null;
       if (version === chatVersion.current) {
         chatting.current = false;
         setChatBusy(false);
       }
-      const sessionId = chatSessionId.current;
-      try {
-        await persistClientSession(selectedAgent.agentId, sessionId);
-      } catch (persistError) {
-        console.warn('客户端对话历史最终保存失败', persistError);
-        notify('对话已完成，但客户端历史保存失败。', 'error');
+      if (version === chatVersion.current) {
+        const sessionId = chatSessionId.current;
+        try {
+          await persistClientSession(selectedAgent.agentId, sessionId);
+        } catch (persistError) {
+          console.warn('客户端对话历史最终保存失败', persistError);
+          if (version === chatVersion.current) notify('客户端历史保存失败，当前消息仍保留在页面中。', 'error');
+        }
+        if (version === chatVersion.current) await refreshChatSessions(selectedAgent.agentId);
       }
-      await refreshChatSessions(selectedAgent.agentId);
     }
   };
   const stopChat = () => {
@@ -782,6 +807,7 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
     }
     if (chatting.current) stopChat();
     chatVersion.current += 1;
+    chatDraft.clear();
     historySelection.current += 1;
     chatAbort.current?.abort();
     chatAbort.current = null;
@@ -808,6 +834,7 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
       if (selection !== historySelection.current) return;
       if (!history) throw new Error('客户端中未找到该会话记录');
       chatVersion.current += 1;
+      chatDraft.clear();
       chatSessionId.current = sessionId;
       setActiveChatSessionId(sessionId);
       replaceMessages(history);
@@ -891,7 +918,7 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
       <CommandShelf commands={commands} category={category} setCategory={setCategory} fill={fill} run={requestRun} copy={copy} add={() => setDialog('command')} disabled={!canRun} collapsed={commandCollapsed} />
     </main>
     <PanelDivider value={agentWidth} change={setAgentWidth} />
-    <AgentPanel host={host} connected={!!active?.connected} messages={messages} busy={chatBusy} stopping={chatStopping} send={sendMessage} stop={stopChat} collapsed={agentCollapsed}
+    <AgentPanel chatDraft={chatDraft} draftScope={chatVersion.current} host={host} connected={!!active?.connected} messages={messages} busy={chatBusy} stopping={chatStopping} send={sendMessage} stop={stopChat} collapsed={agentCollapsed}
       clear={clearChat} disabled={!selectedAgent || Boolean(historyLoadingId) || chatStopping}
       history={{
         sessions: chatSessions, activeSessionId: activeChatSessionId, open: historyOpen,

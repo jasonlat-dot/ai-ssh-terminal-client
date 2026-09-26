@@ -26,7 +26,7 @@ export function agentToMarkdown(agent: ChatAgentActivity): string {
 }
 
 export function messageToMarkdown(message: ChatMessage): string {
-  if (message.role === 'user') return message.text;
+  if (message.role === 'user') return [message.text, ...(message.attachments ?? []).map(file => `附件：${file.fileName.replace(/[\r\n]/g, ' ')}`)].filter(Boolean).join('\n\n');
   if (message.segments?.length) {
     return message.segments.map(segment => segment.type === 'text' ? segment.text
       : segment.type === 'tool' ? toolToMarkdown(segment.tool) : agentToMarkdown(segment.agent)).join('\n\n');

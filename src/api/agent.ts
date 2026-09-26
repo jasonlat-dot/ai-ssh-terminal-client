@@ -1,5 +1,6 @@
-import { sshUserId } from './ssh';
-import { requireBackendUrl } from '../config/backend';
+import { sshUserId } from './ssh.ts';
+import { requireBackendUrl } from '../config/backend.ts';
+import { ChatRequestError } from './chatErrors.ts';
 
 export type AgentConfig = {
   agentId: string;
@@ -17,7 +18,7 @@ export type AgentStreamEvent =
   | { event: 'tool_call'; toolCallId: string; toolName: string; command?: string; status: AgentToolStatus; agentCallId?: string; sourceAgent?: string }
   | { event: 'tool_result'; toolCallId: string; toolName?: string; command?: string; content: string; status: AgentToolStatus; agentCallId?: string; sourceAgent?: string }
   | { event: 'done'; content: string }
-  | { event: 'error'; content: string };
+  | { event: 'error'; content: string; code?: string };
 
 export type AgentChatRequest = {
   agentId: string;
@@ -25,6 +26,7 @@ export type AgentChatRequest = {
   sessionId: string;
   terminalSessionId: string;
   message: string;
+  attachments?: { fileId: string }[];
 };
 
 type ApiResponse<T> = { code: string; info?: string; data?: T };
@@ -116,6 +118,10 @@ function parseStreamEvent(payload: string): AgentStreamEvent | null {
     return isAdkToolTrace(value) ? null : { event: 'text', content: value };
   }
 
+  if (!parsed || typeof parsed !== 'object') return null;
+  if (!parsed.event && typeof parsed.code === 'string' && parsed.code !== 'SUCCESS_0000') {
+    return { event: 'error', content: normalizeContent(parsed.info) || '对话请求失败', code: parsed.code };
+  }
   const event = String(parsed.event || 'text');
   const content = normalizeContent(parsed.content);
   if (event === 'agent_start') {
@@ -174,7 +180,7 @@ function parseStreamEvent(payload: string): AgentStreamEvent | null {
     };
   }
   if (event === 'done') return { event, content: doneContent(parsed.content) };
-  if (event === 'error') return { event, content };
+  if (event === 'error') return { event, content, code: typeof parsed.code === 'string' ? parsed.code : undefined };
   if (event === 'text' && !isAdkToolTrace(content)) return { event, content };
   return null;
 }
@@ -203,7 +209,10 @@ async function chatStream(
     throw error;
   }
 
-  if (!response.ok) throw new Error(`Agent 对话请求失败（HTTP ${response.status}）`);
+  if (!response.ok) {
+    const result = await response.json().catch(() => null);
+    throw new ChatRequestError(typeof result?.info === 'string' ? result.info : `Agent 对话请求失败（HTTP ${response.status}）`, typeof result?.code === 'string' ? result.code : undefined);
+  }
   if (!response.body) throw new Error('浏览器未收到 Agent 流式响应');
 
   const reader = response.body.getReader();
@@ -213,9 +222,13 @@ async function chatStream(
   // 标准 SSE 允许一个事件包含多条 data: 行，遇到空行后再合并派发。
   let sseData: string[] = [];
 
+  let completed = false;
   const dispatch = (payload: string) => {
-    const event = parseStreamEvent(payload);
-    if (event) onEvent(event);
+    const event = payload.trim() === '[DONE]' ? { event: 'done' as const, content: '' } : parseStreamEvent(payload);
+    if (!event) return;
+    if (event.event === 'error') throw new ChatRequestError(event.content || 'Agent 执行失败', event.code);
+    onEvent(event);
+    if (event.event === 'done') completed = true;
   };
 
   const processLine = (rawLine: string) => {
@@ -234,16 +247,22 @@ async function chatStream(
     dispatch(line);
   };
 
-  while (true) {
-    const { value, done } = await reader.read();
-    buffer += decoder.decode(value, { stream: !done });
-    const lines = buffer.split('\n');
-    buffer = lines.pop() || '';
-    lines.forEach(processLine);
-    if (done) break;
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      buffer += decoder.decode(value, { stream: !done });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      lines.forEach(processLine);
+      if (done || completed) break;
+    }
+    if (buffer) processLine(buffer);
+    if (sseData.length) dispatch(sseData.join('\n'));
+    if (!completed) throw new ChatRequestError('对话连接已结束，但未收到完成确认；请检查回复后重试。', 'CHAT_STREAM_INTERRUPTED');
+  } finally {
+    void reader.cancel().catch(() => {});
+    reader.releaseLock();
   }
-  if (buffer) processLine(buffer);
-  if (sseData.length) dispatch(sseData.join('\n'));
 }
 
 export const agentApi = {

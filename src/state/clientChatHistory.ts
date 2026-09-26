@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { ChatAgentActivity, ChatAgentSegment, ChatMessage, ChatMessageSegment, ChatToolActivity } from '../types';
 import { isTauriRuntime } from './runtime';
+import { storedAttachments } from './chatAttachments';
 
 const browserStorageKey = 'agent-ssh-chat-history-v1';
 
@@ -91,6 +92,7 @@ export async function saveClientChatSession(
   title: string,
   messages: ChatMessage[],
 ): Promise<void> {
+  messages = messages.map(message => ({ ...message, attachments: storedAttachments(message.attachments) }));
   if (!isTauriRuntime()) {
     const sessions = readBrowserSessions();
     const index = sessions.findIndex(session => sameSession(session, scope));
@@ -130,6 +132,7 @@ export async function loadClientChatSession(scope: ClientChatScope): Promise<Cha
   // 避免历史 UI 错误地显示仍在调用工具或执行子 Agent。
   return stored.filter(isChatMessage).map(message => ({
     ...message,
+    attachments: storedAttachments(message.attachments),
     tools: message.tools?.map(persistedTool),
     segments: message.segments?.map(persistedSegment),
   }));

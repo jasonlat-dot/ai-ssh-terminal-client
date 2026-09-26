@@ -6,7 +6,7 @@ export interface UploadedFile {
   fileName: string;
   contentType: string;
   size: number;
-  sha256: string;
+  sha256?: string;
   status: string;
   downloadUrl: string;
   urlExpiresAt: string | number;
@@ -23,11 +23,11 @@ export async function uploadFile(file: File, signal?: AbortSignal): Promise<Uplo
   if (!data || typeof data.fileId !== 'string' || !data.fileId
     || typeof data.fileName !== 'string' || typeof data.contentType !== 'string'
     || typeof data.size !== 'number' || !Number.isFinite(data.size) || data.size <= 0
-    || typeof data.sha256 !== 'string' || typeof data.downloadUrl !== 'string'
-    || !['string', 'number'].includes(typeof data.urlExpiresAt) || data.status !== 'UPLOADED') {
+    || (data.sha256 !== undefined && typeof data.sha256 !== 'string') || typeof data.downloadUrl !== 'string'
+    || !['string', 'number'].includes(typeof data.urlExpiresAt) || (data.status !== undefined && data.status !== 'UPLOADED')) {
     throw new ApiRequestError('上传响应不完整或文件状态异常，无法确认上传结果。', 'application', 'FILE_RESPONSE_INVALID');
   }
-  return data;
+  return { ...data, status: data.status ?? 'UPLOADED' };
 }
 
 export function downloadExpiresAt(value: UploadedFile['urlExpiresAt']): number | null {
@@ -37,7 +37,7 @@ export function downloadExpiresAt(value: UploadedFile['urlExpiresAt']): number |
   return Number.isFinite(time) ? time : null;
 }
 
-export function downloadUnavailable(file: UploadedFile, now = Date.now()): string | null {
+export function downloadUnavailable(file: Pick<UploadedFile, 'urlExpiresAt' | 'downloadUrl'>, now = Date.now()): string | null {
   const expiry = downloadExpiresAt(file.urlExpiresAt);
   if (expiry === null) return '无法确认下载链接有效期';
   if (expiry <= now) return '下载链接已过期';

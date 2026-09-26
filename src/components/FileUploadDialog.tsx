@@ -9,7 +9,7 @@ import { isTauriRuntime } from '../state/runtime';
 import { Icon, IconButton, Modal } from './Ui';
 import './FileUploadDialog.css';
 
-function DownloadButton({ file }: { file: UploadedFile }) {
+export function DownloadButton({ file }: { file: Pick<UploadedFile, 'urlExpiresAt' | 'downloadUrl'> }) {
   const [now, setNow] = useState(Date.now);
   const [error, setError] = useState('');
   const unavailable = downloadUnavailable(file, now);
@@ -52,7 +52,7 @@ function UploadRow({ item, queue }: { item: UploadItem; queue: FileUploadQueue }
       <dt>文件 ID</dt><dd>{item.result.fileId}</dd>
       <dt>类型</dt><dd>{item.result.contentType}</dd>
       <dt>存储状态</dt><dd>{item.result.status} · 已存储</dd>
-      <dt>SHA-256</dt><dd>{item.result.sha256}</dd>
+      <dt>SHA-256</dt><dd>{item.result.sha256 || '后端未提供'}</dd>
       <dt>下载有效期至</dt><dd>{downloadExpiresAt(item.result.urlExpiresAt) === null ? String(item.result.urlExpiresAt) : new Date(downloadExpiresAt(item.result.urlExpiresAt)!).toLocaleString()}</dd>
     </dl><p>已存储不代表已完成内容解析或安全扫描。</p></details>}
     {(item.result || (item.status === 'error' && item.retryable)) && <div className="upload-item-actions">

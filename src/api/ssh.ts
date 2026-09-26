@@ -1,7 +1,7 @@
 import type { Host } from '../types';
-import { apiRequest } from './client';
-export { ApiRequestError as SshRequestError } from './client';
-export type { RequestFailureKind as SshRequestFailureKind } from './client';
+import { apiRequest } from './client.ts';
+export { ApiRequestError as SshRequestError } from './client.ts';
+export type { RequestFailureKind as SshRequestFailureKind } from './client.ts';
 
 export type SshConnection = {
   connectionId: string; connectionName: string; host: string; port: number;
@@ -18,7 +18,7 @@ export type SshConnectionRequest = {
   connectTimeout?: number; keepaliveInterval?: number; startupCommand?: string;
   compression?: boolean; strictHostKeyCheck?: boolean;
 };
-export const sshUserId = import.meta.env.VITE_SSH_USER_ID || 'default';
+export const sshUserId = import.meta.env?.VITE_SSH_USER_ID || 'default';
 
 /** Keep SSH callers and terminal error classification on the shared request client. */
 export function request<T>(endpoint: string, method = 'GET', body?: object, params?: Record<string, string>, signal?: AbortSignal): Promise<T> {
