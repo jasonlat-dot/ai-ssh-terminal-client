@@ -1,10 +1,12 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import agentRobotAvatar from '../assets/agent-robot-avatar.png';
 import type { ClientChatSession } from '../state/clientChatHistory';
 import type { ChatAgentActivity, ChatMessage, ChatToolActivity, Host } from '../types';
 import { Icon } from './Ui';
+import { CopyMarkdownButton } from './CopyMarkdownButton';
+import { agentToMarkdown, messageToMarkdown, toolToMarkdown } from '../state/chatMarkdown';
 
 function AgentAvatar({ compact = false }: { compact?: boolean }) {
   return <span className={`agent-avatar ${compact ? 'compact' : ''}`}><img src={agentRobotAvatar} alt="Agent 机器人" /></span>;
@@ -14,7 +16,7 @@ function AgentAvatar({ compact = false }: { compact?: boolean }) {
  * 使用 react-markdown 渲染模型回复。
  * 默认不会执行回复中的原始 HTML；remark-gfm 补充表格、删除线、任务列表等常见 Markdown 语法。
  */
-function MarkdownMessage({ children }: { children: string }) {
+const MarkdownMessage = memo(function MarkdownMessage({ children }: { children: string }) {
   return <div className="markdown-body">
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
@@ -25,7 +27,7 @@ function MarkdownMessage({ children }: { children: string }) {
       {children}
     </ReactMarkdown>
   </div>;
-}
+});
 
 function ToolActivity({ tool }: { tool: ChatToolActivity }) {
   const label = tool.status === 'running' ? '调用中'
@@ -47,6 +49,7 @@ function ToolActivity({ tool }: { tool: ChatToolActivity }) {
   return <details className={`tool-activity ${tool.status}`}>
     <summary>{header}<small className="tool-view-result">查看结果</small></summary>
     {tool.output ? <pre>{tool.output}</pre> : <p className="tool-empty-result">工具没有返回文本。</p>}
+    <div className="message-copy-actions"><CopyMarkdownButton getText={() => toolToMarkdown(tool)} label="复制工具结果（Markdown）" /></div>
   </details>;
 }
 
@@ -60,6 +63,7 @@ function AgentTextActivity({ text, running }: { text: string; running: boolean }
       <Icon name="down" size={14} className="agent-activity-thought-chevron" />
     </summary>
     <div className="agent-activity-text"><MarkdownMessage>{text}</MarkdownMessage></div>
+    <div className="message-copy-actions"><CopyMarkdownButton getText={() => text} /></div>
   </details>;
 }
 
@@ -92,6 +96,7 @@ function AgentActivity({ agent }: { agent: ChatAgentActivity }) {
       {!agent.segments?.length && !agent.tools.length && !showFinalFallback && <p className="agent-activity-empty">
         {agent.status === 'running' ? '子智能体正在分析…' : '子智能体没有返回文本。'}
       </p>}
+      <div className="message-copy-actions"><CopyMarkdownButton getText={() => agentToMarkdown(agent)} label="复制子智能体结果（Markdown）" /></div>
     </div>}
   </section>;
 }
@@ -223,7 +228,10 @@ export function AgentPanel({ host, connected, messages, busy, stopping, send, st
         </div>}
 
         {messages.map((message, index) => message.role === 'user'
-          ? <div className="user-message" key={message.id}>{message.text}</div>
+          ? <div className="user-message-group" key={message.id}>
+            <div className="user-message">{message.text}</div>
+            <div className="message-copy-actions"><CopyMarkdownButton getText={() => messageToMarkdown(message)} label="复制请求（Markdown）" /></div>
+          </div>
           : <div className={`assistant-message ${message.error ? 'error' : ''} ${busy && index === messages.length - 1 ? 'active' : ''}`} key={message.id}>
             <AgentAvatar />
             <div className="assistant-main">
@@ -246,6 +254,7 @@ export function AgentPanel({ host, connected, messages, busy, stopping, send, st
                 <strong>Agent 正在处理 <span className="typing-dots"><i /><i /><i /></span></strong>
                 <span className="processing-status"><i />处理中</span>
               </div></div>}
+              <div className="message-copy-actions"><CopyMarkdownButton getText={() => messageToMarkdown(message)} label="复制回复（Markdown）" /></div>
             </div>
           </div>)}
       </div>

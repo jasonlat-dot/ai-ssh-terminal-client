@@ -28,8 +28,11 @@ export class SshRequestError extends Error {
   }
 }
 
-export async function request<T>(endpoint: string, method = 'GET', body?: object, params?: Record<string, string>): Promise<T> {
+export async function request<T>(endpoint: string, method = 'GET', body?: object, params?: Record<string, string>, signal?: AbortSignal): Promise<T> {
   const controller = new AbortController();
+  const abort = () => controller.abort(signal?.reason);
+  if (signal?.aborted) abort();
+  else signal?.addEventListener('abort', abort, { once: true });
   const timeout = setTimeout(() => controller.abort(), 60000);
   try {
     const response = await fetch(`${requireBackendUrl()}/api/v1/ssh/${endpoint}${params ? `?${new URLSearchParams(params)}` : ''}`, {
@@ -46,11 +49,15 @@ export async function request<T>(endpoint: string, method = 'GET', body?: object
     }
     return result.data as T;
   } catch (error) {
+    if (signal?.aborted) throw signal.reason;
     if (error instanceof SshRequestError) throw error;
     if (controller.signal.aborted) throw new SshRequestError('SSH 请求超时，请检查网络后重试。', 'timeout');
     if (error instanceof TypeError) throw new SshRequestError('无法访问 SSH 服务，请检查后端地址和网络连接。', 'network');
     throw error;
-  } finally { clearTimeout(timeout); }
+  } finally {
+    clearTimeout(timeout);
+    signal?.removeEventListener('abort', abort);
+  }
 }
 
 export const sshApi = {

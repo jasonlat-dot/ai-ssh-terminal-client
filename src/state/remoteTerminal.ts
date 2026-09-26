@@ -2,6 +2,7 @@ import { terminalApi } from '../api/terminal';
 import type { TerminalConnectionState, TerminalOpen } from '../api/terminal';
 import { SshRequestError } from '../api/ssh';
 import type { TerminalDisconnectReason } from '../types';
+import { terminalReadScheduler } from './terminalReadScheduler';
 
 const READ_RETRY_DELAYS = [1_000, 3_000, 5_000, 10_000] as const;
 
@@ -41,8 +42,11 @@ export class RemoteTerminal {
   private backlog: string;
   private pollingGeneration = 0;
   private generation = 0;
+  private lifecycleVersion = 0;
   private lastSize = '';
   private readFailureCount = 0;
+  private readController?: AbortController;
+  private foreground = false;
 
   constructor(opened: TerminalOpen, startPaused = false) {
     this.sessionId = opened.sessionId;
@@ -57,6 +61,11 @@ export class RemoteTerminal {
 
   get readLoopGeneration() { return this.generation; }
 
+  setForeground(foreground: boolean) {
+    this.foreground = foreground;
+    terminalReadScheduler.prioritize();
+  }
+
   private isDisconnectOutput(data: string) {
     return data.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '').includes('[连接已断开]');
   }
@@ -68,7 +77,9 @@ export class RemoteTerminal {
 
   private stopReadLoop() {
     this.generation += 1;
+    this.lifecycleVersion += 1;
     clearTimeout(this.timer);
+    this.readController?.abort();
   }
 
   private markDisconnected(reason: TerminalDisconnectReason | null, reconnectAllowed: boolean, message = terminalDisconnectMessage(reason, reconnectAllowed)) {
@@ -108,7 +119,9 @@ export class RemoteTerminal {
       this.schedule(0, generation);
     }
     return () => {
-      if (generation === this.generation) this.stopReadLoop();
+      // A newer subscriber owns its own read loop and callbacks.
+      if (this.output !== output) return;
+      this.stopReadLoop();
       this.output = undefined;
       this.report = undefined;
       this.reportDisconnect = undefined;
@@ -124,9 +137,15 @@ export class RemoteTerminal {
   private async poll(generation: number) {
     if (!this.isActive(generation) || this.pollingGeneration === generation) return;
     this.pollingGeneration = generation;
+    const controller = new AbortController();
+    this.readController = controller;
     let nextDelay = 0;
     try {
-      const result = await terminalApi.read(this.sessionId);
+      const result = await terminalReadScheduler.run(
+        () => terminalApi.read(this.sessionId, controller.signal),
+        controller.signal,
+        () => this.foreground,
+      );
       if (!this.isActive(generation)) return;
       if (this.readFailureCount > 0) {
         console.info(`Terminal Long Poll 网络已恢复 sessionId=${this.sessionId} failures=${this.readFailureCount}`);
@@ -173,6 +192,7 @@ export class RemoteTerminal {
         this.report?.(`${message}；将保留当前会话并在 ${Math.ceil(nextDelay / 1000)} 秒后重试读取。`);
       }
     } finally {
+      if (this.readController === controller) this.readController = undefined;
       if (this.pollingGeneration === generation) this.pollingGeneration = 0;
       if (this.isActive(generation)) this.schedule(nextDelay, generation);
     }
@@ -190,7 +210,11 @@ export class RemoteTerminal {
       return { sessionId: this.sessionId, connectionId: this.connectionId, connected: false,
         disconnectReason: 'CLIENT_CLOSED', reconnectAllowed: false };
     }
+    const version = this.lifecycleVersion;
     const state = await terminalApi.connected(this.sessionId);
+    if (version !== this.lifecycleVersion || this.manuallyClosed) {
+      throw new DOMException('终端状态查询已取消', 'AbortError');
+    }
     const connected = state.connected === true && state.sessionId === this.sessionId && state.connectionId === this.connectionId;
     if (!connected) {
       const reason = state.disconnectReason ?? 'SESSION_NOT_FOUND';
@@ -206,7 +230,8 @@ export class RemoteTerminal {
     return state;
   }
 
-  prepareReconnect() {
+  prepareReconnect(manual = false) {
+    if (manual) { this.manuallyClosed = false; this.closed = false; }
     this.disconnected = true;
     this.paused = true;
     this.stopReadLoop();

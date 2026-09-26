@@ -32,6 +32,7 @@ const paths = {
   refresh: 'M20 9a8 8 0 0 0-14-4L3 8 M3 3v5h5 M4 15a8 8 0 0 0 14 4l3-3 M16 16h5v5',
   upload: 'M12 16V3 M7 8l5-5 5 5 M4 15v6h16v-6',
   copy: 'M8 8h12v13H8z M16 8V3H3v14h5',
+  paste: 'M9 5H5v16h14V5h-4 M9 3h6v4H9z M8 12h8 M8 16h6',
   home: 'm3 10 9-7 9 7 M5 9v12h14V9 M9 21v-8h6v8',
   disk: 'm5 5-3 9v6h20v-6l-3-9z M2 14h20 M6 17h.01 M10 17h.01',
   box: 'm12 2 10 5v10l-10 5-10-5V7z M2 7l10 5 10-5 M12 12v10 M7 4.5l10 5',

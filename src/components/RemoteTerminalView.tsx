@@ -4,6 +4,8 @@ import { FitAddon } from '@xterm/addon-fit';
 import { terminalDisconnectMessage } from '../state/remoteTerminal';
 import type { RemoteTerminal, TerminalDisconnectEvent } from '../state/remoteTerminal';
 import type { TerminalDisconnectReason } from '../types';
+import { copyText } from '../state/clipboard';
+import { Icon, IconButton } from './Ui';
 import '@xterm/xterm/css/xterm.css';
 
 type Props = {
@@ -41,6 +43,9 @@ export function RemoteTerminalView({
   const [error, setError] = useState('');
   const [localReconnecting, setLocalReconnecting] = useState(false);
   const [pendingAttempt, setPendingAttempt] = useState(0);
+  const [hasSelection, setHasSelection] = useState(false);
+  const visibleRef = useRef(visible);
+  visibleRef.current = visible;
   const unavailable = !connected || !runtime || runtime.closed || runtime.disconnected;
   const isReconnecting = reconnecting || localReconnecting;
   const allowInput = useRef(!unavailable);
@@ -55,11 +60,38 @@ export function RemoteTerminalView({
   reconnectHandler.current = reconnect;
   exhaustedHandler.current = onReconnectExhausted;
 
+  const copySelection = async () => {
+    const selected = term.current?.getSelection();
+    if (!selected) return;
+    try { await copyText(selected); }
+    catch (error) { setError(error instanceof Error ? error.message : '复制失败'); }
+  };
+  const pasteClipboard = async () => {
+    const terminal = term.current;
+    const target = activeRuntime.current;
+    if (!terminal || !target || !allowInput.current) return;
+    try {
+      const text = await navigator.clipboard.readText();
+      if (term.current !== terminal || activeRuntime.current !== target || !allowInput.current) return;
+      // xterm handles bracketed paste and newline normalization for the shell.
+      terminal.paste(text);
+      terminal.focus();
+    } catch {
+      setError('无法读取剪贴板，请使用 Ctrl+V（macOS：⌘V）或系统粘贴菜单。');
+    }
+  };
+
+  useEffect(() => {
+    runtime?.setForeground(visible);
+    return () => runtime?.setForeground(false);
+  }, [runtime, visible]);
+
   useEffect(() => {
     let cleanup = () => {};
     setError('');
     setLocalReconnecting(false);
     setPendingAttempt(0);
+    setHasSelection(false);
     reconnectingRef.current = false;
     const init = setTimeout(() => {
       if (!element.current) return;
@@ -69,8 +101,26 @@ export function RemoteTerminalView({
       terminal.loadAddon(fit);
       terminal.open(element.current);
       term.current = terminal;
+      terminal.attachCustomKeyEventHandler(event => {
+        const key = event.key.toLowerCase();
+        const clipboardShortcut = !event.altKey && ((event.ctrlKey && event.shiftKey && !event.metaKey)
+          || (event.metaKey && !event.ctrlKey));
+        if (clipboardShortcut && (key === 'c' || key === 'v')) {
+          event.preventDefault();
+          if (event.type === 'keydown' && !event.repeat) {
+            if (key === 'c') void copySelection();
+            else void pasteClipboard();
+          }
+          return false;
+        }
+        // Plain Ctrl+C always reaches the shell as SIGINT, even with a selection.
+        return true;
+      });
+      const selection = terminal.onSelectionChange(() => setHasSelection(terminal.hasSelection()));
       const unsubscribe = runtime?.subscribe(
-        data => terminal.write(data, () => terminal.scrollToBottom()),
+        data => terminal.write(data, () => {
+          if (visibleRef.current && !terminal.hasSelection()) terminal.scrollToBottom();
+        }),
         setError,
         event => { setError(''); disconnectHandler.current(event); },
       ) ?? (() => {});
@@ -95,6 +145,7 @@ export function RemoteTerminalView({
         observer.disconnect();
         themeObserver.disconnect();
         input.dispose();
+        selection.dispose();
         unsubscribe();
         terminal.dispose();
         term.current = null;
@@ -168,13 +219,18 @@ export function RemoteTerminalView({
     : error || terminalDisconnectMessage(disconnectReason, reconnectAllowed);
 
   return <div className="remote-terminal-view" hidden={!visible}>
-    <div className="remote-terminal-tools"><div className="remote-terminal-tool-actions">
+    <div className="remote-terminal-tools">
+      <div className="remote-terminal-clipboard" aria-label="终端剪贴板">
+        <IconButton icon="copy" label="复制选中文本 · Ctrl+Shift+C / ⌘C" disabled={!hasSelection} onClick={() => { void copySelection(); }} />
+        <IconButton icon="paste" label="粘贴 · Ctrl+Shift+V / ⌘V" disabled={unavailable} onClick={() => { void pasteClipboard(); }} />
+      </div>
+      <div className="remote-terminal-tool-actions">
       <button className="remote-terminal-reconnect" disabled={isReconnecting} onClick={() => { void reconnectNow(); }}>{isReconnecting ? '正在重连…' : '重新连接'}</button>
-      <button className="remote-terminal-disconnect" onClick={disconnect}>断开连接</button>
+      <button className="remote-terminal-disconnect" onClick={disconnect}>{unavailable ? '关闭页签' : '断开连接'}</button>
     </div></div>
     {unavailable && <div role="alert" className="remote-terminal-disconnected">
-      <span className="remote-terminal-disconnected-icon" aria-hidden="true">↻</span>
-      <span><strong>{isReconnecting ? '正在重新建立连接' : '当前终端连接不可用'}</strong><small>{unavailableMessage}</small></span>
+      <Icon name={isReconnecting ? 'refresh' : 'power'} size={15} />
+      <span>{unavailableMessage}</span>
     </div>}
     {!unavailable && error && <div role="alert" className="remote-terminal-error">{error}<button disabled={!connected || !runtime || runtime.closed} onClick={() => { setError(''); runtime?.resume(); }}>重试读取</button></div>}
     <div className="remote-terminal-screen" ref={element} aria-label="远程终端交互区" onClick={() => term.current?.focus()} />

@@ -1,21 +1,19 @@
 .disconnect-dialog-backdrop { background: #263e665e; backdrop-filter: blur(3px); }
-.modal.disconnect-dialog { position: relative; width: min(680px, 100%); padding: 30px; border: 1px solid #bfd5ff; border-radius: 12px; background: #f8fbff; box-shadow: 0 24px 90px #092c6352, 0 0 22px #66a5ff25; color: #122850; }
-.modal.disconnect-dialog > header { padding: 4px 0 0 96px; border: 0; }
-.disconnect-dialog > header h2 { font-size: 25px; line-height: 1.4; font-weight: 700; letter-spacing: -.6px; }
-.disconnect-dialog > header .icon-button { position: absolute; top: 18px; right: 18px; color: #617cae; }
-.disconnect-intro { padding-left: 96px; margin: 8px 0 20px; }
-.disconnect-intro p { font-size: 14px; line-height: 1.85; margin: 0; color: #526995; }
+.modal.disconnect-dialog { position: relative; width: min(390px, calc(100vw - 32px)); padding: 20px; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--theme-panel); box-shadow: 0 16px 48px #092c6329; color: var(--theme-text-strong); }
+.modal.disconnect-dialog > header { padding: 0; border: 0; background: transparent; gap: 12px; }
+.disconnect-dialog > header h2 { font-size: 16px; line-height: 1.4; font-weight: 650; }
+.disconnect-dialog > header .icon-button { width: 26px; height: 26px; color: var(--theme-text-muted); }
+.disconnect-intro { margin: 10px 0 14px; }
+.disconnect-intro p { font-size: 12px; line-height: 1.65; margin: 0; color: var(--theme-text-muted); }
 .disconnect-intro strong { color: #122850; overflow-wrap: anywhere; }
-.disconnect-warning { position: absolute; left: 30px; top: 30px; display: grid; place-items: center; width: 74px; height: 74px; border-radius: 50%; background: #fff0d6; }
-.disconnect-warning b { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 50%; background: #ffb316; color: white; font-size: 28px; font-weight: 600; box-shadow: inset 0 0 0 2px #fff4; }
-.disconnect-host { display: flex; align-items: center; gap: 20px; padding: 23px 20px; border: 1px solid #d8e5ff; border-radius: 10px; box-shadow: 0 3px 8px #3375f006; }
-.disconnect-server { display: grid; place-items: center; color: #5b85ff; filter: drop-shadow(0 3px 3px #6293ff44); }
-.disconnect-host dl { flex: 1; min-width: 0; display: grid; grid-template-columns: 1fr 1.5fr .7fr; margin: 0; }
-.disconnect-host dl > div { min-width: 0; padding: 0 14px; border-left: 1px solid #dce7fa; }
+.disconnect-host { display: flex; align-items: center; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--theme-control); }
+.disconnect-server { display: grid; place-items: center; width: 34px; height: 34px; flex-shrink: 0; color: var(--theme-accent-text); }
+.disconnect-host dl { flex: 1; min-width: 0; display: grid; gap: 5px; margin: 0; }
+.disconnect-host dl > div { min-width: 0; display: flex; align-items: baseline; gap: 10px; }
 .disconnect-host dl > div:first-child { border: 0; padding-left: 0; }
 .disconnect-host dl > div:last-child { padding-right: 0; }
-.disconnect-host dt { color: #7186ac; font-size: 12px; margin-bottom: 10px; }
-.disconnect-host dd { margin: 0; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.disconnect-host dt { color: var(--theme-text-muted); font-size: 11px; flex-shrink: 0; }
+.disconnect-host dd { margin: 0; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .disconnect-host dd i { display: inline-block; width: 9px; height: 9px; background: #97a6bb; border-radius: 50%; margin-right: 5px; }
 .disconnect-host dd.disconnect-online i { background: #00ac86; }
 .robot-head { position: absolute; top: 19px; width: 94px; height: 64px; border-radius: 42% 42% 44% 44%; background: linear-gradient(140deg, white 20%, #dde8ff 65%, #8fa9ff); border: 2px solid white; box-shadow: 0 6px 10px #315caa22; z-index: 2; }
@@ -25,11 +23,11 @@
 .robot-antenna::before { content: ''; position: absolute; top: -3px; left: -3px; width: 10px; height: 10px; border-radius: 50%; background: #4775ff; }
 .robot-body { position: absolute; width: 50px; height: 43px; left: 24px; bottom: 0; border-radius: 15px 15px 21px 21px; background: linear-gradient(115deg, white, #b4caff); display: grid; place-items: center; color: #168de5; box-shadow: 0 5px 7px #376cad1c; }
 .robot-hand { position: absolute; width: 15px; height: 30px; background: #bccbff; border: 3px solid #e9f0ff; border-radius: 50%; left: 4px; bottom: 17px; transform: rotate(-45deg); }
-.disconnect-actions { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; margin-top: 24px; }
-.disconnect-actions button { justify-content: center; min-height: 46px; font-size: 14px; border-radius: 9px; }
-.disconnect-actions .outlined-button { border-color: #d3e2ff; background: transparent; color: #203c71; }
-.disconnect-confirm { background: #00cfaa; color: #073c46; border: 1px solid #00cfaa; font-weight: 600; }
-.disconnect-confirm:hover:not(:disabled) { background: #00bfa0; }
+.disconnect-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+.disconnect-actions button { justify-content: center; min-height: 32px; padding: 6px 12px; font-size: 12px; border-radius: 6px; }
+.disconnect-actions .outlined-button { border-color: var(--line-strong); background: transparent; color: var(--theme-text-muted); }
+.disconnect-confirm { background: #c34848; color: #fff; border: 1px solid #c34848; font-weight: 600; }
+.disconnect-confirm:hover:not(:disabled) { background: #ac3838; }
 .disconnect-actions button:focus-visible { outline: 3px solid #3687ff; outline-offset: 3px; }
 .disconnect-dialog button:disabled { opacity: .55; cursor: wait; }
 .disconnect-error { margin: 0 0 14px; padding: 10px 12px; border-radius: 6px; background: #fff0ec; color: #aa392e; font-size: 13px; line-height: 1.6; }
@@ -40,14 +38,3 @@
 .connection-history li strong, .connection-history li small { display: block; overflow-wrap: anywhere; }
 .connection-history li strong { font-size: 13px; }
 .connection-history li small { color: #758bb1; margin-top: 4px; font-size: 11px; }
-@media (max-width: 640px) {
-  .modal.disconnect-dialog { padding: 24px; }
-  .modal.disconnect-dialog > header { padding-left: 65px; }
-  .disconnect-dialog > header h2 { font-size: 20px; }
-  .disconnect-warning { width: 52px; height: 52px; left: 24px; top: 24px; }
-  .disconnect-intro { padding-left: 0; margin-top: 25px; }
-  .disconnect-host { padding: 18px 12px; gap: 10px; }
-  .disconnect-host dl { grid-template-columns: 1fr 1fr; gap: 16px; }
-  .disconnect-host dl > div { border: 0; padding: 0; }
-  .disconnect-actions { gap: 8px; }
-}

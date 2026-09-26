@@ -25,7 +25,7 @@ export const terminalApi = {
   open: (connectionId: string, cols = 120, rows = 24) => request<TerminalOpen>('terminal/open', 'POST', { connectionId, cols, rows }),
   exec: (sessionId: string, command: string) => request<{ output: string }>('terminal/exec', 'POST', { sessionId, command }),
   write: (sessionId: string, input: string) => request<void>('terminal/write', 'POST', { sessionId, input }),
-  read: (sessionId: string) => request<TerminalReadResult>('terminal/read', 'GET', undefined, { sessionId }),
+  read: (sessionId: string, signal?: AbortSignal) => request<TerminalReadResult>('terminal/read', 'GET', undefined, { sessionId }, signal),
   connected: (sessionId: string) => request<TerminalConnectionState>('terminal/connected', 'GET', undefined, { sessionId }),
   resize: (sessionId: string, cols: number, rows: number) => request<void>('terminal/resize', 'POST', { sessionId, cols, rows }),
   close: (sessionId: string) => request<void>('terminal/close', 'POST', undefined, { sessionId }),
