@@ -20,9 +20,10 @@ export function MarkdownCodeBlock({ node, children, streaming, ...props }: Compo
       <span className="markdown-code-language"><Icon name="terminal" size={13} />{language === 'text' || language === 'plaintext' ? '纯文本' : language}</span>
       <div className="markdown-code-actions">
         <button type="button" aria-pressed={wrap} onClick={() => setWrap(value => !value)} title={wrap ? '关闭自动换行' : '开启自动换行'}>换行</button>
-        {streaming ? <span className="markdown-code-streaming">生成中</span> : <span className="markdown-code-copy">
-          <CopyTextButton getText={() => text} label="复制文本" successMessage="代码文本已复制" />
-        </span>}
+        {streaming && <span className="markdown-code-streaming">生成中</span>}
+        <span className="markdown-code-copy">
+          <CopyTextButton getText={() => text} label="复制文本" successMessage={streaming ? '已复制当前生成的代码文本' : '代码文本已复制'} />
+        </span>
       </div>
     </div>
     <pre {...props} tabIndex={0} aria-label={`${language} 代码`}>{children}</pre>
