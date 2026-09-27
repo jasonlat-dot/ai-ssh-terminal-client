@@ -31,7 +31,6 @@
 .markdown-code-actions button { display: inline-flex; align-items: center; gap: 5px; border: 0; border-radius: 4px; padding: 3px 5px; background: transparent; color: var(--theme-text-muted); font-size: 11px; cursor: pointer; }
 .markdown-code-actions button:hover, .markdown-code-actions button[aria-pressed='true'] { background: var(--theme-control); color: var(--theme-accent-text); }
 .markdown-code-copy { position: relative; }
-.markdown-code-copy .clipboard-feedback { right: 0; top: calc(100% + 5px); }
 .markdown-code-streaming { font-size: 11px; }
 .markdown-message .markdown-body .markdown-code-card pre { margin: 0; padding: 14px 16px; border: 0; border-radius: 0 0 10px 10px; background: var(--theme-control); color: var(--theme-text-strong); max-height: 520px; overflow: auto; }
 .markdown-message .markdown-body .markdown-code-card pre code { padding: 0; border: 0; background: transparent; white-space: pre; overflow-wrap: normal; }

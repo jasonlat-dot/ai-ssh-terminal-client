@@ -1,0 +1,12 @@
+.markdown-copy-control .copy-markdown-button { transition: color .16s ease, background-color .16s ease; }
+.markdown-copy-control .copy-markdown-button:focus-visible { outline: 1.5px solid color-mix(in srgb, var(--theme-accent-text) 65%, transparent); outline-offset: 2px; border-radius: 5px; }
+.markdown-copy-control .copy-markdown-button.copied { color: #078269; border-color: transparent; background: color-mix(in srgb, #078269 7%, transparent); }
+:root[data-theme='dark'] .markdown-copy-control .copy-markdown-button.copied { color: #72d5b1; background: color-mix(in srgb, #72d5b1 9%, transparent); }
+.copy-button-label { display: inline-grid; text-align: center; }
+.copy-button-label > span { grid-area: 1 / 1; transition: opacity .16s ease, transform .16s ease; }
+.copy-label-success { opacity: 0; transform: translateY(3px); }
+.copied .copy-label-default { opacity: 0; transform: translateY(-3px); }
+.copied .copy-label-success { opacity: 1; transform: translateY(0); }
+@media (prefers-reduced-motion: reduce) {
+  .markdown-copy-control .copy-markdown-button, .copy-button-label > span { transition: none; }
+}
