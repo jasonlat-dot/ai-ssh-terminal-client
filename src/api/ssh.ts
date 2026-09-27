@@ -7,6 +7,8 @@ export type SshConnection = {
   connectionId: string; connectionName: string; host: string; port: number;
   username: string; authType: 1 | 2;
   userId: string; encrypted: number | null; createdAt: string | null; updatedAt: string | null;
+  connectTimeout?: number; keepaliveInterval?: number; startupCommand?: string;
+  compression?: boolean; strictHostKeyCheck?: boolean; knownHosts?: string;
 };
 export type ConnectionDraft = Host & {
   password?: string; privateKey?: string; connectTimeout?: number; keepaliveInterval?: number;
@@ -16,7 +18,7 @@ export type SshConnectionRequest = {
   connectionId?: string; connectionName: string; host: string; port: number; username: string;
   authType: 1 | 2; userId: string; password?: string; privateKey?: string;
   connectTimeout?: number; keepaliveInterval?: number; startupCommand?: string;
-  compression?: boolean; strictHostKeyCheck?: boolean;
+  compression?: boolean; strictHostKeyCheck?: boolean; knownHosts?: string;
 };
 export const sshUserId = import.meta.env?.VITE_SSH_USER_ID || 'default';
 
@@ -36,7 +38,10 @@ export const sshApi = {
 
 export function toHost(dto: SshConnection): Host {
   return { id: dto.connectionId, name: dto.connectionName, address: dto.host, port: dto.port,
-    user: dto.username, auth: dto.authType === 2 ? 'key' : 'password', userId: dto.userId, saved: true };
+    user: dto.username, auth: dto.authType === 2 ? 'key' : 'password', userId: dto.userId, saved: true,
+    connectTimeout: dto.connectTimeout, keepaliveInterval: dto.keepaliveInterval,
+    startupCommand: dto.startupCommand, compression: dto.compression,
+    strictHostKeyCheck: dto.strictHostKeyCheck, knownHosts: dto.knownHosts };
 }
 
 export function toRequest(draft: ConnectionDraft): SshConnectionRequest {
@@ -45,5 +50,6 @@ export function toRequest(draft: ConnectionDraft): SshConnectionRequest {
     userId: draft.userId || sshUserId, password: draft.auth !== 'key' ? draft.password || undefined : undefined,
     privateKey: draft.auth === 'key' ? draft.privateKey || undefined : undefined,
     connectTimeout: draft.connectTimeout, keepaliveInterval: draft.keepaliveInterval,
-    startupCommand: draft.startupCommand, compression: draft.compression, strictHostKeyCheck: draft.strictHostKeyCheck };
+    startupCommand: draft.startupCommand, compression: draft.compression,
+    strictHostKeyCheck: draft.strictHostKeyCheck, knownHosts: draft.knownHosts?.trim() || undefined };
 }

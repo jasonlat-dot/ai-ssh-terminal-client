@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { terminalDisconnectMessage } from '../state/remoteTerminal';
-import type { RemoteTerminal, TerminalDisconnectEvent } from '../state/remoteTerminal';
+import type { TerminalDisconnectEvent } from '../state/remoteTerminal';
+import type { TerminalRuntime } from '../state/terminalRuntime';
 import type { TerminalDisconnectReason } from '../types';
 import { copyText, readClipboardText } from '../state/clipboard';
 import { isTauriRuntime } from '../state/runtime';
@@ -11,7 +12,8 @@ import { Icon, IconButton } from './Ui';
 import '@xterm/xterm/css/xterm.css';
 
 type Props = {
-  runtime?: RemoteTerminal;
+  runtime?: TerminalRuntime;
+  local?: boolean;
   visible: boolean;
   connected: boolean;
   disconnectReason: TerminalDisconnectReason | null;
@@ -37,7 +39,7 @@ function currentTerminalTheme() {
 }
 
 export function RemoteTerminalView({
-  runtime, visible, connected, disconnectReason, reconnectAllowed, reconnectAttempts,
+  runtime, local = false, visible, connected, disconnectReason, reconnectAllowed, reconnectAttempts,
   reconnecting, manuallyClosed, onDisconnected, onReconnectExhausted, reconnect, disconnect,
 }: Props) {
   const element = useRef<HTMLDivElement>(null);
@@ -278,15 +280,15 @@ export function RemoteTerminalView({
         </div>}
       </div>
       <div className="remote-terminal-tool-actions">
-      <button className="remote-terminal-reconnect" disabled={isReconnecting} onClick={() => { void reconnectNow(); }}>{isReconnecting ? '正在重连…' : '重新连接'}</button>
-      <button className="remote-terminal-disconnect" onClick={disconnect}>{unavailable ? '关闭页签' : '断开连接'}</button>
+      {!local && <button className="remote-terminal-reconnect" disabled={isReconnecting} onClick={() => { void reconnectNow(); }}>{isReconnecting ? '正在重连…' : '重新连接'}</button>}
+      <button className="remote-terminal-disconnect" onClick={disconnect}>{local ? '关闭终端' : unavailable ? '关闭页签' : '断开连接'}</button>
     </div></div>
     {unavailable && <div role="alert" className="remote-terminal-disconnected">
       <Icon name={isReconnecting ? 'refresh' : 'power'} size={15} />
       <span>{unavailableMessage}</span>
     </div>}
     {!unavailable && error && <div role="alert" className="remote-terminal-error">{error}<button disabled={!connected || !runtime || runtime.closed} onClick={() => { setError(''); runtime?.resume(); }}>重试读取</button></div>}
-    <div className="remote-terminal-screen" ref={element} aria-label="远程终端交互区" onClick={() => term.current?.focus()}
+    <div className="remote-terminal-screen" ref={element} aria-label={local ? '本地 CMD 交互区' : '远程终端交互区'} onClick={() => term.current?.focus()}
       onPasteCapture={event => {
         event.preventDefault();
         event.stopPropagation();

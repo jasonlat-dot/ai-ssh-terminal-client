@@ -3,6 +3,7 @@ import type { TerminalConnectionState, TerminalOpen } from '../api/terminal';
 import { SshRequestError } from '../api/ssh';
 import type { TerminalDisconnectReason } from '../types';
 import { terminalReadScheduler } from './terminalReadScheduler';
+import type { TerminalRuntime } from './terminalRuntime';
 
 const READ_RETRY_DELAYS = [1_000, 3_000, 5_000, 10_000] as const;
 
@@ -24,7 +25,7 @@ export function terminalDisconnectMessage(reason: TerminalDisconnectReason | nul
 }
 
 // HTTP read failures only retry this backend session. They never open a new SSH shell.
-export class RemoteTerminal {
+export class RemoteTerminal implements TerminalRuntime {
   readonly sessionId: string;
   readonly connectionId: string;
   closed = false;

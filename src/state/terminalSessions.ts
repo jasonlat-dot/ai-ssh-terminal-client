@@ -25,6 +25,7 @@ export function loadTerminalSessions(backendUrl: string): TerminalSession[] {
       const terminalSessionId = typeof stored.terminalSessionId === 'string' ? stored.terminalSessionId : '';
       return [{
         id: stored.id,
+        kind: 'ssh' as const,
         connectionId: stored.connectionId,
         terminalSessionId,
         connected: false,
@@ -48,7 +49,8 @@ export function loadTerminalSessions(backendUrl: string): TerminalSession[] {
 
 export function saveTerminalSessions(backendUrl: string, sessions: TerminalSession[]) {
   const stored: StoredTerminalSession[] = sessions
-    .filter(session => !session.manuallyClosed)
+    // 本地 ConPTY 随桌面进程退出，重启后无法恢复，因此只持久化 SSH 页签。
+    .filter(session => session.kind === 'ssh' && !session.manuallyClosed)
     .map(session => ({
       id: session.id,
       connectionId: session.connectionId,

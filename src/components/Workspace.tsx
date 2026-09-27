@@ -4,7 +4,7 @@ import { commandCategoryIcon } from '../data/mock';
 import { Icon, IconButton } from './Ui';
 import { TerminalWelcome } from './TerminalWelcome';
 
-export function TerminalWorkspace({ remoteViews, sessions, activeId, host, select, close, add, filesOpen, toggleFiles, commandCollapsed, toggleCommands, agentCollapsed, toggleAgent, filePanel, copy, connections }: { remoteViews: ReactNode; sessions: TerminalSession[]; activeId: string; host?: Host; select: (id: string) => void; close: (id: string) => void; add: () => void; filesOpen: boolean; toggleFiles: () => void; commandCollapsed: boolean; toggleCommands: () => void; agentCollapsed: boolean; toggleAgent: () => void; filePanel: ReactNode; connections: () => void; copy: (text: string) => void }) {
+export function TerminalWorkspace({ remoteViews, sessions, activeId, host, select, close, add, filesOpen, toggleFiles, commandCollapsed, toggleCommands, agentCollapsed, toggleAgent, copy, connections }: { remoteViews: ReactNode; sessions: TerminalSession[]; activeId: string; host?: Host; select: (id: string) => void; close: (id: string) => void; add: () => void; filesOpen: boolean; toggleFiles: () => void; commandCollapsed: boolean; toggleCommands: () => void; agentCollapsed: boolean; toggleAgent: () => void; connections: () => void; copy: (text: string) => void }) {
   const active = sessions.find(session => session.id === activeId);
   return <section className="terminal-workspace" aria-label="终端工作区">
     <div className="terminal-tabs" role="tablist" aria-label="终端会话">
@@ -12,17 +12,16 @@ export function TerminalWorkspace({ remoteViews, sessions, activeId, host, selec
         <button role="tab" aria-selected={session.id === activeId} onClick={() => select(session.id)}><i className={"status-dot " + (session.connected ? '' : 'offline')} /><span>{session.title}</span></button>
         <IconButton icon="close" label={'关闭 ' + session.title} onClick={() => close(session.id)} />
       </div>)}
-      <button className="new-terminal-button" onClick={add} title="添加 SSH 连接"><Icon name="tabs" size={17} /><span>新建终端</span></button>
+      <button className="new-terminal-button" onClick={add} title="新建本地 CMD"><Icon name="tabs" size={17} /><span>新建终端</span></button>
     </div>
-    {active ? <div className={"terminal-body " + (filesOpen ? 'with-files' : '')}>
-      {filesOpen && filePanel}
+    {active ? <div className="terminal-body">
       <div className="terminal-pane">
         <div className="terminal-toolbar">
           <i className={"terminal-connection-dot " + (!active.connected ? 'offline' : '')} aria-hidden="true" />
-          <span>{(host?.user ?? '') + '@' + (host?.address ?? '')}</span>
-          <IconButton icon="copy" label="复制主机地址" onClick={() => copy(host?.address ?? '')} />
+          <span>{active.kind === 'local' ? `本地 · cmd.exe · ${host?.address ?? ''}` : (host?.user ?? '') + '@' + (host?.address ?? '')}</span>
+          {active.kind === 'ssh' && <IconButton icon="copy" label="复制主机地址" onClick={() => copy(host?.address ?? '')} />}
           <div className="inline-actions workspace-panel-controls" aria-label="工作区面板">
-            <IconButton icon="folder" label={filesOpen ? '收起文件' : '打开文件'} className={filesOpen ? 'selected' : ''} onClick={toggleFiles} aria-pressed={filesOpen} aria-expanded={filesOpen} aria-controls="files" />
+            {active.kind === 'ssh' && <IconButton icon="folder" label="打开文件管理" className={filesOpen ? 'selected' : ''} onClick={toggleFiles} aria-pressed={filesOpen} aria-expanded={filesOpen} />}
             <IconButton icon="terminal" label={commandCollapsed ? '展开常用命令' : '收起常用命令'} className={!commandCollapsed ? 'selected' : ''} onClick={toggleCommands} aria-pressed={!commandCollapsed} aria-expanded={!commandCollapsed} aria-controls="command-shelf-content" />
             <IconButton icon="bot" label={agentCollapsed ? '展开智能体对话' : '收起智能体对话'} className={!agentCollapsed ? 'selected' : ''} onClick={toggleAgent} aria-pressed={!agentCollapsed} aria-expanded={!agentCollapsed} aria-controls="agent-panel-content" />
           </div>

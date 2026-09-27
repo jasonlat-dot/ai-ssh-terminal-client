@@ -1,4 +1,9 @@
-export type Host = { userId?: string; id: string; name: string; user: string; address: string; port?: number; environment?: string; auth?: 'password' | 'key'; keyPath?: string; favorite?: boolean; saved?: boolean };
+export type Host = {
+  userId?: string; id: string; name: string; user: string; address: string; port?: number;
+  environment?: string; auth?: 'password' | 'key'; keyPath?: string; favorite?: boolean; saved?: boolean;
+  connectTimeout?: number; keepaliveInterval?: number; startupCommand?: string; compression?: boolean;
+  strictHostKeyCheck?: boolean; knownHosts?: string;
+};
 export type FileNode = { id: string; name: string; kind: 'file' | 'folder'; children?: FileNode[] };
 export type Category = string;
 export type SavedCommandIcon = 'disk' | 'box' | 'file' | 'network' | 'terminal' | 'signal' | 'server';
@@ -12,6 +17,7 @@ export type TerminalDisconnectReason =
 export type TerminalConnectionStatus = 'connected' | 'disconnected' | 'reconnecting';
 export type TerminalSession = {
   id: string;
+  kind: 'local' | 'ssh';
   connectionId: string;
   terminalSessionId: string;
   connected: boolean;

@@ -1,6 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { CSSProperties } from 'react';
-import { updateSessionFiles } from './state/sessionFiles';
 import { useTheme } from './state/useTheme';
 import { agentApi } from './api/agent';
 import type { AgentConfig, AgentStreamEvent } from './api/agent';
@@ -17,6 +16,9 @@ import { sshApi } from './api/ssh';
 import { terminalApi } from './api/terminal';
 import { RemoteTerminal } from './state/remoteTerminal';
 import type { TerminalDisconnectEvent } from './state/remoteTerminal';
+import { LocalTerminal } from './state/localTerminal';
+import type { TerminalRuntime } from './state/terminalRuntime';
+import { isTauriRuntime } from './state/runtime';
 import { loadTerminalSessions, saveTerminalSessions } from './state/terminalSessions';
 import { copyText } from './state/clipboard';
 import { NotificationToast } from './components/NotificationToast';
@@ -26,10 +28,8 @@ import { SshConnectionDialog } from './components/SshConnectionDialog';
 import { useSshConnections } from './state/useSshConnections';
 import { PanelDivider } from './components/PanelDivider';
 import { AgentPanel } from './components/AgentPanel';
-import { AddCommandDialog, CreateFileDialog } from './components/Dialogs';
+import { AddCommandDialog } from './components/Dialogs';
 import { SessionFiles } from './components/Sidebar';
-import { FileUploadDialog } from './components/FileUploadDialog';
-import { FileUploadQueue } from './state/fileUploads';
 import { AttachmentPreviews, ChatAttachmentDraft, attachmentReferences, validateChatContent } from './state/chatAttachments';
 import { ChatRequestError } from './api/chatErrors';
 import { ActivityBar, AppHeader } from './components/Shell';
@@ -37,13 +37,13 @@ import { BackendSettingsDialog } from './components/BackendSettingsDialog';
 import { readBackendUrl, saveBackendUrl } from './config/backend';
 import { CommandShelf, TerminalWorkspace } from './components/Workspace';
 import { createSessionFileState, initialCommands } from './data/mock';
-import type { ChatAttachment, ChatAgentActivity, ChatMessage, ChatMessageSegment, ChatToolActivity, Host, Navigation, SessionFileState } from './types';
+import type { ChatAttachment, ChatAgentActivity, ChatMessage, ChatMessageSegment, ChatToolActivity, Host, Navigation } from './types';
 import './App.css';
 import './reference.css';
 
 const RemoteTerminalView = lazy(() => import('./components/RemoteTerminalView').then(module => ({ default: module.RemoteTerminalView })));
 
-type Dialog = 'command' | 'connection' | 'file' | null;
+type Dialog = 'command' | 'connection' | null;
 type CommandRequest = { sessionId: string; command: string };
 const STALE_TERMINAL_TAB_MS = 5 * 60 * 1000;
 
@@ -80,9 +80,6 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
   const [disconnectTarget, setDisconnectTarget] = useState<{ tabId: string; host: Host } | null>(null);
   const [dialog, setDialog] = useState<Dialog>(null);
   const [backendSettingsOpen, setBackendSettingsOpen] = useState(false);
-  const [uploadsOpen, setUploadsOpen] = useState(false);
-  const [uploads] = useState(() => new FileUploadQueue());
-  useEffect(() => { uploads.activate(); return uploads.deactivate; }, [uploads]);
   const [attachmentPreviews] = useState(() => new AttachmentPreviews());
   const [chatDraft] = useState(() => new ChatAttachmentDraft(attachmentPreviews));
   const draftAttachments = useSyncExternalStore(chatDraft.subscribe, chatDraft.getSnapshot);
@@ -96,7 +93,12 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
       ...messagesRef.current.flatMap(message => message.attachments?.map(file => file.previewUrl) ?? []),
     ]);
   }, [draftAttachments, messages, chatDraft, attachmentPreviews]);
-  const [fileDialogSessionId, setFileDialogSessionId] = useState<string | null>(null);
+  const [fileWindows, setFileWindows] = useState<{ connectionId: string; title: string }[]>([]);
+  const [visibleFiles, setVisibleFiles] = useState('');
+  const openFiles = (connectionId: string, title: string) => {
+    setFileWindows(previous => previous.some(item => item.connectionId === connectionId) ? previous : [...previous, { connectionId, title }]);
+    setVisibleFiles(connectionId);
+  };
   const [toast, setToast] = useState<Notice | null>(null);
   const noticeSequence = useRef(0);
   const [commandCollapsed, setCommandCollapsed] = useState(false);
@@ -108,13 +110,13 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
   const stopPending = useRef(false);
   const historySelection = useRef(0);
   const running = useRef(new Set<string>());
-  const remoteClients = useRef(new Map<string, RemoteTerminal>());
+  const terminalClients = useRef(new Map<string, TerminalRuntime>());
   const restoredClientsInitialized = useRef(false);
   const restoredSessionsVerified = useRef(false);
   if (!restoredClientsInitialized.current) {
     sessions.forEach(session => {
       if (session.terminalSessionId) {
-        remoteClients.current.set(session.id, new RemoteTerminal({
+        terminalClients.current.set(session.id, new RemoteTerminal({
           sessionId: session.terminalSessionId,
           connectionId: session.connectionId,
           initialOutput: '',
@@ -129,7 +131,7 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
   const [connectAfterSave, setConnectAfterSave] = useState(false);
   const active = sessions.find(session => session.id === activeId);
   const host = hosts.find(item => item.id === active?.connectionId) ?? active?.host;
-  const activeClient = active ? remoteClients.current.get(active.id) : undefined;
+  const activeClient = active ? terminalClients.current.get(active.id) : undefined;
   const canRun = !!active && active.connected && !active.busy
     && activeClient?.sessionId === active.terminalSessionId
     && !activeClient.closed && !activeClient.disconnected;
@@ -252,13 +254,60 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
     }, 300);
     return () => clearTimeout(timer);
   }, [messages, activeChatSessionId, selectedAgent?.agentId, persistClientSession]);
-  const closeDialog = () => { setDialog(null); setFileDialogSessionId(null); };
+  const closeDialog = () => { setDialog(null); };
   const copy = async (text: string) => {
     try { await copyText(text); notify('已复制到剪贴板', 'success'); }
     catch { notify('复制失败：请选中文字后使用 Ctrl+C 复制。', 'error'); }
   };
   const openNewConnection = () => { setConnectAfterSave(false); setDialog('connection'); };
-  const openNewTerminal = () => { setConnectAfterSave(true); setDialog('connection'); };
+  const openNewTerminal = async () => {
+    if (!isTauriRuntime()) {
+      notify('本地 CMD 仅在桌面客户端中可用。', 'error');
+      return;
+    }
+
+    const tabId = crypto.randomUUID();
+    opening.current.add(tabId);
+    try {
+      notify('正在启动本地 CMD…');
+      const runtime = await LocalTerminal.open();
+      const host: Host = {
+        id: runtime.connectionId,
+        name: '本地 CMD',
+        user: '本机',
+        address: runtime.cwd,
+        saved: false,
+      };
+      terminalClients.current.set(tabId, runtime);
+      tabLastUsedAt.current.set(tabId, Date.now());
+      setSessions(previous => [...previous, {
+        id: tabId,
+        kind: 'local',
+        connectionId: runtime.connectionId,
+        terminalSessionId: runtime.sessionId,
+        connected: true,
+        connectionStatus: 'connected',
+        disconnectReason: null,
+        reconnectAllowed: false,
+        reconnectAttempts: 0,
+        reconnecting: false,
+        readLoopGeneration: 0,
+        manuallyClosed: false,
+        host,
+        title: '本地 CMD',
+        busy: false,
+        fileState: createSessionFileState(),
+      }]);
+      setActiveId(tabId);
+      setNavigation('命令');
+      setManageConnections(false);
+      notify('本地 CMD 已打开。', 'success');
+    } catch (error) {
+      notify(error instanceof Error ? error.message : '启动本地 CMD 失败', 'error');
+    } finally {
+      opening.current.delete(tabId);
+    }
+  };
   const openTerminalRuntime = async (connectionId: string, stillWanted = () => true) => {
     let opened: Awaited<ReturnType<typeof terminalApi.open>> | undefined;
     try {
@@ -284,10 +333,11 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
     try {
       notify('正在打开远程终端…');
       const runtime = await openTerminalRuntime(id);
-      remoteClients.current.set(tabId, runtime);
+      terminalClients.current.set(tabId, runtime);
       tabLastUsedAt.current.set(tabId, Date.now());
       setSessions(previous => [...previous, {
         id: tabId,
+        kind: 'ssh',
         connectionId: id,
         terminalSessionId: runtime.sessionId,
         connected: true,
@@ -303,13 +353,13 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
         busy: false,
         fileState: createSessionFileState(),
       }]);
-      setActiveId(tabId); setNavigation('命令');
+      setActiveId(tabId); setNavigation('命令'); setManageConnections(false);
       notify('远程终端已打开，可以开始操作。', 'success');
     } catch (error) { notify(error instanceof Error ? error.message : '打开终端失败', 'error'); }
     finally { opening.current.delete(tabId); }
   };
-  const handleTerminalDisconnected = (sessionId: string, event: TerminalDisconnectEvent, sourceRuntime?: RemoteTerminal) => {
-    if (sourceRuntime && remoteClients.current.get(sessionId) !== sourceRuntime) {
+  const handleTerminalDisconnected = (sessionId: string, event: TerminalDisconnectEvent, sourceRuntime?: TerminalRuntime) => {
+    if (sourceRuntime && terminalClients.current.get(sessionId) !== sourceRuntime) {
       console.info(`忽略旧终端实例的断开通知 oldTerminalSessionId=${sourceRuntime.sessionId} logicalSessionId=${sessionId}`);
       return;
     }
@@ -330,11 +380,11 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
   };
   const verifyTerminalSession = useCallback(async (tabId: string, terminalSessionId: string) => {
     if (!terminalSessionId) return false;
-    const runtime = remoteClients.current.get(tabId);
+    const runtime = terminalClients.current.get(tabId);
     if (!runtime || runtime.sessionId !== terminalSessionId) return false;
     try {
       const state = await runtime.verifyConnected();
-      if (remoteClients.current.get(tabId) !== runtime || runtime.manuallyClosed) return false;
+      if (terminalClients.current.get(tabId) !== runtime || runtime.manuallyClosed) return false;
       setSessions(previous => previous.map(session => session.id === tabId && session.terminalSessionId === terminalSessionId && !session.manuallyClosed
         ? {
           ...session,
@@ -362,27 +412,33 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
     const session = sessions.find(item => item.id === tabId);
     tabLastUsedAt.current.set(tabId, now);
     setActiveId(tabId);
-    if (session?.terminalSessionId && (!session.connected || now - lastUsedAt >= STALE_TERMINAL_TAB_MS)) {
+    if (session?.kind === 'ssh' && session.terminalSessionId && (!session.connected || now - lastUsedAt >= STALE_TERMINAL_TAB_MS)) {
       void verifyTerminalSession(tabId, session.terminalSessionId);
     }
+  };
+  const activateTerminalFromSidebar = (tabId: string) => {
+    selectTerminalTab(tabId);
+    setNavigation('命令');
+    setManageConnections(false);
   };
   const reconnectTerminal = async (
     sessionId: string,
     options?: { automatic?: boolean; attempt?: number },
-    sourceRuntime?: RemoteTerminal,
+    sourceRuntime?: TerminalRuntime,
   ) => {
-    if (sourceRuntime && remoteClients.current.get(sessionId) !== sourceRuntime) {
+    if (sourceRuntime && terminalClients.current.get(sessionId) !== sourceRuntime) {
       console.info(`忽略旧终端实例的重连请求 oldTerminalSessionId=${sourceRuntime.sessionId} logicalSessionId=${sessionId}`);
       return true;
     }
     const session = sessionsRef.current.find(item => item.id === sessionId);
     if (!session || opening.current.has(sessionId)) return false;
+    if (session.kind === 'local') return false;
     if (options?.automatic && (!session.reconnectAllowed || session.manuallyClosed || sourceRuntime?.manuallyClosed)) {
       console.info(`忽略未获后端允许的自动重连 logicalSessionId=${sessionId}`);
       return false;
     }
     opening.current.add(sessionId);
-    const previousRuntime = remoteClients.current.get(sessionId);
+    const previousRuntime = terminalClients.current.get(sessionId);
     previousRuntime?.prepareReconnect(!options?.automatic);
     sessionsRef.current = sessionsRef.current.map(item => item.id === sessionId ? { ...item, manuallyClosed: false } : item);
     setSessions(previous => previous.map(item => item.id === sessionId ? {
@@ -400,19 +456,20 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
     const stillWanted = () => {
       const current = sessionsRef.current.find(item => item.id === sessionId);
       return !!current && !current.manuallyClosed && !previousRuntime?.manuallyClosed
-        && remoteClients.current.get(sessionId) === previousRuntime;
+        && terminalClients.current.get(sessionId) === previousRuntime;
     };
     try {
+      // 重连要关闭旧后端 Channel，但不能把旧运行时标记为“用户主动关闭”，否则 stillWanted 会取消本次重连。
       if (previousRuntime?.sessionId) await terminalApi.close(previousRuntime.sessionId).catch(() => undefined);
       const runtime = await openTerminalRuntime(session.connectionId, stillWanted);
       const currentSession = sessionsRef.current.find(item => item.id === sessionId);
-      const currentRuntime = remoteClients.current.get(sessionId);
+      const currentRuntime = terminalClients.current.get(sessionId);
       if (!currentSession || currentSession.manuallyClosed || previousRuntime?.manuallyClosed
         || (previousRuntime ? currentRuntime !== previousRuntime : !!currentRuntime)) {
         await runtime.close().catch(() => undefined);
         return false;
       }
-      remoteClients.current.set(sessionId, runtime);
+      terminalClients.current.set(sessionId, runtime);
       setSessions(previous => previous.map(item => item.id === sessionId ? {
         ...item,
         terminalSessionId: runtime.sessionId,
@@ -438,8 +495,8 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
       return false;
     } finally { opening.current.delete(sessionId); }
   };
-  const handleReconnectExhausted = (tabId: string, sourceRuntime?: RemoteTerminal) => {
-    if (sourceRuntime && remoteClients.current.get(tabId) !== sourceRuntime) return;
+  const handleReconnectExhausted = (tabId: string, sourceRuntime?: TerminalRuntime) => {
+    if (sourceRuntime && terminalClients.current.get(tabId) !== sourceRuntime) return;
     setSessions(previous => previous.map(session => session.id === tabId && !session.manuallyClosed ? {
       ...session,
       terminalSessionId: '',
@@ -455,7 +512,7 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
     if (!session) return true;
     setTerminalError('');
     try {
-      const runtime = remoteClients.current.get(tabId);
+      const runtime = terminalClients.current.get(tabId);
       const shouldClose = !!session.terminalSessionId && (!runtime?.disconnected || session.manuallyClosed) && !runtime?.closed;
       runtime?.markManuallyClosed();
       setSessions(previous => previous.map(item => item.id === tabId ? {
@@ -468,7 +525,7 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
         manuallyClosed: true,
         busy: false,
       } : item));
-      if (shouldClose) await terminalApi.close(session.terminalSessionId);
+      if (shouldClose) await runtime?.close();
       setSessions(previous => previous.map(item => item.id === tabId ? { ...item, terminalSessionId: '' } : item));
       return true;
     } catch (error) {
@@ -480,25 +537,32 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
     return connections.remove(hostId);
   };
   const removeSessionTab = (id: string) => {
-    remoteClients.current.get(id)?.markManuallyClosed();
+    terminalClients.current.get(id)?.markManuallyClosed();
     const remaining = sessionsRef.current.filter(session => session.id !== id);
     sessionsRef.current = remaining;
     setSessions(previous => previous.filter(session => session.id !== id));
     setActiveId(current => current === id ? remaining[0]?.id ?? '' : current);
     running.current.delete(id);
-    remoteClients.current.delete(id);
+    terminalClients.current.delete(id);
     tabLastUsedAt.current.delete(id);
   };
   const closeSession = (id: string) => {
     const session = sessionsRef.current.find(item => item.id === id);
     if (!session || disconnectTarget) return;
-    const runtime = remoteClients.current.get(id);
+    const runtime = terminalClients.current.get(id);
+    if (session.kind === 'local') {
+      void runtime?.close().catch(error => {
+        notify(error instanceof Error ? error.message : '关闭本地 CMD 失败', 'error');
+      });
+      removeSessionTab(id);
+      return;
+    }
     if (!session.connected || runtime?.disconnected || runtime?.closed) {
       // A restored tab may still be waiting for /connected. Close its saved ID
       // in the background, but an already-invalid ID needs no extra request.
       if (session.terminalSessionId && !runtime?.disconnected && !runtime?.closed) {
         runtime?.markManuallyClosed();
-        void terminalApi.close(session.terminalSessionId).catch(() => undefined);
+        void runtime?.close().catch(() => undefined);
       }
       removeSessionTab(id);
       return;
@@ -522,22 +586,22 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
   };
   const fill = (command: string) => {
     setNavigation('命令');
-    if (!active) { openNewTerminal(); notify('请先添加并连接一台远程服务器。'); return; }
-    const client = remoteClients.current.get(active.id);
+    if (!active) { void openNewTerminal(); notify('正在为你打开本地 CMD。'); return; }
+    const client = terminalClients.current.get(active.id);
     if (!active.connected || !client || client.sessionId !== active.terminalSessionId || client.closed || client.disconnected) {
-      notify('当前终端连接不可用，请点击“重新连接”。'); return;
+      notify(active.kind === 'local' ? '本地 CMD 已退出，请新建终端。' : '当前终端连接不可用，请点击“重新连接”。'); return;
     }
     void client.write(command).catch(error => notify(error instanceof Error ? error.message : '命令写入失败', 'error'));
   };
   const execute = async (request: CommandRequest) => {
     const session = sessions.find(item => item.id === request.sessionId);
     if (!session || running.current.has(session.id)) return;
-    if (!session.connected) { notify('当前终端连接不可用，请点击“重新连接”。', 'error'); return; }
+    if (!session.connected) { notify(session.kind === 'local' ? '本地 CMD 已退出，请新建终端。' : '当前终端连接不可用，请点击“重新连接”。', 'error'); return; }
     running.current.add(session.id);
     setSessions(previous => previous.map(item => item.id === session.id ? { ...item, busy: true } : item));
     try {
-      const client = remoteClients.current.get(session.id);
-      if (!client || client.sessionId !== session.terminalSessionId) throw new Error('当前终端会话不可用，请点击“重新连接”。');
+      const client = terminalClients.current.get(session.id);
+      if (!client || client.sessionId !== session.terminalSessionId) throw new Error(session.kind === 'local' ? '本地 CMD 已退出，请新建终端。' : '当前终端会话不可用，请点击“重新连接”。');
       await client.exec(request.command);
     } catch (error) { notify(`${error instanceof Error ? error.message : '命令提交失败'}；未自动重试，请先检查终端输出。`, 'error'); }
     finally {
@@ -547,16 +611,13 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
   };
   const requestRun = (command: string) => {
     if (!command.trim()) return;
-    if (!active) { openNewTerminal(); notify('请先添加并连接一台远程服务器。'); return; }
-    if (!canRun) { notify(active.busy ? '命令正在执行，请稍候。' : '当前终端连接不可用，请点击“重新连接”。'); return; }
+    if (!active) { void openNewTerminal(); notify('正在为你打开本地 CMD。'); return; }
+    if (!canRun) { notify(active.busy ? '命令正在执行，请稍候。' : active.kind === 'local' ? '本地 CMD 已退出，请新建终端。' : '当前终端连接不可用，请点击“重新连接”。'); return; }
     void execute({ sessionId: active.id, command: command.trim() });
   };
   const navigate = (name: Navigation) => {
     setManageConnections(name === '连接');
     setNavigation('命令');
-  };
-  const updateFiles = (sessionId: string, update: (state: SessionFileState) => SessionFileState) => {
-    setSessions(previous => updateSessionFiles(previous, sessionId, update));
   };
   const sendMessage = async (text: string, selectedAttachments: ChatAttachment[] = []): Promise<boolean> => {
     if (chatting.current || stopPending.current || historyLoadingId) return false;
@@ -565,8 +626,8 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
     const invalid = validateChatContent(text, attachments);
     if (invalid) { notify(invalid, 'error'); return false; }
     const currentSession = active;
-    const client = currentSession ? remoteClients.current.get(currentSession.id) : undefined;
-    const terminalSessionId = currentSession?.connected
+    const client = currentSession ? terminalClients.current.get(currentSession.id) : undefined;
+    const terminalSessionId = currentSession?.kind === 'ssh' && currentSession.connected
       && client?.sessionId === currentSession.terminalSessionId
       && !client.closed && !client.disconnected
       ? currentSession.terminalSessionId
@@ -878,14 +939,14 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
     if (restoredSessionsVerified.current) return;
     restoredSessionsVerified.current = true;
     sessions.forEach(session => {
-      if (session.terminalSessionId) void verifyTerminalSession(session.id, session.terminalSessionId);
+      if (session.kind === 'ssh' && session.terminalSessionId) void verifyTerminalSession(session.id, session.terminalSessionId);
     });
   }, [sessions, verifyTerminalSession]);
 
   useEffect(() => {
     const verifyAfterNetworkRestore = () => {
       sessions.forEach(session => {
-        if (session.terminalSessionId && !session.manuallyClosed) {
+        if (session.kind === 'ssh' && session.terminalSessionId && !session.manuallyClosed) {
           void verifyTerminalSession(session.id, session.terminalSessionId);
         }
       });
@@ -895,15 +956,16 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
   }, [sessions, verifyTerminalSession]);
 
   return <div style={{ '--agent-width': `${agentWidth}%` } as CSSProperties} className={`app-shell ${agentCollapsed ? 'agent-collapsed' : ''} ${navCollapsed ? 'nav-collapsed' : ''} ${navigation === '连接' ? 'connections-view' : 'terminal-view'}`}>
-    <AppHeader notify={notify} theme={theme} setTheme={setTheme} uploads={uploads} openUploads={() => setUploadsOpen(true)} />
+    <AppHeader notify={notify} theme={theme} setTheme={setTheme} />
     <ActivityBar active={manageConnections ? '连接' : navigation} onSelect={navigate} onSettings={() => setBackendSettingsOpen(true)} settingsOpen={backendSettingsOpen} collapsed={navCollapsed} toggleCollapsed={() => setNavCollapsed(value => !value)} />
-    <ConnectionSidebar connections={{ ...connections, remove: removeHost }} sessions={sessions} activeHostId={active?.connectionId} terminal={selectHost} create={openNewConnection} manage={manageConnections} setManage={setManageConnections} />
+    <ConnectionSidebar connections={{ ...connections, remove: removeHost }} sessions={sessions} activeHostId={active?.kind === 'ssh' ? active.connectionId : undefined} activeSessionId={activeId} terminal={selectHost} activate={activateTerminalFromSidebar} create={openNewConnection} manage={manageConnections} setManage={setManageConnections} />
     <main hidden={navigation !== '命令'} className={`central-workspace ${!active ? 'no-session' : ''} ${commandCollapsed ? 'command-collapsed' : ''}`}>
       <TerminalWorkspace
         remoteViews={sessions.map(session => {
-          const runtime = remoteClients.current.get(session.id);
+          const runtime = terminalClients.current.get(session.id);
           return <Suspense key={session.id} fallback={session.id === activeId ? <p>正在加载终端…</p> : null}>
             <RemoteTerminalView key={runtime?.sessionId ?? `${session.id}:disconnected`} runtime={runtime} visible={session.id === activeId && navigation === '命令'}
+              local={session.kind === 'local'}
               connected={session.connected && !!runtime && runtime.sessionId === session.terminalSessionId}
               disconnectReason={session.disconnectReason}
               reconnectAllowed={session.reconnectAllowed}
@@ -924,18 +986,17 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
         close={closeSession}
         add={openNewTerminal}
         copy={copy}
-        filesOpen={!!active?.fileState.open}
-        toggleFiles={() => { if (active) updateFiles(active.id, state => ({ ...state, open: !state.open })); }}
+        filesOpen={active?.kind === 'ssh' && visibleFiles === active.connectionId}
+        toggleFiles={() => { if (active?.kind === 'ssh') { if (visibleFiles === active.connectionId) setVisibleFiles(''); else openFiles(active.connectionId, active.title); } }}
         commandCollapsed={commandCollapsed}
         toggleCommands={() => setCommandCollapsed(value => !value)}
         agentCollapsed={agentCollapsed}
         toggleAgent={() => setAgentCollapsed(value => !value)}
-        filePanel={active && <SessionFiles key={active.id} sessionTitle={active.title} files={active.fileState.files} selected={active.fileState.selected} expanded={active.fileState.expanded} select={selected => updateFiles(active.id, state => ({ ...state, selected }))} toggle={id => updateFiles(active.id, state => { const expanded = new Set(state.expanded); if (expanded.has(id)) expanded.delete(id); else expanded.add(id); return { ...state, expanded }; })} openUploads={() => setUploadsOpen(true)} refresh={() => { updateFiles(active.id, state => ({ ...createSessionFileState(), open: state.open })); notify('已恢复当前终端的演示文件树', 'success'); }} create={() => { setFileDialogSessionId(active.id); setDialog('file'); }} close={() => updateFiles(active.id, state => ({ ...state, open: false }))} copy={copy} notify={notify} />}
       />
       <CommandShelf commands={commands} category={category} setCategory={setCategory} fill={fill} run={requestRun} copy={copy} add={() => setDialog('command')} disabled={!canRun} collapsed={commandCollapsed} />
     </main>
     <PanelDivider value={agentWidth} change={setAgentWidth} />
-    <AgentPanel chatDraft={chatDraft} draftScope={chatVersion.current} host={host} connected={!!active?.connected} messages={messages} busy={chatBusy} stopping={chatStopping} send={sendMessage} stop={stopChat} collapsed={agentCollapsed}
+    <AgentPanel chatDraft={chatDraft} draftScope={chatVersion.current} host={host} connected={active?.kind === 'ssh' && active.connected} localTerminal={active?.kind === 'local'} messages={messages} busy={chatBusy} stopping={chatStopping} send={sendMessage} stop={stopChat} collapsed={agentCollapsed}
       clear={clearChat} disabled={Boolean(historyLoadingId) || chatStopping}
       agentAvailability={{ ready: !!selectedAgent, loading: agentLoading, error: agentLoadError, retry: () => setAgentLoadAttempt(attempt => attempt + 1) }}
       history={{
@@ -948,7 +1009,7 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
         refresh: () => { if (selectedAgent) void refreshChatSessions(selectedAgent.agentId); },
         select: sessionId => { void selectChatSession(sessionId); },
       }} />
-    {uploadsOpen && <FileUploadDialog queue={uploads} close={() => setUploadsOpen(false)} />}
+    {fileWindows.map(item => <SessionFiles key={item.connectionId} connectionId={item.connectionId} title={item.title} visible={visibleFiles === item.connectionId} minimize={() => setVisibleFiles('')} remove={() => { setFileWindows(previous => previous.filter(window => window.connectionId !== item.connectionId)); setVisibleFiles(current => current === item.connectionId ? '' : current); }} copy={copy} notify={notify} />)}
     {toast && <NotificationToast key={toast.id} notice={toast} close={dismissNotice} />}
     {dialog === 'command' && <AddCommandDialog close={closeDialog} categories={[...new Set(commands.map(command => command.category))]} save={async command => {
       const next = [...commands, command];
@@ -958,12 +1019,11 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
       closeDialog();
       notify('命令已保存到客户端', 'success');
     }} />}
-    {dialog === 'file' && fileDialogSessionId && <CreateFileDialog close={closeDialog} path="/var/www/app" files={sessions.find(session => session.id === fileDialogSessionId)?.fileState.files ?? []} save={file => { updateFiles(fileDialogSessionId, state => ({ ...state, files: [...state.files, file], selected: file.id })); closeDialog(); notify('已在当前终端的演示文件树中创建', 'success'); }} />}
     {dialog === 'connection' && <SshConnectionDialog connections={connections} connectAfterSave={connectAfterSave} onClose={closeDialog} onSaved={saved => { if (connectAfterSave) void selectHost(saved.id, saved); else notify('SSH 连接已保存。', 'success'); }} />}
     {disconnectTarget && <DisconnectDialog key={disconnectTarget.tabId} host={hosts.find(item => item.id === disconnectTarget.host.id) ?? disconnectTarget.host} connected={sessions.find(session => session.id === disconnectTarget.tabId)?.connected === true} busy={false} error={terminalError} close={() => setDisconnectTarget(null)} confirm={confirmDisconnect} />}
     {backendSettingsOpen && <BackendSettingsDialog currentUrl={backendUrl} onClose={() => setBackendSettingsOpen(false)} onSave={url => {
-      if (chatBusy || chatStopping || sessions.length > 0) {
-        throw new Error('请先停止对话并关闭终端标签，再切换后端服务器。');
+      if (chatBusy || chatStopping || sessions.length > 0 || fileWindows.length > 0) {
+        throw new Error('请先停止对话并关闭终端标签和文件管理会话，再切换后端服务器。');
       }
       onBackendChange(url);
     }} />}

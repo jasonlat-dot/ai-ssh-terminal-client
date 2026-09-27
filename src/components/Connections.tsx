@@ -7,11 +7,13 @@ import { SshConnectionDialog } from './SshConnectionDialog';
 
 type Props = { connections: ReturnType<typeof useSshConnections>; terminal: (id: string) => void; create: () => void; copy: (value: string) => void };
 
-export function ConnectionSidebar({ connections, sessions, activeHostId, terminal, create, manage, setManage }: {
+export function ConnectionSidebar({ connections, sessions, activeHostId, activeSessionId, terminal, activate, create, manage, setManage }: {
   connections: ReturnType<typeof useSshConnections>;
   sessions: TerminalSession[];
   activeHostId?: string | null;
+  activeSessionId?: string | null;
   terminal: (id: string) => void;
+  activate: (id: string) => void;
   create: () => void;
   manage: boolean;
   setManage: (value: boolean) => void;
@@ -34,8 +36,10 @@ export function ConnectionSidebar({ connections, sessions, activeHostId, termina
       {hosts.map(host => {
         const hostSessions = sessions.filter(session => session.connectionId === host.id);
         const connectedCount = hostSessions.filter(session => session.connected).length;
+        const reusableSession = hostSessions.find(session => session.id === activeSessionId && session.connected)
+          ?? hostSessions.find(session => session.connected);
         return <div key={host.id} className={`sidebar-host ${host.id === activeHostId ? 'selected' : ''} ${manage ? 'managing' : ''}`}>
-        <button className="sidebar-host-main" disabled={connections.busy} onClick={() => terminal(host.id)}>
+        <button className="sidebar-host-main" disabled={connections.busy} aria-label={reusableSession ? `打开 ${host.name} 已有终端` : `连接 ${host.name}`} onClick={() => reusableSession ? activate(reusableSession.id) : terminal(host.id)}>
           <i className={`status-dot ${connectedCount ? '' : 'offline'}`} aria-hidden="true" />
           <span><strong title={host.name}>{host.name}</strong><small title={`${host.user}@${host.address}:${host.port ?? 22}`}>{host.user}@{host.address}:{host.port ?? 22}</small></span>
           <div className="sidebar-host-state">
@@ -45,6 +49,7 @@ export function ConnectionSidebar({ connections, sessions, activeHostId, termina
         </button>
         {manage && <div className="sidebar-host-actions">
           <IconButton icon="star" className={`favorite-icon ${host.favorite ? 'is-favorite' : ''}`} aria-pressed={!!host.favorite} label={`${host.favorite ? '取消收藏' : '收藏'} ${host.name}`} disabled={connections.busy} onClick={() => connections.favorite(host)} />
+          <IconButton icon="terminal" className="terminal-icon" label={`为 ${host.name} 新建终端会话`} disabled={connections.busy} onClick={() => terminal(host.id)} />
           <IconButton icon="edit" className="edit-icon" label={`编辑 ${host.name}`} disabled={connections.busy} onClick={() => edit(host)} />
           <IconButton icon="trash" className="destructive-icon" label={`删除 ${host.name}`} disabled={connections.busy} onClick={() => setDeleting(host)} />
         </div>}

@@ -37,6 +37,7 @@ export function SshConnectionDialog({ connections, initial = blankSshConnection,
     if (!Number.isInteger(next.port) || next.port! < 1 || next.port! > 65535) { setError('端口必须是 1–65535 之间的整数。'); return; }
     if (!Number.isInteger(next.connectTimeout) || next.connectTimeout! < 1) { setError('连接超时时间必须是大于 0 的整数。'); return; }
     if (!Number.isInteger(next.keepaliveInterval) || next.keepaliveInterval! < 0) { setError('保活间隔必须是大于或等于 0 的整数。'); return; }
+    if (next.strictHostKeyCheck && !next.knownHosts?.trim()) { setError('开启严格主机密钥检查时，请填写服务器的 known_hosts 主机密钥。'); return; }
     if (next.auth === 'password' && hosts.find(host => host.id === next.id)?.auth === 'key') { setError('当前接口无法清除已有私钥，请新建密码认证连接。'); return; }
     const credentialsRequired = !next.id || hosts.find(host => host.id === next.id)?.auth !== next.auth;
     if (credentialsRequired && !(next.auth === 'key' ? next.privateKey?.trim() : next.password)) { setError(next.auth === 'key' ? '请填写私钥内容。' : '请填写 SSH 密码。'); return; }
@@ -90,6 +91,7 @@ export function SshConnectionDialog({ connections, initial = blankSshConnection,
               <label className="ssh-full-field">启动命令<input placeholder="可选，例如：cd /var/www/app" value={draft.startupCommand ?? ''} onChange={event => setDraft({ ...draft, startupCommand: event.target.value })} /></label>
               <div className="ssh-setting-field"><span>压缩</span><div className="ssh-boolean-switch" role="radiogroup" aria-label="压缩"><button type="button" role="radio" aria-checked={draft.compression === true} className={draft.compression === true ? 'selected' : ''} onClick={() => setDraft({ ...draft, compression: true })}>开启</button><button type="button" role="radio" aria-checked={draft.compression === false} className={draft.compression === false ? 'selected' : ''} onClick={() => setDraft({ ...draft, compression: false })}>关闭</button></div></div>
               <div className="ssh-setting-field"><span>严格主机密钥检查</span><div className="ssh-boolean-switch" role="radiogroup" aria-label="严格主机密钥检查"><button type="button" role="radio" aria-checked={draft.strictHostKeyCheck === true} className={draft.strictHostKeyCheck === true ? 'selected' : ''} onClick={() => setDraft({ ...draft, strictHostKeyCheck: true })}>开启</button><button type="button" role="radio" aria-checked={draft.strictHostKeyCheck === false} className={draft.strictHostKeyCheck === false ? 'selected' : ''} onClick={() => setDraft({ ...draft, strictHostKeyCheck: false })}>关闭</button></div></div>
+              {draft.strictHostKeyCheck && <label className="ssh-full-field ssh-known-hosts-field">服务器主机密钥（known_hosts）<textarea required rows={4} autoCapitalize="none" spellCheck={false} placeholder="例如：192.168.3.16 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA…" value={draft.knownHosts ?? ''} onChange={event => setDraft({ ...draft, knownHosts: event.target.value })} /><small><strong>推荐 Ed25519。</strong>支持 ssh-ed25519、ecdsa-sha2-nistp256/384/521，以及使用 rsa-sha2-256/512 签名的 RSA 主机密钥（known_hosts 中通常标记为 ssh-rsa）。</small><small>这不是登录私钥。请使用 <code>ssh-keyscan -t ed25519,ecdsa,rsa 主机地址</code> 获取，并通过可信渠道核对指纹；支持粘贴多行。</small></label>}
             </div>
           </details>
         </fieldset>

@@ -125,11 +125,12 @@ function sessionTime(value: ClientChatSession['updatedAt']): string {
   });
 }
 
-export function AgentPanel({ chatDraft, draftScope, host, connected, messages, busy, stopping, send, stop, clear, disabled, agentAvailability, history, collapsed }: {
+export function AgentPanel({ chatDraft, draftScope, host, connected, localTerminal, messages, busy, stopping, send, stop, clear, disabled, agentAvailability, history, collapsed }: {
   chatDraft: ChatAttachmentDraft;
   draftScope: number;
   host?: Host;
   connected: boolean;
+  localTerminal: boolean;
   messages: ChatMessage[];
   busy: boolean;
   stopping: boolean;
@@ -228,7 +229,7 @@ export function AgentPanel({ chatDraft, draftScope, host, connected, messages, b
       <header>
         <div className="conversation-title">
           <AgentAvatar compact />
-          <span><h3>智能体对话</h3><small><i className={`status-dot ${connected ? '' : 'offline'}`} />{host?.name ?? '尚未选择服务器'}</small></span>
+          <span><h3>智能体对话</h3><small><i className={`status-dot ${connected ? '' : 'offline'}`} />{localTerminal ? '本地 CMD · 未绑定' : host?.name ?? '尚未选择服务器'}</small></span>
         </div>
         <button type="button" className="agent-history-button" aria-label="历史会话" aria-expanded={history.open}
           aria-controls="agent-history-list" onClick={history.toggle} disabled={disabled || busy || !agentAvailability.ready}>
@@ -262,7 +263,7 @@ export function AgentPanel({ chatDraft, draftScope, host, connected, messages, b
           <img className="empty-agent-avatar" src={agentRobotAvatar} alt="Agent 机器人" />
           <h3>有什么需要我协助？</h3>
           <p>{agentAvailability.ready
-            ? connected ? '可以让我执行命令、检查服务状态或分析日志。' : '可以直接与 Agent 对话；当前页签连接服务器后还可以执行 SSH 命令。'
+            ? connected ? '可以让我执行命令、检查服务状态或分析日志。' : localTerminal ? '当前是本地 CMD，Agent 无法连接或代为执行本地命令，但仍可进行普通对话。' : '可以直接与 Agent 对话；当前页签连接服务器后还可以执行 SSH 命令。'
             : '可以先输入问题或添加附件，智能体就绪后再发送。'}</p>
         </div>}
 
@@ -303,6 +304,9 @@ export function AgentPanel({ chatDraft, draftScope, host, connected, messages, b
     </section>
 
     <form className="chat-composer" aria-hidden={collapsed} onSubmit={event => { event.preventDefault(); void submit(); }}>
+      {localTerminal && <div className="composer-agent-status local-terminal" role="status">
+        <span>本地 CMD 仅在客户端运行，Agent 无法绑定该终端，也不会收到本地会话 ID。</span>
+      </div>}
       {!agentAvailability.ready && <div className={`composer-agent-status ${agentAvailability.error ? 'error' : ''}`} role="status">
         <span>{agentAvailability.loading ? '正在加载智能体，你可以先编辑草稿。' : agentAvailability.error || '智能体暂不可用，草稿可以继续编辑。'}</span>
         {!agentAvailability.loading && <button type="button" onClick={agentAvailability.retry}><Icon name="refresh" size={13} />重试加载</button>}
