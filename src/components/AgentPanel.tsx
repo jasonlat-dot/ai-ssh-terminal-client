@@ -5,6 +5,7 @@ import type { ClientChatSession } from '../state/clientChatHistory';
 import type { ChatAttachment, ChatAgentActivity, ChatMessage, ChatToolActivity, Host } from '../types';
 import { Icon } from './Ui';
 import { CopyMarkdownButton } from './CopyMarkdownButton';
+import { CopyTextButton } from './CopyTextButton';
 import { ChatAttachmentDraft, chatAttachmentPolicy, pastedFiles, insertPastedText, validateChatContent } from '../state/chatAttachments';
 import { DraftAttachments, MessageAttachments } from './ChatAttachments';
 import { chatErrorGuidance } from '../api/chatErrors';
@@ -35,7 +36,11 @@ function ToolActivity({ tool, copyable }: { tool: ChatToolActivity; copyable: bo
   return <details className={`tool-activity ${tool.status}`}>
     <summary>{header}<small className="tool-view-result">查看结果</small></summary>
     {tool.output ? <pre>{tool.output}</pre> : <p className="tool-empty-result">工具没有返回文本。</p>}
-    {copyable && <div className="message-copy-actions"><CopyMarkdownButton getText={() => toolToMarkdown(tool)} label="复制工具结果（Markdown）" /></div>}
+    {copyable && <div className="message-copy-actions tool-copy-actions">
+      {tool.command && <CopyTextButton getText={() => tool.command!} label="复制命令" successMessage="命令已复制" />}
+      {tool.output && <CopyTextButton getText={() => tool.output!} label="复制输出" successMessage="执行结果已复制" />}
+      <CopyMarkdownButton getText={() => toolToMarkdown(tool)} label="复制工具结果（Markdown）" />
+    </div>}
   </details>;
 }
 

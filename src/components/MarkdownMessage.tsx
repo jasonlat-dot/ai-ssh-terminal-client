@@ -6,6 +6,7 @@ import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import { renderableAssistantMarkdown } from '../state/assistantMarkdown';
 import { MarkdownCodeBlock } from './MarkdownCodeBlock';
+import { CopyTextButton } from './CopyTextButton';
 import './MarkdownMessage.css';
 
 const highlight: NonNullable<ComponentProps<typeof ReactMarkdown>['rehypePlugins']> = [[rehypeHighlight, { detect: false, plainText: ['text', 'plaintext', 'txt', 'log'] }]];
@@ -26,8 +27,11 @@ export const MarkdownMessage = memo(function MarkdownMessage({ children, streami
       rehypePlugins={!streaming && markdown.length <= 50_000 ? highlight : []}
       components={components}
     >{markdown}</ReactMarkdown>}</div>
-    <button type="button" className="markdown-source-toggle" aria-pressed={source} onClick={() => setSource(value => !value)}>
-      {source ? '返回排版' : '查看原文'}
-    </button>
+    <div className="markdown-source-actions">
+      {source && !streaming && <CopyTextButton getText={() => children} label="复制原文" />}
+      <button type="button" className="markdown-source-toggle" aria-pressed={source} onClick={() => setSource(value => !value)}>
+        {source ? '返回排版' : '查看原文'}
+      </button>
+    </div>
   </div>;
 });

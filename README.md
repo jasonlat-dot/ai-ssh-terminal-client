@@ -1,6 +1,21 @@
 # ai-ssh-terminal-client
 ai-ssh-terminal-client
 
+## 拉取更新后启动
+
+代码更新可能包含新的 npm 依赖，`git pull` 不会同步本地 `node_modules`。请先停止正在运行的 Vite/Tauri 开发进程，在项目目录执行：
+
+```powershell
+npm install
+npm run dev
+```
+
+使用桌面开发模式时，将最后一行替换为 `npm run tauri dev`。
+
+若出现 `Failed to resolve import "rehype-highlight"` 或 `"remend"`，说明本地没有安装到新增的 Markdown 依赖。它们已经记录在 `package.json` 和 `package-lock.json` 中，执行上面的安装命令即可，不需要修改 import。安装后可用 `npm ls rehype-highlight remend --depth=0` 确认；若 Vite 仍保留旧的依赖缓存，可用 `npm run dev -- --force` 重新启动。
+
+回复完成后，代码块右上角的“复制文本”只复制代码正文，不含语言标签、Markdown 围栏或高亮标签。工具结果展开后可分别“复制命令”“复制输出”，原有整条回复的 Markdown 复制仍然保留。
+
 
 ## 安装后的后端地址设置
 
