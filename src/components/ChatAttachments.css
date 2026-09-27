@@ -23,7 +23,7 @@
 .chat-composer .composer-attachment-note { color: var(--theme-text-muted); font-size: 10px; }
 .composer-attachment-error, .chat-error-guidance { margin: 8px 0 0; padding: 8px 10px; border-radius: 7px; background: var(--theme-control); color: var(--theme-text-strong); font-size: 12px; line-height: 1.6; }
 .chat-error-guidance { margin: 0; }
-.chat-restore-request { margin-right: 8px; }
+.chat-restore-request { margin-right: 0; min-height: 28px; padding: 3px 6px; font-size: 12px; font-weight: 600; font-synthesis: weight; line-height: 1.5; }
 
 .composer-agent-status { display: flex; align-items: center; gap: 8px; padding: 6px 8px; margin-bottom: 8px; border-radius: 6px; background: var(--theme-control); color: var(--theme-text-muted); font-size: 12px; line-height: 1.5; }
 .composer-agent-status > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }

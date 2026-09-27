@@ -15,7 +15,7 @@
 .markdown-message .markdown-body blockquote > :last-child { margin-bottom: 0; }
 .markdown-message .markdown-body hr { margin: 22px 0; }
 .markdown-message .markdown-body :is(th, td) { padding: 9px 12px; border-color: var(--line); }
-.markdown-source-toggle { display: block; margin: 9px 0 0 auto; padding: 3px 6px; border: 0; border-radius: 5px; background: transparent; color: var(--theme-text-muted); font-size: 11px; cursor: pointer; }
+.markdown-source-toggle { display: block; margin: 9px 0 0 auto; padding: 3px 6px; border: 0; border-radius: 5px; background: transparent; color: var(--theme-text-strong); font-size: 12px; font-weight: 600; font-synthesis: weight; line-height: 1.5; cursor: pointer; }
 .markdown-source-toggle:hover, .markdown-source-toggle[aria-pressed='true'] { color: var(--theme-accent-text); background: var(--theme-control); }
 .markdown-source-toggle:focus-visible { outline: 2px solid var(--theme-accent-text); outline-offset: 2px; }
 .markdown-source-actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin-top: 9px; }
@@ -28,7 +28,7 @@
 .markdown-code-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 12px; min-height: 36px; border-bottom: 1px solid var(--line); border-radius: 10px 10px 0 0; background: var(--theme-panel-soft); color: var(--theme-text-muted); font-size: 11px; }
 .markdown-code-language { display: inline-flex; align-items: center; gap: 7px; min-width: 0; overflow-wrap: anywhere; font-weight: 600; }
 .markdown-code-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
-.markdown-code-actions button { display: inline-flex; align-items: center; gap: 5px; border: 0; border-radius: 4px; padding: 3px 5px; background: transparent; color: var(--theme-text-muted); font-size: 11px; cursor: pointer; }
+.markdown-code-actions button { display: inline-flex; align-items: center; gap: 5px; border: 0; border-radius: 4px; padding: 3px 5px; background: transparent; color: var(--theme-text-strong); font-size: 12px; font-weight: 600; font-synthesis: weight; line-height: 1.5; cursor: pointer; }
 .markdown-code-actions button:hover, .markdown-code-actions button[aria-pressed='true'] { background: var(--theme-control); color: var(--theme-accent-text); }
 .markdown-code-copy { position: relative; }
 .markdown-code-streaming { font-size: 11px; }

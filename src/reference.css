@@ -787,8 +787,8 @@
 }
 .user-message-group { width: fit-content; max-width: 88%; margin: 0 0 18px auto; }
 .user-message-group .user-message { max-width: 100%; margin-bottom: 3px; }
-.message-copy-actions { display: flex; justify-content: flex-end; padding: 3px 5px; }
-.copy-markdown-button { display: inline-flex; align-items: center; gap: 5px; min-height: 25px; padding: 3px 6px; border: 1px solid transparent; border-radius: 5px; background: transparent; color: var(--theme-text-muted); font-size: 10px; }
+.message-copy-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 4px 8px; padding: 4px 5px; }
+.copy-markdown-button { display: inline-flex; align-items: center; gap: 5px; min-height: 28px; padding: 3px 6px; border: 1px solid transparent; border-radius: 5px; background: transparent; color: var(--theme-text-strong); font-size: 12px; font-weight: 600; font-synthesis: weight; line-height: 1.5; }
 .copy-markdown-button:hover { color: var(--theme-accent-text); background: var(--theme-hover); border-color: var(--line); }
 .copy-markdown-button:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
 .markdown-copy-control { position: relative; display: inline-flex; }
