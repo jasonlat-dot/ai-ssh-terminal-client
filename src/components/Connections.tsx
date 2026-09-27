@@ -7,9 +7,10 @@ import { SshConnectionDialog } from './SshConnectionDialog';
 
 type Props = { connections: ReturnType<typeof useSshConnections>; terminal: (id: string) => void; create: () => void; copy: (value: string) => void };
 
-export function ConnectionSidebar({ connections, sessions, activeHostId, terminal, create, manage, setManage }: {
+export function ConnectionSidebar({ connections, sessions, activeHostId, terminal, files, create, manage, setManage }: {
   connections: ReturnType<typeof useSshConnections>;
   sessions: TerminalSession[];
+  files: (id: string) => void;
   activeHostId?: string | null;
   terminal: (id: string) => void;
   create: () => void;
@@ -43,6 +44,7 @@ export function ConnectionSidebar({ connections, sessions, activeHostId, termina
             {!!connectedCount && <small>{connectedCount} 个会话</small>}
           </div>
         </button>
+        <button className="sidebar-sftp-entry" disabled={connections.busy} onClick={() => files(host.id)}><Icon name="folder" size={13} />文件管理</button>
         {manage && <div className="sidebar-host-actions">
           <IconButton icon="star" className={`favorite-icon ${host.favorite ? 'is-favorite' : ''}`} aria-pressed={!!host.favorite} label={`${host.favorite ? '取消收藏' : '收藏'} ${host.name}`} disabled={connections.busy} onClick={() => connections.favorite(host)} />
           <IconButton icon="edit" className="edit-icon" label={`编辑 ${host.name}`} disabled={connections.busy} onClick={() => edit(host)} />

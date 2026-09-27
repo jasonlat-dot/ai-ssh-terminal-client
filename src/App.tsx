@@ -1,6 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { CSSProperties } from 'react';
-import { updateSessionFiles } from './state/sessionFiles';
 import { useTheme } from './state/useTheme';
 import { agentApi } from './api/agent';
 import type { AgentConfig, AgentStreamEvent } from './api/agent';
@@ -26,7 +25,7 @@ import { SshConnectionDialog } from './components/SshConnectionDialog';
 import { useSshConnections } from './state/useSshConnections';
 import { PanelDivider } from './components/PanelDivider';
 import { AgentPanel } from './components/AgentPanel';
-import { AddCommandDialog, CreateFileDialog } from './components/Dialogs';
+import { AddCommandDialog } from './components/Dialogs';
 import { SessionFiles } from './components/Sidebar';
 import { FileUploadDialog } from './components/FileUploadDialog';
 import { FileUploadQueue } from './state/fileUploads';
@@ -37,13 +36,13 @@ import { BackendSettingsDialog } from './components/BackendSettingsDialog';
 import { readBackendUrl, saveBackendUrl } from './config/backend';
 import { CommandShelf, TerminalWorkspace } from './components/Workspace';
 import { createSessionFileState, initialCommands } from './data/mock';
-import type { ChatAttachment, ChatAgentActivity, ChatMessage, ChatMessageSegment, ChatToolActivity, Host, Navigation, SessionFileState } from './types';
+import type { ChatAttachment, ChatAgentActivity, ChatMessage, ChatMessageSegment, ChatToolActivity, Host, Navigation } from './types';
 import './App.css';
 import './reference.css';
 
 const RemoteTerminalView = lazy(() => import('./components/RemoteTerminalView').then(module => ({ default: module.RemoteTerminalView })));
 
-type Dialog = 'command' | 'connection' | 'file' | null;
+type Dialog = 'command' | 'connection' | null;
 type CommandRequest = { sessionId: string; command: string };
 const STALE_TERMINAL_TAB_MS = 5 * 60 * 1000;
 
@@ -96,7 +95,12 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
       ...messagesRef.current.flatMap(message => message.attachments?.map(file => file.previewUrl) ?? []),
     ]);
   }, [draftAttachments, messages, chatDraft, attachmentPreviews]);
-  const [fileDialogSessionId, setFileDialogSessionId] = useState<string | null>(null);
+  const [fileWindows, setFileWindows] = useState<{ connectionId: string; title: string }[]>([]);
+  const [visibleFiles, setVisibleFiles] = useState('');
+  const openFiles = (connectionId: string, title: string) => {
+    setFileWindows(previous => previous.some(item => item.connectionId === connectionId) ? previous : [...previous, { connectionId, title }]);
+    setVisibleFiles(connectionId);
+  };
   const [toast, setToast] = useState<Notice | null>(null);
   const noticeSequence = useRef(0);
   const [commandCollapsed, setCommandCollapsed] = useState(false);
@@ -252,7 +256,7 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
     }, 300);
     return () => clearTimeout(timer);
   }, [messages, activeChatSessionId, selectedAgent?.agentId, persistClientSession]);
-  const closeDialog = () => { setDialog(null); setFileDialogSessionId(null); };
+  const closeDialog = () => { setDialog(null); };
   const copy = async (text: string) => {
     try { await copyText(text); notify('已复制到剪贴板', 'success'); }
     catch { notify('复制失败：请选中文字后使用 Ctrl+C 复制。', 'error'); }
@@ -554,9 +558,6 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
   const navigate = (name: Navigation) => {
     setManageConnections(name === '连接');
     setNavigation('命令');
-  };
-  const updateFiles = (sessionId: string, update: (state: SessionFileState) => SessionFileState) => {
-    setSessions(previous => updateSessionFiles(previous, sessionId, update));
   };
   const sendMessage = async (text: string, selectedAttachments: ChatAttachment[] = []): Promise<boolean> => {
     if (chatting.current || stopPending.current || historyLoadingId) return false;
@@ -897,7 +898,7 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
   return <div style={{ '--agent-width': `${agentWidth}%` } as CSSProperties} className={`app-shell ${agentCollapsed ? 'agent-collapsed' : ''} ${navCollapsed ? 'nav-collapsed' : ''} ${navigation === '连接' ? 'connections-view' : 'terminal-view'}`}>
     <AppHeader notify={notify} theme={theme} setTheme={setTheme} uploads={uploads} openUploads={() => setUploadsOpen(true)} />
     <ActivityBar active={manageConnections ? '连接' : navigation} onSelect={navigate} onSettings={() => setBackendSettingsOpen(true)} settingsOpen={backendSettingsOpen} collapsed={navCollapsed} toggleCollapsed={() => setNavCollapsed(value => !value)} />
-    <ConnectionSidebar connections={{ ...connections, remove: removeHost }} sessions={sessions} activeHostId={active?.connectionId} terminal={selectHost} create={openNewConnection} manage={manageConnections} setManage={setManageConnections} />
+    <ConnectionSidebar connections={{ ...connections, remove: removeHost }} sessions={sessions} activeHostId={active?.connectionId} terminal={selectHost} files={id => { const target = hosts.find(item => item.id === id); if (target) openFiles(id, target.name); }} create={openNewConnection} manage={manageConnections} setManage={setManageConnections} />
     <main hidden={navigation !== '命令'} className={`central-workspace ${!active ? 'no-session' : ''} ${commandCollapsed ? 'command-collapsed' : ''}`}>
       <TerminalWorkspace
         remoteViews={sessions.map(session => {
@@ -924,13 +925,12 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
         close={closeSession}
         add={openNewTerminal}
         copy={copy}
-        filesOpen={!!active?.fileState.open}
-        toggleFiles={() => { if (active) updateFiles(active.id, state => ({ ...state, open: !state.open })); }}
+        filesOpen={!!active && visibleFiles === active.connectionId}
+        toggleFiles={() => { if (active) openFiles(active.connectionId, active.title); }}
         commandCollapsed={commandCollapsed}
         toggleCommands={() => setCommandCollapsed(value => !value)}
         agentCollapsed={agentCollapsed}
         toggleAgent={() => setAgentCollapsed(value => !value)}
-        filePanel={active && <SessionFiles key={active.id} sessionTitle={active.title} files={active.fileState.files} selected={active.fileState.selected} expanded={active.fileState.expanded} select={selected => updateFiles(active.id, state => ({ ...state, selected }))} toggle={id => updateFiles(active.id, state => { const expanded = new Set(state.expanded); if (expanded.has(id)) expanded.delete(id); else expanded.add(id); return { ...state, expanded }; })} openUploads={() => setUploadsOpen(true)} refresh={() => { updateFiles(active.id, state => ({ ...createSessionFileState(), open: state.open })); notify('已恢复当前终端的演示文件树', 'success'); }} create={() => { setFileDialogSessionId(active.id); setDialog('file'); }} close={() => updateFiles(active.id, state => ({ ...state, open: false }))} copy={copy} notify={notify} />}
       />
       <CommandShelf commands={commands} category={category} setCategory={setCategory} fill={fill} run={requestRun} copy={copy} add={() => setDialog('command')} disabled={!canRun} collapsed={commandCollapsed} />
     </main>
@@ -948,6 +948,8 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
         refresh: () => { if (selectedAgent) void refreshChatSessions(selectedAgent.agentId); },
         select: sessionId => { void selectChatSession(sessionId); },
       }} />
+    {fileWindows.length > 0 && <nav className="sftp-dock" aria-label="文件管理会话">{fileWindows.map(item => <button key={item.connectionId} onClick={() => setVisibleFiles(item.connectionId)}>文件 · {item.title}</button>)}</nav>}
+    {fileWindows.map(item => <SessionFiles key={item.connectionId} connectionId={item.connectionId} title={item.title} visible={visibleFiles === item.connectionId} minimize={() => setVisibleFiles('')} remove={() => { setFileWindows(previous => previous.filter(window => window.connectionId !== item.connectionId)); setVisibleFiles(current => current === item.connectionId ? '' : current); }} copy={copy} />)}
     {uploadsOpen && <FileUploadDialog queue={uploads} close={() => setUploadsOpen(false)} />}
     {toast && <NotificationToast key={toast.id} notice={toast} close={dismissNotice} />}
     {dialog === 'command' && <AddCommandDialog close={closeDialog} categories={[...new Set(commands.map(command => command.category))]} save={async command => {
@@ -958,12 +960,11 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
       closeDialog();
       notify('命令已保存到客户端', 'success');
     }} />}
-    {dialog === 'file' && fileDialogSessionId && <CreateFileDialog close={closeDialog} path="/var/www/app" files={sessions.find(session => session.id === fileDialogSessionId)?.fileState.files ?? []} save={file => { updateFiles(fileDialogSessionId, state => ({ ...state, files: [...state.files, file], selected: file.id })); closeDialog(); notify('已在当前终端的演示文件树中创建', 'success'); }} />}
     {dialog === 'connection' && <SshConnectionDialog connections={connections} connectAfterSave={connectAfterSave} onClose={closeDialog} onSaved={saved => { if (connectAfterSave) void selectHost(saved.id, saved); else notify('SSH 连接已保存。', 'success'); }} />}
     {disconnectTarget && <DisconnectDialog key={disconnectTarget.tabId} host={hosts.find(item => item.id === disconnectTarget.host.id) ?? disconnectTarget.host} connected={sessions.find(session => session.id === disconnectTarget.tabId)?.connected === true} busy={false} error={terminalError} close={() => setDisconnectTarget(null)} confirm={confirmDisconnect} />}
     {backendSettingsOpen && <BackendSettingsDialog currentUrl={backendUrl} onClose={() => setBackendSettingsOpen(false)} onSave={url => {
-      if (chatBusy || chatStopping || sessions.length > 0) {
-        throw new Error('请先停止对话并关闭终端标签，再切换后端服务器。');
+      if (chatBusy || chatStopping || sessions.length > 0 || fileWindows.length > 0) {
+        throw new Error('请先停止对话并关闭终端标签和文件管理会话，再切换后端服务器。');
       }
       onBackendChange(url);
     }} />}
