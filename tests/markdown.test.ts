@@ -4,7 +4,8 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { prepareAssistantMarkdown } from '../src/state/assistantMarkdown.ts';
+import rehypeHighlight from 'rehype-highlight';
+import { prepareAssistantMarkdown, renderableAssistantMarkdown } from '../src/state/assistantMarkdown.ts';
 import { agentApi } from '../src/api/agent.ts';
 
 const render = (text: string) => renderToStaticMarkup(createElement(ReactMarkdown, { remarkPlugins: [remarkGfm], children: prepareAssistantMarkdown(text) }));
@@ -105,4 +106,47 @@ test('plain SSE tokens that look like JSON primitives are still visible content'
   const tokens = ['9000', ' ', 'true', ' ', 'null', ' ', '[1,2]'];
   const wire = tokens.map(token => `data: ${token}\n\n`).join('') + 'data: [DONE]\n\n';
   assert.equal(await streamed(wire), tokens.join(''));
+});
+
+
+test('glued numbered Chinese subheading becomes a separate heading without rewriting prose', () => {
+  const source = '## 方法一：使用 `mc` 客户端开启###1. 配置 MinIO连接如果本机没有 `mc`，可以用 Docker 临时运行：';
+  const html = render(source);
+  assert.match(html, /<h2>方法一：使用 <code>mc<\/code> 客户端开启<\/h2>/);
+  assert.match(html, /<h3>1\. 配置 MinIO连接如果本机没有/);
+});
+
+test('glued heading repair protects inline code, escaped hashes, links and fenced content', () => {
+  for (const source of [
+    '## 示例 `开启###1. 命令`',
+    '## 示例 [开启###1. 链接](https://example.test)',
+    '## 示例 开启\\###1. 保留',
+    '```md\n## 开启###1. 字面值\n```',
+  ]) assert.equal(prepareAssistantMarkdown(source), source);
+});
+
+test('compact plaintext fences keep original env names and output bytes', () => {
+  assert.equal(prepareAssistantMarkdown('```textMINIO_ACCESS_KEYMINIO_SECRET_KEY```'), '```text\nMINIO_ACCESS_KEYMINIO_SECRET_KEY\n```');
+  assert.equal(prepareAssistantMarkdown('```textmyminio/test-bucket versioning is enabled```'), '```text\nmyminio/test-bucket versioning is enabled\n```');
+  assert.equal(prepareAssistantMarkdown('`textMINIO_ACCESS_KEY`'), '`textMINIO_ACCESS_KEY`');
+});
+
+test('Remend only completes formatting during streaming and never changes copied source', () => {
+  const source = '正在 **分析';
+  const streamed = renderableAssistantMarkdown(source, true);
+  assert.match(render(streamed), /<strong>分析<\/strong>/);
+  assert.equal(renderableAssistantMarkdown(source, false), source);
+  const code = '```bash\nprintf "**hello"\n';
+  assert.ok(renderableAssistantMarkdown(code, true).includes('printf "**hello"'));
+});
+
+test('highlighter preserves escapes and displays unknown languages as plain text', () => {
+  const renderHighlighted = (source: string) => renderToStaticMarkup(createElement(ReactMarkdown, {
+    rehypePlugins: [[rehypeHighlight, { detect: false, plainText: ['text', 'log'] }]], children: source,
+  }));
+  const html = renderHighlighted('```bash\necho "$HOME"\n```');
+  assert.match(html, /hljs-built_in/);
+  assert.match(html, /\$HOME/);
+  assert.match(renderHighlighted('```unknown-custom\nkeep <tags> & "quotes"\n```'), /keep &lt;tags&gt; &amp; &quot;quotes&quot;/);
+  assert.doesNotMatch(renderHighlighted('```text\necho hello\n```'), /hljs-built_in/);
 });

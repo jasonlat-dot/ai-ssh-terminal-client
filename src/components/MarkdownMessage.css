@@ -1,7 +1,40 @@
-.markdown-message { min-width: 0; }
-.markdown-source-toggle { display: block; margin: 5px 0 0 auto; padding: 2px 5px; border: 0; border-radius: 4px; background: transparent; color: var(--theme-text-muted); font-size: 10px; cursor: pointer; }
+.markdown-message { min-width: 0; --syntax-keyword: #7950b8; --syntax-string: #18734e; --syntax-number: #b34c1b; --syntax-title: #2466aa; --syntax-comment: #65758b; }
+:root[data-theme='dark'] .markdown-message { --syntax-keyword: #c9a4ff; --syntax-string: #85d7ac; --syntax-number: #ffba91; --syntax-title: #8fc3ff; --syntax-comment: #9eafc3; }
+.markdown-message .markdown-body { font-size: 13px; line-height: 1.8; }
+.markdown-message .markdown-body :is(p, ul, ol, blockquote, table) { margin-bottom: 14px; }
+.markdown-message .markdown-body :is(h1, h2, h3, h4, h5, h6) { margin: 24px 0 12px; color: var(--theme-text-strong); line-height: 1.55; font-weight: 650; letter-spacing: -.01em; }
+.markdown-message .markdown-body h1 { font-size: 21px; }
+.markdown-message .markdown-body h2 { font-size: 18px; }
+.markdown-message .markdown-body h3 { font-size: 15px; }
+.markdown-message .markdown-body :is(h4, h5, h6) { font-size: 13px; }
+.markdown-message .markdown-body > :first-child { margin-top: 0; }
+.markdown-message .markdown-body > :last-child { margin-bottom: 0; }
+.markdown-message .markdown-body :not(pre) > code { padding: 2px 5px; font-size: .92em; border-radius: 4px; color: var(--theme-accent-text); background: var(--theme-control); border-color: var(--line); }
+.markdown-message .markdown-body li + li { margin-top: 6px; }
+.markdown-message .markdown-body blockquote { padding: 10px 14px; border-left: 3px solid var(--theme-accent-text); }
+.markdown-message .markdown-body blockquote > :last-child { margin-bottom: 0; }
+.markdown-message .markdown-body hr { margin: 22px 0; }
+.markdown-message .markdown-body :is(th, td) { padding: 9px 12px; border-color: var(--line); }
+.markdown-source-toggle { display: block; margin: 9px 0 0 auto; padding: 3px 6px; border: 0; border-radius: 5px; background: transparent; color: var(--theme-text-muted); font-size: 11px; cursor: pointer; }
 .markdown-source-toggle:hover, .markdown-source-toggle[aria-pressed='true'] { color: var(--theme-accent-text); background: var(--theme-control); }
 .markdown-source-toggle:focus-visible { outline: 2px solid var(--theme-accent-text); outline-offset: 2px; }
 .markdown-message .markdown-body pre { color: var(--theme-text-strong); background: var(--theme-control); border-color: var(--line); }
-.markdown-message .markdown-body pre code { display: block; color: inherit; background: transparent; font-size: 12px; line-height: 1.65; tab-size: 4; }
-.markdown-message .markdown-body .markdown-source { white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.65 var(--mono); }
+.markdown-message .markdown-body pre code { display: block; color: inherit; background: transparent; font-size: 12px; line-height: 1.75; tab-size: 4; }
+.markdown-message .markdown-body .markdown-source { white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.75 var(--mono); }
+.markdown-message .markdown-code-card { margin: 14px 0 18px; min-width: 0; border: 1px solid var(--line); border-radius: 10px; background: var(--theme-panel); }
+.markdown-code-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 12px; min-height: 36px; border-bottom: 1px solid var(--line); border-radius: 10px 10px 0 0; background: var(--theme-panel-soft); color: var(--theme-text-muted); font-size: 11px; }
+.markdown-code-language { display: inline-flex; align-items: center; gap: 7px; min-width: 0; overflow-wrap: anywhere; font-weight: 600; }
+.markdown-code-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.markdown-code-actions button { display: inline-flex; align-items: center; gap: 5px; border: 0; border-radius: 4px; padding: 3px 5px; background: transparent; color: var(--theme-text-muted); font-size: 11px; cursor: pointer; }
+.markdown-code-actions button:hover, .markdown-code-actions button[aria-pressed='true'] { background: var(--theme-control); color: var(--theme-accent-text); }
+.markdown-code-copy { position: relative; }
+.markdown-code-copy .clipboard-feedback { right: 0; top: calc(100% + 5px); }
+.markdown-code-streaming { font-size: 11px; }
+.markdown-message .markdown-body .markdown-code-card pre { margin: 0; padding: 14px 16px; border: 0; border-radius: 0 0 10px 10px; background: var(--theme-control); color: var(--theme-text-strong); max-height: 520px; overflow: auto; }
+.markdown-message .markdown-body .markdown-code-card pre code { padding: 0; border: 0; background: transparent; white-space: pre; overflow-wrap: normal; }
+.markdown-message .markdown-body .markdown-code-card.wrap pre code { white-space: pre-wrap; overflow-wrap: anywhere; }
+.markdown-message .hljs-comment, .markdown-message .hljs-quote { color: var(--syntax-comment); font-style: italic; }
+.markdown-message .hljs-keyword, .markdown-message .hljs-selector-tag, .markdown-message .hljs-meta { color: var(--syntax-keyword); }
+.markdown-message .hljs-string, .markdown-message .hljs-regexp, .markdown-message .hljs-addition { color: var(--syntax-string); }
+.markdown-message .hljs-number, .markdown-message .hljs-literal, .markdown-message .hljs-deletion { color: var(--syntax-number); }
+.markdown-message .hljs-title, .markdown-message .hljs-built_in, .markdown-message .hljs-attr, .markdown-message .hljs-type { color: var(--syntax-title); }

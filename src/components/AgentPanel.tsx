@@ -48,7 +48,7 @@ function AgentTextActivity({ text, running, copyable }: { text: string; running:
       <small className="agent-activity-thought-close-label">收起文字</small>
       <Icon name="down" size={14} className="agent-activity-thought-chevron" />
     </summary>
-    <div className="agent-activity-text"><MarkdownMessage>{text}</MarkdownMessage></div>
+    <div className="agent-activity-text"><MarkdownMessage streaming={running || !copyable}>{text}</MarkdownMessage></div>
     {copyable && !running && <div className="message-copy-actions"><CopyMarkdownButton getText={() => text} /></div>}
   </details>;
 }
@@ -275,14 +275,14 @@ export function AgentPanel({ chatDraft, draftScope, host, connected, messages, b
             <div className="assistant-main">
               {message.segments
                 ? message.segments.map(segment => segment.type === 'text'
-                  ? <div className="assistant-content" key={segment.id}><MarkdownMessage>{segment.text}</MarkdownMessage></div>
+                  ? <div className="assistant-content" key={segment.id}><MarkdownMessage streaming={(busy || stopping) && index === messages.length - 1}>{segment.text}</MarkdownMessage></div>
                   : segment.type === 'agent'
                     ? <AgentActivity agent={segment.agent} copyable={!((busy || stopping) && index === messages.length - 1)} key={segment.id} />
                     : <section className="tool-activities" aria-label="工具调用记录" key={segment.id}><ToolActivity tool={segment.tool} copyable={!((busy || stopping) && index === messages.length - 1)} /></section>)
                 : <>
                   {(message.text || message.summary) && <div className="assistant-content">
-                    {message.text && <MarkdownMessage>{message.text}</MarkdownMessage>}
-                    {message.summary && <MarkdownMessage>{message.summary}</MarkdownMessage>}
+                    {message.text && <MarkdownMessage streaming={(busy || stopping) && index === messages.length - 1}>{message.text}</MarkdownMessage>}
+                    {message.summary && <MarkdownMessage streaming={(busy || stopping) && index === messages.length - 1}>{message.summary}</MarkdownMessage>}
                   </div>}
                   {message.tools?.length ? <section className="tool-activities" aria-label="工具调用记录">
                     {message.tools.map(tool => <ToolActivity tool={tool} copyable={!((busy || stopping) && index === messages.length - 1)} key={tool.id} />)}
