@@ -1933,15 +1933,18 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.985); }
 
 /* Readable typography for dense desktop controls and secondary labels. */
 .app-shell { font-weight: 500; }
+.app-shell button { font-weight: 550; }
+.app-shell input::placeholder,
+.app-shell textarea::placeholder { font-weight: 550; opacity: 1; }
 .app-shell small { font-weight: 600; letter-spacing: .01em; }
 .file-source-card .file-row {
   color: var(--theme-text-strong);
-  font-size: 10.5px;
+  font-size: 11px;
   font-weight: 600;
   letter-spacing: .005em;
 }
 .file-explorer-title strong,
-.file-source-heading strong { font-size: 11px; font-weight: 700; }
+.file-source-heading strong { font-size: 12px; font-weight: 700; }
 .file-explorer-title small,
 .file-source-heading small,
 .file-list-heading,
@@ -1949,17 +1952,17 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.985); }
 .file-source-card .empty-folder,
 .session-file-panel .transfer-empty {
   color: var(--theme-text-muted);
-  font-size: 9.5px;
+  font-size: 10.5px;
   font-weight: 600;
 }
 .file-current-path {
   color: var(--theme-text-muted);
-  font-size: 9px;
+  font-size: 10.5px;
   font-weight: 600;
   line-height: 1.35;
 }
 .file-source-actions .icon-button,
-.file-mini-action { font-size: 9.5px; font-weight: 650; }
+.file-mini-action { font-size: 10.5px; font-weight: 650; }
 .activity small,
 .host-sidebar-heading small,
 .sidebar-host-search input,
@@ -1977,7 +1980,7 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.985); }
 .agent-activity-thought summary > small,
 .command-dialog-preview small {
   color: var(--theme-text-muted);
-  font-size: 9.5px;
+  font-size: 10.5px;
   font-weight: 600;
 }
 .command-fill code,
@@ -1989,7 +1992,24 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.985); }
 .agent-activity-task,
 .agent-activity-thought summary,
 .agent-activity-empty,
-.tool-empty-result { font-weight: 550; }
+.tool-empty-result { font-weight: 600; }
+
+.welcome-note p,
+.quick-action small,
+.system-card header > small,
+.advice-card > div,
+.status-bar,
+.status-right,
+.demo-badge,
+.panel-count {
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.quick-action strong,
+.system-result,
+.host-address,
+.conversation-title strong { font-weight: 600; }
 
 /* Keep nested labels readable when a dark surface replaces a light one. */
 .connections-heading h1,
