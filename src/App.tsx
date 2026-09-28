@@ -35,6 +35,7 @@ import { ChatRequestError } from './api/chatErrors';
 import { ActivityBar, AppHeader } from './components/Shell';
 import { BackendSettingsDialog } from './components/BackendSettingsDialog';
 import { readBackendUrl, saveBackendUrl } from './config/backend';
+import { readBundledBackendStatus } from './api/bundledBackend';
 import { CommandShelf, TerminalWorkspace } from './components/Workspace';
 import { createSessionFileState, initialCommands } from './data/mock';
 import type { ChatAttachment, ChatAgentActivity, ChatMessage, ChatMessageSegment, ChatToolActivity, Host, Navigation } from './types';
@@ -163,6 +164,70 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
   const notify = useCallback((message: string, type: NoticeType = 'info', durationMs?: number) => {
     setToast({ id: ++noticeSequence.current, message, type, ...(durationMs === undefined ? {} : { durationMs }) });
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    /*
+     * Tauri 在显示页面之前已经尝试启动内置后端。这里读取启动结果并主动提示，
+     * 不再等 Agent/SSH 请求失败后只显示一个无法定位原因的网络错误。
+     */
+    void readBundledBackendStatus()
+      .then(status => {
+        if (cancelled || !status || status.status !== 'failed') return;
+        const logHint = status.logPath ? `；启动日志：${status.logPath}` : '';
+        notify(`内置后端自动启动失败：${status.message}${logHint}`, 'error', 15_000);
+      })
+      .catch(error => {
+        if (!cancelled) {
+          notify(`无法读取内置后端启动状态：${error instanceof Error ? error.message : String(error)}`, 'error', 10_000);
+        }
+      });
+
+    return () => { cancelled = true; };
+  }, [notify]);
+
+  useEffect(() => {
+    // 必须等待连接列表成功加载，不能把“接口尚未返回时的空数组”当成真实空数据库。
+    if (!connections.loaded) return;
+
+    const configuredConnectionIds = new Set(hosts.map(item => item.id));
+    const staleSessions = sessionsRef.current.filter(session =>
+      session.kind === 'ssh' && !configuredConnectionIds.has(session.connectionId));
+    if (staleSessions.length === 0) return;
+
+    const staleTabIds = new Set(staleSessions.map(session => session.id));
+    const staleConnectionIds = new Set(staleSessions.map(session => session.connectionId));
+    const remainingSessions = sessionsRef.current.filter(session => !staleTabIds.has(session.id));
+
+    // 连接记录已经不在当前数据库中，旧页签无法重新连接；同时释放可能仍存活的后端终端会话。
+    staleSessions.forEach(session => {
+      const runtime = terminalClients.current.get(session.id);
+      if (runtime) void runtime.close().catch(() => undefined);
+      terminalClients.current.delete(session.id);
+      tabLastUsedAt.current.delete(session.id);
+      running.current.delete(session.id);
+      opening.current.delete(session.id);
+    });
+
+    sessionsRef.current = remainingSessions;
+    setSessions(remainingSessions);
+    setActiveId(current => staleTabIds.has(current) ? remainingSessions[0]?.id ?? '' : current);
+    setDisconnectTarget(current => current && staleTabIds.has(current.tabId) ? null : current);
+
+    // 文件窗口同样依赖连接配置；删除对应窗口，避免留下另一个不可操作的旧入口。
+    setFileWindows(previous => previous.filter(window => !staleConnectionIds.has(window.connectionId)));
+    setVisibleFiles(current => staleConnectionIds.has(current) ? '' : current);
+
+    notify(
+      staleSessions.length === 1
+        ? `已关闭失效的终端标签“${staleSessions[0].title}”：当前数据库中已没有对应的 SSH 连接。`
+        : `已关闭 ${staleSessions.length} 个失效的终端标签：当前数据库中已没有对应的 SSH 连接。`,
+      'info',
+      5_000,
+    );
+  }, [connections.loaded, hosts, notify]);
+
   const replaceMessages = useCallback((next: ChatMessage[]) => {
     messagesRef.current = next;
     clientHistoryDirty.current = false;
@@ -936,12 +1001,18 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
   }, [hosts]);
 
   useEffect(() => {
-    if (restoredSessionsVerified.current) return;
+    // 连接列表加载完成后再校验，先让上面的清理逻辑排除当前数据库中已经不存在的连接。
+    if (!connections.loaded || restoredSessionsVerified.current) return;
     restoredSessionsVerified.current = true;
+    const configuredConnectionIds = new Set(hosts.map(item => item.id));
     sessions.forEach(session => {
-      if (session.kind === 'ssh' && session.terminalSessionId) void verifyTerminalSession(session.id, session.terminalSessionId);
+      if (session.kind === 'ssh'
+        && configuredConnectionIds.has(session.connectionId)
+        && session.terminalSessionId) {
+        void verifyTerminalSession(session.id, session.terminalSessionId);
+      }
     });
-  }, [sessions, verifyTerminalSession]);
+  }, [connections.loaded, hosts, sessions, verifyTerminalSession]);
 
   useEffect(() => {
     const verifyAfterNetworkRestore = () => {

@@ -24,3 +24,5 @@ dist-ssr
 *.sw?
 /.vscode/
 /src-tauri/.cache/
+/src-tauri/bundle/*
+!/src-tauri/bundle/.gitkeep

@@ -36,8 +36,8 @@ export function readBackendUrl(): string {
   } catch {
     // 首次启动或 WebView 存储不可用时回退到未配置状态。
   }
-  // 开发环境保留本机默认值；正式安装包首次启动必须由用户配置。
-  return import.meta.env.DEV ? DEVELOPMENT_BACKEND : '';
+  // 安装包会自动启动内置后端；未手工指定远程地址时统一连接本机服务。
+  return DEVELOPMENT_BACKEND;
 }
 
 export function saveBackendUrl(raw: string): string {

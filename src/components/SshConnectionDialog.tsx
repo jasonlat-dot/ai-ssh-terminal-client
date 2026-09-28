@@ -23,8 +23,10 @@ export function SshConnectionDialog({ connections, initial = blankSshConnection,
     ...initial,
     connectTimeout: initial.connectTimeout ?? 10,
     keepaliveInterval: initial.keepaliveInterval ?? 30,
-    compression: initial.compression ?? true,
-    strictHostKeyCheck: initial.strictHostKeyCheck ?? true,
+    // 新建连接的可选能力默认关闭；编辑时则继续使用服务端返回的原有配置。
+    compression: initial.compression ?? false,
+    // 只有用户准备好可信的 known_hosts 内容后才主动开启严格校验。
+    strictHostKeyCheck: initial.strictHostKeyCheck ?? false,
   }));
   const [error, setError] = useState('');
   const editing = !!draft.id;
@@ -91,7 +93,7 @@ export function SshConnectionDialog({ connections, initial = blankSshConnection,
               <label className="ssh-full-field">启动命令<input placeholder="可选，例如：cd /var/www/app" value={draft.startupCommand ?? ''} onChange={event => setDraft({ ...draft, startupCommand: event.target.value })} /></label>
               <div className="ssh-setting-field"><span>压缩</span><div className="ssh-boolean-switch" role="radiogroup" aria-label="压缩"><button type="button" role="radio" aria-checked={draft.compression === true} className={draft.compression === true ? 'selected' : ''} onClick={() => setDraft({ ...draft, compression: true })}>开启</button><button type="button" role="radio" aria-checked={draft.compression === false} className={draft.compression === false ? 'selected' : ''} onClick={() => setDraft({ ...draft, compression: false })}>关闭</button></div></div>
               <div className="ssh-setting-field"><span>严格主机密钥检查</span><div className="ssh-boolean-switch" role="radiogroup" aria-label="严格主机密钥检查"><button type="button" role="radio" aria-checked={draft.strictHostKeyCheck === true} className={draft.strictHostKeyCheck === true ? 'selected' : ''} onClick={() => setDraft({ ...draft, strictHostKeyCheck: true })}>开启</button><button type="button" role="radio" aria-checked={draft.strictHostKeyCheck === false} className={draft.strictHostKeyCheck === false ? 'selected' : ''} onClick={() => setDraft({ ...draft, strictHostKeyCheck: false })}>关闭</button></div></div>
-              {draft.strictHostKeyCheck && <label className="ssh-full-field ssh-known-hosts-field">服务器主机密钥（known_hosts）<textarea required rows={4} autoCapitalize="none" spellCheck={false} placeholder="例如：192.168.3.16 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA…" value={draft.knownHosts ?? ''} onChange={event => setDraft({ ...draft, knownHosts: event.target.value })} /><small><strong>推荐 Ed25519。</strong>支持 ssh-ed25519、ecdsa-sha2-nistp256/384/521，以及使用 rsa-sha2-256/512 签名的 RSA 主机密钥（known_hosts 中通常标记为 ssh-rsa）。</small><small>这不是登录私钥。请使用 <code>ssh-keyscan -t ed25519,ecdsa,rsa 主机地址</code> 获取，并通过可信渠道核对指纹；支持粘贴多行。</small></label>}
+              {draft.strictHostKeyCheck && <label className="ssh-full-field ssh-known-hosts-field">服务器主机密钥（known_hosts）<textarea rows={4} autoCapitalize="none" spellCheck={false} aria-invalid={!draft.knownHosts?.trim()} placeholder="例如：192.168.3.16 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA…" value={draft.knownHosts ?? ''} onChange={event => setDraft({ ...draft, knownHosts: event.target.value })} /><small><strong>开启严格检查后必须填写此项，否则无法保存连接。</strong></small><small><strong>推荐 Ed25519。</strong>支持 ssh-ed25519、ecdsa-sha2-nistp256/384/521，以及使用 rsa-sha2-256/512 签名的 RSA 主机密钥（known_hosts 中通常标记为 ssh-rsa）。</small><small>这不是登录私钥。请使用 <code>ssh-keyscan -t ed25519,ecdsa,rsa 主机地址</code> 获取，并通过可信渠道核对指纹；支持粘贴多行。</small></label>}
             </div>
           </details>
         </fieldset>

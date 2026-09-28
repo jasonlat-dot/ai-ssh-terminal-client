@@ -1,11 +1,16 @@
 {
   "name": "ai-ssh-terminal-client",
   "private": true,
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "prepare:backend": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/prepare-backend-bundle.ps1",
+    "prepare:bundle": "npm run prepare:backend && npm run build",
+    "bundle:nsis": "tauri build --bundles nsis",
+    "bundle:msi": "tauri build --bundles msi",
+    "bundle:windows": "tauri build --bundles nsis,msi",
     "preview": "vite preview",
     "tauri": "tauri",
     "test:files": "node --experimental-strip-types tests/files.test.ts",

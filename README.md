@@ -19,20 +19,81 @@ npm run dev
 
 ## 安装后的后端地址设置
 
-Windows 客户端首次启动会提示填写后端服务器根地址，例如 `https://api.example.com` 或 `http://192.168.1.10:8888`。不要附加 `/agent` 或 `/api/v1/ssh`；应用会分别拼接这两个接口前缀。左侧导航栏的“设置”可随时修改地址，保存在本机客户端存储中，重启仍然有效，**无需重新打包或安装**。切换服务器前请停止正在生成的对话并关闭远程终端标签，以免旧服务器的会话与新服务器混用。
+Windows 安装包默认连接随客户端自动启动的 `http://localhost:8888`。如果需要改用独立部署的后端，可在左侧导航栏“设置”中填写服务器根地址，例如 `https://api.example.com` 或 `http://192.168.1.10:8888`。不要附加 `/agent` 或 `/api/v1/ssh`；应用会分别拼接接口前缀。保存后的地址会覆盖本机默认值，重启仍然有效，**无需重新打包或安装**。切换服务器前请停止正在生成的对话并关闭远程终端标签，以免不同服务器的会话混用。
 
-“测试连接”会请求目标服务器的 `/agent/query_ai_agent_config_list`。客户端仍通过 WebView 的 `fetch` 调用后端，因此跨域部署时后端或反向代理必须允许客户端来源（Windows Tauri 正式版通常为 `http://tauri.localhost`；本地开发为 `http://localhost:1420`），并正确处理跨域预检请求。若后端启用 HTTPS，请使用有效证书。开发模式未保存地址时默认连接 `http://localhost:8888`；正式安装包未保存地址时不会发起业务请求，而是先显示设置窗口。
+“测试连接”会请求目标服务器的 `/agent/query_ai_agent_config_list`。客户端仍通过 WebView 的 `fetch` 调用后端，因此跨域部署时后端或反向代理必须允许客户端来源（Windows Tauri 正式版通常为 `http://tauri.localhost`；本地开发为 `http://localhost:1420`），并正确处理跨域预检请求。若后端启用 HTTPS，请使用有效证书。没有保存自定义地址时，开发模式和正式安装包都默认连接 `http://localhost:8888`。
 
 ## Windows 打包
 
-在 `ai-ssh-terminal-client` 目录安装依赖并执行：
+安装包会同时包含：
+
+- Tauri 前端客户端；
+- Spring Boot 后端可执行 JAR；
+- 由当前 JDK 生成的 Java Runtime，最终用户不需要安装 Java；
+- 首次启动使用的 `application.yml` 和 `application-prod.yml` 默认模板。
+
+打包电脑需要安装 JDK 25、Maven、Node.js、Rust/MSVC 和 WebView2 构建工具。先确认：
 
 ```powershell
+java -version
+jlink --version
+mvn -version
 npm install
-npm run tauri build
 ```
 
-当前 `src-tauri/tauri.conf.json` 的 `bundle.targets` 为 `all`。Windows 下构建成功后，可在 `src-tauri/target/release/bundle/nsis/` 找到安装用的 `*-setup.exe`，在 `src-tauri/target/release/bundle/msi/` 找到 MSI。打包需要 Rust/MSVC 工具链和 WebView2；仅需 EXE 安装包时可通过 Tauri CLI 的 `--bundles nsis` 选项构建。后端服务需要单独部署，安装包只包含客户端。
+然后在 `ai-ssh-terminal-client` 目录执行：
+
+```powershell
+# 当前 JAVA_HOME 不是 JDK 25 时，可只为打包指定 JDK，不影响系统全局配置。
+$env:BUNDLE_JAVA_HOME = "C:\Users\Administrator\.jdks\jdk25"
+npm run bundle:windows
+```
+
+该命令会依次构建后端 JAR、通过 `jlink` 生成内置 Java Runtime、构建前端，并同时生成 NSIS 与 MSI 安装程序。结果位于：
+
+```text
+src-tauri/target/release/bundle/nsis/*-setup.exe
+src-tauri/target/release/bundle/msi/*.msi
+```
+
+如果只需要其中一种格式，可以使用：
+
+```powershell
+# 只生成 NSIS EXE 安装包
+npm run bundle:nsis
+
+# 只生成 MSI 安装包
+npm run bundle:msi
+```
+
+打包生成的临时资源位于 `src-tauri/bundle`，已加入 `.gitignore`，不要手工提交 JAR 和 Java Runtime。
+
+### 安装后的后端目录
+
+客户端首次启动时，会在当前用户主目录创建统一后端数据目录：
+
+```text
+%USERPROFILE%\.ai-ssh-terminal\
+├── application.yml
+├── application-prod.yml
+├── data\
+│   └── ai-ssh-terminal.db
+├── uploads\
+└── logs\
+    └── backend-console.log
+```
+
+统一根目录由 `application.yml` 中的 `app.config.data-directory` 配置，默认值为
+`${AI_SSH_TERMINAL_HOME:${user.home}/.ai-ssh-terminal}`。改成其他绝对路径并重启客户端后，
+客户端会把现有内容复制到新目录，后续配置、SQLite、上传文件和日志都从新目录读写。
+
+初始化只检查 `application.yml`：
+
+- 如果 `application.yml` 不存在，复制默认的 `application.yml` 和 `application-prod.yml`。
+- 如果 `application.yml` 已存在，不复制、不覆盖任何 YAML；用户可以自行使用 `application-dev.yml`、`application-sit.yml` 或其他 profile。
+- 客户端升级不会覆盖已有配置、SQLite 数据、上传文件和日志。
+
+内置后端以该目录作为工作目录，并通过 `spring.config.additional-location` 加载外置配置。默认 SQLite 位于 `data`，本地上传文件位于 `uploads`，日志位于 `logs`。修改配置后重启客户端即可重新启动后端并生效。若后端启动失败，客户端仍会打开，并直接显示真实启动错误和 `backend-console.log` 路径。
 
 ## SSH HTTP 接口对接
 
