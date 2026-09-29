@@ -41,7 +41,7 @@ export function TerminalWelcome({ add, connections }: { add: () => void; connect
           <li><strong>进入远程会话</strong><span>点击已保存主机旁的终端图标，建立新的 SSH 终端会话。</span></li>
           <li><strong>上传与下载文件</strong><span>点击服务器下方的“文件管理”，连接后在双栏中浏览本地和服务器目录。选中文件或目录，点击箭头即可上传或下载。</span></li>
         </ol>
-        <p className="muted">SSH 连接配置保存在后端，收藏偏好保存在本地。文件管理使用独立连接，收起窗口或关闭终端后传输仍可继续。</p>
+        <p className="muted">SSH 连接配置保存在后端。文件管理使用独立连接，收起窗口或关闭终端后传输仍可继续。</p>
         <div className="dialog-actions"><button className="outlined-button" onClick={() => setGuideOpen(false)}>知道了</button><button className="primary-button" onClick={() => { setGuideOpen(false); connections(); }}>打开连接管理<Icon name="right" size={16} /></button></div>
       </div>
     </Modal>}

@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
 use std::io;
 use std::net::TcpStream;
@@ -7,7 +8,7 @@ use std::sync::Mutex;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
 
 #[cfg(target_os = "windows")]
@@ -31,6 +32,104 @@ pub struct BackendStatus {
     /** 当前后端控制台日志的绝对路径。 */
     log_path: Option<String>,
 }
+
+/** 单个可编辑配置项的当前值及真实来源文件。 */
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BackendConfigValue {
+    value: String,
+    source_file: String,
+    environment_override: Option<String>,
+    configured: bool,
+    sensitive: bool,
+}
+
+/** 设置页读取的内置后端配置快照。 */
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BackendConfigView {
+    config_directory: String,
+    application_file: String,
+    active_profiles: Vec<String>,
+    values: BTreeMap<String, BackendConfigValue>,
+    sqlite_file: String,
+    upload_directory: String,
+    log_directory: String,
+}
+
+/** 设置页提交的字段。敏感字段传空字符串时保留现有值。 */
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BackendConfigUpdate {
+    values: BTreeMap<String, String>,
+}
+
+/** YAML 中一个字段的原始值、来源文件和可选环境变量。 */
+struct LocatedConfigValue {
+    raw: String,
+    file: PathBuf,
+    environment: Option<String>,
+}
+
+#[derive(Clone, Copy)]
+enum ConfigValueKind {
+    Scalar,
+    List,
+}
+
+#[derive(Clone, Copy)]
+enum ConfigValueStyle {
+    Text,
+    Plain,
+}
+
+/** 前端允许编辑的配置白名单，避免客户端提交任意 YAML 路径。 */
+struct ConfigField {
+    key: &'static str,
+    path: &'static [&'static str],
+    kind: ConfigValueKind,
+    style: ConfigValueStyle,
+    sensitive: bool,
+}
+
+const CONFIG_FIELDS: &[ConfigField] = &[
+    ConfigField { key: "serverPort", path: &["server", "port"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Plain, sensitive: false },
+    ConfigField { key: "dataDirectory", path: &["app", "config", "data-directory"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false },
+    ConfigField { key: "aiBaseUrl", path: &["openai", "ai-api", "base-url"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false },
+    ConfigField { key: "aiApiKey", path: &["openai", "ai-api", "api-key"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: true },
+    ConfigField { key: "aiCompletionsPath", path: &["openai", "ai-api", "completions-path"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false },
+    ConfigField { key: "aiEmbeddingsPath", path: &["openai", "ai-api", "embeddings-path"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false },
+    ConfigField { key: "aiProxyEnabled", path: &["openai", "ai-api", "proxy", "enabled"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Plain, sensitive: false },
+    ConfigField { key: "aiProxyHost", path: &["openai", "ai-api", "proxy", "host"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false },
+    ConfigField { key: "aiProxyPort", path: &["openai", "ai-api", "proxy", "port"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Plain, sensitive: false },
+    ConfigField { key: "aiNonProxyHosts", path: &["openai", "ai-api", "proxy", "non-proxy-hosts"], kind: ConfigValueKind::List, style: ConfigValueStyle::Text, sensitive: false },
+    ConfigField { key: "aiModelName", path: &["openai", "chat-model", "model-name"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false },
+    ConfigField { key: "aiReasoningEffort", path: &["openai", "chat-model", "reasoning-effort"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false },
+    ConfigField { key: "aiSupportedMediaTypes", path: &["openai", "chat-model", "supported-media-types"], kind: ConfigValueKind::List, style: ConfigValueStyle::Text, sensitive: false },
+    ConfigField { key: "fileStorageDefaultId", path: &["ai", "file", "storage", "default-id"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false },
+    ConfigField { key: "localStorageEnabled", path: &["ai", "file", "storage", "local", "enabled"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Plain, sensitive: false },
+    ConfigField { key: "localStorageId", path: &["ai", "file", "storage", "local", "storage-id"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false },
+    ConfigField { key: "localRootDirectory", path: &["ai", "file", "storage", "local", "root-directory"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false },
+    ConfigField { key: "localPublicBaseUrl", path: &["ai", "file", "storage", "local", "public-base-url"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false },
+    ConfigField { key: "localSigningSecret", path: &["ai", "file", "storage", "local", "signing-secret"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: true },
+    ConfigField { key: "minioEnabled", path: &["ai", "file", "storage", "minio", "enabled"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Plain, sensitive: false },
+    ConfigField { key: "minioStorageId", path: &["ai", "file", "storage", "minio", "storage-id"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false },
+    ConfigField { key: "minioEndpoint", path: &["ai", "file", "storage", "minio", "endpoint"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false },
+    ConfigField { key: "minioPublicEndpoint", path: &["ai", "file", "storage", "minio", "public-endpoint"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false },
+    ConfigField { key: "minioAccessKey", path: &["ai", "file", "storage", "minio", "access-key"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: true },
+    ConfigField { key: "minioSecretKey", path: &["ai", "file", "storage", "minio", "secret-key"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: true },
+    ConfigField { key: "minioBucket", path: &["ai", "file", "storage", "minio", "bucket"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false },
+    ConfigField { key: "minioRegion", path: &["ai", "file", "storage", "minio", "region"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false },
+    ConfigField { key: "minioConnectTimeout", path: &["ai", "file", "storage", "minio", "connect-timeout"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false },
+    ConfigField { key: "minioReadTimeout", path: &["ai", "file", "storage", "minio", "read-timeout"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false },
+    ConfigField { key: "minioWriteTimeout", path: &["ai", "file", "storage", "minio", "write-timeout"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false },
+    ConfigField { key: "minioCallTimeout", path: &["ai", "file", "storage", "minio", "call-timeout"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false },
+    ConfigField { key: "sshProxyEnabled", path: &["ai", "ssh", "http-proxy", "enabled"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Plain, sensitive: false },
+    ConfigField { key: "sshProxyHost", path: &["ai", "ssh", "http-proxy", "host"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false },
+    ConfigField { key: "sshProxyPort", path: &["ai", "ssh", "http-proxy", "port"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Plain, sensitive: false },
+    ConfigField { key: "sshProxyUsername", path: &["ai", "ssh", "http-proxy", "username"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false },
+    ConfigField { key: "sshProxyPassword", path: &["ai", "ssh", "http-proxy", "password"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: true },
+];
 
 impl Default for BackendStatus {
     fn default() -> Self {
@@ -141,7 +240,7 @@ fn start_inner(app: &AppHandle) -> Result<PathBuf, Box<dyn std::error::Error>> {
     })?;
 
     // 等待监听端口就绪后再显示主界面，避免前端首次请求早于 Spring Boot 启动完成。
-    let server_port = read_server_port(&backend_home.join("application.yml")).unwrap_or(8888);
+    let server_port = read_server_port(&backend_home).unwrap_or(8888);
     wait_until_ready(&mut child, server_port, Duration::from_secs(60))?;
 
     let state = app.state::<BundledBackendState>();
@@ -165,6 +264,390 @@ pub fn bundled_backend_status(state: State<'_, BundledBackendState>) -> BackendS
 pub fn bundled_backend_restart(app: AppHandle) -> BackendStatus {
     stop(&app);
     start(&app)
+}
+
+/** 读取当前 application.yml 与活动 Profile 中真正生效的桌面配置。 */
+#[tauri::command]
+pub fn bundled_backend_config(app: AppHandle) -> Result<BackendConfigView, String> {
+    load_backend_config(&app).map_err(|error| error.to_string())
+}
+
+/**
+ * 精确更新配置字段。每个字段写回它当前的来源文件，不创建隐藏的高优先级覆盖文件。
+ * 写入前保留同目录 .bak 副本，用户手工维护的其他 YAML 内容不会被整体重写。
+ */
+#[tauri::command]
+pub fn bundled_backend_save_config(app: AppHandle, update: BackendConfigUpdate) -> Result<BackendConfigView, String> {
+    save_backend_config(&app, update).map_err(|error| error.to_string())?;
+    load_backend_config(&app).map_err(|error| error.to_string())
+}
+
+/** 汇总配置文件、活动 Profile 和设置页支持的字段。 */
+fn load_backend_config(app: &AppHandle) -> io::Result<BackendConfigView> {
+    let resource_dir = app.path().resource_dir().map_err(io::Error::other)?;
+    let backend_home = resolve_backend_home(&resource_dir, app)?;
+    let application_file = backend_home.join("application.yml");
+    let user_home = app.path().home_dir().map_err(io::Error::other)?;
+    let profiles = active_profiles(&application_file)?;
+    let files = config_files(&backend_home, &profiles);
+
+    let mut values = BTreeMap::new();
+    for field in CONFIG_FIELDS {
+        let located = locate_config_field(&files, field)?;
+        let effective = effective_config_value(&located.raw, field.kind)
+            .replace("${user.home}", &user_home.to_string_lossy());
+        values.insert(field.key.to_string(), config_view_value(&located, effective, field.sensitive));
+    }
+
+    let data_value = values.get("dataDirectory")
+        .map(|value| value.value.clone())
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "配置项 dataDirectory 不存在"))?;
+    let data_path = PathBuf::from(data_value.trim_matches(['\'', '"']));
+    let data_path = if data_path.is_absolute() { data_path } else { backend_home.join(data_path) };
+    let resolved_data_directory = data_path.to_string_lossy().into_owned();
+
+    // 页面面向普通用户展示最终路径，不直接暴露 Spring 的属性占位符。
+    // 保存时前端会排除派生路径，因此这里只影响显示，不会破坏 YAML 中的动态引用关系。
+    for value in values.values_mut().filter(|value| !value.sensitive) {
+        value.value = value.value
+            .replace("${app.config.data-directory}", &resolved_data_directory)
+            .replace("${user.home}", &user_home.to_string_lossy());
+    }
+    if let Some(value) = values.get_mut("dataDirectory") {
+        value.value = resolved_data_directory;
+    }
+
+    Ok(BackendConfigView {
+        config_directory: backend_home.to_string_lossy().into_owned(),
+        application_file: application_file.to_string_lossy().into_owned(),
+        active_profiles: profiles,
+        values,
+        sqlite_file: data_path.join("data").join("ai-ssh-terminal.db").to_string_lossy().into_owned(),
+        upload_directory: data_path.join("files").to_string_lossy().into_owned(),
+        log_directory: data_path.join("logs").to_string_lossy().into_owned(),
+    })
+}
+
+/** 校验并保存设置页支持的字段。数据目录迁移由下一次 start 中的既有逻辑完成。 */
+fn save_backend_config(app: &AppHandle, update: BackendConfigUpdate) -> io::Result<()> {
+    validate_config_update(&update.values)?;
+
+    let resource_dir = app.path().resource_dir().map_err(io::Error::other)?;
+    let backend_home = resolve_backend_home(&resource_dir, app)?;
+    let application_file = backend_home.join("application.yml");
+    let profiles = active_profiles(&application_file)?;
+    let files = config_files(&backend_home, &profiles);
+
+    for (key, value) in update.values {
+        let Some(field) = CONFIG_FIELDS.iter().find(|field| field.key == key.as_str()) else {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, format!("不支持的配置项 {key}")));
+        };
+        // 密钥输入框留空代表不修改，避免页面读取配置时清空已有敏感信息。
+        if field.sensitive && value.trim().is_empty() {
+            continue;
+        }
+        update_effective_field(&files, field, value.trim())?;
+    }
+    Ok(())
+}
+
+/** 保存前完成必要的格式校验，业务连接是否正在使用不阻止配置落盘。 */
+fn validate_config_update(values: &BTreeMap<String, String>) -> io::Result<()> {
+    for key in ["serverPort", "aiProxyPort", "sshProxyPort"] {
+        if let Some(value) = values.get(key) {
+            let port = value.parse::<u16>().map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, format!("{key} 必须是 1 到 65535 之间的整数")))?;
+            if port == 0 {
+                return Err(io::Error::new(io::ErrorKind::InvalidInput, format!("{key} 必须是 1 到 65535 之间的整数")));
+            }
+        }
+    }
+    for key in ["aiProxyEnabled", "localStorageEnabled", "minioEnabled", "sshProxyEnabled"] {
+        if let Some(value) = values.get(key) {
+            if value != "true" && value != "false" {
+                return Err(io::Error::new(io::ErrorKind::InvalidInput, format!("{key} 只能是 true 或 false")));
+            }
+        }
+    }
+    if let Some(value) = values.get("dataDirectory") {
+        if !PathBuf::from(value.trim()).is_absolute() {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "数据目录必须填写绝对路径"));
+        }
+    }
+    for key in ["aiBaseUrl", "minioEndpoint"] {
+        if let Some(value) = values.get(key) {
+            if !(value.starts_with("http://") || value.starts_with("https://")) {
+                return Err(io::Error::new(io::ErrorKind::InvalidInput, format!("{key} 必须以 http:// 或 https:// 开头")));
+            }
+        }
+    }
+    Ok(())
+}
+
+/** 返回 application.yml 以及按声明顺序存在的 application-{profile}.yml。 */
+fn config_files(backend_home: &Path, profiles: &[String]) -> Vec<PathBuf> {
+    let mut files = vec![backend_home.join("application.yml")];
+    files.extend(profiles.iter().map(|profile| backend_home.join(format!("application-{profile}.yml"))).filter(|path| path.is_file()));
+    files
+}
+
+/** 读取 spring.profiles.active；当前模板和常用逗号、行内数组写法均支持。 */
+fn active_profiles(application_file: &Path) -> io::Result<Vec<String>> {
+    let content = fs::read_to_string(application_file)?;
+    let raw = yaml_value(&content, &["spring", "profiles", "active"]).unwrap_or_else(|| "prod".into());
+    let value = placeholder_default(&raw).trim_matches(['[', ']', '\'', '"']).to_string();
+    let profiles = value.split(',').map(|item| item.trim().trim_matches(['\'', '"']).to_string())
+        .filter(|item| !item.is_empty()).collect::<Vec<_>>();
+    Ok(if profiles.is_empty() { vec!["prod".into()] } else { profiles })
+}
+
+/** 从后加载的 Profile 向前查找，得到 Spring 配置优先级最高的字段。 */
+fn locate_config_value(files: &[PathBuf], path: &[&str]) -> io::Result<LocatedConfigValue> {
+    for file in files.iter().rev() {
+        let content = fs::read_to_string(file)?;
+        if let Some(raw) = yaml_value(&content, path) {
+            return Ok(LocatedConfigValue { environment: placeholder_environment(&raw), raw, file: file.clone() });
+        }
+    }
+    Err(io::Error::new(io::ErrorKind::NotFound, format!("配置项 {} 不存在", path.join("."))))
+}
+
+/** 按字段类型读取标量或 YAML 列表，并记录仍然生效的环境变量覆盖。 */
+fn locate_config_field(files: &[PathBuf], field: &ConfigField) -> io::Result<LocatedConfigValue> {
+    for file in files.iter().rev() {
+        let content = fs::read_to_string(file)?;
+        let raw = match field.kind {
+            ConfigValueKind::Scalar => yaml_value(&content, field.path),
+            ConfigValueKind::List => yaml_list_value(&content, field.path),
+        };
+        if let Some(raw) = raw {
+            return Ok(LocatedConfigValue {
+                environment: active_environment_names(&raw),
+                raw,
+                file: file.clone(),
+            });
+        }
+    }
+    Err(io::Error::new(io::ErrorKind::NotFound, format!("配置项 {} 不存在", field.path.join("."))))
+}
+
+/** 读取缩进式 YAML 中指定路径的标量值，不改写注释或其他字段。 */
+fn yaml_value(content: &str, path: &[&str]) -> Option<String> {
+    let mut parents: Vec<(usize, String)> = Vec::new();
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with('-') { continue; }
+        let indent = line.len() - line.trim_start().len();
+        while parents.last().is_some_and(|(parent_indent, _)| *parent_indent >= indent) { parents.pop(); }
+        let Some((key, raw_value)) = trimmed.split_once(':') else { continue; };
+        let key = key.trim().trim_matches(['\'', '"']);
+        let mut current = parents.iter().map(|(_, key)| key.as_str()).collect::<Vec<_>>();
+        current.push(key);
+        if current == path {
+            return Some(strip_inline_comment(raw_value.trim()).to_string());
+        }
+        if raw_value.trim().is_empty() { parents.push((indent, key.to_string())); }
+    }
+    None
+}
+
+/** 读取块样式 YAML 列表，并使用换行分隔后交给设置页 textarea。 */
+fn yaml_list_value(content: &str, path: &[&str]) -> Option<String> {
+    let mut parents: Vec<(usize, String)> = Vec::new();
+    let mut target_indent = None;
+    let mut values = Vec::new();
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') { continue; }
+        let indent = line.len() - line.trim_start().len();
+        if let Some(parent_indent) = target_indent {
+            if indent > parent_indent && trimmed.starts_with('-') {
+                values.push(strip_inline_comment(trimmed.trim_start_matches('-').trim()).to_string());
+                continue;
+            }
+            if indent <= parent_indent { break; }
+        }
+        if trimmed.starts_with('-') { continue; }
+        while parents.last().is_some_and(|(parent_indent, _)| *parent_indent >= indent) { parents.pop(); }
+        let Some((key, raw_value)) = trimmed.split_once(':') else { continue; };
+        let key = key.trim().trim_matches(['\'', '"']);
+        let mut current = parents.iter().map(|(_, key)| key.as_str()).collect::<Vec<_>>();
+        current.push(key);
+        if current == path {
+            target_indent = Some(indent);
+            if !raw_value.trim().is_empty() {
+                return Some(raw_value.trim().trim_matches(['[', ']']).split(',').map(str::trim).collect::<Vec<_>>().join("\n"));
+            }
+        }
+        if raw_value.trim().is_empty() { parents.push((indent, key.to_string())); }
+    }
+    target_indent.map(|_| values.join("\n"))
+}
+
+/** 将配置值写回当前真正提供该值的文件。 */
+fn update_effective_field(files: &[PathBuf], field: &ConfigField, new_value: &str) -> io::Result<()> {
+    let located = locate_config_field(files, field)?;
+    let content = fs::read_to_string(&located.file)?;
+    let updated = match field.kind {
+        ConfigValueKind::Scalar => {
+            let rendered = render_scalar_value(&located.raw, new_value, field.style);
+            replace_yaml_value(&content, field.path, &rendered)
+        }
+        ConfigValueKind::List => replace_yaml_list(&content, field.path, &located.raw, new_value),
+    }.ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("无法定位配置项 {}", field.path.join("."))))?;
+    if updated != content { write_config_with_backup(&located.file, &updated)?; }
+    Ok(())
+}
+
+/** 保留原有 ${ENV:default} 结构，仅修改默认值，避免前端保存后破坏环境变量能力。 */
+fn render_scalar_value(old_raw: &str, new_value: &str, style: ConfigValueStyle) -> String {
+    if let Some(environment) = placeholder_environment(old_raw) {
+        return format!("${{{environment}:{new_value}}}");
+    }
+    match style {
+        ConfigValueStyle::Text => yaml_string(new_value),
+        ConfigValueStyle::Plain => new_value.to_string(),
+    }
+}
+
+/** 只替换目标标量所在行，保留原文件顺序、注释和所有未知配置。 */
+fn replace_yaml_value(content: &str, path: &[&str], new_value: &str) -> Option<String> {
+    let mut parents: Vec<(usize, String)> = Vec::new();
+    let mut output = Vec::new();
+    let mut replaced = false;
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with('-') {
+            output.push(line.to_string());
+            continue;
+        }
+        let indent = line.len() - line.trim_start().len();
+        while parents.last().is_some_and(|(parent_indent, _)| *parent_indent >= indent) { parents.pop(); }
+        let Some((key_part, raw_value)) = trimmed.split_once(':') else { output.push(line.to_string()); continue; };
+        let key = key_part.trim().trim_matches(['\'', '"']);
+        let mut current = parents.iter().map(|(_, key)| key.as_str()).collect::<Vec<_>>();
+        current.push(key);
+        if current == path {
+            let comment = inline_comment(raw_value).unwrap_or_default();
+            output.push(format!("{}{}: {}{}", " ".repeat(indent), key_part.trim(), new_value, comment));
+            replaced = true;
+        } else {
+            output.push(line.to_string());
+        }
+        if raw_value.trim().is_empty() { parents.push((indent, key.to_string())); }
+    }
+    replaced.then(|| {
+        let mut value = output.join(if content.contains("\r\n") { "\r\n" } else { "\n" });
+        if content.ends_with('\n') { value.push('\n'); }
+        value
+    })
+}
+
+/** 替换块样式 YAML 列表；同序号原值有环境变量时继续保留该变量名称。 */
+fn replace_yaml_list(content: &str, path: &[&str], old_raw: &str, new_value: &str) -> Option<String> {
+    let old_items = old_raw.lines().collect::<Vec<_>>();
+    let new_items = new_value.lines().map(str::trim).filter(|item| !item.is_empty()).collect::<Vec<_>>();
+    let mut parents: Vec<(usize, String)> = Vec::new();
+    let mut output = Vec::new();
+    let mut target_indent = None;
+    let mut replaced = false;
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+        let indent = line.len() - line.trim_start().len();
+        if let Some(parent_indent) = target_indent {
+            if indent > parent_indent && trimmed.starts_with('-') { continue; }
+            target_indent = None;
+        }
+        if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with('-') {
+            output.push(line.to_string());
+            continue;
+        }
+        while parents.last().is_some_and(|(parent_indent, _)| *parent_indent >= indent) { parents.pop(); }
+        let Some((key_part, raw_value)) = trimmed.split_once(':') else { output.push(line.to_string()); continue; };
+        let key = key_part.trim().trim_matches(['\'', '"']);
+        let mut current = parents.iter().map(|(_, key)| key.as_str()).collect::<Vec<_>>();
+        current.push(key);
+        output.push(line.to_string());
+        if current == path {
+            for (index, item) in new_items.iter().enumerate() {
+                let rendered = old_items.get(index)
+                    .and_then(|old| placeholder_environment(old))
+                    .map(|environment| format!("${{{environment}:{item}}}"))
+                    .unwrap_or_else(|| yaml_string(item));
+                output.push(format!("{}- {rendered}", " ".repeat(indent + 2)));
+            }
+            target_indent = Some(indent);
+            replaced = true;
+        }
+        if raw_value.trim().is_empty() { parents.push((indent, key.to_string())); }
+    }
+    replaced.then(|| finish_yaml_output(content, output))
+}
+
+fn finish_yaml_output(content: &str, output: Vec<String>) -> String {
+    let mut value = output.join(if content.contains("\r\n") { "\r\n" } else { "\n" });
+    if content.ends_with('\n') { value.push('\n'); }
+    value
+}
+
+/** 先保存 .bak 和临时文件，再用新内容替换目标文件。 */
+fn write_config_with_backup(path: &Path, content: &str) -> io::Result<()> {
+    let file_name = path.file_name().and_then(|value| value.to_str()).ok_or_else(|| io::Error::other("配置文件名无效"))?;
+    let backup = path.with_file_name(format!("{file_name}.bak"));
+    let temporary = path.with_file_name(format!("{file_name}.tmp"));
+    fs::copy(path, &backup)?;
+    fs::write(&temporary, content)?;
+    fs::remove_file(path)?;
+    if let Err(error) = fs::rename(&temporary, path) {
+        // Windows 上替换失败时立即恢复备份，避免配置文件只剩临时文件。
+        let _ = fs::copy(&backup, path);
+        return Err(error);
+    }
+    Ok(())
+}
+
+fn strip_inline_comment(value: &str) -> &str { value.split_once(" #").map(|(value, _)| value.trim_end()).unwrap_or(value) }
+fn inline_comment(value: &str) -> Option<String> { value.find(" #").map(|index| value[index..].to_string()) }
+fn yaml_string(value: &str) -> String { format!("'{}'", value.replace('\'', "''")) }
+fn display_file_name(path: &Path) -> String { path.file_name().map(|value| value.to_string_lossy().into_owned()).unwrap_or_else(|| path.to_string_lossy().into_owned()) }
+
+fn placeholder_environment(raw: &str) -> Option<String> {
+    let value = raw.trim().trim_matches(['\'', '"']);
+    let body = value.strip_prefix("${")?.strip_suffix('}')?;
+    Some(body.split_once(':')?.0.trim().to_string())
+}
+
+fn placeholder_default(raw: &str) -> String {
+    let value = raw.trim().trim_matches(['\'', '"']);
+    let Some(body) = value.strip_prefix("${").and_then(|value| value.strip_suffix('}')) else { return value.to_string(); };
+    body.split_once(':').map(|(_, fallback)| fallback.to_string()).unwrap_or_default()
+}
+
+fn effective_scalar(raw: &str, environment: Option<&str>) -> String {
+    environment.and_then(|name| std::env::var(name).ok()).unwrap_or_else(|| placeholder_default(raw))
+}
+
+fn active_environment_names(raw: &str) -> Option<String> {
+    let names = raw.lines().filter_map(placeholder_environment)
+        .filter(|name| std::env::var_os(name).is_some()).collect::<Vec<_>>();
+    (!names.is_empty()).then(|| names.join(", "))
+}
+
+fn effective_config_value(raw: &str, kind: ConfigValueKind) -> String {
+    match kind {
+        ConfigValueKind::Scalar => effective_scalar(raw, placeholder_environment(raw).as_deref()),
+        ConfigValueKind::List => raw.lines().map(|item| effective_scalar(item, placeholder_environment(item).as_deref())).collect::<Vec<_>>().join("\n"),
+    }
+}
+
+fn config_view_value(value: &LocatedConfigValue, effective: String, sensitive: bool) -> BackendConfigValue {
+    BackendConfigValue {
+        configured: !effective.trim().is_empty(),
+        value: if sensitive { String::new() } else { effective },
+        source_file: display_file_name(&value.file),
+        environment_override: value.environment.clone(),
+        sensitive,
+    }
 }
 
 /** 更新共享状态；锁异常时不再让桌面客户端崩溃。 */
@@ -323,32 +806,13 @@ fn open_backend_log(path: &Path) -> io::Result<File> {
  * 读取 application.yml 顶层 server.port。
  * 同时识别 8888 和 ${SERVER_PORT:8888}，解析失败时由调用方使用默认端口。
  */
-fn read_server_port(application_yml: &Path) -> Option<u16> {
-    let content = fs::read_to_string(application_yml).ok()?;
-    let mut inside_server = false;
-
-    for line in content.lines() {
-        let without_comment = line.split('#').next()?.trim_end();
-        if without_comment.trim().is_empty() {
-            continue;
-        }
-
-        let indentation = without_comment.len() - without_comment.trim_start().len();
-        let value = without_comment.trim();
-        if indentation == 0 {
-            inside_server = value == "server:";
-            continue;
-        }
-        if inside_server && indentation > 0 && value.starts_with("port:") {
-            let configured = value.trim_start_matches("port:").trim();
-            if let Ok(port) = configured.parse::<u16>() {
-                return Some(port);
-            }
-            let default_value = configured.trim_end_matches('}').rsplit(':').next()?;
-            return default_value.parse::<u16>().ok();
-        }
-    }
-    None
+fn read_server_port(backend_home: &Path) -> Option<u16> {
+    // 与设置页使用同一套 Profile 优先级，避免端口写在 application-prod.yml 时等待错误端口。
+    let application_file = backend_home.join("application.yml");
+    let profiles = active_profiles(&application_file).ok()?;
+    let files = config_files(backend_home, &profiles);
+    let port = locate_config_value(&files, &["server", "port"]).ok()?;
+    effective_scalar(&port.raw, port.environment.as_deref()).parse::<u16>().ok()
 }
 
 /** 等待 Spring Boot 开始监听；进程提前退出或超时会阻止客户端带着不可用后端继续启动。 */

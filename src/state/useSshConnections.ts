@@ -3,7 +3,7 @@ import { sshApi, sshUserId, toHost, toRequest } from '../api/ssh';
 import type { ConnectionDraft } from '../api/ssh';
 import type { Host } from '../types';
 
-type Metadata = Record<string, { environment?: string; favorite?: boolean }>;
+type Metadata = Record<string, { environment?: string }>;
 const metadataKey = `agent-ssh-metadata-v1:${sshUserId}`;
 function readMetadata(): Metadata {
   try { const value = JSON.parse(localStorage.getItem(metadataKey) || '{}'); return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }
@@ -16,7 +16,7 @@ export function useSshConnections() {
   const [error, setError] = useState('');
   const lock = useRef(false);
   const metadata = useRef(readMetadata());
-  const decorate = useCallback((host: Host): Host => ({ ...host, environment: metadata.current[host.id]?.environment || '开发', favorite: metadata.current[host.id]?.favorite === true }), []);
+  const decorate = useCallback((host: Host): Host => ({ ...host, environment: metadata.current[host.id]?.environment || '开发' }), []);
   const run = useCallback(async <T,>(action: () => Promise<T>): Promise<T | undefined> => {
     if (lock.current) return undefined;
     lock.current = true; setBusy(true); setError('');
@@ -30,13 +30,13 @@ export function useSshConnections() {
   }), [decorate, run]);
   useEffect(() => { void refresh(); }, [refresh]);
   const saveMetadata = (host: Host) => {
-    metadata.current = { ...metadata.current, [host.id]: { environment: host.environment, favorite: host.favorite } };
+    metadata.current = { ...metadata.current, [host.id]: { environment: host.environment } };
     try { localStorage.setItem(metadataKey, JSON.stringify(metadata.current)); }
-    catch { setError('连接操作已完成，但收藏偏好无法保存到本地。'); }
+    catch { setError('连接操作已完成，但本地显示偏好无法保存。'); }
   };
   const save = (draft: ConnectionDraft) => run(async () => {
     const dto = await (draft.id ? sshApi.update(toRequest(draft)) : sshApi.create(toRequest(draft)));
-    const host = { ...toHost(dto), environment: draft.environment, favorite: draft.favorite };
+    const host = { ...toHost(dto), environment: draft.environment };
     saveMetadata(host);
     setHosts(previous => previous.some(item => item.id === host.id) ? previous.map(item => item.id === host.id ? host : item) : [...previous, host]);
     return host;
@@ -46,9 +46,5 @@ export function useSshConnections() {
     await sshApi.delete(id);
     setHosts(previous => previous.filter(host => host.id !== id)); return true;
   });
-  const favorite = (host: Host) => {
-    const updated = { ...host, favorite: !host.favorite }; saveMetadata(updated);
-    setHosts(previous => previous.map(item => item.id === host.id ? updated : item));
-  };
-  return { hosts, busy, loaded, error, refresh, save, detail, remove, favorite };
+  return { hosts, busy, loaded, error, refresh, save, detail, remove };
 }

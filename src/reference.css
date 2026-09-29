@@ -2195,3 +2195,194 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.985); }
   .file-tree-children,
   .transfer-direction { animation: none; transition: none; }
 }
+
+/* Collapsible connection rail ---------------------------------------------
+   Keep a narrow, always-visible handle so restoring the host list is obvious. */
+.app-shell {
+  --host-sidebar-width: 224px;
+  grid-template-columns: var(--rail) var(--host-sidebar-width) minmax(360px, 1fr) 4px minmax(300px, var(--agent-width, 22%));
+}
+.app-shell.host-sidebar-collapsed { --host-sidebar-width: 0px; }
+.app-shell.agent-collapsed {
+  grid-template-columns: var(--rail) var(--host-sidebar-width) minmax(360px, 1fr) 0 0;
+}
+.host-sidebar {
+  transition: margin-left .32s cubic-bezier(.22, .8, .24, 1), border-color .2s ease, background-color .2s ease;
+}
+.host-sidebar-title,
+.host-sidebar-heading-actions,
+.sidebar-host-search,
+.sidebar-host-list,
+.host-sidebar > footer {
+  transition: opacity .16s ease, transform .28s cubic-bezier(.22, .8, .24, 1), visibility 0s;
+}
+.host-sidebar-heading-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+.host-sidebar-collapse { flex-shrink: 0; }
+.host-sidebar.collapsed {
+  align-self: start;
+  z-index: 4;
+  width: 32px;
+  height: 36px;
+  min-height: 36px;
+  margin: 10px 0 0 4px;
+  overflow: visible;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+.host-sidebar.collapsed .host-sidebar-heading {
+  min-height: 36px;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.host-sidebar.collapsed .host-sidebar-title,
+.host-sidebar.collapsed .sidebar-host-search,
+.host-sidebar.collapsed .sidebar-host-list,
+.host-sidebar.collapsed > footer {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+  transform: translateX(-8px);
+  transition: opacity .12s ease, transform .2s ease, visibility 0s .2s;
+}
+.host-sidebar.collapsed .host-sidebar-heading-actions { gap: 0; }
+.host-sidebar.collapsed .host-sidebar-add,
+.host-sidebar.collapsed .host-sidebar-refresh {
+  width: 0;
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+  border-width: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.host-sidebar.collapsed .host-sidebar-collapse {
+  width: 32px;
+  height: 32px;
+  border-color: var(--line-strong);
+  background: var(--theme-panel);
+  box-shadow: 0 2px 8px #203a5c14;
+}
+.host-sidebar.collapsed .host-sidebar-collapse:hover {
+  background: var(--theme-hover);
+  box-shadow: 0 4px 12px #203a5c1f;
+}
+.sidebar-management-footer { gap: 5px; }
+.host-sidebar > .sidebar-management-footer > .sidebar-manage-button {
+  display: inline-flex;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 30px;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 5px 4px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: var(--theme-text-muted);
+  background: transparent;
+  font-size: 9.5px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+.host-sidebar > .sidebar-management-footer > .sidebar-manage-button:hover:not(:disabled) {
+  border-color: var(--line-strong);
+  color: var(--theme-accent-text);
+  background: var(--theme-hover);
+}
+.host-sidebar > .sidebar-management-footer > .sidebar-manage-button[aria-pressed='true'] {
+  border-color: var(--line-strong);
+  color: var(--theme-accent-text);
+  background: var(--theme-selected);
+  box-shadow: inset 0 0 0 1px #3479d214;
+}
+.host-sidebar > .sidebar-management-footer > .sidebar-manage-button:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+.sidebar-host-list { padding-top: 3px; }
+.sidebar-host {
+  margin-bottom: 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--theme-control);
+  transition: border-color .18s ease, background-color .18s ease, box-shadow .18s ease, transform .18s ease;
+}
+.sidebar-host:hover {
+  border-color: var(--line-strong);
+  background: var(--theme-hover);
+  box-shadow: 0 3px 10px #203a5c0d;
+  transform: translateY(-1px);
+}
+.sidebar-host.selected {
+  border-color: var(--line-strong);
+  background: var(--theme-selected);
+  box-shadow: inset 2px 0 var(--blue), 0 3px 10px #203a5c0d;
+}
+.sidebar-host.managing { background: var(--theme-control); }
+.sidebar-host.managing:hover {
+  background: var(--theme-hover);
+}
+.sidebar-host.managing.selected,
+.sidebar-host.managing.selected:hover {
+  border-color: var(--line-strong);
+  background: var(--theme-selected);
+  box-shadow: inset 2px 0 var(--blue), 0 3px 10px #203a5c0d;
+}
+.sidebar-host.managing .sidebar-host-actions {
+  background: transparent;
+}
+.sidebar-host em.connection-pending {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--theme-accent-text);
+  background: var(--theme-selected);
+}
+.connection-pending > i {
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: connection-status-spin .7s linear infinite;
+}
+.sidebar-host-main > .status-dot.pending {
+  border-color: var(--line-strong);
+  background: var(--theme-selected);
+  box-shadow: none;
+}
+@keyframes connection-status-spin { to { transform: rotate(360deg); } }
+.terminal-tabs { transition: padding-left .32s cubic-bezier(.22, .8, .24, 1); }
+.app-shell.host-sidebar-collapsed .terminal-tabs { padding-left: 36px; }
+
+/* Terminal font control ---------------------------------------------------- */
+.terminal-font-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding-left: 10px;
+  border-left: 1px solid var(--line);
+}
+.terminal-font-hint small { color: var(--theme-text-muted); font-size: 9px; font-weight: 600; }
+
+@media (max-width: 1280px) {
+  .app-shell { --host-sidebar-width: 194px; }
+  .app-shell.host-sidebar-collapsed { --host-sidebar-width: 0px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-shell,
+  .host-sidebar,
+  .host-sidebar-title,
+  .host-sidebar-heading-actions,
+  .sidebar-host-search,
+  .sidebar-host-list,
+  .sidebar-host,
+  .terminal-tabs,
+  .host-sidebar > footer { transition: none; }
+  .connection-pending > i { animation: none; }
+}

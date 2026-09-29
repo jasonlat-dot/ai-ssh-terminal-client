@@ -1,6 +1,6 @@
 export type Host = {
   userId?: string; id: string; name: string; user: string; address: string; port?: number;
-  environment?: string; auth?: 'password' | 'key'; keyPath?: string; favorite?: boolean; saved?: boolean;
+  environment?: string; auth?: 'password' | 'key'; keyPath?: string; saved?: boolean;
   connectTimeout?: number; keepaliveInterval?: number; startupCommand?: string; compression?: boolean;
   strictHostKeyCheck?: boolean; knownHosts?: string;
 };

@@ -22,12 +22,25 @@ type Props = {
   reconnecting: boolean;
   manuallyClosed: boolean;
   onDisconnected: (event: TerminalDisconnectEvent) => void;
-  onReconnectExhausted: () => void;
-  reconnect: (options?: { automatic?: boolean; attempt?: number }) => Promise<boolean>;
+  onReconnectExhausted: (attempts: number) => void;
+  reconnect: (options?: { automatic?: boolean; attempt?: number; totalAttempts?: number }) => Promise<boolean>;
   disconnect: () => void;
 };
 
 const AUTO_RECONNECT_DELAYS = [1_000, 3_000, 5_000, 10_000] as const;
+const TERMINAL_FONT_SIZE_KEY = 'ai-ssh-terminal:terminal-font-size';
+const TERMINAL_FONT_SIZE_EVENT = 'ai-ssh-terminal:terminal-font-size-change';
+const DEFAULT_TERMINAL_FONT_SIZE = 13;
+const MIN_TERMINAL_FONT_SIZE = 9;
+const MAX_TERMINAL_FONT_SIZE = 48;
+
+/** 读取并约束本机保存的终端字号，损坏的存储值会自动回退。 */
+function readTerminalFontSize() {
+  const saved = Number.parseInt(localStorage.getItem(TERMINAL_FONT_SIZE_KEY) ?? '', 10);
+  return Number.isFinite(saved)
+    ? Math.min(MAX_TERMINAL_FONT_SIZE, Math.max(MIN_TERMINAL_FONT_SIZE, saved))
+    : DEFAULT_TERMINAL_FONT_SIZE;
+}
 
 const terminalThemes = {
   light: { background: '#ffffff', foreground: '#243b60', cursor: '#246fe5', cursorAccent: '#ffffff', selectionBackground: '#cfe2ff', scrollbarSliderBackground: '#aebdd180', scrollbarSliderHoverBackground: '#91a6c1a6', scrollbarSliderActiveBackground: '#7890b3bf', black: '#243b60', red: '#be3434', green: '#00885e', yellow: '#946500', blue: '#276ac0', magenta: '#8750bb', cyan: '#008c9e', white: '#d2dceb' },
@@ -50,6 +63,8 @@ export function RemoteTerminalView({
   const [hasSelection, setHasSelection] = useState(false);
   const [pasteFallback, setPasteFallback] = useState(false);
   const [pasteDraft, setPasteDraft] = useState('');
+  const [fontSize, setFontSize] = useState(readTerminalFontSize);
+  const fontSizeRef = useRef(fontSize);
   const pasteField = useRef<HTMLTextAreaElement>(null);
   const { feedback, showFeedback, clearFeedback } = useClipboardFeedback();
   const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
@@ -67,6 +82,7 @@ export function RemoteTerminalView({
   const activeRuntime = useRef(runtime);
   const reconnectingRef = useRef(false);
   activeRuntime.current = runtime;
+  fontSizeRef.current = fontSize;
   allowInput.current = !unavailable;
   disconnectHandler.current = onDisconnected;
   reconnectHandler.current = reconnect;
@@ -131,13 +147,42 @@ export function RemoteTerminalView({
     setHasSelection(false);
     reconnectingRef.current = false;
     const init = setTimeout(() => {
-      if (!element.current) return;
-      const terminal = new Terminal({ fontFamily: 'Consolas, "Courier New", monospace', fontSize: 13, cursorBlink: true, cursorStyle: 'bar', cursorWidth: 2,
+      const terminalElement = element.current;
+      if (!terminalElement) return;
+      const terminal = new Terminal({ fontFamily: 'Consolas, "Courier New", monospace', fontSize: fontSizeRef.current, cursorBlink: true, cursorStyle: 'bar', cursorWidth: 2,
         scrollback: 5000, scrollOnUserInput: true, allowProposedApi: false, overviewRuler: { width: 6 }, theme: currentTerminalTheme() });
       const fit = new FitAddon();
       terminal.loadAddon(fit);
-      terminal.open(element.current);
+      terminal.open(terminalElement);
       term.current = terminal;
+
+      /** 修改字号后立即重新适配行列数，并把新的终端尺寸同步给 CMD 或 SSH 会话。 */
+      const applyFontSize = (nextFontSize: number) => {
+        fontSizeRef.current = nextFontSize;
+        terminal.options.fontSize = nextFontSize;
+        setFontSize(nextFontSize);
+        fit.fit();
+        if (runtime) void runtime.resize(terminal.cols, terminal.rows).catch(error => setError(error.message));
+      };
+      const receiveFontSize = (event: Event) => {
+        const requested = (event as CustomEvent<number>).detail;
+        if (Number.isFinite(requested)) applyFontSize(requested);
+      };
+      const zoomWithWheel = (event: WheelEvent) => {
+        if (!event.ctrlKey) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const direction = event.deltaY < 0 ? 1 : -1;
+        const nextFontSize = Math.min(MAX_TERMINAL_FONT_SIZE, Math.max(MIN_TERMINAL_FONT_SIZE, fontSizeRef.current + direction));
+        if (nextFontSize === fontSizeRef.current) return;
+
+        // 字号是整个客户端的终端偏好，广播后所有已打开页签会保持一致。
+        localStorage.setItem(TERMINAL_FONT_SIZE_KEY, String(nextFontSize));
+        window.dispatchEvent(new CustomEvent<number>(TERMINAL_FONT_SIZE_EVENT, { detail: nextFontSize }));
+      };
+      window.addEventListener(TERMINAL_FONT_SIZE_EVENT, receiveFontSize);
+      // 在捕获阶段截断 Ctrl + 滚轮，避免 xterm 同时滚动终端历史内容。
+      terminalElement.addEventListener('wheel', zoomWithWheel, { capture: true, passive: false });
       terminal.attachCustomKeyEventHandler(event => {
         const key = event.key.toLowerCase();
         const clipboardShortcut = !event.altKey && ((event.ctrlKey && event.shiftKey && !event.metaKey)
@@ -177,18 +222,20 @@ export function RemoteTerminalView({
       const observer = new ResizeObserver(() => {
         clearTimeout(resizeTimer);
         resizeTimer = setTimeout(() => {
-          if (!element.current?.clientWidth || !element.current?.clientHeight) return;
+          if (!terminalElement.clientWidth || !terminalElement.clientHeight) return;
           fit.fit();
           if (runtime) void runtime.resize(terminal.cols, terminal.rows).catch(error => setError(error.message));
         }, 120);
       });
-      observer.observe(element.current);
+      observer.observe(terminalElement);
       const themeObserver = new MutationObserver(() => { terminal.options.theme = currentTerminalTheme(); });
       themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
       cleanup = () => {
         clearTimeout(resizeTimer);
         observer.disconnect();
         themeObserver.disconnect();
+        window.removeEventListener(TERMINAL_FONT_SIZE_EVENT, receiveFontSize);
+        terminalElement.removeEventListener('wheel', zoomWithWheel, { capture: true });
         input.dispose();
         selection.dispose();
         unsubscribe();
@@ -226,7 +273,11 @@ export function RemoteTerminalView({
         reconnectingRef.current = true;
         setLocalReconnecting(true);
         try {
-          const recovered = await reconnectHandler.current({ automatic: true, attempt });
+          const recovered = await reconnectHandler.current({
+            automatic: true,
+            attempt,
+            totalAttempts: AUTO_RECONNECT_DELAYS.length,
+          });
           if (cancelled || activeRuntime.current !== runtime) return;
           if (recovered) return;
         } finally {
@@ -236,7 +287,7 @@ export function RemoteTerminalView({
       }
       if (!cancelled) {
         setError(`自动重连已达到 ${AUTO_RECONNECT_DELAYS.length} 次，请点击“重新连接”。`);
-        exhaustedHandler.current();
+        exhaustedHandler.current(AUTO_RECONNECT_DELAYS.length);
       }
     };
 
@@ -268,7 +319,7 @@ export function RemoteTerminalView({
       <div className="remote-terminal-clipboard" aria-label="终端剪贴板">
         <IconButton icon="copy" label={`复制选中文本 · ${copyShortcut}`} disabled={!hasSelection} onClick={() => { void copySelection(); }} />
         <IconButton icon="paste" label={`粘贴 · ${pasteShortcut}`} disabled={unavailable} onClick={() => { void pasteClipboard(); }} />
-        <span className="terminal-shortcut-hint"><span>复制 <kbd>{copyShortcut}</kbd></span><span>粘贴 <kbd>{pasteShortcut}</kbd></span><span>中断 <kbd>Ctrl+C</kbd></span></span>
+        <span className="terminal-shortcut-hint"><span>复制 <kbd>{copyShortcut}</kbd></span><span>粘贴 <kbd>{pasteShortcut}</kbd></span><span>中断 <kbd>Ctrl+C</kbd></span><span className="terminal-font-hint">字号 <kbd>{fontSize}px</kbd><small>Ctrl+滚轮</small></span></span>
         {!pasteFallback && <ClipboardFeedback feedback={feedback} />}
         {pasteFallback && <div className="terminal-paste-popover" role="dialog" aria-label="粘贴到终端" onKeyDown={event => {
           if (event.key === 'Escape') { event.stopPropagation(); setPasteFallback(false); setPasteDraft(''); term.current?.focus(); }

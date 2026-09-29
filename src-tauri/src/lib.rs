@@ -35,6 +35,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             bundled_backend::bundled_backend_status,
             bundled_backend::bundled_backend_restart,
+            bundled_backend::bundled_backend_config,
+            bundled_backend::bundled_backend_save_config,
             sftp_open,
             sftp_close,
             sftp_entries,
