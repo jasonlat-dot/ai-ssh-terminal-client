@@ -1,0 +1,866 @@
+/* ============================================================================
+ * connections.css — SSH connection dialog, connection management page, and the
+ * delete/compact confirmation dialogs.
+ * ========================================================================== */
+
+.ssh-connection-modal {
+  width: min(620px, 100%);
+}
+
+.ssh-dialog-intro {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  padding: var(--s-5) var(--s-6) 0;
+}
+
+.ssh-dialog-symbol {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  border-radius: var(--r-md);
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+.ssh-dialog-intro p {
+  color: var(--muted);
+  font-size: var(--t-sm);
+}
+
+/* The layout wrapper exists so the scroll region can be a flex child of the
+ * modal. Without `flex: 1` the form would grow the dialog past its max-height
+ * and the advanced-settings disclosure would be clipped by `overflow: hidden`. */
+.ssh-dialog-layout {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+
+.ssh-dialog-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-6);
+  padding: var(--s-5) var(--s-6) var(--s-6);
+  overflow-y: auto;
+}
+
+.ssh-form-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+}
+
+/* Section headings use a hairline above them instead of an uppercase label,
+   which keeps the form scannable without adding label noise. */
+.ssh-form-section-heading {
+  padding-top: var(--s-4);
+  border-top: 1px solid var(--line);
+  font-size: var(--t-xs);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--ls-label);
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.ssh-dialog-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s-4) var(--s-5);
+}
+
+.ssh-server-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.ssh-endpoint-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 96px;
+  gap: var(--s-4);
+}
+
+.ssh-full-field {
+  grid-column: 1 / -1;
+}
+
+.ssh-auth-choice {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+}
+
+.ssh-auth-choice .ssh-form-section-heading {
+  padding-top: var(--s-4);
+  border-top: 1px solid var(--line);
+}
+
+/* Segmented control. One shared implementation for every binary choice so
+   the interaction is learned once. */
+.ssh-auth-switch,
+.ssh-boolean-switch {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-sunken);
+  width: fit-content;
+}
+
+.ssh-auth-switch label,
+.ssh-boolean-switch button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-2);
+  height: 26px;
+  padding: 0 var(--s-4);
+  border-radius: var(--r-sm);
+  color: var(--muted);
+  font-size: var(--t-xs);
+  cursor: pointer;
+  transition: color var(--d-fast) var(--ease), background var(--d-fast) var(--ease);
+}
+
+.ssh-auth-switch input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.ssh-auth-switch label:hover,
+.ssh-boolean-switch button:hover:not(:disabled) {
+  color: var(--text);
+}
+
+.ssh-auth-switch label.selected,
+.ssh-boolean-switch button.selected {
+  background: var(--raised);
+  color: var(--text);
+  box-shadow: var(--shadow-sm);
+  font-weight: var(--fw-medium);
+}
+
+.ssh-boolean-switch button:disabled {
+  opacity: 0.45;
+}
+
+.ssh-setting-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+
+.ssh-setting-field > span {
+  font-size: var(--t-xs);
+  font-weight: var(--fw-medium);
+  color: var(--muted);
+}
+
+.ssh-credential-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+
+.ssh-advanced-settings {
+  border-top: 1px solid var(--line);
+  padding-top: var(--s-4);
+}
+
+.ssh-advanced-settings > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+  padding: var(--s-2) 0;
+  color: var(--muted);
+  font-size: var(--t-xs);
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+  list-style: none;
+}
+
+.ssh-advanced-settings > summary::-webkit-details-marker {
+  display: none;
+}
+
+.ssh-advanced-settings > summary > span {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-3);
+}
+
+.ssh-advanced-settings[open] > summary > svg {
+  transform: rotate(180deg);
+}
+
+.ssh-advanced-settings > summary > svg {
+  transition: transform var(--d-base) var(--ease-emphasis);
+}
+
+.ssh-advanced-settings > div {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+  padding-top: var(--s-4);
+}
+
+.ssh-known-hosts-field small {
+  display: block;
+  color: var(--faint);
+  font-size: var(--t-micro);
+  line-height: var(--lh-snug);
+}
+
+.ssh-known-hosts-field small strong {
+  color: var(--muted);
+  font-weight: var(--fw-semibold);
+}
+
+.ssh-known-hosts-field code {
+  padding: 1px 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--surface-sunken);
+  color: var(--accent-text);
+  font-size: 0.94em;
+}
+
+.ssh-dialog-form > footer {
+  padding-top: var(--s-4);
+  border-top: 1px solid var(--line);
+}
+
+/* ---------------------------------------------------------------------------
+ * Connection management page
+ * ------------------------------------------------------------------------- */
+
+.connections-page {
+  grid-column: 2 / -1;
+  grid-row: 2;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--s-8) var(--s-8) var(--s-9);
+  background: var(--bg);
+}
+
+.connections-page[hidden] {
+  display: none;
+}
+
+.connections-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--s-6);
+  max-width: var(--measure);
+  margin: 0 auto var(--s-7);
+}
+
+.connections-heading > div {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+
+.connections-heading h1 {
+  font-family: var(--sans-display);
+  font-size: var(--t-xl);
+  font-weight: var(--fw-semibold);
+  letter-spacing: -0.02em;
+  line-height: var(--lh-tight);
+  padding-bottom: 1px;
+}
+
+.connections-heading p {
+  color: var(--muted);
+  font-size: var(--t-sm);
+}
+
+.connections-heading p strong {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.connection-create-button {
+  height: 32px;
+  flex: 0 0 auto;
+}
+
+.connections-filter {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--s-4);
+  max-width: var(--measure);
+  margin: 0 auto var(--s-5);
+  padding-bottom: var(--s-4);
+  border-bottom: 1px solid var(--line);
+}
+
+.connection-filter-tabs {
+  display: flex;
+  gap: var(--s-1);
+}
+
+.connection-filter-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  height: 24px;
+  padding: 0 var(--s-3);
+  border-radius: var(--r-sm);
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.connection-filter-tabs button.selected {
+  color: var(--accent-text);
+  background: var(--accent-soft);
+}
+
+.connection-filter-tabs span {
+  font-variant-numeric: tabular-nums;
+  color: var(--faint);
+}
+
+.host-search {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  height: 28px;
+  padding: 0 var(--s-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--surface-sunken);
+  color: var(--faint);
+  transition: border-color var(--d-fast) var(--ease);
+}
+
+.host-search:focus-within {
+  border-color: var(--accent-line);
+  background: var(--raised);
+}
+
+.host-search input {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: var(--t-sm);
+}
+
+.host-search input:focus-visible {
+  outline: none;
+}
+
+.connection-feedback {
+  max-width: var(--measure);
+  margin: 0 auto var(--s-4);
+  min-height: 0;
+}
+
+.connection-feedback > span {
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.connection-list {
+  display: flex;
+  flex-direction: column;
+  max-width: var(--measure);
+  margin: 0 auto;
+  border-top: 1px solid var(--line);
+}
+
+/* Rows are a hairline-separated list; actions reveal on hover so the resting
+   state stays quiet until the row is relevant. */
+.ssh-host-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  border-bottom: 1px solid var(--line);
+  transition: background var(--d-fast) var(--ease);
+}
+
+.ssh-host-row:hover {
+  background: var(--surface-hover);
+}
+
+.host-row-main {
+  flex: 1;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--s-5);
+  min-width: 0;
+  padding: var(--s-4) var(--s-4);
+  text-align: left;
+}
+
+.host-symbol {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--surface-sunken);
+  color: var(--muted);
+  flex: 0 0 auto;
+}
+
+.host-row-identity {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.host-row-identity strong {
+  font-size: var(--t-sm);
+  font-weight: var(--fw-medium);
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.host-row-identity small {
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  color: var(--faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.host-row-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  color: var(--faint);
+  font-size: var(--t-micro);
+}
+
+.host-row-meta > span {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+
+.host-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  color: var(--faint);
+  font-size: var(--t-micro);
+}
+
+.host-status > i {
+  width: 5px;
+  height: 5px;
+  border-radius: var(--r-full);
+  background: currentColor;
+}
+
+.host-row-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
+  padding-right: var(--s-3);
+  flex: 0 0 auto;
+  opacity: 0;
+  transition: opacity var(--d-fast) var(--ease);
+}
+
+.ssh-host-row:hover .host-row-actions,
+.ssh-host-row:focus-within .host-row-actions {
+  opacity: 1;
+}
+
+.host-row-delete:hover:not(:disabled),
+.destructive-icon:hover:not(:disabled) {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+/* ---------------------------------------------------------------------------
+ * Delete confirmations
+ * ------------------------------------------------------------------------- */
+
+.delete-dialog-content,
+.compact-delete-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-5);
+  padding: var(--s-6);
+}
+
+.compact-delete-dialog {
+  gap: var(--s-6);
+}
+
+.compact-delete-dialog p {
+  color: var(--muted);
+  font-size: var(--t-sm);
+  line-height: var(--lh-normal);
+}
+
+.compact-delete-dialog strong {
+  color: var(--text);
+}
+
+.delete-dialog-warning {
+  display: grid;
+  place-items: center;
+  padding-top: var(--s-6);
+  color: var(--danger);
+}
+
+.delete-dialog-content h3 {
+  font-size: var(--t-md);
+  font-weight: var(--fw-semibold);
+}
+
+.delete-dialog-content > p {
+  color: var(--muted);
+  font-size: var(--t-sm);
+  line-height: var(--lh-normal);
+}
+
+.delete-host-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  padding: var(--s-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-sunken);
+}
+
+.delete-host-summary > span {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--r-sm);
+  background: var(--surface-active);
+  color: var(--muted);
+  flex: 0 0 auto;
+}
+
+.delete-host-summary > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.delete-host-summary strong {
+  font-size: var(--t-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--text);
+}
+
+.delete-host-summary small {
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  color: var(--faint);
+}
+
+.delete-dialog-error {
+  color: var(--danger);
+  font-size: var(--t-xs);
+}
+
+.delete-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--s-3);
+}
+
+/* ---------------------------------------------------------------------------
+ * Disconnect dialog
+ * ------------------------------------------------------------------------- */
+
+.disconnect-intro {
+  padding: var(--s-6) var(--s-6) 0;
+}
+.disconnect-intro p {
+  color: var(--muted);
+  font-size: var(--t-sm);
+  line-height: var(--lh-normal);
+}
+
+.disconnect-host {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  margin: var(--s-5) var(--s-6);
+  padding: var(--s-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-sunken);
+}
+
+.disconnect-server {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  border-radius: var(--r-sm);
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+.disconnect-host dl {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  min-width: 0;
+  flex: 1;
+}
+
+.disconnect-host dl > div {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: var(--s-4);
+  align-items: baseline;
+}
+
+.disconnect-host dt {
+  font-size: var(--t-micro);
+  color: var(--faint);
+}
+
+.disconnect-host dd {
+  font-family: var(--mono);
+  font-size: var(--t-xs);
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.disconnect-error {
+  margin: 0 var(--s-6) var(--s-4);
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid var(--danger-line);
+  border-radius: var(--r-sm);
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: var(--t-xs);
+}
+
+.disconnect-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--s-3);
+  padding: var(--s-5) var(--s-6) var(--s-6);
+  border-top: 1px solid var(--line);
+}
+
+/* ---------------------------------------------------------------------------
+ * Dialog width variants. The base width lives in overlays.css; these are the
+ * few surfaces that genuinely need a different measure.
+ * ------------------------------------------------------------------------- */
+
+.ssh-connection-modal,
+.add-command-dialog {
+  width: min(620px, 100%);
+}
+
+.disconnect-dialog {
+  width: min(420px, 100%);
+}
+
+.delete-connection-modal {
+  width: min(460px, 100%);
+}
+
+.sftp-modal {
+  width: min(1020px, calc(100vw - var(--s-10)));
+  height: min(720px, calc(100dvh - var(--s-10)));
+  max-height: none;
+}
+
+/* ---------------------------------------------------------------------------
+ * Add command dialog
+ * ------------------------------------------------------------------------- */
+
+.command-dialog-intro {
+  color: var(--muted);
+  font-size: var(--t-sm);
+  line-height: var(--lh-normal);
+}
+
+.command-dialog-fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-5);
+}
+
+/* The command value is shell text, so it gets the mono treatment and a hint of
+ * extra height to suggest a multi-line input. */
+.command-value-field input {
+  height: 38px;
+  font-family: var(--mono);
+}
+
+.command-dialog-error {
+  margin-top: calc(var(--s-2) * -1);
+}
+
+.command-category-picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+
+.command-category-picker legend {
+  font-size: var(--t-xs);
+  font-weight: var(--fw-medium);
+  color: var(--muted);
+  margin-bottom: var(--s-3);
+}
+
+.command-category-picker > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+}
+
+.command-category-picker button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  height: 24px;
+  padding: 0 var(--s-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  color: var(--muted);
+  font-size: var(--t-xs);
+  transition: color var(--d-fast) var(--ease), background var(--d-fast) var(--ease),
+    border-color var(--d-fast) var(--ease);
+}
+
+.command-category-picker button:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+.command-category-picker button.selected {
+  color: var(--accent-text);
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+}
+
+.command-category-picker button > svg {
+  color: var(--faint);
+}
+
+.command-category-picker button.selected > svg {
+  color: currentColor;
+}
+
+.command-dialog-preview {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--s-4);
+  padding: var(--s-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-sunken);
+}
+
+.command-preview-icon {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--r-sm);
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+.command-dialog-preview > span:nth-child(2) {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.command-dialog-preview strong {
+  font-size: var(--t-sm);
+  font-weight: var(--fw-medium);
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.command-dialog-preview code {
+  font-size: var(--t-micro);
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.command-dialog-preview small {
+  font-size: var(--t-micro);
+  color: var(--faint);
+}
+
+.command-persistence-note {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-3) var(--s-4);
+  border-radius: var(--r-sm);
+  background: var(--surface-sunken);
+  color: var(--faint);
+  font-size: var(--t-micro);
+}
+
+.command-persistence-note > svg {
+  flex: 0 0 auto;
+}
+
+@media (max-width: 720px) {
+  .connections-page {
+    padding: var(--s-6) var(--s-5) var(--s-8);
+  }
+
+  .ssh-dialog-grid,
+  .ssh-server-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .host-row-main {
+    grid-template-columns: auto minmax(0, 1fr);
+    row-gap: var(--s-2);
+  }
+
+  .host-row-meta,
+  .host-status {
+    grid-column: 2;
+  }
+
+  .host-row-actions {
+    opacity: 1;
+  }
+}

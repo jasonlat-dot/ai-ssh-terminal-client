@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use std::fs::{self, File, OpenOptions};
+use std::fs;
 use std::io;
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
@@ -13,10 +13,100 @@ use tauri::{AppHandle, Manager, State};
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
+#[cfg(target_os = "windows")]
+use std::os::windows::io::AsRawHandle;
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::Foundation::CloseHandle;
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::System::JobObjects::{
+    AssignProcessToJobObject, CreateJobObjectW, SetInformationJobObject,
+    JobObjectExtendedLimitInformation, JOBOBJECT_BASIC_LIMIT_INFORMATION,
+    JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+};
 
 /** Windows 创建无控制台窗口子进程时使用的系统标志。 */
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+/**
+ * Windows Job Object 句柄。
+ *
+ * 持有这个结构的对象在 drop 时会自动 `CloseHandle` 释放 job 句柄。
+ * job 一旦 `CloseHandle`，里面所有未结束的子进程都会被内核强制 kill（受
+ * `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` 标志约束）。
+ *
+ * 这层保护解决"客户端被任务管理器结束 / 崩溃退出时 java 子进程变孤儿继续监听 8888"的
+ * 问题：Tauri 主进程一旦终止、句柄一释放，子进程立即回收。
+ */
+#[cfg(target_os = "windows")]
+struct JobObject(isize);
+
+#[cfg(target_os = "windows")]
+impl JobObject {
+    fn new() -> io::Result<Self> {
+        // safety: CreateJobObjectW 返回的 handle 由调用者负责 CloseHandle。
+        let handle = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
+        if handle.is_null() {
+            return Err(io::Error::last_os_error());
+        }
+
+        let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = unsafe { std::mem::zeroed() };
+        info.BasicLimitInformation = JOBOBJECT_BASIC_LIMIT_INFORMATION {
+            LimitFlags: JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+            ..unsafe { std::mem::zeroed() }
+        };
+
+        // safety: info 是栈上合法内存，length 是字节数。
+        let ok = unsafe {
+            SetInformationJobObject(
+                handle,
+                JobObjectExtendedLimitInformation,
+                &info as *const _ as *const _,
+                std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+            )
+        };
+        if ok == 0 {
+            let err = io::Error::last_os_error();
+            unsafe { CloseHandle(handle); }
+            return Err(err);
+        }
+        Ok(Self(handle as isize))
+    }
+
+    fn attach(&self, child: &Child) -> io::Result<()> {
+        let process_handle = child.as_raw_handle() as isize;
+        // safety: process_handle 来自刚刚 spawn 的 Child，job handle 由本对象管理。
+        let ok = unsafe { AssignProcessToJobObject(self.0 as _, process_handle as _) };
+        if ok == 0 {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(())
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+impl Drop for JobObject {
+    fn drop(&mut self) {
+        if self.0 != 0 {
+            // safety: self.0 来自 CreateJobObjectW，且本类型是唯一持有者。
+            unsafe { CloseHandle(self.0 as _); }
+        }
+    }
+}
+
+/**
+ * 非 Windows 平台的占位实现：依赖 `Child::kill()` 与 `ExitRequested` 拦截，
+ * 仍能覆盖正常退出路径，但对"进程被强制结束"的兜底不如 Windows Job Object 强。
+ */
+#[cfg(not(target_os = "windows"))]
+struct JobObject;
+
+#[cfg(not(target_os = "windows"))]
+impl JobObject {
+    fn new() -> io::Result<Self> { Ok(Self) }
+    fn attach(&self, _child: &Child) -> io::Result<()> { Ok(()) }
+}
 
 /** 安装包内后端 JAR 的固定资源名称。 */
 const BACKEND_JAR_NAME: &str = "ai-ssh-terminal-server-app.jar";
@@ -29,8 +119,8 @@ pub struct BackendStatus {
     status: String,
     /** 面向用户的状态说明；失败时包含真实启动原因。 */
     message: String,
-    /** 当前后端控制台日志的绝对路径。 */
-    log_path: Option<String>,
+    /** 当前后端日志目录的绝对路径。 */
+    log_directory: Option<String>,
 }
 
 /** 单个可编辑配置项的当前值及真实来源文件。 */
@@ -83,6 +173,15 @@ enum ConfigValueStyle {
     Plain,
 }
 
+/** 折叠策略：始终将前端保存的结果写为 `${ENV:a,b,c}` 单字符串（用于环境变量友好的列表字段）。 */
+#[derive(Clone, Copy)]
+enum ConfigValueCollapse {
+    /// 默认：保留原 YAML 形态，块样式继续用块样式，单字符串继续用单字符串
+    None,
+    /// 始终折叠为单字符串 `${ENV:a,b,c}`，环境变量名从第一条历史值推断
+    EnvironmentString,
+}
+
 /** 前端允许编辑的配置白名单，避免客户端提交任意 YAML 路径。 */
 struct ConfigField {
     key: &'static str,
@@ -90,45 +189,47 @@ struct ConfigField {
     kind: ConfigValueKind,
     style: ConfigValueStyle,
     sensitive: bool,
+    /// 仅对 List 字段生效；置为 EnvironmentString 时，前端保存后会折叠为 `${ENV:a,b,c}`
+    collapse: ConfigValueCollapse,
 }
 
 const CONFIG_FIELDS: &[ConfigField] = &[
-    ConfigField { key: "serverPort", path: &["server", "port"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Plain, sensitive: false },
-    ConfigField { key: "dataDirectory", path: &["app", "config", "data-directory"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false },
-    ConfigField { key: "aiBaseUrl", path: &["openai", "ai-api", "base-url"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false },
-    ConfigField { key: "aiApiKey", path: &["openai", "ai-api", "api-key"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: true },
-    ConfigField { key: "aiCompletionsPath", path: &["openai", "ai-api", "completions-path"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false },
-    ConfigField { key: "aiEmbeddingsPath", path: &["openai", "ai-api", "embeddings-path"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false },
-    ConfigField { key: "aiProxyEnabled", path: &["openai", "ai-api", "proxy", "enabled"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Plain, sensitive: false },
-    ConfigField { key: "aiProxyHost", path: &["openai", "ai-api", "proxy", "host"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false },
-    ConfigField { key: "aiProxyPort", path: &["openai", "ai-api", "proxy", "port"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Plain, sensitive: false },
-    ConfigField { key: "aiNonProxyHosts", path: &["openai", "ai-api", "proxy", "non-proxy-hosts"], kind: ConfigValueKind::List, style: ConfigValueStyle::Text, sensitive: false },
-    ConfigField { key: "aiModelName", path: &["openai", "chat-model", "model-name"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false },
-    ConfigField { key: "aiReasoningEffort", path: &["openai", "chat-model", "reasoning-effort"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false },
-    ConfigField { key: "aiSupportedMediaTypes", path: &["openai", "chat-model", "supported-media-types"], kind: ConfigValueKind::List, style: ConfigValueStyle::Text, sensitive: false },
-    ConfigField { key: "fileStorageDefaultId", path: &["ai", "file", "storage", "default-id"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false },
-    ConfigField { key: "localStorageEnabled", path: &["ai", "file", "storage", "local", "enabled"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Plain, sensitive: false },
-    ConfigField { key: "localStorageId", path: &["ai", "file", "storage", "local", "storage-id"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false },
-    ConfigField { key: "localRootDirectory", path: &["ai", "file", "storage", "local", "root-directory"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false },
-    ConfigField { key: "localPublicBaseUrl", path: &["ai", "file", "storage", "local", "public-base-url"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false },
-    ConfigField { key: "localSigningSecret", path: &["ai", "file", "storage", "local", "signing-secret"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: true },
-    ConfigField { key: "minioEnabled", path: &["ai", "file", "storage", "minio", "enabled"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Plain, sensitive: false },
-    ConfigField { key: "minioStorageId", path: &["ai", "file", "storage", "minio", "storage-id"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false },
-    ConfigField { key: "minioEndpoint", path: &["ai", "file", "storage", "minio", "endpoint"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false },
-    ConfigField { key: "minioPublicEndpoint", path: &["ai", "file", "storage", "minio", "public-endpoint"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false },
-    ConfigField { key: "minioAccessKey", path: &["ai", "file", "storage", "minio", "access-key"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: true },
-    ConfigField { key: "minioSecretKey", path: &["ai", "file", "storage", "minio", "secret-key"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: true },
-    ConfigField { key: "minioBucket", path: &["ai", "file", "storage", "minio", "bucket"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false },
-    ConfigField { key: "minioRegion", path: &["ai", "file", "storage", "minio", "region"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false },
-    ConfigField { key: "minioConnectTimeout", path: &["ai", "file", "storage", "minio", "connect-timeout"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false },
-    ConfigField { key: "minioReadTimeout", path: &["ai", "file", "storage", "minio", "read-timeout"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false },
-    ConfigField { key: "minioWriteTimeout", path: &["ai", "file", "storage", "minio", "write-timeout"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false },
-    ConfigField { key: "minioCallTimeout", path: &["ai", "file", "storage", "minio", "call-timeout"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false },
-    ConfigField { key: "sshProxyEnabled", path: &["ai", "ssh", "http-proxy", "enabled"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Plain, sensitive: false },
-    ConfigField { key: "sshProxyHost", path: &["ai", "ssh", "http-proxy", "host"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false },
-    ConfigField { key: "sshProxyPort", path: &["ai", "ssh", "http-proxy", "port"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Plain, sensitive: false },
-    ConfigField { key: "sshProxyUsername", path: &["ai", "ssh", "http-proxy", "username"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false },
-    ConfigField { key: "sshProxyPassword", path: &["ai", "ssh", "http-proxy", "password"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: true },
+    ConfigField { key: "serverPort", path: &["server", "port"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Plain, sensitive: false, collapse: ConfigValueCollapse::None },
+    ConfigField { key: "dataDirectory", path: &["app", "config", "data-directory"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false, collapse: ConfigValueCollapse::None },
+    ConfigField { key: "aiBaseUrl", path: &["openai", "ai-api", "base-url"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false, collapse: ConfigValueCollapse::None },
+    ConfigField { key: "aiApiKey", path: &["openai", "ai-api", "api-key"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: true, collapse: ConfigValueCollapse::None },
+    ConfigField { key: "aiCompletionsPath", path: &["openai", "ai-api", "completions-path"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false, collapse: ConfigValueCollapse::None },
+    ConfigField { key: "aiEmbeddingsPath", path: &["openai", "ai-api", "embeddings-path"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false, collapse: ConfigValueCollapse::None },
+    ConfigField { key: "aiProxyEnabled", path: &["openai", "ai-api", "proxy", "enabled"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Plain, sensitive: false, collapse: ConfigValueCollapse::None },
+    ConfigField { key: "aiProxyHost", path: &["openai", "ai-api", "proxy", "host"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false, collapse: ConfigValueCollapse::None },
+    ConfigField { key: "aiProxyPort", path: &["openai", "ai-api", "proxy", "port"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Plain, sensitive: false, collapse: ConfigValueCollapse::None },
+    ConfigField { key: "aiNonProxyHosts", path: &["openai", "ai-api", "proxy", "non-proxy-hosts"], kind: ConfigValueKind::List, style: ConfigValueStyle::Text, sensitive: false, collapse: ConfigValueCollapse::EnvironmentString },
+    ConfigField { key: "aiModelName", path: &["openai", "chat-model", "model-name"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false, collapse: ConfigValueCollapse::None },
+    ConfigField { key: "aiReasoningEffort", path: &["openai", "chat-model", "reasoning-effort"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false, collapse: ConfigValueCollapse::None },
+    ConfigField { key: "aiSupportedMediaTypes", path: &["openai", "chat-model", "supported-media-types"], kind: ConfigValueKind::List, style: ConfigValueStyle::Text, sensitive: false, collapse: ConfigValueCollapse::EnvironmentString },
+    ConfigField { key: "fileStorageDefaultId", path: &["ai", "file", "storage", "default-id"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false, collapse: ConfigValueCollapse::None },
+    ConfigField { key: "localStorageEnabled", path: &["ai", "file", "storage", "local", "enabled"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Plain, sensitive: false, collapse: ConfigValueCollapse::None },
+    ConfigField { key: "localStorageId", path: &["ai", "file", "storage", "local", "storage-id"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false, collapse: ConfigValueCollapse::None },
+    ConfigField { key: "localRootDirectory", path: &["ai", "file", "storage", "local", "root-directory"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false, collapse: ConfigValueCollapse::None },
+    ConfigField { key: "localPublicBaseUrl", path: &["ai", "file", "storage", "local", "public-base-url"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false, collapse: ConfigValueCollapse::None },
+    ConfigField { key: "localSigningSecret", path: &["ai", "file", "storage", "local", "signing-secret"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: true, collapse: ConfigValueCollapse::None },
+    ConfigField { key: "minioEnabled", path: &["ai", "file", "storage", "minio", "enabled"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Plain, sensitive: false, collapse: ConfigValueCollapse::None },
+    ConfigField { key: "minioStorageId", path: &["ai", "file", "storage", "minio", "storage-id"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false, collapse: ConfigValueCollapse::None },
+    ConfigField { key: "minioEndpoint", path: &["ai", "file", "storage", "minio", "endpoint"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false, collapse: ConfigValueCollapse::None },
+    ConfigField { key: "minioPublicEndpoint", path: &["ai", "file", "storage", "minio", "public-endpoint"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false, collapse: ConfigValueCollapse::None },
+    ConfigField { key: "minioAccessKey", path: &["ai", "file", "storage", "minio", "access-key"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: true, collapse: ConfigValueCollapse::None },
+    ConfigField { key: "minioSecretKey", path: &["ai", "file", "storage", "minio", "secret-key"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: true, collapse: ConfigValueCollapse::None },
+    ConfigField { key: "minioBucket", path: &["ai", "file", "storage", "minio", "bucket"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false, collapse: ConfigValueCollapse::None },
+    ConfigField { key: "minioRegion", path: &["ai", "file", "storage", "minio", "region"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false, collapse: ConfigValueCollapse::None },
+    ConfigField { key: "minioConnectTimeout", path: &["ai", "file", "storage", "minio", "connect-timeout"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false, collapse: ConfigValueCollapse::None },
+    ConfigField { key: "minioReadTimeout", path: &["ai", "file", "storage", "minio", "read-timeout"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false, collapse: ConfigValueCollapse::None },
+    ConfigField { key: "minioWriteTimeout", path: &["ai", "file", "storage", "minio", "write-timeout"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false, collapse: ConfigValueCollapse::None },
+    ConfigField { key: "minioCallTimeout", path: &["ai", "file", "storage", "minio", "call-timeout"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false, collapse: ConfigValueCollapse::None },
+    ConfigField { key: "sshProxyEnabled", path: &["ai", "ssh", "http-proxy", "enabled"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Plain, sensitive: false, collapse: ConfigValueCollapse::None },
+    ConfigField { key: "sshProxyHost", path: &["ai", "ssh", "http-proxy", "host"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false, collapse: ConfigValueCollapse::None },
+    ConfigField { key: "sshProxyPort", path: &["ai", "ssh", "http-proxy", "port"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Plain, sensitive: false, collapse: ConfigValueCollapse::None },
+    ConfigField { key: "sshProxyUsername", path: &["ai", "ssh", "http-proxy", "username"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false, collapse: ConfigValueCollapse::None },
+    ConfigField { key: "sshProxyPassword", path: &["ai", "ssh", "http-proxy", "password"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: true, collapse: ConfigValueCollapse::None },
 ];
 
 impl Default for BackendStatus {
@@ -136,7 +237,7 @@ impl Default for BackendStatus {
         Self {
             status: "stopped".into(),
             message: "内置后端尚未启动".into(),
-            log_path: None,
+            log_directory: None,
         }
     }
 }
@@ -145,6 +246,10 @@ impl Default for BackendStatus {
 #[derive(Default)]
 pub struct BundledBackendState {
     child: Mutex<Option<Child>>,
+    /// Windows 上把 java 子进程挂进 Job Object；drop 时强制 kill。
+    /// `Default` 给出 None，避免在不需要 Job 的场景下分配内核对象。
+    #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+    job: Mutex<Option<JobObject>>,
     status: Mutex<BackendStatus>,
 }
 
@@ -159,20 +264,21 @@ pub fn start(app: &AppHandle) -> BackendStatus {
         BackendStatus {
             status: "starting".into(),
             message: "正在启动内置后端…".into(),
-            log_path: None,
+            log_directory: None,
         },
     );
 
     let status = match start_inner(app) {
-        Ok(log_path) => BackendStatus {
+        Ok(log_directory) => BackendStatus {
             status: "running".into(),
             message: "内置后端已启动".into(),
-            log_path: Some(log_path.to_string_lossy().into_owned()),
+            log_directory: Some(log_directory.to_string_lossy().into_owned()),
         },
         Err(error) => BackendStatus {
             status: "failed".into(),
             message: error.to_string(),
-            log_path: error_log_path(app).map(|path| path.to_string_lossy().into_owned()),
+            log_directory: error_log_directory(app)
+                .map(|path| path.to_string_lossy().into_owned()),
         },
     };
     set_status(app, status.clone());
@@ -183,6 +289,10 @@ pub fn start(app: &AppHandle) -> BackendStatus {
 fn start_inner(app: &AppHandle) -> Result<PathBuf, Box<dyn std::error::Error>> {
     let resource_dir = app.path().resource_dir()?;
     let backend_home = resolve_backend_home(&resource_dir, app)?;
+    let user_home = app.path().home_dir()?;
+    let data_home = read_data_directory(&backend_home.join("application.yml"), &user_home)
+        .unwrap_or_else(|| backend_home.clone());
+    prepare_backend_data(&data_home)?;
     let java_executable = bundled_java(&resource_dir);
     let backend_jar = resource_dir.join("backend").join(BACKEND_JAR_NAME);
 
@@ -194,7 +304,7 @@ fn start_inner(app: &AppHandle) -> Result<PathBuf, Box<dyn std::error::Error>> {
                 java_executable.display(),
                 backend_jar.display()
             );
-            return Ok(backend_home.join("logs").join("backend-console.log"));
+            return Ok(data_home.join("logs"));
         }
         return Err(format!(
             "安装包缺少内置后端资源：java={} jar={}",
@@ -204,16 +314,17 @@ fn start_inner(app: &AppHandle) -> Result<PathBuf, Box<dyn std::error::Error>> {
         .into());
     }
 
-    prepare_backend_home(&resource_dir, &backend_home)?;
-
-    // 标准输出与错误输出写入用户目录，后端无法启动时可以直接查看日志定位原因。
-    let log_file = open_backend_log(&backend_home.join("logs").join("backend-console.log"))?;
-    let error_log = log_file.try_clone()?;
     let config_location = spring_file_directory(&backend_home);
+
+    // 配置目录与统一数据目录相互独立；修改 data-directory 只切换
+    // SQLite、附件和日志的新写入位置，不移动原有文件。
+    let log_dir = data_home.join("logs");
+    fs::create_dir_all(&log_dir)?;
 
     let mut command = Command::new(&java_executable);
     command
         .arg("--enable-native-access=ALL-UNNAMED")
+        .arg("-Dlogging.path=".to_string() + &log_dir.to_string_lossy())
         .arg("-jar")
         .arg(&backend_jar)
         .arg(format!(
@@ -221,8 +332,10 @@ fn start_inner(app: &AppHandle) -> Result<PathBuf, Box<dyn std::error::Error>> {
         ))
         .current_dir(&backend_home)
         .stdin(Stdio::null())
-        .stdout(Stdio::from(log_file))
-        .stderr(Stdio::from(error_log));
+        // Logback 已经将运行日志写入 logs 目录。桌面壳不再额外复制一份
+        // stdout/stderr 到 backend-console.log，避免日志重复和无限追加。
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
 
     // 正式版是 Windows GUI 程序，启动 Java 时不应弹出额外的黑色控制台窗口。
     #[cfg(target_os = "windows")]
@@ -239,6 +352,17 @@ fn start_inner(app: &AppHandle) -> Result<PathBuf, Box<dyn std::error::Error>> {
         )
     })?;
 
+    // 把 java 子进程挂进 Job Object；这样即便客户端被任务管理器强制结束，
+    // 操作系统也会回收 java 进程，避免 8888 端口被遗留进程占用。
+    let job = JobObject::new().inspect_err(|error| {
+        eprintln!("创建 Job Object 失败，继续启动后端：{error}");
+    });
+    if let Ok(job) = &job {
+        if let Err(error) = job.attach(&child) {
+            eprintln!("将 java 子进程挂入 Job Object 失败：{error}");
+        }
+    }
+
     // 等待监听端口就绪后再显示主界面，避免前端首次请求早于 Spring Boot 启动完成。
     let server_port = read_server_port(&backend_home).unwrap_or(8888);
     wait_until_ready(&mut child, server_port, Duration::from_secs(60))?;
@@ -246,7 +370,12 @@ fn start_inner(app: &AppHandle) -> Result<PathBuf, Box<dyn std::error::Error>> {
     let state = app.state::<BundledBackendState>();
     let mut guard = state.child.lock().map_err(|_| "内置后端进程状态锁已损坏")?;
     *guard = Some(child);
-    Ok(backend_home.join("logs").join("backend-console.log"))
+    drop(guard);
+    if let Ok(job) = job {
+        let mut job_guard = state.job.lock().map_err(|_| "内置后端 Job Object 状态锁已损坏")?;
+        *job_guard = Some(job);
+    }
+    Ok(log_dir)
 }
 
 /** 返回当前内置后端状态，供页面在首次渲染和重试后展示准确结果。 */
@@ -255,7 +384,7 @@ pub fn bundled_backend_status(state: State<'_, BundledBackendState>) -> BackendS
     state.status.lock().map(|value| value.clone()).unwrap_or_else(|_| BackendStatus {
         status: "failed".into(),
         message: "无法读取内置后端状态".into(),
-        log_path: None,
+        log_directory: None,
     })
 }
 
@@ -328,7 +457,7 @@ fn load_backend_config(app: &AppHandle) -> io::Result<BackendConfigView> {
     })
 }
 
-/** 校验并保存设置页支持的字段。数据目录迁移由下一次 start 中的既有逻辑完成。 */
+/** 校验并保存设置页支持的字段。修改数据目录只写 YAML，不迁移旧数据。 */
 fn save_backend_config(app: &AppHandle, update: BackendConfigUpdate) -> io::Result<()> {
     validate_config_update(&update.values)?;
 
@@ -450,7 +579,8 @@ fn yaml_value(content: &str, path: &[&str]) -> Option<String> {
     None
 }
 
-/** 读取块样式 YAML 列表，并使用换行分隔后交给设置页 textarea。 */
+/** 读取 YAML 列表：支持块样式（一行一项）和带环境变量的内联单字符串（`${ENV:a,b,c}`）两种格式。
+ * 块样式按行解析；内联单字符串从 ${ENV:default} 取出 default，按逗号拆成多行返回给设置页 textarea。 */
 fn yaml_list_value(content: &str, path: &[&str]) -> Option<String> {
     let mut parents: Vec<(usize, String)> = Vec::new();
     let mut target_indent = None;
@@ -474,8 +604,14 @@ fn yaml_list_value(content: &str, path: &[&str]) -> Option<String> {
         current.push(key);
         if current == path {
             target_indent = Some(indent);
-            if !raw_value.trim().is_empty() {
-                return Some(raw_value.trim().trim_matches(['[', ']']).split(',').map(str::trim).collect::<Vec<_>>().join("\n"));
+            let value = raw_value.trim();
+            if !value.is_empty() {
+                // 内联单字符串形态：${ENV:a,b,c} 或 [a, b, c]
+                if placeholder_environment(value).is_some() {
+                    let default = placeholder_default(value);
+                    return Some(default.split(',').map(str::trim).filter(|s| !s.is_empty()).collect::<Vec<_>>().join("\n"));
+                }
+                return Some(value.trim_matches(['[', ']']).split(',').map(str::trim).collect::<Vec<_>>().join("\n"));
             }
         }
         if raw_value.trim().is_empty() { parents.push((indent, key.to_string())); }
@@ -492,7 +628,7 @@ fn update_effective_field(files: &[PathBuf], field: &ConfigField, new_value: &st
             let rendered = render_scalar_value(&located.raw, new_value, field.style);
             replace_yaml_value(&content, field.path, &rendered)
         }
-        ConfigValueKind::List => replace_yaml_list(&content, field.path, &located.raw, new_value),
+        ConfigValueKind::List => replace_yaml_list(&content, field.path, &located.raw, new_value, field.collapse, located.environment.as_deref()),
     }.ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("无法定位配置项 {}", field.path.join("."))))?;
     if updated != content { write_config_with_backup(&located.file, &updated)?; }
     Ok(())
@@ -542,10 +678,22 @@ fn replace_yaml_value(content: &str, path: &[&str], new_value: &str) -> Option<S
     })
 }
 
-/** 替换块样式 YAML 列表；同序号原值有环境变量时继续保留该变量名称。 */
-fn replace_yaml_list(content: &str, path: &[&str], old_raw: &str, new_value: &str) -> Option<String> {
+/** 替换 YAML 列表。同序号原值有环境变量时继续保留该变量名称；
+ * 当字段要求折叠为环境变量单字符串时，把新值整体写入 `${ENV:a,b,c}`，
+ * 避免用户保存后丢失环境变量名。块样式下保留逐项独立环境变量（_1/_2/_3）的能力。 */
+fn replace_yaml_list(content: &str, path: &[&str], old_raw: &str, new_value: &str, collapse: ConfigValueCollapse, env_hint: Option<&str>) -> Option<String> {
     let old_items = old_raw.lines().collect::<Vec<_>>();
     let new_items = new_value.lines().map(str::trim).filter(|item| !item.is_empty()).collect::<Vec<_>>();
+    // 折叠条件：字段声明强制折叠，或原值是单行且首项本身带环境变量占位符
+    let force_collapse = matches!(collapse, ConfigValueCollapse::EnvironmentString);
+    let collapse_environment = if force_collapse || old_items.len() == 1 {
+        old_items.iter().find_map(|item| placeholder_environment(item))
+            .or_else(|| env_hint.map(String::from))
+            .or_else(|| yaml_key_environment(content, path))
+    } else {
+        None
+    };
+
     let mut parents: Vec<(usize, String)> = Vec::new();
     let mut output = Vec::new();
     let mut target_indent = None;
@@ -567,18 +715,31 @@ fn replace_yaml_list(content: &str, path: &[&str], old_raw: &str, new_value: &st
         let key = key_part.trim().trim_matches(['\'', '"']);
         let mut current = parents.iter().map(|(_, key)| key.as_str()).collect::<Vec<_>>();
         current.push(key);
-        output.push(line.to_string());
         if current == path {
-            for (index, item) in new_items.iter().enumerate() {
-                let rendered = old_items.get(index)
-                    .and_then(|old| placeholder_environment(old))
-                    .map(|environment| format!("${{{environment}:{item}}}"))
-                    .unwrap_or_else(|| yaml_string(item));
-                output.push(format!("{}- {rendered}", " ".repeat(indent + 2)));
+            if let Some(environment) = collapse_environment.as_ref() {
+                // 折叠为单字符串：保留原 `${ENV:...,...,...}`，原地替换冒号后的默认值
+                let joined = new_items.join(",");
+                let rendered = format!("${{{environment}:{joined}}}");
+                output.push(format!("{}{}: {rendered}", " ".repeat(indent), key));
+            } else if force_collapse {
+                // 强制折叠但原值没有环境变量名（用户曾手工编辑去掉）：直接写纯逗号字符串
+                let joined = new_items.join(",");
+                output.push(format!("{}{}: {joined}", " ".repeat(indent), key));
+            } else {
+                output.push(line.to_string());
+                for (index, item) in new_items.iter().enumerate() {
+                    let rendered = old_items.get(index)
+                        .and_then(|old| placeholder_environment(old))
+                        .map(|environment| format!("${{{environment}:{item}}}"))
+                        .unwrap_or_else(|| yaml_string(item));
+                    output.push(format!("{}- {rendered}", " ".repeat(indent + 2)));
+                }
             }
             target_indent = Some(indent);
             replaced = true;
+            continue;
         }
+        output.push(line.to_string());
         if raw_value.trim().is_empty() { parents.push((indent, key.to_string())); }
     }
     replaced.then(|| finish_yaml_output(content, output))
@@ -615,6 +776,28 @@ fn placeholder_environment(raw: &str) -> Option<String> {
     let value = raw.trim().trim_matches(['\'', '"']);
     let body = value.strip_prefix("${")?.strip_suffix('}')?;
     Some(body.split_once(':')?.0.trim().to_string())
+}
+
+/** 在 YAML 内容中查找指定 key 行里嵌的 `${ENV:...}` 环境变量名。
+ * 支持内联单字符串形态（如 `${AI_MODEL_NON_PROXY_HOSTS:localhost,127.0.0.1}`），
+ * 也支持块样式下的父级 key 行（`non-proxy-hosts:` 行可能紧跟在带 env 的 key 后面）。 */
+fn yaml_key_environment(content: &str, path: &[&str]) -> Option<String> {
+    let mut parents: Vec<(usize, String)> = Vec::new();
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with('-') { continue; }
+        let indent = line.len() - line.trim_start().len();
+        while parents.last().is_some_and(|(parent_indent, _)| *parent_indent >= indent) { parents.pop(); }
+        let Some((key, raw_value)) = trimmed.split_once(':') else { continue; };
+        let key = key.trim().trim_matches(['\'', '"']);
+        let mut current = parents.iter().map(|(_, key)| key.as_str()).collect::<Vec<_>>();
+        current.push(key);
+        if current == path {
+            return placeholder_environment(raw_value.trim());
+        }
+        if raw_value.trim().is_empty() { parents.push((indent, key.to_string())); }
+    }
+    None
 }
 
 fn placeholder_default(raw: &str) -> String {
@@ -660,52 +843,56 @@ fn set_status(app: &AppHandle, status: BackendStatus) {
 /** 客户端正常退出时终止它启动的 Java 后端，避免后台残留进程继续占用端口。 */
 pub fn stop(app_handle: &AppHandle) {
     let state = app_handle.state::<BundledBackendState>();
-    let Ok(mut guard) = state.child.lock() else {
-        return;
-    };
-    let Some(mut child) = guard.take() else {
-        return;
+
+    // 先取走子进程句柄。drop 顺序：先 take Child、再 take JobObject，
+    // 让 JobObject drop 时关闭 job 句柄，触发 KILL_ON_JOB_CLOSE，
+    // 即使 TerminateProcess 没生效也能兜底。
+    let child = {
+        let Ok(mut guard) = state.child.lock() else { return; };
+        guard.take()
     };
 
-    let _ = child.kill();
-    let _ = child.wait();
+    if let Some(mut child) = child {
+        // 先尝试主动 kill；Wait 阻塞等待，避免子进程成为孤儿。
+        let _ = child.kill();
+        // 给 Java 一点时间响应 TerminateProcess，避免 wait() 立即返回后端口尚未释放。
+        // wait() 会一直阻塞到进程真正退出，最多 ~1s。
+        let _ = child.wait();
+    }
+
+    // drop job handle，会触发内核回收 job 内全部进程（包括 Attach 时漏掉的子进程）。
+    let _ = state.job.lock().ok().map(|mut guard| guard.take());
 }
 
 /**
- * 确定统一后端数据根目录。
+ * 确定后端外置配置目录。
  *
- * 首次启动默认使用 `${user.home}/.ai-ssh-terminal`。用户在 application.yml 中修改
- * `app.config.data-directory` 后，下一次启动会复制现有数据到新目录并记录新位置。
- * 路径记录只负责解决“配置文件搬走后下次从哪里找到它”的引导问题，不保存业务数据。
+ * 首次启动默认使用 `${user.home}/.ai-ssh-terminal` 存放 application*.yml。
+ * `app.config.data-directory` 只控制 SQLite、附件和日志的新写入位置，不改变配置目录，
+ * 也不触发任何数据复制或迁移。
  */
 fn resolve_backend_home(resource_dir: &Path, app: &AppHandle) -> io::Result<PathBuf> {
     let launcher_directory = app
         .path()
         .app_local_data_dir()
         .map_err(io::Error::other)?;
-    let user_home = app.path().home_dir().map_err(io::Error::other)?;
-    let default_home = user_home.join(".ai-ssh-terminal");
+    let default_home = app
+        .path()
+        .home_dir()
+        .map_err(io::Error::other)?
+        .join(".ai-ssh-terminal");
     let location_file = launcher_directory.join("backend-location.txt");
 
     fs::create_dir_all(&launcher_directory)?;
-    let current_home = fs::read_to_string(&location_file)
+    let backend_home = fs::read_to_string(&location_file)
         .ok()
         .map(|value| PathBuf::from(value.trim()))
         .filter(|path| !path.as_os_str().is_empty())
         .unwrap_or(default_home);
 
-    prepare_backend_home(resource_dir, &current_home)?;
-    let configured_home = read_data_directory(&current_home.join("application.yml"), &user_home)
-        .unwrap_or_else(|| current_home.clone());
-
-    if configured_home != current_home {
-        // 保留原目录作为可恢复副本，只把当前内容合并复制到用户指定的新根目录。
-        copy_directory(&current_home, &configured_home)?;
-        prepare_backend_home(resource_dir, &configured_home)?;
-    }
-
-    fs::write(location_file, configured_home.to_string_lossy().as_bytes())?;
-    Ok(configured_home)
+    prepare_backend_home(resource_dir, &backend_home)?;
+    fs::write(location_file, backend_home.to_string_lossy().as_bytes())?;
+    Ok(backend_home)
 }
 
 /** 从 application.yml 读取统一数据根目录，支持绝对路径和默认占位符写法。 */
@@ -716,49 +903,182 @@ fn read_data_directory(application_yml: &Path, user_home: &Path) -> Option<PathB
         .map(|line| line.split('#').next().unwrap_or_default().trim())
         .find_map(|line| line.strip_prefix("data-directory:").map(str::trim))?;
 
-    let default_home = user_home.join(".ai-ssh-terminal");
-    if configured.contains("AI_SSH_TERMINAL_HOME") {
-        return std::env::var_os("AI_SSH_TERMINAL_HOME")
-            .map(PathBuf::from)
-            .or(Some(default_home));
-    }
+    eprintln!("[bundled_backend] read_data_directory raw='{configured}'");
 
-    let expanded = configured
-        .trim_matches(['\'', '"'])
-        .replace("${user.home}", &user_home.to_string_lossy());
-    let path = PathBuf::from(expanded);
-    Some(if path.is_absolute() {
+    // 默认值与 Spring 端保持一致：${AI_SSH_TERMINAL_HOME:${user.home}/.ai-ssh-terminal}。
+    // 这里直接把整条字符串里的占位符展开，行为对齐 Spring 的 PropertySourcesPropertyResolver，
+    // 避免"包含占位符就短路丢掉了绝对路径"的 bug。
+    let resolved = resolve_data_directory_placeholders(
+        configured,
+        user_home,
+        application_yml,
+    );
+    eprintln!("[bundled_backend] read_data_directory resolved='{}'", resolved.display());
+    Some(resolved)
+}
+
+/**
+ * 把 yml 里的 data-directory 字符串展开成实际路径。
+ *
+ * 支持：
+ *   - `${AI_SSH_TERMINAL_HOME}`                 → env 变量；未设则回退到用户目录
+ *   - `${AI_SSH_TERMINAL_HOME:fallback}`        → env 变量；未设则用 fallback
+ *   - `${user.home}` / `${user.home}/xxx`       → 用户主目录
+ *   - 绝对路径（Windows 如 `E:\ai-ssh\...`）      → 直接使用
+ *
+ * 历史 bug：之前的实现只要看到 `AI_SSH_TERMINAL_HOME` 字符串就直接走环境变量分支，
+ * 忽略了用户在 yml 里写下的绝对路径，导致设置页改路径后日志依然写到用户目录。
+ */
+fn resolve_data_directory_placeholders(
+    raw: &str,
+    user_home: &Path,
+    application_yml: &Path,
+) -> PathBuf {
+    let default_home = user_home.join(".ai-ssh-terminal");
+    let env_home = std::env::var_os("AI_SSH_TERMINAL_HOME").map(PathBuf::from);
+
+    // 行为与 Spring 的 PropertySourcesPropertyResolver 对齐：
+    //   - `${AI_SSH_TERMINAL_HOME}`                       → env 变量；未设则回退用户目录
+    //   - `${AI_SSH_TERMINAL_HOME:fallback}`              → env 变量；未设则用 fallback
+    //   - `${user.home}`                                  → 用户主目录
+    //   - 其它 `${...}` 占位符（非 AI_SSH_TERMINAL_HOME / user.home）保留原样
+    let expanded = expand_placeholders(raw, env_home.as_ref(), &default_home, user_home, application_yml);
+
+    let trimmed = expanded.trim_matches(['\'', '"']);
+    let path = PathBuf::from(trimmed);
+
+    if path.as_os_str().is_empty() {
+        return default_home;
+    }
+    if path.is_absolute() {
         path
     } else {
-        application_yml.parent()?.join(path)
-    })
+        // 相对路径以 yml 所在目录为基准
+        application_yml
+            .parent()
+            .map(|p| p.join(path))
+            .unwrap_or(default_home)
+    }
 }
 
-/** 递归合并复制目录内容；切换根目录时不删除旧数据，避免配置错误造成不可恢复的丢失。 */
-fn copy_directory(source: &Path, target: &Path) -> io::Result<()> {
-    fs::create_dir_all(target)?;
-    for entry in fs::read_dir(source)? {
-        let entry = entry?;
-        let source_path = entry.path();
-        let target_path = target.join(entry.file_name());
-        if entry.file_type()?.is_dir() {
-            copy_directory(&source_path, &target_path)?;
+/** 返回 UTF-8 字符串中第 `start` 个字节之后的下一个字符边界。 */
+fn next_char_boundary(s: &str, start: usize) -> usize {
+    let mut i = start + 1;
+    while i < s.len() && !s.is_char_boundary(i) {
+        i += 1;
+    }
+    i
+}
+
+/**
+ * 解析一个 `${...}` 占位符体（不含外层 `${` `}`）。
+ *
+ * 仅处理 `AI_SSH_TERMINAL_HOME` 与 `user.home` 家族；其它占位符原样保留。
+ *
+ * 注意：fallback 里允许继续嵌套占位符（例如
+ * `${AI_SSH_TERMINAL_HOME:${user.home}/.ai-ssh-terminal}`），
+ * 解析时把 fallback 当作新 raw 重新进入展开流程，避免把内层 `${}` 的 `}`
+ * 误判为外层结束符——这是历史上 find('}') 写法在 yml 默认值上栈溢出的根因。
+ */
+fn resolve_placeholder_body(
+    body: &str,
+    env_home: Option<&PathBuf>,
+    default_home: &Path,
+    user_home: &Path,
+    application_yml: &Path,
+) -> String {
+    if let Some(after_colon) = body.strip_prefix("AI_SSH_TERMINAL_HOME:") {
+        // ${AI_SSH_TERMINAL_HOME:fallback}
+        let resolved = env_home
+            .as_ref()
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_else(|| after_colon.to_string());
+        // fallback 里可能还包含其它占位符（如 `${user.home}`），继续展开。
+        return expand_placeholders(&resolved, env_home, default_home, user_home, application_yml);
+    }
+    if body == "AI_SSH_TERMINAL_HOME" {
+        // ${AI_SSH_TERMINAL_HOME}
+        return env_home
+            .as_ref()
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_else(|| default_home.to_string_lossy().into_owned());
+    }
+    if body == "user.home" {
+        // ${user.home}
+        return user_home.to_string_lossy().into_owned();
+    }
+    // 其它 `${...}` 占位符原样保留
+    format!("${{{body}}}")
+}
+
+/**
+ * 把 raw 字符串里的 `${...}` 占位符全部展开为实际值。
+ * 与 `resolve_data_directory_placeholders` 共享同一份字符级扫描逻辑，
+ * 这里只是它处理单个占位符 body 后的递归出口。
+ */
+fn expand_placeholders(
+    raw: &str,
+    env_home: Option<&PathBuf>,
+    default_home: &Path,
+    user_home: &Path,
+    application_yml: &Path,
+) -> String {
+    let mut out = String::with_capacity(raw.len());
+    let bytes = raw.as_bytes();
+    let mut i = 0usize;
+    while i < bytes.len() {
+        if i + 1 < bytes.len() && bytes[i] == b'$' && bytes[i + 1] == b'{' {
+            let body_start = i + 2;
+            let mut depth: i32 = 1;
+            let mut j = body_start;
+            while j < bytes.len() && depth > 0 {
+                match bytes[j] {
+                    b'{' => depth += 1,
+                    b'}' => depth -= 1,
+                    _ => {}
+                }
+                if depth == 0 { break; }
+                j += 1;
+            }
+            if depth != 0 {
+                out.push_str(&raw[i..]);
+                break;
+            }
+            let body = &raw[body_start..j];
+            let resolved = resolve_placeholder_body(body, env_home, default_home, user_home, application_yml);
+            out.push_str(&resolved);
+            i = j + 1;
         } else {
-            fs::copy(source_path, target_path)?;
+            let ch_end = next_char_boundary(raw, i);
+            out.push_str(&raw[i..ch_end]);
+            i = ch_end;
         }
     }
-    Ok(())
+    out
 }
 
-/** 尽最大可能算出日志路径，让前端在启动早期失败时也能给出排查位置。 */
-fn error_log_path(app: &AppHandle) -> Option<PathBuf> {
+/** 尽最大可能算出日志路径，让前端在启动早期失败时也能给出排查位置。
+ *
+ * 注意：这里**只做纯路径解析**，不调用 `resolve_backend_home`，
+ * 避免在错误恢复场景下触发配置初始化副作用。
+ */
+fn error_log_directory(app: &AppHandle) -> Option<PathBuf> {
+    let user_home = app.path().home_dir().ok()?;
     let location_file = app.path().app_local_data_dir().ok()?.join("backend-location.txt");
-    let backend_home = fs::read_to_string(location_file)
+
+    let backend_home = fs::read_to_string(&location_file)
         .ok()
         .map(|value| PathBuf::from(value.trim()))
         .filter(|path| !path.as_os_str().is_empty())
-        .or_else(|| app.path().home_dir().ok().map(|path| path.join(".ai-ssh-terminal")))?;
-    Some(backend_home.join("logs").join("backend-console.log"))
+        .map(|home| {
+            // location 文件存在时再尝试读 yml，确认 data-directory 是否已更新到新位置；
+            // 注意：这里只读取，不会触发 resolve_backend_home 的配置初始化副作用。
+            let application_yml = home.join("application.yml");
+            read_data_directory(&application_yml, &user_home).unwrap_or(home)
+        })
+        .unwrap_or_else(|| user_home.join(".ai-ssh-terminal"));
+
+    Some(backend_home.join("logs"))
 }
 
 /**
@@ -766,9 +1086,7 @@ fn error_log_path(app: &AppHandle) -> Option<PathBuf> {
  * application.yml 存在时不复制任何 YAML，允许用户自由使用 dev、sit 或自定义 profile。
  */
 fn prepare_backend_home(resource_dir: &Path, backend_home: &Path) -> io::Result<()> {
-    fs::create_dir_all(backend_home.join("data"))?;
-    fs::create_dir_all(backend_home.join("uploads"))?;
-    fs::create_dir_all(backend_home.join("logs"))?;
+    fs::create_dir_all(backend_home)?;
 
     let application_yml = backend_home.join("application.yml");
     if application_yml.exists() {
@@ -785,6 +1103,14 @@ fn prepare_backend_home(resource_dir: &Path, backend_home: &Path) -> io::Result<
     Ok(())
 }
 
+/** 只创建新的统一数据目录结构，不复制或删除任何旧数据。 */
+fn prepare_backend_data(data_home: &Path) -> io::Result<()> {
+    fs::create_dir_all(data_home.join("data"))?;
+    fs::create_dir_all(data_home.join("files"))?;
+    fs::create_dir_all(data_home.join("logs"))?;
+    Ok(())
+}
+
 /** 复制首次启动所需的配置模板；资源缺失时返回包含具体路径的错误。 */
 fn copy_required(source: &Path, target: &Path) -> io::Result<()> {
     if !source.is_file() {
@@ -795,11 +1121,6 @@ fn copy_required(source: &Path, target: &Path) -> io::Result<()> {
     }
     fs::copy(source, target)?;
     Ok(())
-}
-
-/** 以追加模式保存启动日志，重启客户端不会丢失上一轮后端启动失败信息。 */
-fn open_backend_log(path: &Path) -> io::Result<File> {
-    OpenOptions::new().create(true).append(true).open(path)
 }
 
 /**
@@ -823,7 +1144,7 @@ fn wait_until_ready(child: &mut Child, port: u16, timeout: Duration) -> io::Resu
     loop {
         if let Some(status) = child.try_wait()? {
             return Err(io::Error::other(format!(
-                "内置后端启动失败，进程已退出：{status}；请查看 logs/backend-console.log"
+                "内置后端启动失败，进程已退出：{status}；请查看日志目录"
             )));
         }
 
@@ -846,7 +1167,7 @@ fn wait_until_ready(child: &mut Child, port: u16, timeout: Duration) -> io::Resu
             let _ = child.wait();
             return Err(io::Error::new(
                 io::ErrorKind::TimedOut,
-                format!("等待内置后端端口 {port} 超时；请查看 logs/backend-console.log"),
+                format!("等待内置后端端口 {port} 超时；请查看日志目录"),
             ));
         }
         thread::sleep(Duration::from_millis(250));
@@ -871,4 +1192,73 @@ fn spring_file_directory(path: &Path) -> String {
     } else {
         format!("file:{normalized}/")
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn collapse_from_block_without_env() {
+        let content = "openai:\n  ai-api:\n    proxy:\n      non-proxy-hosts:\n        - 'localhost'\n        - '127.0.0.1'\n        - '192.168.*'\n";
+        let old_raw = "- 'localhost'\n- '127.0.0.1'\n- '192.168.*'";
+        let new_value = "localhost\n127.0.0.1\n192.168.*\n10.*";
+        // env_hint 从原 YAML 行猜到，保持环境变量能力
+        let updated = replace_yaml_list(content, &["openai", "ai-api", "proxy", "non-proxy-hosts"], old_raw, new_value, ConfigValueCollapse::EnvironmentString, Some("AI_MODEL_NON_PROXY_HOSTS")).unwrap();
+        println!("\n--- collapse_from_block_without_env ---\n{updated}");
+        assert!(updated.contains("non-proxy-hosts: ${AI_MODEL_NON_PROXY_HOSTS:localhost,127.0.0.1,192.168.*,10.*}"));
+        assert!(!updated.contains("        -"));
+    }
+
+    #[test]
+    fn collapse_from_inline_env() {
+        let content = "openai:\n  ai-api:\n    proxy:\n      non-proxy-hosts: ${AI_MODEL_NON_PROXY_HOSTS:localhost,127.0.0.1,192.168.*}\n";
+        let old_raw = "${AI_MODEL_NON_PROXY_HOSTS:localhost,127.0.0.1,192.168.*}";
+        let new_value = "localhost\n127.0.0.1\n10.*";
+        // inline env 已从 old_raw 解析，无需 hint
+        let updated = replace_yaml_list(content, &["openai", "ai-api", "proxy", "non-proxy-hosts"], old_raw, new_value, ConfigValueCollapse::EnvironmentString, None).unwrap();
+        println!("\n--- collapse_from_inline_env ---\n{updated}");
+        assert!(updated.contains("non-proxy-hosts: ${AI_MODEL_NON_PROXY_HOSTS:localhost,127.0.0.1,10.*}"));
+    }
+
+    #[test]
+    fn read_inline_env_to_textarea_lines() {
+        let content = "openai:\n  ai-api:\n    proxy:\n      non-proxy-hosts: ${AI_MODEL_NON_PROXY_HOSTS:localhost,127.0.0.1,192.168.*}\n";
+        let read = yaml_list_value(content, &["openai", "ai-api", "proxy", "non-proxy-hosts"]).unwrap();
+        println!("\n--- read_inline_env_to_textarea_lines ---\n{read:?}");
+        assert_eq!(read, "localhost\n127.0.0.1\n192.168.*");
+    }
+
+    #[test]
+    fn resolve_data_directory_default_value_with_nested_user_home() {
+        // yml 默认值：env 没设时，fallback 里的 ${user.home} 必须被正确展开为用户主目录，
+        // 不能因为内部 `}` 被误判为外层结束符。
+        let user_home = Path::new("C:/Users/Administrator");
+        let application_yml = user_home.join(".ai-ssh-terminal").join("application.yml");
+        // 关键测试：临时屏蔽 AI_SSH_TERMINAL_HOME，避免本地环境变量影响测试。
+        // 这里调用直接走 resolve_data_directory_placeholders，不依赖环境变量。
+        let result = resolve_data_directory_placeholders(
+            "${AI_SSH_TERMINAL_HOME:${user.home}/.ai-ssh-terminal}",
+            user_home,
+            &application_yml,
+        );
+        assert_eq!(
+            result,
+            PathBuf::from("C:/Users/Administrator/.ai-ssh-terminal")
+        );
+    }
+
+    #[test]
+    fn resolve_data_directory_absolute_path_preserved() {
+        let user_home = Path::new("C:/Users/Administrator");
+        let application_yml = user_home.join(".ai-ssh-terminal").join("application.yml");
+        // 之前老 bug：包含 "AI_SSH_TERMINAL_HOME" 字符串就走环境变量分支，丢掉了绝对路径。
+        let result = resolve_data_directory_placeholders(
+            "E:/ai-ssh/ai-ssh-terminal",
+            user_home,
+            &application_yml,
+        );
+        assert_eq!(result, PathBuf::from("E:/ai-ssh/ai-ssh-terminal"));
+    }
+
 }

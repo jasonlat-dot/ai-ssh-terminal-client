@@ -80,12 +80,15 @@ npm run bundle:msi
 │   └── ai-ssh-terminal.db
 ├── uploads\
 └── logs\
-    └── backend-console.log
+    ├── log_info.log
+    ├── log_error.log
+    └── logback-init.log
 ```
 
 统一根目录由 `application.yml` 中的 `app.config.data-directory` 配置，默认值为
 `${AI_SSH_TERMINAL_HOME:${user.home}/.ai-ssh-terminal}`。改成其他绝对路径并重启客户端后，
-客户端会把现有内容复制到新目录，后续配置、SQLite、上传文件和日志都从新目录读写。
+后续 SQLite、上传文件和日志会从新目录读写。客户端只修改 YAML 配置，
+不会复制、移动或删除旧目录中的数据；需要保留历史数据时请由用户自行迁移。
 
 初始化只检查 `application.yml`：
 
@@ -93,7 +96,7 @@ npm run bundle:msi
 - 如果 `application.yml` 已存在，不复制、不覆盖任何 YAML；用户可以自行使用 `application-dev.yml`、`application-sit.yml` 或其他 profile。
 - 客户端升级不会覆盖已有配置、SQLite 数据、上传文件和日志。
 
-内置后端以该目录作为工作目录，并通过 `spring.config.additional-location` 加载外置配置。默认 SQLite 位于 `data`，本地上传文件位于 `uploads`，日志位于 `logs`。修改配置后重启客户端即可重新启动后端并生效。若后端启动失败，客户端仍会打开，并直接显示真实启动错误和 `backend-console.log` 路径。
+内置后端以该目录作为工作目录，并通过 `spring.config.additional-location` 加载外置配置。默认 SQLite 位于 `data`，本地上传文件位于 `uploads`，日志位于 `logs`。修改配置后重启客户端即可重新启动后端并生效。若后端启动失败，客户端仍会打开，并显示真实启动错误、日志目录以及设置页查看位置。桌面壳不再额外生成 `backend-console.log`。
 
 ## SSH HTTP 接口对接
 

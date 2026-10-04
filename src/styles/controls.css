@@ -1,0 +1,391 @@
+/* ============================================================================
+ * controls.css — buttons, icon buttons, inputs, toggles, status, and the
+ * small shared vocabulary reused across every surface.
+ * ========================================================================== */
+
+/* ---------------------------------------------------------------------------
+ * Buttons
+ * ------------------------------------------------------------------------- */
+
+.primary-button,
+.outlined-button,
+.danger-button,
+.delete-dialog-confirm,
+.disconnect-confirm,
+.ghost-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-3);
+  height: 30px;
+  padding: 0 var(--s-5);
+  border-radius: var(--r-sm);
+  font-size: var(--t-sm);
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
+  transition: background var(--d-fast) var(--ease), border-color var(--d-fast) var(--ease),
+    color var(--d-fast) var(--ease), transform var(--d-fast) var(--ease);
+}
+
+.primary-button {
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: var(--fw-semibold);
+}
+
+.primary-button:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.primary-button:active:not(:disabled) {
+  background: var(--accent-active);
+  transform: translateY(0.5px);
+}
+
+.outlined-button {
+  border: 1px solid var(--line-strong);
+  background: var(--raised);
+  color: var(--text);
+}
+
+.outlined-button:hover:not(:disabled) {
+  background: var(--surface-hover);
+  border-color: var(--faint);
+}
+
+.outlined-button:active:not(:disabled) {
+  transform: translateY(0.5px);
+}
+
+.danger-button,
+.delete-dialog-confirm,
+.disconnect-confirm {
+  background: var(--danger);
+  color: var(--accent-ink);
+  font-weight: var(--fw-semibold);
+}
+
+.danger-button:hover:not(:disabled),
+.delete-dialog-confirm:hover:not(:disabled),
+.disconnect-confirm:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.danger-button:active:not(:disabled),
+.delete-dialog-confirm:active:not(:disabled),
+.disconnect-confirm:active:not(:disabled) {
+  transform: translateY(0.5px);
+}
+
+.ghost-button {
+  color: var(--muted);
+}
+
+.ghost-button:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+.primary-button:disabled,
+.outlined-button:disabled,
+.danger-button:disabled,
+.delete-dialog-confirm:disabled,
+.disconnect-confirm:disabled,
+.ghost-button:disabled {
+  opacity: 0.45;
+}
+
+.text-button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-2) var(--s-3);
+  margin-left: calc(var(--s-3) * -1);
+  border-radius: var(--r-sm);
+  color: var(--muted);
+  font-size: var(--t-xs);
+  transition: color var(--d-fast) var(--ease), background var(--d-fast) var(--ease);
+}
+
+.text-button:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+.text-button.mint {
+  color: var(--accent-text);
+}
+
+.icon-button {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 auto;
+  border-radius: var(--r-sm);
+  color: var(--muted);
+  transition: color var(--d-fast) var(--ease), background var(--d-fast) var(--ease),
+    transform var(--d-fast) var(--ease);
+}
+
+.icon-button:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+.icon-button:active:not(:disabled) {
+  transform: translateY(0.5px);
+}
+
+.icon-button.selected {
+  color: var(--accent-text);
+  background: var(--accent-soft);
+}
+
+.icon-button:disabled {
+  opacity: 0.4;
+}
+
+.inline-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+
+/* ---------------------------------------------------------------------------
+ * Inputs
+ * ------------------------------------------------------------------------- */
+
+input:not([type="radio"]):not([type="checkbox"]),
+textarea,
+select {
+  width: 100%;
+  min-height: 30px;
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  background: var(--surface-sunken);
+  color: var(--text);
+  font-size: var(--t-sm);
+  transition: border-color var(--d-fast) var(--ease), background var(--d-fast) var(--ease);
+}
+
+input:hover:not(:disabled),
+textarea:hover:not(:disabled),
+select:hover:not(:disabled) {
+  border-color: var(--faint);
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  border-color: var(--accent);
+  background: var(--raised);
+  outline: none;
+}
+
+input:disabled,
+textarea:disabled,
+select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+textarea {
+  resize: vertical;
+  line-height: var(--lh-normal);
+}
+
+select {
+  appearance: none;
+  padding-right: var(--s-7);
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%),
+    linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: right 12px center, right 7px center;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  cursor: pointer;
+}
+
+.code-input {
+  font-family: var(--mono);
+  font-size: var(--t-xs);
+}
+
+.muted {
+  color: var(--muted);
+  font-size: var(--t-sm);
+  line-height: var(--lh-normal);
+}
+
+.form-error {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s-2);
+  color: var(--danger);
+  font-size: var(--t-xs);
+  line-height: var(--lh-snug);
+}
+
+.eyebrow {
+  font-size: var(--t-micro);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--ls-label);
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+/* ---------------------------------------------------------------------------
+ * Toggle
+ * ------------------------------------------------------------------------- */
+
+.toggle {
+  position: relative;
+  width: 34px;
+  height: 18px;
+  flex: 0 0 auto;
+  padding: 2px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-full);
+  background: var(--surface-sunken);
+  transition: background var(--d-base) var(--ease), border-color var(--d-base) var(--ease);
+}
+
+.toggle > span {
+  display: block;
+  width: 12px;
+  height: 12px;
+  border-radius: var(--r-full);
+  background: var(--faint);
+  transition: transform var(--d-base) var(--ease-emphasis), background var(--d-base) var(--ease);
+}
+
+.toggle.on {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.toggle.on > span {
+  background: var(--accent-ink);
+  transform: translateX(16px);
+}
+
+/* ---------------------------------------------------------------------------
+ * Status dot. Encodes real connection state and nothing else.
+ * ------------------------------------------------------------------------- */
+
+.status-dot,
+.terminal-connection-dot {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
+  border-radius: var(--r-full);
+  background: var(--ok);
+  box-shadow: 0 0 0 2px var(--ok-soft);
+}
+
+.status-dot.offline,
+.terminal-connection-dot.offline {
+  background: var(--faint);
+  box-shadow: none;
+}
+
+.status-dot.pending {
+  background: var(--warn);
+  box-shadow: 0 0 0 2px var(--warn-soft);
+  animation: status-pulse 1.1s var(--ease) infinite;
+}
+
+@keyframes status-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Panel count chip
+ * ------------------------------------------------------------------------- */
+
+.panel-count {
+  min-width: 18px;
+  padding: 1px var(--s-2);
+  border-radius: var(--r-full);
+  background: var(--surface-active);
+  color: var(--muted);
+  font-size: var(--t-micro);
+  font-weight: var(--fw-medium);
+  text-align: center;
+}
+
+/* Section heading shared by the sidebar, command shelf and settings. */
+.section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-4);
+  min-height: 30px;
+  flex: 0 0 auto;
+}
+
+.panel-title {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  min-width: 0;
+}
+
+.panel-title h2 {
+  font-size: var(--t-md);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--ls-tight);
+}
+
+.panel-title small {
+  font-size: var(--t-xs);
+  color: var(--faint);
+}
+
+/* ---------------------------------------------------------------------------
+ * Empty state
+ * ------------------------------------------------------------------------- */
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s-4);
+  padding: var(--s-9) var(--s-6);
+  color: var(--muted);
+  text-align: center;
+}
+
+.empty-state > svg {
+  color: var(--faint);
+}
+
+.empty-state h2,
+.empty-state h3 {
+  font-size: var(--t-md);
+  font-weight: var(--fw-semibold);
+  color: var(--text);
+}
+
+.empty-state p {
+  max-width: 42ch;
+  font-size: var(--t-sm);
+  line-height: var(--lh-normal);
+  color: var(--muted);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

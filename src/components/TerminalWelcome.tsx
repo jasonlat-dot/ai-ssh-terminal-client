@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { Icon, Modal } from './Ui';
 import welcomeArtDark from '../assets/terminal-welcome.png';
 import welcomeArtLight from '../assets/terminal-welcome-light.png';
-import './TerminalWelcome.css';
 
 export function TerminalWelcome({ add, connections }: { add: () => void; connections: () => void }) {
   const [guideOpen, setGuideOpen] = useState(false);

@@ -5,7 +5,7 @@ import { isTauriRuntime } from '../state/runtime';
 export type BundledBackendStatus = {
   status: 'starting' | 'running' | 'failed' | 'stopped';
   message: string;
-  logPath: string | null;
+  logDirectory: string | null;
 };
 
 export type BundledBackendConfigValue = {

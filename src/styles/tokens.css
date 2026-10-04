@@ -1,0 +1,290 @@
+/* ============================================================================
+ * tokens.css — the single source of truth for the Agent SSH design system.
+ *
+ * Everything visual resolves to a token declared here. Component stylesheets
+ * never invent a colour, radius, duration or size literal.
+ *
+ * Design read
+ * -----------
+ * A desktop-class developer cockpit: SSH terminal + AI agent console, used for
+ * hours at a time. The visual language is a *precision instrument* — cool
+ * graphite neutrals, a single warm signal accent, hairline structure instead of
+ * stacked cards, and monospace reserved for anything numeric or literal.
+ *
+ * Dials: DESIGN_VARIANCE 4 (a daily tool must stay predictable)
+ *        MOTION_INTENSITY 6 (motivated: state, streaming, panel transitions)
+ *        VISUAL_DENSITY 8 (cockpit: 1px rules, tabular numerals, tight rhythm)
+ * ========================================================================== */
+
+/* ---------------------------------------------------------------------------
+ * 1. Primitives — raw palette. Nothing outside this block may use these.
+ * ------------------------------------------------------------------------- */
+
+:root {
+  /* Type ------------------------------------------------------------------ */
+  /* Self-hosted fonts are deliberately avoided: this ships as a desktop app
+     where a curated system stack renders natively and costs zero bytes.
+     Segoe UI Variable ships with Windows 10 1903+; the CJK faces are listed
+     ahead of the Latin fallback so mixed-script labels keep balanced weight. */
+  --sans: "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont,
+    "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei UI", "Noto Sans SC",
+    system-ui, sans-serif;
+  --sans-display: "Segoe UI Variable Display", "Segoe UI", -apple-system,
+    "PingFang SC", "Microsoft YaHei UI", system-ui, sans-serif;
+  --mono: "Cascadia Mono", "JetBrains Mono", "SFMono-Regular", "SF Mono",
+    Consolas, "Liberation Mono", "Noto Sans Mono", monospace;
+
+  /* Modular type scale. Six steps, each with a defined job, so hierarchy is
+     carried by size + weight + colour rather than by scaling everything up. */
+  --t-micro: 10px;   /* badges, tabular meta, count chips               */
+  --t-xs: 11px;      /* secondary meta, helper text, inline hints      */
+  --t-sm: 12px;      /* default body of dense UI                        */
+  --t-md: 13px;      /* emphasis body, buttons, list primaries          */
+  --t-lg: 15px;      /* panel titles                                    */
+  --t-xl: 19px;      /* page titles, welcome heading                    */
+  --t-2xl: 27px;    /* display                                          */
+
+  --lh-tight: 1.25;
+  --lh-snug: 1.45;
+  --lh-normal: 1.65;
+
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+
+  --ls-tight: -0.011em;
+  --ls-label: 0.07em;   /* small-caps style labels only */
+
+  /* Space — 4px base grid. Only these steps are used. ------------------ */
+  --s-1: 2px;
+  --s-2: 4px;
+  --s-3: 6px;
+  --s-4: 8px;
+  --s-5: 12px;
+  --s-6: 16px;
+  --s-7: 20px;
+  --s-8: 24px;
+  --s-9: 32px;
+  --s-10: 44px;
+
+  /* Radii — ONE scale, five steps, one documented rule:
+     micro-marks use --r-xs, controls use --r-sm, surfaces use --r-md,
+     overlays use --r-lg, pills / toggles / avatars use --r-full.
+     --r-xs exists only for shapes smaller than 12px, where --r-sm would round
+     past half the edge and turn the shape into a circle. No other exception. */
+  --r-xs: 2px;
+  --r-sm: 5px;
+  --r-md: 8px;
+  --r-lg: 12px;
+  --r-full: 999px;
+
+  /* Motion — three durations, one easing curve for UI, one for emphasis.  */
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+  --ease-emphasis: cubic-bezier(0.32, 0.72, 0, 1);
+  --d-fast: 110ms;
+  --d-base: 180ms;
+  --d-slow: 320ms;
+
+  /* Layout rails. Fixed so the grid never reflows while dragging. ------- */
+  --rail: 60px;
+  --rail-collapsed: 52px;
+  --sidebar: 268px;
+  --sidebar-collapsed: 0px;
+  --agent: 420px;
+  --header-h: 52px;
+  --divider-w: 1px;
+
+  /* Measure. The comfortable reading width for a form or a list of hosts.
+     Wider than this and the eye loses the left edge when scanning a row;
+     narrower and labels start hyphenating. Shared by the connections page and
+     the settings content column so both read at the same rhythm. */
+  --measure: 1040px;
+  --z-panel: 1;
+  --z-sticky: 20;
+  --z-overlay: 60;
+  --z-modal: 80;
+  --z-toast: 100;
+}
+
+/* ---------------------------------------------------------------------------
+ * 2. Dark theme (default) — cool graphite, warm signal accent.
+ *
+ * Awning note: hue drifts slightly cool as surfaces darken, which keeps the
+ * warm accent reading as an emitted signal rather than another surface tint.
+ * ------------------------------------------------------------------------- */
+
+:root,
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  /* Surfaces, darkest (deepest inset) to lightest (raised) */
+  --bg: #101215;            /* app canvas behind the rails              */
+  --panel: #171a1e;         /* rails, headers, sidebars                 */
+  --raised: #1d2126;        /* cards, list rows, inputs                 */
+  --terminal: #0b0d10;      /* terminal canvas — the deepest surface     */
+
+  /* Structure */
+  --line: #262b32;
+  --line-strong: #363d46;
+  --line-faint: #1e2228;
+
+  /* Ink */
+  --text: #e7e9ec;
+  --muted: #98a0ab;
+  --faint: #6a727e;
+
+  /* Single accent: a warm signal lamp. Chosen to sit against cool graphite
+     without the temperature clash of another blue, and to avoid the
+     violet/mint defaults that read as generic AI chrome. */
+  --accent: #e0703c;
+  --accent-hover: #ee8150;
+  --accent-active: #c25f2f;
+  --accent-ink: #ffffff;
+  --accent-text: #f0996d;   /* accent used as text — needs more luminance */
+  --accent-soft: rgba(224, 112, 60, 0.13);
+  --accent-line: rgba(224, 112, 60, 0.34);
+  --accent-glow: rgba(224, 112, 60, 0.22);
+
+  /* Semantic states. These encode real condition, never decoration. */
+  --ok: #3fae7e;
+  --ok-soft: rgba(63, 174, 126, 0.14);
+  --ok-line: rgba(63, 174, 126, 0.36);
+  --warn: #d9a441;
+  --warn-soft: rgba(217, 164, 65, 0.14);
+  --warn-line: rgba(217, 164, 65, 0.34);
+  --danger: #e05a52;
+  --danger-soft: rgba(224, 90, 82, 0.14);
+  --danger-line: rgba(224, 90, 82, 0.36);
+  --info: #5b9dd9;
+  --info-soft: rgba(91, 157, 217, 0.14);
+  --info-line: rgba(91, 157, 217, 0.34);
+
+  /* Well. A recessed surface that is *not* the terminal — segmented tracks,
+     nav gutters, inset chips. Distinct from --terminal because the terminal is
+     the deepest surface in the app and reusing it here would flatten the
+     hierarchy. Also distinct from --surface-sunken so a well can be tuned
+     independently of a plain sunken fill. */
+  --well: #12151a;
+  --well-line: var(--line-strong);
+
+  /* Interaction states */
+  --surface-hover: #21262c;
+  --surface-active: #282e35;
+  --surface-sunken: #14171b;
+
+  /* Elevation. Shadows are tinted to the surface hue, never pure black. */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 6px 18px -4px rgba(0, 0, 0, 0.55);
+  --shadow-lg: 0 24px 56px -12px rgba(0, 0, 0, 0.7);
+  --theme-shadow: 0 18px 44px -12px rgba(0, 0, 0, 0.72);
+
+  /* Syntax highlighting tuned for the dark terminal surface */
+  --syntax-comment: #6b7683;
+  --syntax-keyword: #e08bb0;
+  --syntax-number: #d9a441;
+  --syntax-string: #7dc99a;
+  --syntax-title: #79b8f0;
+}
+
+/* ---------------------------------------------------------------------------
+ * 3. Light theme — cool paper, same accent darkened for AA contrast.
+ *
+ * Surfaces stay in the same neutral family as dark mode so the product reads
+ * as one system that changes exposure, not as two different applications.
+ * ------------------------------------------------------------------------- */
+
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --bg: #eef0f2;
+  --panel: #f7f8f9;
+  --raised: #ffffff;
+  --terminal: #ffffff;
+
+  --line: #d9dde2;
+  --line-strong: #bcc3cb;
+  --line-faint: #e7eaee;
+
+  --text: #191c20;
+  --muted: #5b636d;
+  --faint: #838b95;
+
+  --accent: #b4481c;
+  --accent-hover: #9c3d16;
+  --accent-active: #823113;
+  --accent-ink: #ffffff;
+  --accent-text: #9c3d16;
+  --accent-soft: rgba(180, 72, 28, 0.09);
+  --accent-line: rgba(180, 72, 28, 0.3);
+  --accent-glow: rgba(180, 72, 28, 0.16);
+
+  --ok: #1f7a52;
+  --ok-soft: rgba(31, 122, 82, 0.1);
+  --ok-line: rgba(31, 122, 82, 0.3);
+  --warn: #8a6314;
+  --warn-soft: rgba(138, 99, 20, 0.1);
+  --warn-line: rgba(138, 99, 20, 0.3);
+  --danger: #b5322b;
+  --danger-soft: rgba(181, 50, 43, 0.1);
+  --danger-line: rgba(181, 50, 43, 0.3);
+  --info: #2a6ba8;
+  --info-soft: rgba(42, 107, 168, 0.1);
+  --info-line: rgba(42, 107, 168, 0.3);
+
+  /* In light mode a well is a cool grey inset, not white — a white well on a
+     white panel has no edge and reads as a hole in the layout. */
+  --well: #f2f4f7;
+  --well-line: var(--line-strong);
+
+  --surface-hover: #e9ecef;
+  --surface-active: #dfe3e7;
+  --surface-sunken: #f2f4f6;
+
+  --shadow-sm: 0 1px 2px rgba(23, 32, 44, 0.08);
+  --shadow-md: 0 6px 18px -6px rgba(23, 32, 44, 0.18);
+  --shadow-lg: 0 24px 56px -16px rgba(23, 32, 44, 0.26);
+  --theme-shadow: 0 16px 40px -14px rgba(23, 32, 44, 0.28);
+
+  --syntax-comment: #7b848f;
+  --syntax-keyword: #a3346f;
+  --syntax-number: #8a6314;
+  --syntax-string: #1f7a52;
+  --syntax-title: #2a6ba8;
+}
+
+/* ---------------------------------------------------------------------------
+ * 4. Legacy token bridge.
+ *
+ * Earlier stylesheets (BackendSettingsDialog.css, SftpFileManager.css and the
+ * per-component sheets) already consume this vocabulary. Rather than fork the
+ * system, the old names are mapped onto the new tokens once, here. When those
+ * sheets are migrated to the new names, this block can be deleted wholesale.
+ * ------------------------------------------------------------------------- */
+
+:root {
+  --mint: var(--accent);
+  --blue: var(--accent);
+  --mint-soft: var(--accent-soft);
+  --radius: var(--r-sm);
+
+  /* Semantic aliases used by the settings and SFTP sheets */
+  --theme-chrome: var(--panel);
+  --theme-panel: var(--raised);
+  --theme-panel-soft: var(--surface-sunken);
+  --theme-control: var(--surface-sunken);
+  --theme-hover: var(--surface-hover);
+  --theme-selected: var(--accent-soft);
+  --theme-text-strong: var(--text);
+  --theme-text-muted: var(--muted);
+  --theme-accent-text: var(--accent-text);
+
+  --host-sidebar-width: var(--sidebar);
+  --workbench-line: var(--line);
+  --workbench-muted: var(--muted);
+
+  --settings-radius: var(--r-md);
+  --settings-radius-sm: var(--r-sm);
+  --settings-radius-pill: var(--r-full);
+  --settings-shadow: var(--shadow-md);
+  --settings-content-max-width: var(--measure);
+}

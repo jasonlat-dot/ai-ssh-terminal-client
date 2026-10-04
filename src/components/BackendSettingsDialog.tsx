@@ -1,11 +1,14 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { openPath } from '@tauri-apps/plugin-opener';
 import {
   readBundledBackendConfig,
+  readBundledBackendStatus,
+  restartBundledBackend,
   saveBundledBackendConfig,
   type BundledBackendConfig,
   type BundledBackendConfigValue,
+  type BundledBackendStatus,
 } from '../api/bundledBackend';
 import { normalizeBackendUrl } from '../config/backend';
 import { isTauriRuntime } from '../state/runtime';
@@ -36,7 +39,7 @@ type FieldType = 'text' | 'password' | 'number' | 'textarea' | 'choice' | 'toggl
  * - 'bucket'：MinIO 桶名，提供命名规范提示
  * - 'host-list'：非代理地址列表
  */
-type FieldKind = 'reasoning' | 'port' | 'path-preset' | 'timeout' | 'bucket' | 'host-list';
+type FieldKind = 'reasoning' | 'port' | 'path-preset' | 'timeout' | 'bucket' | 'host-list' | 'service-secret';
 
 type FieldDefinition = {
   key: string;
@@ -46,7 +49,6 @@ type FieldDefinition = {
   kind?: FieldKind;
   placeholder?: string;
   options?: { value: string; label: string }[];
-  wide?: boolean;
   /** 用于右侧 chip 显示 */
   badge?: string;
   /** 内置 ID，标识与某个抽象能力关联 */
@@ -112,60 +114,67 @@ const sectionItems: SectionDefinition[] = [
 
 const generalFields: FieldDefinition[] = [
   { key: 'serverPort', label: '后端运行端口', kind: 'port', placeholder: '8888', badge: 'TCP' },
-  { key: 'dataDirectory', label: '统一数据目录', placeholder: '/var/lib/ai-ssh-terminal', wide: true,
-    help: 'SQLite、上传文件、运行日志都会派生在该目录下。切换前请先停止后端。' },
+  { key: 'dataDirectory', label: '统一数据目录', placeholder: '/var/lib/ai-ssh-terminal',
+    help: 'SQLite、上传文件、运行日志都会派生在该目录下。修改路径不会迁移任何旧数据。' },
 ];
 
-const modelFields: FieldDefinition[] = [
-  { key: 'aiBaseUrl', label: '模型服务地址', placeholder: 'http://127.0.0.1:8777/', wide: true,
-    help: 'OpenAI 兼容服务的根地址，不要附加 /v1/chat/completions。', badge: 'BASE URL' },
-  { key: 'aiApiKey', label: 'API Key', type: 'password', wide: true,
-    help: '密钥不会回显。留空表示保留现有值。' },
-  { key: 'aiCompletionsPath', label: '对话接口路径', kind: 'path-preset',
-    pathGroup: 'aiCompletionsPath', placeholder: 'v1/chat/completions',
-    help: 'OpenAI 兼容服务通常无需修改。' },
-  { key: 'aiEmbeddingsPath', label: '向量接口路径', kind: 'path-preset',
-    pathGroup: 'aiEmbeddingsPath', placeholder: 'v1/embeddings',
-    help: '只有服务商使用不同路径时才修改。' },
+/** BaseURL：与 API Key 并排一行 */
+const modelBaseFields: FieldDefinition[] = [
+  { key: 'aiBaseUrl', label: '服务地址', placeholder: 'http://127.0.0.1:8777/',
+    help: 'OpenAI 兼容根地址。', badge: 'BASE URL' },
+];
+
+/** API Key：与 BaseURL 并排一行，仅展示眼睛按钮，不允许复制/随机/恢复默认。 */
+const modelApiKeyFields: FieldDefinition[] = [
+  { key: 'aiApiKey', label: 'API Key', type: 'password', kind: 'service-secret',
+    badge: 'OPENAI 兼容密钥',
+    help: 'OpenAI 兼容协议下的大模型调用密钥。留空保留原值。' },
+];
+
+/** 对话接口路径：独占一行 */
+const modelChatField: FieldDefinition[] = [
+  { key: 'aiCompletionsPath', label: '对话路径', placeholder: 'v1/chat/completions' },
+];
+
+/** 向量接口路径：与推理强度并排一行 */
+const modelEmbedField: FieldDefinition[] = [
+  { key: 'aiEmbeddingsPath', label: '向量路径', placeholder: 'v1/embeddings' },
+];
+
+/** 模型名称：独占一行 */
+const modelNameField: FieldDefinition[] = [
   { key: 'aiModelName', label: '模型名称', placeholder: 'gpt-5.5', badge: 'MODEL' },
-  { key: 'aiReasoningEffort', label: '推理强度', kind: 'reasoning', wide: true,
-    help: '越高通常思考时间越长，也可能消耗更多额度。' },
 ];
 
 const aiProxyFields: FieldDefinition[] = [
   { key: 'aiProxyHost', label: '代理主机', placeholder: 'http://proxy.example.com', badge: 'HOST' },
   { key: 'aiProxyPort', label: '代理端口', type: 'number', placeholder: '7890', badge: 'TCP' },
-  { key: 'aiNonProxyHosts', label: '不使用代理的地址', kind: 'host-list', wide: true,
+  { key: 'aiNonProxyHosts', label: '不使用代理的地址', kind: 'host-list',
     help: '每行填写一个地址或通配模式，命中后请求绕过代理。' },
+];
+
+const sshProxyFields: FieldDefinition[] = [
+  { key: 'sshProxyHost', label: '代理主机', placeholder: 'http://proxy.example.com', badge: 'HOST' },
+  { key: 'sshProxyPort', label: '代理端口', type: 'number', placeholder: '7890', badge: 'TCP' },
+  { key: 'sshProxyUsername', label: '代理账号', placeholder: 'optional', badge: 'USER' },
+  { key: 'sshProxyPassword', label: '代理密码', type: 'password', kind: 'service-secret',
+    help: '留空表示保留现有密码。' },
 ];
 
 /** 推理强度档位：中英文 + 描述 + 等级（0-7），UI 用网格卡片渲染。 */
 const reasoningEffortLevels: { value: string; label: string; english: string; description: string; level: number }[] = [
-  { value: 'none',    label: '关闭', english: 'None',       description: '不启用推理，按普通模型返回',         level: 0 },
-  { value: 'minimal', label: '极低', english: 'Minimal',    description: '几乎无额外思考，响应最快',           level: 1 },
-  { value: 'low',     label: '低',   english: 'Low',        description: '略加推理，适合简单问答',             level: 2 },
-  { value: 'medium',  label: '中',   english: 'Medium',     description: '默认档位，多数任务平衡',             level: 3 },
-  { value: 'high',    label: '高',   english: 'High',       description: '深入思考，复杂任务推荐',             level: 4 },
-  { value: 'xhigh',   label: '很高', english: 'Extra High', description: '更强推理，适合长链路分析',           level: 5 },
-  { value: 'max',     label: '最高', english: 'Maximum',    description: '几乎全量推理，耗时显著增加',         level: 6 },
-  { value: 'ultra',   label: '极致', english: 'Ultra',      description: '可能消耗大量 token，仅用于棘手场景', level: 7 },
+  { value: 'none',    label: '关闭', english: 'None',       description: '不启用推理',       level: 0 },
+  { value: 'minimal', label: '极低', english: 'Minimal',    description: '几乎无额外思考',    level: 1 },
+  { value: 'low',     label: '低',   english: 'Low',        description: '略加推理',         level: 2 },
+  { value: 'medium',  label: '中',   english: 'Medium',     description: '默认平衡',         level: 3 },
+  { value: 'high',    label: '高',   english: 'High',       description: '深入思考',         level: 4 },
+  { value: 'xhigh',   label: '很高', english: 'Extra High', description: '长链路分析',        level: 5 },
+  { value: 'max',     label: '最高', english: 'Maximum',    description: '接近全量推理',      level: 6 },
+  { value: 'ultra',   label: '极致', english: 'Ultra',      description: '极耗 token',      level: 7 },
 ];
 
 /** 非代理地址快速示例。 */
 const nonProxyPresets = ['localhost', '127.0.0.1', '10.*', '192.168.*', '*.local'];
-
-/** OpenAI 兼容服务常用路径快选。 */
-const openAiPathPresets: Record<string, { label: string; english: string; path: string }[]> = {
-  aiCompletionsPath: [
-    { label: 'OpenAI 标准', english: 'v1/chat/completions',     path: 'v1/chat/completions' },
-    { label: 'Azure OpenAI', english: 'openai/deployments',       path: 'openai/deployments/{model}/chat/completions?api-version=...' },
-    { label: '通义 / 智谱', english: 'compatible-mode',          path: 'v1/chat/completions' },
-  ],
-  aiEmbeddingsPath: [
-    { label: 'OpenAI 标准', english: 'v1/embeddings',            path: 'v1/embeddings' },
-    { label: 'Azure OpenAI', english: 'openai/deployments',       path: 'openai/deployments/{model}/embeddings?api-version=...' },
-  ],
-};
 
 /** 后端常用端口快选。 */
 const serverPortPresets = [
@@ -210,27 +219,21 @@ function isTimeoutKey(key: string): keyof typeof timeoutPresets | null {
   return null;
 }
 
-const sshProxyFields: FieldDefinition[] = [
-  { key: 'sshProxyHost', label: '代理主机', placeholder: 'http://proxy.example.com', badge: 'HOST' },
-  { key: 'sshProxyPort', label: '代理端口', type: 'number', placeholder: '7890', badge: 'TCP' },
-  { key: 'sshProxyUsername', label: '代理用户名', placeholder: '可选' },
-  { key: 'sshProxyPassword', label: '代理密码', type: 'password',
-    help: '留空表示保留现有密码。' },
-];
-
 const localStorageFields: FieldDefinition[] = [
-  { key: 'localPublicBaseUrl', label: '文件下载地址（可选）', wide: true,
+  { key: 'localPublicBaseUrl', label: '文件下载地址（可选）',
     help: '通常留空，系统会根据当前访问地址自动生成。', badge: 'PUBLIC URL' },
-  { key: 'localSigningSecret', label: '下载链接签名密钥（高级）', type: 'password', wide: true,
+  { key: 'localSigningSecret', label: '下载链接签名密钥（高级）', type: 'password',
     help: '通常留空。留空表示保留已有密钥或继续使用随机密钥。' },
 ];
 
 const minioFields: FieldDefinition[] = [
-  { key: 'minioEndpoint', label: 'MinIO API 地址', wide: true, badge: 'ENDPOINT' },
-  { key: 'minioPublicEndpoint', label: '外部下载地址（可选）', wide: true,
+  { key: 'minioEndpoint', label: 'MinIO API 地址', badge: 'ENDPOINT' },
+  { key: 'minioPublicEndpoint', label: '外部下载地址（可选）',
     help: '客户端无法直接访问 MinIO API 地址时再填写，留空则使用上面的地址。', badge: 'PUBLIC' },
-  { key: 'minioAccessKey', label: 'Access Key', type: 'password', help: '留空表示保留现有值。' },
-  { key: 'minioSecretKey', label: 'Secret Key', type: 'password', help: '留空表示保留现有值。' },
+  { key: 'minioAccessKey', label: 'Access Key', type: 'password', kind: 'service-secret',
+    placeholder: '留空表示保留现有值', badge: 'ACCESS' },
+  { key: 'minioSecretKey', label: 'Secret Key', type: 'password', kind: 'service-secret',
+    placeholder: '留空表示保留现有值', badge: 'SECRET' },
   { key: 'minioBucket', label: '存储桶', kind: 'bucket', placeholder: 'ai-ssh-uploads', badge: 'BUCKET' },
   { key: 'minioRegion', label: '区域', placeholder: 'us-east-1', badge: 'REGION' },
   { key: 'minioConnectTimeout', label: '连接超时', kind: 'timeout' },
@@ -239,12 +242,21 @@ const minioFields: FieldDefinition[] = [
   { key: 'minioCallTimeout', label: '请求总超时', kind: 'timeout' },
 ];
 
-const mediaTypeLabels: Record<string, string> = {
-  'image/png': 'PNG 图片',
-  'image/jpeg': 'JPG 图片',
-  'image/webp': 'WebP 图片',
-  'application/pdf': 'PDF 文档',
-};
+/** 媒体类型预设：用于"附件能力"区块快速添加按钮。 */
+const mediaTypePresets: { mime: string; label: string; group: 'image' | 'doc' | 'text' }[] = [
+  { mime: 'image/png', label: 'PNG 图片', group: 'image' },
+  { mime: 'image/jpeg', label: 'JPG 图片', group: 'image' },
+  { mime: 'image/webp', label: 'WebP 图片', group: 'image' },
+  { mime: 'image/gif', label: 'GIF 图片', group: 'image' },
+  { mime: 'application/pdf', label: 'PDF 文档', group: 'doc' },
+  { mime: 'text/plain', label: '纯文本', group: 'text' },
+  { mime: 'text/markdown', label: 'Markdown', group: 'text' },
+  { mime: 'text/csv', label: 'CSV 表格', group: 'text' },
+];
+
+const mediaTypeLabels: Record<string, string> = Object.fromEntries(
+  mediaTypePresets.map(preset => [preset.mime, preset.label])
+);
 
 /* ============================================================================
  * 通用工具
@@ -289,18 +301,6 @@ function StatusDot({ status }: { status: DotStatus }) {
   return <span className={`settings-status-dot is-${status}`} aria-hidden="true"><i /></span>;
 }
 
-function SearchBar({ value, onChange, placeholder }: {
-  value: string;
-  onChange: (value: string) => void;
-  placeholder?: string;
-}) {
-  return <div className="settings-search">
-    <Icon name="search" size={14} />
-    <input value={value} onChange={event => onChange(event.target.value)} placeholder={placeholder ?? '在当前页搜索字段…'} />
-    {value && <button type="button" aria-label="清空搜索" onClick={() => onChange('')}><Icon name="close" size={11} /></button>}
-  </div>;
-}
-
 function SegmentedControl<T extends string>({ value, options, onChange, ariaLabel }: {
   value: T;
   options?: { value: T; label: string }[];
@@ -321,7 +321,7 @@ function FieldShell({ definition, meta, children }: {
   meta?: BundledBackendConfigValue;
   children: ReactNode;
 }) {
-  const className = `settings-field ${definition.wide ? 'is-wide' : ''} ${definition.type === 'password' ? 'is-secret' : ''}`;
+  const className = `settings-field ${definition.type === 'password' ? 'is-secret' : ''}`;
   return <div className={className}>
     <div className="settings-field-head">
       <label htmlFor={`backend-setting-${definition.key}`}>{definition.label}</label>
@@ -356,10 +356,8 @@ function ReasoningEffortGrid({ value, change }: {
         aria-checked={selected}
         className={`settings-reasoning-card ${selected ? 'selected' : ''}`}
         onClick={() => change(level.value)}>
-        <span className="settings-reasoning-card-head">
-          <strong>{level.label}</strong>
-          <em>{level.english}</em>
-        </span>
+        <span className="settings-reasoning-card-cn">{level.label}</span>
+        <span className="settings-reasoning-card-en">{level.english}</span>
         <span className="settings-reasoning-card-desc">{level.description}</span>
         <span className="settings-reasoning-meter" aria-hidden="true">
           <span className="settings-reasoning-meter-fill" style={{ width: `${ratio * 100}%` }} />
@@ -401,33 +399,6 @@ function PortPresetPicker({ value, change, meta }: {
         <span className="settings-port-hint">
           <Icon name="bulb" size={11} />当前使用自定义端口 {numeric}
         </span>}
-    </div>
-  </div>;
-}
-
-function PathPresetPicker({ value, change, group, meta }: {
-  value: string;
-  change: (next: string) => void;
-  group: string;
-  meta?: BundledBackendConfigValue;
-}) {
-  const presets = openAiPathPresets[group] ?? [];
-  return <div className="settings-path-preset">
-    <div className="settings-input-wrap">
-      <input id={`backend-setting-${group}`} type="text" value={value}
-        placeholder="v1/chat/completions" className="settings-control settings-control-mono"
-        onChange={event => change(event.target.value)} />
-      {meta?.configured && value && <span className="settings-input-suffix">
-        <Icon name="check" size={11} />
-      </span>}
-    </div>
-    <div className="settings-path-preset-list" role="group" aria-label="路径快选">
-      {presets.map(preset => <button key={preset.label} type="button"
-        className={value === preset.path ? 'selected' : ''}
-        onClick={() => change(preset.path)}>
-        <strong>{preset.label}</strong>
-        <code>{preset.english}</code>
-      </button>)}
     </div>
   </div>;
 }
@@ -485,12 +456,13 @@ function HostListEditor({ value, change }: {
   change: (next: string) => void;
 }) {
   const items = value.split(/\r?\n/).map(item => item.trim()).filter(Boolean);
+  const itemSet = new Set(items);
   const [draft, setDraft] = useState('');
   const [bulkMode, setBulkMode] = useState(false);
 
   const commit = () => {
     const next = draft.trim();
-    if (!next || items.includes(next)) { setDraft(''); return; }
+    if (!next || itemSet.has(next)) { setDraft(''); return; }
     change([...items, next].join('\n'));
     setDraft('');
   };
@@ -503,9 +475,28 @@ function HostListEditor({ value, change }: {
     setBulkMode(false);
   };
 
+  const togglePreset = (preset: string) => {
+    change(itemSet.has(preset)
+      ? items.filter(current => current !== preset).join('\n')
+      : [...items, preset].join('\n'));
+  };
+
   return <div className="settings-host-list">
+    <div className="settings-host-list-head">
+      <div className="settings-host-list-head-info">
+        <strong>例外地址列表</strong>
+        <small>命中这些地址的请求会直接连接，不走代理。支持 IP、CIDR、通配符（*.example.com）。</small>
+      </div>
+      <span className={`settings-host-list-count ${items.length ? 'is-active' : ''}`}>
+        <Icon name="shield" size={11} />
+        {items.length} 条
+      </span>
+    </div>
+
     <div className="settings-host-list-chips" aria-label="已配置的非代理地址">
-      {items.length === 0 && <p className="settings-empty">还没有任何例外地址，代理会对所有请求生效</p>}
+      {items.length === 0 && <p className="settings-host-list-empty">
+        <Icon name="bulb" size={12} />还没有任何例外地址，代理会对所有请求生效。
+      </p>}
       {items.map(item => <span key={item} className="settings-host-chip">
         <Icon name="signal" size={11} />
         <code>{item}</code>
@@ -515,22 +506,26 @@ function HostListEditor({ value, change }: {
         </button>
       </span>)}
     </div>
-    {!bulkMode && <div className="settings-host-list-add">
+
+    <div className="settings-host-list-row">
+      <span className="settings-host-list-row-label">
+        <Icon name="bolt" size={11} />快速添加
+      </span>
       <div className="settings-host-list-presets" role="group" aria-label="快速添加">
         {nonProxyPresets.map(preset => <button key={preset} type="button"
-          className={items.includes(preset) ? 'selected' : ''}
-          onClick={() => {
-            if (items.includes(preset)) {
-              change(items.filter(current => current !== preset).join('\n'));
-            } else {
-              change([...items, preset].join('\n'));
-            }
-          }}>
-          <Icon name={items.includes(preset) ? 'check' : 'plus'} size={10} />
+          className={itemSet.has(preset) ? 'selected' : ''}
+          onClick={() => togglePreset(preset)}>
+          <Icon name={itemSet.has(preset) ? 'check' : 'plus'} size={10} />
           {preset}
         </button>)}
       </div>
-      <div className="settings-host-list-input">
+    </div>
+
+    {!bulkMode && <div className="settings-host-list-input">
+      <span className="settings-host-list-row-label">
+        <Icon name="edit" size={11} />自定义
+      </span>
+      <div className="settings-host-list-input-inner">
         <input value={draft} placeholder="输入自定义地址或通配模式，如 *.internal"
           className="settings-control"
           onChange={event => setDraft(event.target.value)}
@@ -546,13 +541,23 @@ function HostListEditor({ value, change }: {
         </button>
       </div>
     </div>}
+
     {bulkMode && <div className="settings-host-list-bulk">
-      <textarea value={draft} autoFocus rows={4} placeholder="每行一个地址，匹配 *.example.com / 10.0.0.0/8 等"
-        className="settings-control settings-control-textarea"
-        onChange={event => setDraft(event.target.value)} />
-      <div className="settings-host-list-bulk-actions">
-        <button type="button" className="primary-button" onClick={commitBulk}>合并到列表</button>
-        <button type="button" className="ghost-button" onClick={() => { setBulkMode(false); setDraft(''); }}>取消</button>
+      <span className="settings-host-list-row-label">
+        <Icon name="paste" size={11} />批量模式
+      </span>
+      <div className="settings-host-list-bulk-inner">
+        <textarea value={draft} autoFocus rows={4} placeholder="每行一个地址，匹配 *.example.com / 10.0.0.0/8 等"
+          className="settings-control settings-control-textarea"
+          onChange={event => setDraft(event.target.value)} />
+        <div className="settings-host-list-bulk-actions">
+          <button type="button" className="primary-button" onClick={commitBulk}>
+            <Icon name="check" size={12} />合并到列表
+          </button>
+          <button type="button" className="ghost-button" onClick={() => { setBulkMode(false); setDraft(''); }}>
+            <Icon name="close" size={12} />取消
+          </button>
+        </div>
       </div>
     </div>}
   </div>;
@@ -571,7 +576,6 @@ function ConfigField({ definition, values, config, change }: {
   const meta = config.values[definition.key];
   const value = values[definition.key] ?? '';
   const placeholder = meta?.sensitive && meta.configured ? '已配置，留空表示不修改' : definition.placeholder;
-  const [reveal, setReveal] = useState(false);
   const isPassword = definition.type === 'password';
 
   // 1) 自定义 kind 渲染器
@@ -584,13 +588,6 @@ function ConfigField({ definition, values, config, change }: {
   if (definition.kind === 'port') {
     return <FieldShell definition={definition} meta={meta}>
       <PortPresetPicker value={value} change={next => change(definition.key, next)} meta={meta} />
-      {definition.help && <p className="settings-field-help">{definition.help}</p>}
-    </FieldShell>;
-  }
-  if (definition.kind === 'path-preset' && definition.pathGroup) {
-    return <FieldShell definition={definition} meta={meta}>
-      <PathPresetPicker value={value} change={next => change(definition.key, next)}
-        group={definition.pathGroup} meta={meta} />
       {definition.help && <p className="settings-field-help">{definition.help}</p>}
     </FieldShell>;
   }
@@ -634,18 +631,17 @@ function ConfigField({ definition, values, config, change }: {
         onChange={next => change(definition.key, String(next))} />
       <span className="settings-toggle-state">{value === 'true' ? '已开启' : '已关闭'}</span>
     </div>;
+  } else if (isPassword) {
+    body = <SecretField definition={definition} meta={meta}
+      value={value} placeholder={placeholder}
+      onChange={next => change(definition.key, next)}
+      variant={definition.kind === 'service-secret' ? 'service' : 'managed'} />;
   } else {
-    body = <div className={`settings-input-wrap ${isPassword ? 'is-password' : ''}`}>
+    body = <div className="settings-input-wrap">
       <input id={`backend-setting-${definition.key}`}
-        type={isPassword && !reveal ? 'password' : (definition.type ?? 'text')}
+        type={definition.type ?? 'text'}
         value={value} placeholder={placeholder} className="settings-control"
-        autoComplete={isPassword ? 'new-password' : undefined}
         onChange={event => change(definition.key, event.target.value)} />
-      {isPassword && meta?.configured && <button type="button" className="settings-input-action"
-        aria-label={reveal ? '隐藏内容' : '显示内容'} title={reveal ? '隐藏内容' : '显示内容'}
-        onClick={() => setReveal(value => !value)}>
-        <Icon name={reveal ? 'shield' : 'key'} size={13} />
-      </button>}
     </div>;
   }
 
@@ -653,6 +649,145 @@ function ConfigField({ definition, values, config, change }: {
     {body}
     {definition.help && <p className="settings-field-help">{definition.help}</p>}
   </FieldShell>;
+}
+
+/* =============================================================================
+ *  SecretField：智能密码框
+ *  - 后端已配置且当前为空 → 显示 ***（不暴露真实值）
+ *  - 显示/隐藏按钮
+ *  - 复制到剪贴板
+ *  - 一键生成随机密钥（默认 48 字符 URL-safe base64）
+ * ===========================================================================*/
+function randomSecret(bytes = 36): string {
+  const buf = new Uint8Array(bytes);
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    crypto.getRandomValues(buf);
+  } else {
+    for (let i = 0; i < bytes; i++) buf[i] = Math.floor(Math.random() * 256);
+  }
+  // URL-safe base64
+  let binary = '';
+  for (let i = 0; i < buf.length; i++) binary += String.fromCharCode(buf[i]);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+type SecretVariant = 'service' | 'managed';
+
+/** 外部传入的 API Key / Token：仅提供查看眼睛，禁止复制 / 随机生成 / 恢复默认。 */
+function ServiceSecretField({ definition, value, placeholder, onChange }: {
+  definition: FieldDefinition;
+  value: string;
+  placeholder?: string;
+  onChange: (next: string) => void;
+}) {
+  const [reveal, setReveal] = useState(false);
+  const inputType = reveal ? 'text' : 'password';
+  return <div className="settings-secret-field">
+    <div className="settings-input-wrap is-password">
+      <input id={`backend-setting-${definition.key}`}
+        type={inputType}
+        value={value}
+        placeholder={placeholder}
+        className="settings-control"
+        autoComplete="new-password"
+        onChange={event => onChange(event.target.value)} />
+      <button type="button" className="settings-input-action"
+        aria-label={reveal ? '隐藏内容' : '显示内容'} title={reveal ? '隐藏内容' : '显示内容'}
+        onClick={() => setReveal(value => !value)}>
+        <Icon name={reveal ? 'shield' : 'key'} size={13} />
+      </button>
+    </div>
+  </div>;
+}
+
+function SecretField({ definition, meta, value, placeholder, onChange, variant = 'managed' }: {
+  definition: FieldDefinition;
+  meta?: BundledBackendConfigValue;
+  value: string;
+  placeholder?: string;
+  onChange: (next: string) => void;
+  variant?: SecretVariant;
+}) {
+  if (variant === 'service') {
+    return <ServiceSecretField definition={definition} value={value}
+      placeholder={placeholder} onChange={onChange} />;
+  }
+  const [reveal, setReveal] = useState(false);
+  const [touched, setTouched] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const serverHasValue = !!meta?.configured;
+  const showMasked = serverHasValue && !touched && value === '';
+  const displayValue = showMasked ? '' : value;
+  // 重要：placeholder 不能写 "•••••"，否则它会跟 .settings-secret-mask 叠在一起。
+  const effectivePlaceholder = showMasked ? '后端已配置，留空保留原值' : placeholder;
+  const inputType = reveal ? 'text' : 'password';
+
+  const onCopy = async () => {
+    if (!displayValue) return;
+    try {
+      if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(displayValue);
+      else {
+        const tmp = document.createElement('textarea');
+        tmp.value = displayValue; document.body.appendChild(tmp);
+        tmp.select(); document.execCommand('copy'); tmp.remove();
+      }
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch { /* ignore */ }
+  };
+
+  const onGenerate = () => {
+    const next = randomSecret();
+    setTouched(true);
+    setReveal(true);
+    onChange(next);
+  };
+
+  const onClear = () => {
+    setTouched(true);
+    onChange('');
+  };
+
+  return <div className="settings-secret-field">
+    <div className="settings-input-wrap is-password">
+      <input id={`backend-setting-${definition.key}`}
+        type={inputType}
+        value={displayValue}
+        placeholder={effectivePlaceholder}
+        className="settings-control"
+        autoComplete="new-password"
+        onFocus={() => setTouched(true)}
+        onChange={event => { setTouched(true); onChange(event.target.value); }} />
+      {showMasked && <span className="settings-secret-mask">••••••••</span>}
+      <button type="button" className="settings-input-action"
+        aria-label={reveal ? '隐藏内容' : '显示内容'} title={reveal ? '隐藏内容' : '显示内容'}
+        onClick={() => setReveal(value => !value)} disabled={showMasked}>
+        <Icon name={reveal ? 'shield' : 'key'} size={13} />
+      </button>
+    </div>
+    <div className="settings-secret-toolbar">
+      <button type="button" className="ghost-button settings-secret-tool" onClick={onGenerate}
+        title="生成一个 URL-safe 随机密钥">
+        <Icon name="bolt" size={12} />随机生成
+      </button>
+      <button type="button" className="ghost-button settings-secret-tool" onClick={onCopy}
+        disabled={!displayValue} title="复制当前值">
+        <Icon name={copied ? 'check' : 'copy'} size={12} />{copied ? '已复制' : '复制'}
+      </button>
+      <button type="button" className="ghost-button settings-secret-tool" onClick={onClear}
+        disabled={!value && !showMasked} title="清空（恢复为后端已有值）">
+        <Icon name="refresh" size={12} />恢复默认
+      </button>
+    </div>
+    <p className="settings-secret-meta">
+      {showMasked
+        ? <><Icon name="shield" size={11} />后端已有密钥，留空表示保留</>
+        : serverHasValue
+          ? <><Icon name="edit" size={11} />已修改，保存后写入新值</>
+          : <><Icon name="plus" size={11} />尚未配置</>}
+    </p>
+  </div>;
 }
 
 function BooleanConfigField({ settingKey, label, values, config, change }: {
@@ -673,28 +808,121 @@ function BooleanConfigField({ settingKey, label, values, config, change }: {
   </FieldShell>;
 }
 
-function AddressUrlField({ value, onChange, onTest, testing, onSave }: {
+function AddressUrlField({ value, onChange, onSave }: {
   value: string;
   onChange: (next: string) => void;
-  onTest: () => void;
-  testing: boolean;
   onSave: () => void;
 }) {
-  return <div className="settings-address-row">
-    <FieldShell definition={{ key: 'serverUrl', label: '后端服务器根地址', wide: true,
-      placeholder: 'http://127.0.0.1:8888',
-      help: '不要填写 /agent 或 /api/v1/ssh。保存后立即生效，重启仍会保留。' }}>
+  const [testing, setTesting] = useState(false);
+  const [error, setError] = useState('');
+  const [result, setResult] = useState('');
+  const [hint, setHint] = useState<'idle' | 'success' | 'error' | 'loading'>('idle');
+
+  const handleTest = async () => {
+    setError('');
+    setResult('');
+    setHint('loading');
+    setTesting(true);
+    let address: string;
+    try { address = normalizeBackendUrl(value); }
+    catch (cause) {
+      setError(cause instanceof Error ? cause.message : '地址无效。');
+      setHint('error');
+      setTesting(false);
+      return;
+    }
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    try {
+      const response = await fetch(`${address}/agent/query_ai_agent_config_list`, { signal: controller.signal });
+      if (!response.ok) throw new Error(`后端响应 HTTP ${response.status}。`);
+      const body = await response.json() as { code?: string; info?: string };
+      if (body.code !== 'SUCCESS_0000') throw new Error(body.info || '后端返回了非成功状态。');
+      setResult('连接成功，Agent 接口可用。');
+      setHint('success');
+    } catch (cause) {
+      setError(controller.signal.aborted ? '连接超时，请检查地址和网络。'
+        : cause instanceof Error ? cause.message : '连接测试失败。');
+      setHint('error');
+    } finally {
+      clearTimeout(timeout);
+      setTesting(false);
+    }
+  };
+
+  const handleSave = () => {
+    setError('');
+    setResult('');
+    try {
+      onSave();
+      setResult('客户端访问地址已保存。');
+      setHint('success');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '保存后端地址失败。');
+      setHint('error');
+    }
+  };
+
+  return <div className="settings-address-grid">
+    <div className="settings-field settings-address-field">
+      <div className="settings-field-head">
+        <label htmlFor="backend-setting-server-url">后端服务器根地址</label>
+      </div>
       <div className="settings-input-wrap">
         <input id="backend-setting-server-url" type="url" value={value}
           placeholder="http://127.0.0.1:8888" className="settings-control"
           onChange={event => onChange(event.target.value)} />
       </div>
-    </FieldShell>
-    <div className="settings-address-actions">
-      <button type="button" className="ghost-button" disabled={testing} onClick={onTest}>
-        <Icon name="signal" size={13} />{testing ? '测试中…' : '测试连接'}
-      </button>
-      <button type="button" className="primary-button" onClick={onSave}>保存地址</button>
+      <div className="settings-address-actions">
+        <button type="button" className="ghost-button" disabled={testing} onClick={handleTest}>
+          <Icon name="signal" size={12} />{testing ? '测试中…' : '测试连接'}
+        </button>
+        <button type="button" className="primary-button" onClick={handleSave}>
+          <Icon name="check" size={12} />保存地址
+        </button>
+      </div>
+      <p className="settings-field-help">保存后立即生效，重启仍会保留。</p>
+    </div>
+
+    <div className={`settings-field settings-address-status is-${hint}`}
+      role={hint === 'error' ? 'alert' : 'status'} aria-live="polite">
+      <div className="settings-field-head">
+        <label>连接状态</label>
+        <span className={`settings-address-status-dot is-${hint}`}>
+          <i />
+        </span>
+      </div>
+      {hint === 'loading' ? (
+        <>
+          <p className="settings-address-status-title">正在测试连接…</p>
+          <p className="settings-address-status-desc">向 {value || 'http://127.0.0.1:8888'} 发送健康检查请求。</p>
+          <div className="settings-address-progress"><span /></div>
+        </>
+      ) : hint === 'error' ? (
+        <>
+          <p className="settings-address-status-title">连接失败</p>
+          <p className="settings-address-status-desc">{error}</p>
+          <p className="settings-address-status-hint">
+            <Icon name="alert" size={11} />请检查地址、端口、网络与防火墙。
+          </p>
+        </>
+      ) : hint === 'success' ? (
+        <>
+          <p className="settings-address-status-title">{result.includes('已保存') ? '地址已保存' : '连接成功'}</p>
+          <p className="settings-address-status-desc">{result}</p>
+          <p className="settings-address-status-hint">
+            <Icon name="shield" size={11} />Agent 接口可用，可安全保存。
+          </p>
+        </>
+      ) : (
+        <>
+          <p className="settings-address-status-title">尚未测试</p>
+          <p className="settings-address-status-desc">点击左侧「测试连接」可快速验证后端是否可达。</p>
+          <p className="settings-address-status-hint">
+            <Icon name="book" size={11} />测试不会修改任何配置，只发起一次只读请求。
+          </p>
+        </>
+      )}
     </div>
   </div>;
 }
@@ -707,70 +935,168 @@ function MediaTypeEditor({ value, change }: { value: string; change: (value: str
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState('');
   const items = value.split(/\r?\n/).map(item => item.trim()).filter(Boolean);
+  const itemSet = new Set(items);
 
-  const commit = () => {
-    const next = draft.trim();
-    if (!next || items.includes(next)) { setAdding(false); setDraft(''); return; }
-    change([...items, next].join('\n'));
-    setAdding(false);
-    setDraft('');
+  const toggle = (mime: string) => {
+    const next = itemSet.has(mime)
+      ? items.filter(current => current !== mime)
+      : [...items, mime];
+    change(next.join('\n'));
   };
+
+  const commitCustom = () => {
+    const next = draft.trim();
+    if (!next || itemSet.has(next)) { setAdding(false); setDraft(''); return; }
+    change([...items, next].join('\n'));
+    setAdding(false); setDraft('');
+  };
+
+  const usedGroups = new Set(
+    items.map(mime => mediaTypePresets.find(preset => preset.mime === mime)?.group).filter(Boolean) as string[]
+  );
 
   return <div className="settings-media-card">
     <div className="settings-media-head">
       <div>
-        <strong>允许上传给模型的文件类型</strong>
-        <small>点击标签右上角的 × 可移除。Agent 只会发送列表里的 MIME，附件会先在本地校验。</small>
+        <strong>附件能力</strong>
+        <small>勾选允许发送给模型的 MIME 类型，未知类型可在下方手动输入。Agent 只会发送列表里的文件。</small>
       </div>
       {!adding && <button type="button" className="settings-chip-button" onClick={() => setAdding(true)}>
-        <Icon name="plus" size={12} />新增类型
+        <Icon name="plus" size={12} />自定义类型
       </button>}
     </div>
-    <div className="settings-media-chips">
-      {items.map(item => <span key={item} className="settings-media-chip">
-        <span className="settings-media-chip-text">
-          <b>{mediaTypeLabels[item] ?? item}</b>
-          <small>{mediaTypeLabels[item] ? item : '自定义类型'}</small>
-        </span>
-        <button type="button" aria-label={`移除 ${mediaTypeLabels[item] ?? item}`}
-          onClick={() => change(items.filter(current => current !== item).join('\n'))}>
-          <Icon name="close" size={11} />
-        </button>
-      </span>)}
-      {!items.length && <p className="settings-empty">尚未允许任何附件类型</p>}
+
+    <div className="settings-media-groups" role="group" aria-label="附件类型预设">
+      {(['image', 'doc', 'text'] as const).map(group => {
+        const presets = mediaTypePresets.filter(preset => preset.group === group);
+        if (!presets.length) return null;
+        return <div key={group} className="settings-media-group">
+          <span className="settings-media-group-label">
+            <Icon name={group === 'image' ? 'file' : group === 'doc' ? 'book' : 'edit'} size={11} />
+            {group === 'image' ? '图片' : group === 'doc' ? '文档' : '文本'}
+          </span>
+          <div className="settings-media-tiles">
+            {presets.map(preset => {
+              const checked = itemSet.has(preset.mime);
+              return <button key={preset.mime} type="button"
+                className={`settings-media-tile is-${preset.group} ${checked ? 'checked' : ''}`}
+                aria-pressed={checked}
+                onClick={() => toggle(preset.mime)}>
+                <span className="settings-media-tile-box" aria-hidden="true">
+                  {checked
+                    ? <Icon name="check" size={13} />
+                    : <Icon name="plus" size={13} />}
+                </span>
+                <span className="settings-media-tile-body">
+                  <b>{preset.label}</b>
+                  <small>{preset.mime}</small>
+                </span>
+              </button>;
+            })}
+          </div>
+        </div>;
+      })}
     </div>
+
+    {items.filter(item => !mediaTypeLabels[item]).length > 0 && <div className="settings-media-custom">
+      <span className="settings-media-group-label">
+        <Icon name="edit" size={11} />自定义
+      </span>
+      <div className="settings-media-chips">
+        {items.filter(item => !mediaTypeLabels[item]).map(item => <span key={item} className="settings-media-chip">
+          <span className="settings-media-chip-text">
+            <b>{item}</b>
+            <small>自定义类型</small>
+          </span>
+          <button type="button" aria-label={`移除 ${item}`}
+            onClick={() => change(items.filter(current => current !== item).join('\n'))}>
+            <Icon name="close" size={11} />
+          </button>
+        </span>)}
+      </div>
+    </div>}
+
+    {!items.length && <p className="settings-empty">尚未允许任何附件类型</p>}
+    {!usedGroups.has('image') && !usedGroups.has('doc') && !usedGroups.has('text') && adding === false &&
+      items.length > 0 && <p className="settings-media-hint">
+        <Icon name="bulb" size={11} />已添加自定义类型，可继续勾选预设或继续添加。
+      </p>}
+
     {adding && <div className="settings-media-add">
       <input value={draft} autoFocus placeholder="例如：text/plain"
         className="settings-control"
         onChange={event => setDraft(event.target.value)}
         onKeyDown={event => {
-          if (event.key === 'Enter') { event.preventDefault(); commit(); }
+          if (event.key === 'Enter') { event.preventDefault(); commitCustom(); }
           if (event.key === 'Escape') { setAdding(false); setDraft(''); }
         }} />
-      <button type="button" className="primary-button" onClick={commit}>添加</button>
+      <button type="button" className="primary-button" onClick={commitCustom}>添加</button>
       <button type="button" className="outlined-button" onClick={() => { setAdding(false); setDraft(''); }}>取消</button>
     </div>}
   </div>;
 }
 
+type VendorId = 'openai' | 'anthropic' | 'google' | 'ollama';
+
+const vendorCatalog: Array<{
+  id: VendorId;
+  label: string;
+  english: string;
+  badge: string;
+  pathHint: string;
+  available: boolean;
+}> = [
+  { id: 'openai',    label: 'OpenAI',    english: 'openai-compatible',  badge: 'OPENAI',
+    pathHint: 'v1/chat/completions', available: true },
+  { id: 'anthropic', label: 'Anthropic', english: 'messages-api',      badge: 'CLAUDE',
+    pathHint: 'v1/messages',         available: false },
+  { id: 'google',    label: 'Google',    english: 'gemini-api',        badge: 'GEMINI',
+    pathHint: 'v1beta/models/{model}:generateContent', available: false },
+  { id: 'ollama',    label: 'Ollama',    english: 'native-http',       badge: 'OLLAMA',
+    pathHint: 'api/chat',            available: false },
+];
+
 function ProtocolCard() {
-  const [protocol, setProtocol] = useState<'openai'>('openai');
+  const [vendor, setVendor] = useState<VendorId>('openai');
+  const active = vendorCatalog.find(item => item.id === vendor) ?? vendorCatalog[0];
+
   return <div className="settings-protocol-card">
     <div className="settings-protocol-head">
       <span className="settings-protocol-icon"><Icon name="network" size={16} /></span>
       <div>
         <strong>接口协议</strong>
-        <small>当前版本仅支持 OpenAI 兼容协议，后续会逐步开放更多协议。</small>
+        <small>选择后端厂商，下方路径与默认前缀会跟随切换；当前仅 OpenAI 已开放。</small>
       </div>
     </div>
-    <SegmentedControl value={protocol} onChange={setProtocol} ariaLabel="模型接口协议" options={[
-      { value: 'openai', label: 'OpenAI 兼容' },
-    ]} />
-    <div className="settings-protocol-locked">
-      <span><Icon name="shield" size={11} />Anthropic</span>
-      <span><Icon name="shield" size={11} />Ollama</span>
-      <em>当前版本暂未支持</em>
+    <div className="settings-protocol-vendors" role="radiogroup" aria-label="模型厂商">
+      {vendorCatalog.map(item => {
+        const selected = item.id === vendor;
+        return <button key={item.id} type="button" role="radio"
+          aria-checked={selected}
+          className={`settings-protocol-vendor ${selected ? 'selected' : ''} ${item.available ? '' : 'is-locked'}`}
+          onClick={() => item.available && setVendor(item.id)}
+          disabled={!item.available}
+          title={item.available
+            ? `使用 ${item.label} 兼容协议`
+            : `${item.label} 协议尚未开放，预览中`}>
+          <span className="settings-protocol-vendor-head">
+            <strong>{item.label}</strong>
+            <em>{item.badge}</em>
+          </span>
+          <code>{item.english}</code>
+          <span className="settings-protocol-vendor-foot">
+            {item.available
+              ? <><Icon name="check" size={10} />已开放</>
+              : <><Icon name="shield" size={10} />预览中 · 回显</>}
+            <small>{item.pathHint}</small>
+          </span>
+        </button>;
+      })}
     </div>
+    <p className="settings-protocol-note">
+      <Icon name="bulb" size={11} />
+      当前已选择 <b>{active.label}</b>，对话路径与向量路径会自动使用 <code>{active.pathHint}</code> 默认值。
+    </p>
   </div>;
 }
 
@@ -833,6 +1159,85 @@ function StorageModeSelector({ values, config, change }: {
         <Icon name="alert" size={12} />
         当前选择的存储尚未启用，上传会失败。请开启它或选择另一种存储。
       </p>}
+  </div>;
+}
+
+/**
+ * 右上方自动消失的轻量 tip 气泡：
+ * - 显示 5 秒；
+ * - 鼠标悬浮暂停（计时与进度条同步暂停，不触发 re-render）；
+ * - 重复触发重置计时与动画。
+ */
+function SettingsTip({ error, result, onClear }: { error: string; result: string; onClear: () => void }) {
+  const message = error || result;
+  const variant: 'success' | 'error' = error ? 'error' : 'success';
+  const duration = 5000;
+  // hover/timer 用 ref，避免触发 re-render 把进度条动画打断
+  const hoveredRef = useRef(false);
+  const timerRef = useRef<number | null>(null);
+  // message/variant 变化时递增 epoch，触发组件重新挂载（重启动画与计时）
+  const [epoch, setEpoch] = useState(0);
+  const lastShownRef = useRef({ message, variant });
+
+  const clearTimer = () => {
+    if (timerRef.current !== null) {
+      window.clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  };
+  const armTimer = () => {
+    clearTimer();
+    timerRef.current = window.setTimeout(() => {
+      timerRef.current = null;
+      hoveredRef.current = false;
+      onClear();
+    }, duration);
+  };
+
+  useEffect(() => {
+    const previous = lastShownRef.current;
+    if (!message) {
+      clearTimer();
+      lastShownRef.current = { message, variant };
+      return;
+    }
+    if (previous.message !== message || previous.variant !== variant) {
+      lastShownRef.current = { message, variant };
+      hoveredRef.current = false;
+      setEpoch(value => value + 1);
+      armTimer();
+    }
+  }, [message, variant, duration]);
+
+  // 卸载时清理遗留 timer
+  useEffect(() => () => clearTimer(), []);
+
+  if (!message) return null;
+
+  return <div className={`settings-tip is-${variant}`}
+    role={variant === 'error' ? 'alert' : 'status'}
+    aria-live="polite"
+    key={epoch}
+    onMouseEnter={() => {
+      hoveredRef.current = true;
+      clearTimer();
+    }}
+    onMouseLeave={() => {
+      hoveredRef.current = false;
+      armTimer();
+    }}>
+    <span className="settings-tip-icon">
+      <Icon name={variant === 'error' ? 'alert' : 'check'} size={14} />
+    </span>
+    <div className="settings-tip-body">
+      <strong>{variant === 'error' ? '操作失败' : '操作成功'}</strong>
+      <span>{message}</span>
+    </div>
+    <button type="button" className="settings-tip-close" aria-label="关闭通知" onClick={onClear}>
+      <Icon name="close" size={11} />
+    </button>
+    {/* 进度条：纯 CSS animation + animation-play-state，由父容器 :hover 控制暂停 */}
+    <span className="settings-tip-progress" aria-hidden="true" />
   </div>;
 }
 
@@ -905,10 +1310,11 @@ export function BackendSettingsDialog({ currentUrl, required = false, onClose, o
   const [values, setValues] = useState<ConfigValues>({});
   const [loading, setLoading] = useState(isTauriRuntime());
   const [saving, setSaving] = useState(false);
-  const [testing, setTesting] = useState(false);
   const [error, setError] = useState('');
-  const [result, setResult] = useState('');
-  const [search, setSearch] = useState('');
+  const [tabResult, setTabResult] = useState('');
+  // 后端运行状态：轮询 Rust 的 bundled_backend_status，便于顶栏指示器和重启按钮联动
+  const [backendStatus, setBackendStatus] = useState<BundledBackendStatus | null>(null);
+  const [restarting, setRestarting] = useState(false);
 
   useEffect(() => {
     if (!isTauriRuntime()) return;
@@ -924,44 +1330,54 @@ export function BackendSettingsDialog({ currentUrl, required = false, onClose, o
     return () => { active = false; };
   }, []);
 
-  const change = (key: string, value: string) => {
-    setValues(current => ({ ...current, [key]: value }));
+  // 轮询后端状态：常规 5 秒一次，重启期间缩短为 1 秒以尽快反映 running/failed
+  useEffect(() => {
+    if (!isTauriRuntime()) return;
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const next = await readBundledBackendStatus();
+        if (!cancelled) setBackendStatus(next);
+      } catch {
+        // 状态读取失败不影响设置页正常使用，留旧值即可
+      }
+    };
+    void poll();
+    const interval = window.setInterval(poll, restarting ? 1000 : 5000);
+    return () => { cancelled = true; window.clearInterval(interval); };
+  }, [restarting]);
+
+  const restartBackend = async () => {
+    if (!isTauriRuntime() || restarting) return;
     setError('');
-    setResult('');
+    setTabResult('');
+    setRestarting(true);
+    try {
+      const next = await restartBundledBackend();
+      setBackendStatus(next);
+      if (next?.status === 'running') {
+        const directory = next.logDirectory ? `日志目录：${next.logDirectory}。` : '';
+        setTabResult(`内置后端已重启为 running。${directory}查看位置：本页“运行与数据目录 → 运行日志”。`);
+      } else if (next?.status === 'failed') {
+        const directory = next.logDirectory ? `；日志目录：${next.logDirectory}` : '';
+        setError(`${next.message || '内置后端启动失败'}${directory}；查看位置：本页“运行与数据目录 → 运行日志”`);
+      } else {
+        setTabResult(`内置后端状态：${next?.status ?? '未知'}（${next?.message ?? ''}）`);
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      // 多等一轮再退出高频轮询，避免错过状态切换
+      window.setTimeout(() => setRestarting(false), 3000);
+    }
   };
 
-  const testConnection = async () => {
-    setError('');
-    setResult('');
-    let address: string;
-    try { address = normalizeBackendUrl(url); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : '地址无效。'); return; }
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
-    setTesting(true);
-    try {
-      const response = await fetch(`${address}/agent/query_ai_agent_config_list`, { signal: controller.signal });
-      if (!response.ok) throw new Error(`后端响应 HTTP ${response.status}。`);
-      const body = await response.json() as { code?: string; info?: string };
-      if (body.code !== 'SUCCESS_0000') throw new Error(body.info || '后端返回了非成功状态。');
-      setResult('连接成功，Agent 接口可用。');
-    } catch (cause) {
-      setError(controller.signal.aborted ? '连接超时，请检查地址和网络。'
-        : cause instanceof Error ? cause.message : '连接测试失败。');
-    } finally {
-      clearTimeout(timeout);
-      setTesting(false);
-    }
+  const change = (key: string, value: string) => {
+    setValues(current => ({ ...current, [key]: value }));
   };
 
   const saveAddress = () => {
-    setError('');
-    try {
-      onSave(normalizeBackendUrl(url));
-      setResult('客户端访问地址已保存。');
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '保存后端地址失败。');
-    }
+    onSave(normalizeBackendUrl(url));
   };
 
   /**
@@ -971,8 +1387,10 @@ export function BackendSettingsDialog({ currentUrl, required = false, onClose, o
   const saveTab = async (scope: SettingsSection) => {
     const definition = sectionItems.find(item => item.id === scope);
     if (!definition) return;
+    const dataDirectoryChanged = definition.id === 'general'
+      && values.dataDirectory !== config?.values.dataDirectory?.value;
     setError('');
-    setResult('');
+    setTabResult('');
     setSaving(true);
     try {
       if (definition.id === 'general') {
@@ -992,7 +1410,11 @@ export function BackendSettingsDialog({ currentUrl, required = false, onClose, o
         setConfig(saved);
         setValues(Object.fromEntries(Object.entries(saved.values).map(([key, meta]) => [key, meta.value])));
       }
-      setResult(`${definition.label}配置已保存到 YAML，内置后端不会自动重启。`);
+      const restartHint = isTauriRuntime() ? '点击右上角「重启后端」即可按当前配置重新启动。' : '重启客户端后才会生效。';
+      const migrationWarning = dataDirectoryChanged
+        ? '注意：只修改了 YAML 路径，旧数据库、上传文件和日志不会自动迁移。'
+        : '';
+      setTabResult(`${definition.label}配置已保存到 YAML。${migrationWarning}${restartHint}`);
       if (definition.id === 'general') {
         const localUrl = `http://127.0.0.1:${values.serverPort || '8888'}`;
         setUrl(localUrl);
@@ -1032,24 +1454,33 @@ export function BackendSettingsDialog({ currentUrl, required = false, onClose, o
       return next;
     });
     setError('');
-    setResult('');
+    setTabResult('');
   };
 
   const renderFields = (fields: FieldDefinition[]) => {
     if (!config) return null;
-    const filtered = search
-      ? fields.filter(field => {
-          const target = `${field.label} ${field.key} ${field.help ?? ''}`.toLowerCase();
-          return target.includes(search.toLowerCase());
-        })
-      : fields;
-    if (!filtered.length) return <p className="settings-empty">没有匹配 “{search}” 的字段</p>;
     return <div className="settings-fields-grid">
-      {filtered.map(field => <ConfigField key={field.key} definition={field} values={values} config={config} change={change} />)}
+      {fields.map(field => <ConfigField key={field.key} definition={field} values={values} config={config} change={change} />)}
     </div>;
   };
 
   const status = deriveStatus(config, loading, error);
+  // 把 Rust 端后端运行状态映射到顶部状态点；未拉到状态时退回到配置读取状态
+  const backendStatusStatus: DotStatus = restarting || backendStatus?.status === 'starting'
+    ? 'loading'
+    : backendStatus?.status === 'running' ? 'ok'
+    : backendStatus?.status === 'failed' ? 'error'
+    : backendStatus?.status === 'stopped' ? 'warn'
+    : status;
+  const backendStatusLabel = restarting ? '正在重启内置后端…'
+    : backendStatus?.status === 'starting' ? '内置后端启动中…'
+    : backendStatus?.status === 'running' ? '内置后端已就绪'
+    : backendStatus?.status === 'failed' ? `内置后端启动失败：${backendStatus.message}`
+    : backendStatus?.status === 'stopped' ? '内置后端未启动'
+    : status === 'loading' ? '正在读取配置…'
+    : status === 'error' ? '读取失败'
+    : status === 'warn' ? '未读取到配置'
+    : '内置后端状态未知';
   const activeStorageMode = values.fileStorageDefaultId === (values.minioStorageId || 'minio-main') ? 'minio' : 'local';
 
   return <main className={`settings-page ${required ? 'is-standalone' : ''}`} aria-label="客户端设置">
@@ -1065,16 +1496,21 @@ export function BackendSettingsDialog({ currentUrl, required = false, onClose, o
         </div>
       </div>
       <div className="settings-topbar-right">
-        <div className={`settings-topbar-status is-${status}`}>
-          <StatusDot status={status} />
-          <span>{status === 'loading' ? '正在读取配置…'
-            : status === 'error' ? '读取失败'
-            : status === 'warn' ? '未读取到配置'
-            : '内置后端已就绪'}</span>
+        <div className={`settings-topbar-status is-${backendStatusStatus}`}>
+          <StatusDot status={backendStatusStatus} />
+          <span>{backendStatusLabel}</span>
           {config && <code title={config.activeProfiles.join(', ')}>{config.activeProfiles.join(', ') || '默认 profile'}</code>}
         </div>
         {config && <button type="button" className="ghost-button" onClick={() => void openPath(config.configDirectory)}>
           <Icon name="folder" size={14} />配置目录
+        </button>}
+        {isTauriRuntime() && <button type="button" className="ghost-button"
+          onClick={() => void restartBackend()}
+          disabled={restarting}
+          aria-busy={restarting}
+          title={restarting ? '正在重启内置后端…' : '停止并按当前 YAML 重新启动内置后端'}>
+          <Icon name="refresh" size={14} className={restarting ? 'is-spinning' : ''} />
+          {restarting ? '重启中…' : '重启后端'}
         </button>}
       </div>
     </header>
@@ -1083,9 +1519,6 @@ export function BackendSettingsDialog({ currentUrl, required = false, onClose, o
     <div className="settings-body">
       {/* 侧导航 */}
       <aside className="settings-nav" aria-label="设置分类">
-        <div className="settings-nav-search">
-          <SearchBar value={search} onChange={setSearch} placeholder="搜索字段（仅当前页）" />
-        </div>
         <div className="settings-nav-list">
           {sectionItems.map(item => <button key={item.id} type="button"
             className={`settings-nav-item ${activeSection === item.id ? 'selected' : ''}`}
@@ -1116,12 +1549,14 @@ export function BackendSettingsDialog({ currentUrl, required = false, onClose, o
           <span style={{ width: '80%' }} />
         </div>}
 
+        <SettingsTip error={error} result={tabResult}
+          onClear={() => { setError(''); setTabResult(''); }} />
+
         {!loading && activeSection === 'general' && <>
           <SettingsGroup title="客户端访问地址"
             description="可连接外部后端，也可以使用安装包内置后端。"
             badge="客户端级">
-            <AddressUrlField value={url} onChange={setUrl}
-              testing={testing} onTest={() => void testConnection()} onSave={saveAddress} />
+            <AddressUrlField value={url} onChange={setUrl} onSave={saveAddress} />
           </SettingsGroup>
           {config && <SettingsGroup title="运行与数据目录"
             description="修改端口后客户端会自动切换地址；数据目录必须使用绝对路径。"
@@ -1136,11 +1571,11 @@ export function BackendSettingsDialog({ currentUrl, required = false, onClose, o
                   ? values.localRootDirectory
                   : childPath(values.dataDirectory, 'files') || config.uploadDirectory} />
               <PathPreviewCard label="运行日志" icon="folder"
-                hint="包含 backend-console.log，可在排查问题时提供上下文"
+                hint="后端运行日志目录；出现启动或运行异常时可在这里查看"
                 path={childPath(values.dataDirectory, 'logs') || config.logDirectory} />
             </div>
           </SettingsGroup>}
-          <TabSaveBar scope="连接" hint="修改端口后客户端会立即切换地址；其他字段下次启动后端时生效。"
+          <TabSaveBar scope="连接" hint="数据目录只修改 YAML，下次启动后生效；旧数据不会自动迁移。"
             saving={saving} dirty={isTabDirty('general')}
             onSave={() => void saveTab('general')} onReset={() => resetTab('general')} />
         </>}
@@ -1150,12 +1585,24 @@ export function BackendSettingsDialog({ currentUrl, required = false, onClose, o
             description="配置后端调用的大模型服务。"
             badge="模型">
             <ProtocolCard />
-            {renderFields(modelFields)}
+            <div className="settings-model-pair">
+              <div className="settings-model-cell">
+                {renderFields(modelBaseFields)}
+                {renderFields(modelChatField)}
+                {renderFields(modelEmbedField)}
+                {renderFields(modelNameField)}
+              </div>
+              <div className="settings-model-cell">
+                {renderFields(modelApiKeyFields)}
+                {renderFields([{ key: 'aiReasoningEffort', label: '推理强度', kind: 'reasoning' }])}
+              </div>
+            </div>
           </SettingsGroup>
           <SettingsGroup title="附件能力"
-            description="控制 Agent 可以发送给模型的文件类型。"
+            description="Agent 可发送给模型的文件类型。"
             badge="附件">
-            <MediaTypeEditor value={values.aiSupportedMediaTypes ?? ''} change={value => change('aiSupportedMediaTypes', value)} />
+            <MediaTypeEditor value={values.aiSupportedMediaTypes ?? ''}
+              change={value => change('aiSupportedMediaTypes', value)} />
           </SettingsGroup>
           <TabSaveBar scope="模型" hint="保存后端读取到新配置需要重启；模型密钥留空表示保留现有值。"
             saving={saving} dirty={isTabDirty('model')}
@@ -1168,14 +1615,25 @@ export function BackendSettingsDialog({ currentUrl, required = false, onClose, o
             badge="HTTP">
             <BooleanConfigField settingKey="aiProxyEnabled" label="启用 AI HTTP 代理"
               values={values} config={config} change={change} />
-            {renderFields(aiProxyFields)}
+            <div className="settings-proxy-pair">
+              {renderFields([aiProxyFields[0]])}
+              {renderFields([aiProxyFields[1]])}
+            </div>
+            <ConfigField definition={aiProxyFields[2]} values={values} config={config} change={change} />
           </SettingsGroup>
           <SettingsGroup title="SSH HTTP 代理"
             description="用于 SSH 连接需要经过 HTTP 代理服务器的场景。"
             badge="HTTP">
             <BooleanConfigField settingKey="sshProxyEnabled" label="启用 SSH HTTP 代理"
               values={values} config={config} change={change} />
-            {renderFields(sshProxyFields)}
+            <div className="settings-proxy-pair">
+              {renderFields([sshProxyFields[0]])}
+              {renderFields([sshProxyFields[1]])}
+            </div>
+            <div className="settings-proxy-pair-equal">
+              {renderFields([sshProxyFields[2]])}
+              {renderFields([sshProxyFields[3]])}
+            </div>
           </SettingsGroup>
           <TabSaveBar scope="代理" hint="新连接会使用新代理规则；已有 SSH 连接仍按原配置保持。"
             saving={saving} dirty={isTabDirty('proxy')}
@@ -1207,13 +1665,6 @@ export function BackendSettingsDialog({ currentUrl, required = false, onClose, o
             saving={saving} dirty={isTabDirty('storage')}
             onSave={() => void saveTab('storage')} onReset={() => resetTab('storage')} />
         </>}
-
-        {error && <p className="settings-banner is-error" role="alert">
-          <Icon name="alert" size={13} />{error}
-        </p>}
-        {result && <p className="settings-banner is-success" role="status">
-          <Icon name="check" size={13} />{result}
-        </p>}
       </section>
     </div>
   </main>;

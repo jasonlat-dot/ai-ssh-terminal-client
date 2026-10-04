@@ -37,6 +37,6 @@ export function ActivityBar({ active, onSelect, onSettings, settingsOpen, collap
     <button className="nav-collapse-toggle" onClick={toggleCollapsed} aria-expanded={!collapsed} aria-label={collapsed ? '展开导航栏' : '收起导航栏'} title={collapsed ? '展开导航栏' : '收起导航栏'}><Icon name="sidebar" size={19} /><span>收起导航</span></button>
     {items.map(item => <button key={item.name} aria-label={item.label} title={collapsed ? item.label : undefined} className={`activity ${!settingsOpen && active === item.name ? 'selected' : ''}`} aria-current={!settingsOpen && active === item.name ? 'page' : undefined} onClick={() => onSelect(item.name)}><Icon name={item.icon} size={23} /><span><strong>{item.label}</strong><small>{item.subtitle}</small></span></button>)}
     <button className={`activity ${settingsOpen ? 'selected' : ''}`} aria-label="客户端设置" title={collapsed ? '客户端设置' : undefined} aria-current={settingsOpen ? 'page' : undefined} onClick={onSettings}><Icon name="settings" size={23} /><span><strong>设置</strong><small>后端配置</small></span></button>
-    <div className="nav-footer"><div className="planet-art" aria-hidden="true"><i /><span /></div><strong>让开发更简单</strong><small>智能 · 高效 · 安全</small></div>
+    <div className="nav-footer"><strong>Agent SSH</strong><small>终端 · 智能体</small></div>
   </nav>;
 }

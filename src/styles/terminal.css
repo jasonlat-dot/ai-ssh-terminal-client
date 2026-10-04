@@ -1,0 +1,944 @@
+/* ============================================================================
+ * terminal.css — terminal workspace, tab strip, toolbar, xterm surface,
+ * command shelf, and the empty-state welcome composition.
+ * ========================================================================== */
+
+.terminal-workspace {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--bg);
+}
+
+/* ---------------------------------------------------------------------------
+ * Tab strip
+ * ------------------------------------------------------------------------- */
+
+.terminal-tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 1px;
+  min-height: 32px;
+  flex: 0 0 auto;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0 var(--s-3);
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+  scrollbar-width: none;
+}
+
+.terminal-tabs::-webkit-scrollbar {
+  height: 0;
+}
+
+.terminal-tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 132px;
+  max-width: 208px;
+  padding-right: var(--s-2);
+  color: var(--muted);
+  transition: color var(--d-fast) var(--ease), background var(--d-fast) var(--ease);
+}
+
+/* Tabs read as a continuous strip: they share edges and are separated by
+   hairlines, which avoids the "row of pills" look. */
+.terminal-tab::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 1px;
+  background: var(--line);
+}
+
+.terminal-tab:last-of-type::after {
+  display: none;
+}
+
+.terminal-tab:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+.terminal-tab.selected {
+  color: var(--text);
+  background: var(--bg);
+}
+
+/* The active tab is marked by a top rule in the accent, so the indicator
+   stays visible even when the tab body matches the canvas. */
+.terminal-tab.selected::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 2px;
+  background: var(--accent);
+}
+
+.terminal-tab > button[role="tab"] {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  min-width: 0;
+  padding: var(--s-3) var(--s-4);
+  color: inherit;
+  font-size: var(--t-sm);
+}
+
+.terminal-tab > button[role="tab"] > span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.terminal-tab.selected > button[role="tab"] {
+  font-weight: var(--fw-medium);
+}
+
+.terminal-tab .icon-button {
+  width: 22px;
+  height: 22px;
+  opacity: 0;
+  transition: opacity var(--d-fast) var(--ease), background var(--d-fast) var(--ease),
+    color var(--d-fast) var(--ease);
+}
+
+.terminal-tab:hover .icon-button,
+.terminal-tab.selected .icon-button,
+.terminal-tab .icon-button:focus-visible {
+  opacity: 1;
+}
+
+.new-terminal-button {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  height: 24px;
+  margin: auto 0;
+  padding: 0 var(--s-4);
+  border-radius: var(--r-sm);
+  color: var(--muted);
+  font-size: var(--t-xs);
+  white-space: nowrap;
+  transition: color var(--d-fast) var(--ease), background var(--d-fast) var(--ease);
+}
+
+.new-terminal-button:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+/* ---------------------------------------------------------------------------
+ * Terminal pane
+ * ------------------------------------------------------------------------- */
+
+.terminal-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--divider-w);
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+
+.terminal-pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--terminal);
+}
+
+.terminal-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  min-height: 32px;
+  padding: 0 var(--s-4);
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: var(--t-xs);
+  flex: 0 0 auto;
+}
+
+.terminal-toolbar > span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.terminal-toolbar .workspace-panel-controls {
+  margin-left: auto;
+  gap: 1px;
+  flex: 0 0 auto;
+}
+
+.remote-terminal-view {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  background: var(--terminal);
+}
+
+.remote-terminal-view[hidden] {
+  display: none;
+}
+
+.remote-terminal-screen {
+  flex: 1;
+  min-height: 0;
+  padding: var(--s-4) var(--s-5);
+  overflow: hidden;
+}
+
+/* xterm integration: let the canvas own its own scrollbar geometry. */
+.remote-terminal-screen .xterm {
+  height: 100%;
+}
+
+.remote-terminal-screen .xterm-viewport {
+  background: transparent !important;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+.remote-terminal-screen .xterm-viewport::-webkit-scrollbar {
+  width: 10px;
+}
+
+.remote-terminal-screen .xterm-viewport::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: var(--r-full);
+  background: var(--line-strong);
+  background-clip: content-box;
+}
+
+/* Floating tool strip, anchored top-right over the canvas. */
+.remote-terminal-tools {
+  position: absolute;
+  top: var(--s-4);
+  right: var(--s-5);
+  z-index: var(--z-sticky);
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s-3);
+  pointer-events: none;
+}
+
+.remote-terminal-tools > * {
+  pointer-events: auto;
+}
+
+.remote-terminal-clipboard,
+.remote-terminal-tool-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
+  padding: var(--s-1);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  backdrop-filter: blur(8px);
+  box-shadow: var(--shadow-sm);
+}
+
+.remote-terminal-clipboard {
+  position: relative;
+}
+
+.terminal-shortcut-hint {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  padding: 0 var(--s-3);
+  color: var(--faint);
+  font-size: var(--t-micro);
+  white-space: nowrap;
+}
+
+.terminal-shortcut-hint > span {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+
+.terminal-font-hint small {
+  color: var(--faint);
+  font-size: var(--t-micro);
+  opacity: 0.8;
+}
+
+.remote-terminal-reconnect,
+.remote-terminal-disconnect {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 var(--s-4);
+  border-radius: var(--r-sm);
+  font-size: var(--t-xs);
+  white-space: nowrap;
+  transition: background var(--d-fast) var(--ease), color var(--d-fast) var(--ease);
+}
+
+.remote-terminal-reconnect {
+  color: var(--text);
+}
+
+.remote-terminal-reconnect:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+
+.remote-terminal-disconnect {
+  color: var(--danger);
+}
+
+.remote-terminal-disconnect:hover:not(:disabled) {
+  background: var(--danger-soft);
+}
+
+.remote-terminal-disconnect:disabled,
+.remote-terminal-reconnect:disabled {
+  opacity: 0.45;
+}
+
+.remote-terminal-disconnected,
+.remote-terminal-error {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  margin: var(--s-5) var(--s-5) 0;
+  padding: var(--s-4) var(--s-5);
+  border: 1px solid var(--warn-line);
+  border-radius: var(--r-md);
+  background: var(--warn-soft);
+  color: var(--warn);
+  font-size: var(--t-sm);
+}
+
+.remote-terminal-error {
+  border-color: var(--danger-line);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.remote-terminal-disconnected > svg {
+  flex: 0 0 auto;
+}
+
+.remote-terminal-error button {
+  margin-left: auto;
+  padding: var(--s-2) var(--s-4);
+  border: 1px solid currentColor;
+  border-radius: var(--r-sm);
+  color: inherit;
+  font-size: var(--t-xs);
+  white-space: nowrap;
+}
+
+.remote-terminal-error button:hover:not(:disabled) {
+  background: color-mix(in srgb, currentColor 12%, transparent);
+}
+
+.terminal-paste-popover {
+  position: absolute;
+  top: calc(100% + var(--s-3));
+  right: 0;
+  z-index: var(--z-overlay);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  width: 300px;
+  padding: var(--s-4);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--raised);
+  box-shadow: var(--shadow-lg);
+}
+
+.terminal-paste-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+  font-size: var(--t-sm);
+  font-weight: var(--fw-semibold);
+}
+
+.terminal-paste-popover p {
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.terminal-paste-popover > button {
+  align-self: flex-end;
+  height: 26px;
+  padding: 0 var(--s-5);
+  border-radius: var(--r-sm);
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: var(--t-xs);
+  font-weight: var(--fw-semibold);
+}
+
+.terminal-paste-popover > button:disabled {
+  opacity: 0.45;
+}
+
+.clipboard-feedback {
+  position: absolute;
+  top: calc(100% + var(--s-2));
+  left: 0;
+  z-index: var(--z-overlay);
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-2) var(--s-4);
+  border: 1px solid var(--ok-line);
+  border-radius: var(--r-sm);
+  background: var(--raised);
+  color: var(--ok);
+  font-size: var(--t-xs);
+  white-space: nowrap;
+  box-shadow: var(--shadow-md);
+  animation: feedback-rise var(--d-base) var(--ease-emphasis);
+}
+
+@keyframes feedback-rise {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Command shelf
+ * ------------------------------------------------------------------------- */
+
+.command-shelf {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--panel);
+  overflow: hidden;
+}
+
+.command-shelf.collapsed {
+  overflow: hidden;
+}
+
+.command-shelf-inner {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+  padding: var(--s-4) var(--s-5) var(--s-3);
+}
+
+.command-shelf.collapsed .command-shelf-inner {
+  padding: var(--s-2) var(--s-5);
+}
+
+.command-library-heading {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-3);
+  min-width: 0;
+}
+
+.command-library-heading h2 {
+  font-size: var(--t-md);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--ls-tight);
+}
+
+.command-library-heading small {
+  font-size: var(--t-xs);
+  color: var(--faint);
+}
+
+.command-add-button {
+  color: var(--accent-text);
+}
+
+/* Categories as a horizontal filter rail. */
+.command-categories {
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
+  flex: 0 0 auto;
+  padding-bottom: var(--s-3);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.command-categories::-webkit-scrollbar {
+  height: 0;
+}
+
+.command-categories button {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  height: 24px;
+  padding: 0 var(--s-3);
+  border-radius: var(--r-sm);
+  color: var(--muted);
+  font-size: var(--t-xs);
+  white-space: nowrap;
+  transition: color var(--d-fast) var(--ease), background var(--d-fast) var(--ease);
+}
+
+.command-categories button > small {
+  font-size: var(--t-micro);
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.command-categories button:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+.command-categories button.selected {
+  color: var(--accent-text);
+  background: var(--accent-soft);
+}
+
+.command-categories button.selected > small {
+  color: inherit;
+}
+
+.command-categories button > svg {
+  color: var(--faint);
+}
+
+.command-categories button.selected > svg {
+  color: currentColor;
+}
+
+.command-list-heading {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-3);
+  padding: var(--s-2) var(--s-1) var(--s-3);
+  font-size: var(--t-micro);
+  letter-spacing: var(--ls-label);
+  text-transform: uppercase;
+  color: var(--faint);
+  flex: 0 0 auto;
+}
+
+.command-list-heading small {
+  margin-left: auto;
+  letter-spacing: 0;
+  text-transform: none;
+  font-size: var(--t-micro);
+  color: var(--faint);
+}
+
+.command-list {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0 calc(var(--s-2) * -1);
+  padding: 0 var(--s-2);
+}
+
+.command-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-height: 30px;
+  padding: var(--s-1) var(--s-2) var(--s-1) var(--s-4);
+  border-radius: var(--r-sm);
+  transition: background var(--d-fast) var(--ease);
+}
+
+.command-row:hover {
+  background: var(--surface-hover);
+}
+
+.command-fill {
+  flex: 1;
+  display: grid;
+  grid-template-columns: auto minmax(72px, 108px) minmax(0, 1fr);
+  align-items: center;
+  gap: var(--s-4);
+  min-width: 0;
+  text-align: left;
+}
+
+.command-fill > svg {
+  color: var(--faint);
+  flex: 0 0 auto;
+  transition: color var(--d-fast) var(--ease);
+}
+
+.command-row:hover .command-fill > svg {
+  color: var(--accent-text);
+}
+
+.command-name {
+  font-size: var(--t-sm);
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.command-fill code {
+  min-width: 0;
+  padding: 2px var(--s-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--surface-sunken);
+  color: var(--muted);
+  font-size: var(--t-xs);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.run-command {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  height: 22px;
+  padding: 0 var(--s-3);
+  border-radius: var(--r-sm);
+  color: var(--muted);
+  font-size: var(--t-xs);
+  white-space: nowrap;
+  transition: color var(--d-fast) var(--ease), background var(--d-fast) var(--ease);
+}
+
+.run-command:hover:not(:disabled) {
+  color: var(--accent-text);
+  background: var(--accent-soft);
+}
+
+.run-command:disabled {
+  opacity: 0.4;
+}
+
+.run-command > svg {
+  fill: currentColor;
+  stroke: none;
+}
+
+.command-hint {
+  flex: 0 0 auto;
+  padding-top: var(--s-3);
+  color: var(--faint);
+  font-size: var(--t-micro);
+  text-align: center;
+}
+
+/* ---------------------------------------------------------------------------
+ * Welcome / empty workspace
+ *
+ * Composition: one offset column, generous vertical rhythm, and a single
+ * primary action. Feature rows use hairlines rather than three equal cards,
+ * which is the one layout the brief explicitly rules out.
+ * ------------------------------------------------------------------------- */
+
+.terminal-welcome {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--s-9) var(--s-7);
+  background: var(--bg);
+}
+
+.terminal-welcome-content {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s-6);
+  width: min(560px, 100%);
+}
+
+.terminal-welcome-art {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 7;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--panel);
+  overflow: hidden;
+  flex: 0 0 auto;
+}
+
+.welcome-art-light,
+.welcome-art-dark {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Only one art variant is ever mounted-visible. */
+.welcome-art-dark {
+  display: none;
+}
+
+:root[data-theme="dark"] .welcome-art-light {
+  display: none;
+}
+
+:root[data-theme="dark"] .welcome-art-dark {
+  display: block;
+}
+
+.welcome-art-label {
+  position: absolute;
+  padding: 2px var(--s-3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-full);
+  background: color-mix(in srgb, var(--panel) 84%, transparent);
+  backdrop-filter: blur(6px);
+  color: var(--muted);
+  font-size: var(--t-micro);
+  white-space: nowrap;
+}
+
+.welcome-art-label.remote {
+  top: 18%;
+  left: 8%;
+}
+
+.welcome-art-label.cloud {
+  top: 12%;
+  right: 10%;
+}
+
+.welcome-art-transfer {
+  bottom: 16%;
+  left: 42%;
+}
+
+.welcome-ready {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-3);
+  color: var(--faint);
+  font-size: var(--t-xs);
+}
+
+.welcome-ready i {
+  width: 5px;
+  height: 5px;
+  border-radius: var(--r-full);
+  background: var(--ok);
+  box-shadow: 0 0 0 3px var(--ok-soft);
+}
+
+.terminal-welcome h2 {
+  font-family: var(--sans-display);
+  font-size: var(--t-2xl);
+  font-weight: var(--fw-semibold);
+  letter-spacing: -0.022em;
+  line-height: var(--lh-tight);
+  color: var(--text);
+  /* Reserve descender room so the 'g' in "开始" never clips. */
+  padding-bottom: var(--s-1);
+}
+
+.welcome-description {
+  max-width: 46ch;
+  color: var(--muted);
+  font-size: var(--t-md);
+  line-height: var(--lh-normal);
+}
+
+.welcome-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-4);
+}
+
+.welcome-create,
+.welcome-guide {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-3);
+  height: 34px;
+  padding: 0 var(--s-6);
+  border-radius: var(--r-sm);
+  font-size: var(--t-md);
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
+  transition: background var(--d-fast) var(--ease), border-color var(--d-fast) var(--ease),
+    color var(--d-fast) var(--ease), transform var(--d-fast) var(--ease);
+}
+
+.welcome-create {
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: var(--fw-semibold);
+}
+
+.welcome-create:hover {
+  background: var(--accent-hover);
+}
+
+.welcome-create:active,
+.welcome-guide:active {
+  transform: translateY(0.5px);
+}
+
+.welcome-guide {
+  border: 1px solid var(--line-strong);
+  color: var(--text);
+}
+
+.welcome-guide:hover {
+  background: var(--surface-hover);
+  border-color: var(--faint);
+}
+
+/* Feature list: a hairline-divided definition list, not a card row. */
+.welcome-features {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--line);
+}
+
+.welcome-features article {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--s-5);
+  padding: var(--s-5) 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.welcome-feature-icon {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--r-sm);
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  flex: 0 0 auto;
+}
+
+.welcome-feature-icon.blue {
+  background: var(--info-soft);
+  color: var(--info);
+}
+
+.welcome-features h3 {
+  font-size: var(--t-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--text);
+}
+
+.welcome-features p {
+  font-size: var(--t-xs);
+  color: var(--muted);
+  line-height: var(--lh-snug);
+}
+
+.welcome-demo-note {
+  font-size: var(--t-xs);
+  color: var(--faint);
+  line-height: var(--lh-snug);
+}
+
+.connection-guide-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-5);
+  padding: var(--s-6) var(--s-7) var(--s-7);
+}
+
+.connection-guide-content > p {
+  color: var(--muted);
+  font-size: var(--t-sm);
+  line-height: var(--lh-normal);
+}
+
+.connection-guide-content ol {
+  display: flex;
+  flex-direction: column;
+  counter-reset: guide;
+}
+
+.connection-guide-content li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--s-3) var(--s-5);
+  padding: var(--s-4) 0;
+  border-top: 1px solid var(--line);
+  counter-increment: guide;
+}
+
+.connection-guide-content li::before {
+  content: counter(guide);
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--r-full);
+  background: var(--surface-active);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+}
+
+.connection-guide-content li strong {
+  grid-column: 2;
+  font-size: var(--t-sm);
+  font-weight: var(--fw-semibold);
+}
+
+.connection-guide-content li span {
+  grid-column: 2;
+  color: var(--muted);
+  font-size: var(--t-xs);
+  line-height: var(--lh-normal);
+}
+
+@media (max-width: 720px) {
+  .terminal-welcome {
+    padding: var(--s-7) var(--s-5);
+  }
+
+  .terminal-welcome h2 {
+    font-size: var(--t-xl);
+  }
+
+  .terminal-shortcut-hint,
+  .terminal-font-hint {
+    display: none;
+  }
+
+  .command-fill {
+    grid-template-columns: auto minmax(0, 1fr);
+    row-gap: var(--s-1);
+  }
+
+  .command-fill code {
+    grid-column: 2;
+  }
+}

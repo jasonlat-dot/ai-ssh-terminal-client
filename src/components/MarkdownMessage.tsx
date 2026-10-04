@@ -7,7 +7,6 @@ import rehypeHighlight from 'rehype-highlight';
 import { renderableAssistantMarkdown } from '../state/assistantMarkdown';
 import { MarkdownCodeBlock } from './MarkdownCodeBlock';
 import { CopyTextButton } from './CopyTextButton';
-import './MarkdownMessage.css';
 
 const highlight: NonNullable<ComponentProps<typeof ReactMarkdown>['rehypePlugins']> = [[rehypeHighlight, { detect: false, plainText: ['text', 'plaintext', 'txt', 'log'] }]];
 

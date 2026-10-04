@@ -65,8 +65,15 @@ pub fn run() {
         .expect("error while building tauri application");
 
     app.run(|app_handle, event| {
-        if matches!(event, tauri::RunEvent::Exit) {
-            bundled_backend::stop(app_handle);
+        // 同时监听两个事件：
+        // - ExitRequested：用户点击关闭按钮 / 调用 app.exit()，这里立即 kill 后端，
+        //   即使 Tauri 主循环随后立即退出也能完成回收。
+        // - Exit：主循环自然结束时再做一次清理，覆盖"未走 ExitRequested 路径"的场景。
+        match event {
+            tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit => {
+                bundled_backend::stop(app_handle);
+            }
+            _ => {}
         }
     });
 }

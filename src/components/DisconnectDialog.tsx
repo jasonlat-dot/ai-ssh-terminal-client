@@ -1,7 +1,6 @@
 import { useRef, useState } from 'react';
 import type { Host } from '../types';
 import { Icon, Modal } from './Ui';
-import './DisconnectDialog.css';
 
 export function DisconnectDialog({ host, connected, busy, error, close, confirm }: {
   host: Host; connected: boolean; busy: boolean; error: string; close: () => void;

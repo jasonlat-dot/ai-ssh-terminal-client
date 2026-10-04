@@ -1,32 +1,256 @@
-.chat-composer .chat-draft-attachments { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; padding: 0; margin: 0 0 10px; list-style: none; max-height: 240px; overflow-y: auto; }
-.chat-attachment { display: flex; align-items: flex-start; gap: 9px; min-width: 0; padding: 9px; border: 1px solid var(--line); border-radius: 10px; color: var(--theme-text-strong); background: var(--theme-panel-soft); }
-.chat-attachment-preview { display: grid; place-items: center; width: 44px; height: 44px; flex-shrink: 0; overflow: hidden; border-radius: 7px; color: var(--theme-accent-text); background: var(--theme-control); }
-.chat-attachment-preview img { width: 100%; height: 100%; object-fit: cover; }
-.chat-attachment-body { min-width: 0; flex: 1; display: flex; align-items: flex-start; flex-direction: column; gap: 5px; }
-.chat-attachment-body strong { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 600; }
-.chat-attachment-body small { color: var(--theme-text-muted); font-size: 11px; }
-.chat-attachment-body p { margin: 0; font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; color: var(--theme-text-muted); }
-.chat-attachment.error .chat-attachment-body p { color: #be5252; }
-:root[data-theme='dark'] .chat-attachment.error .chat-attachment-body p { color: #ed9696; }
-.chat-attachment > .icon-button { width: 22px; height: 22px; flex-shrink: 0; color: var(--theme-text-muted); }
-.chat-attachment button, .chat-restore-request { color: var(--theme-accent-text); font-size: 11px; }
-.chat-attachment button:disabled { opacity: .4; cursor: default; }
-.chat-message-attachments { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
-.chat-attachment-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
-.chat-attachment-actions button { display: flex; align-items: center; gap: 3px; padding: 3px 0; }
-.chat-composer .composer-input-row { display: block; }
-.chat-composer .composer-input-row textarea { width: 100%; }
-.chat-composer .composer-bottom-bar { display: flex; align-items: center; gap: 8px; padding-top: 8px; }
-.chat-composer .composer-bottom-bar > .send-button { margin-left: auto; flex-shrink: 0; }
-.chat-composer .composer-attach-button { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 7px; color: var(--theme-text-muted); background: var(--theme-panel); font-size: 11px; }
-.chat-composer .composer-attach-button:hover { color: var(--theme-accent-text); background: var(--theme-hover); }
-.chat-composer .composer-attachment-note { color: var(--theme-text-muted); font-size: 10px; }
-.composer-attachment-error, .chat-error-guidance { margin: 8px 0 0; padding: 8px 10px; border-radius: 7px; background: var(--theme-control); color: var(--theme-text-strong); font-size: 12px; line-height: 1.6; }
-.chat-error-guidance { margin: 0; }
-.chat-restore-request { margin-right: 0; min-height: 28px; padding: 3px 6px; font-size: 12px; font-weight: 600; font-synthesis: weight; line-height: 1.5; }
+/* ============================================================================
+ * ChatAttachments.css — attachments inside the composer and on sent messages.
+ *
+ * A draft attachment is a chip you can still act on; a sent one is a receipt.
+ * Both share a shell so a file never changes size as it travels from draft to
+ * message — that jump is what makes attachment lists feel unstable.
+ * ========================================================================== */
 
-.composer-agent-status { display: flex; align-items: center; gap: 8px; padding: 6px 8px; margin-bottom: 8px; border-radius: 6px; background: var(--theme-control); color: var(--theme-text-muted); font-size: 12px; line-height: 1.5; }
-.composer-agent-status > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.composer-agent-status > button { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; padding: 4px 6px; border: 1px solid var(--line); border-radius: 5px; color: var(--theme-accent-text); background: var(--theme-panel); }
-.composer-agent-status > button:hover { background: var(--theme-control); }
-.composer-agent-status.error { border-left: 2px solid var(--theme-accent-text); }
+.chat-composer .chat-draft-attachments {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--s-3);
+  max-height: 240px;
+  margin-bottom: var(--s-4);
+  overflow-y: auto;
+}
+
+.chat-attachment {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s-3);
+  min-width: 0;
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  color: var(--text);
+  background: var(--surface-sunken);
+  transition: border-color var(--d-fast) var(--ease);
+}
+
+.chat-attachment-preview {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  overflow: hidden;
+  border-radius: var(--r-sm);
+  color: var(--accent-text);
+  background: var(--surface-hover);
+}
+
+.chat-attachment-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.chat-attachment-body {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s-1);
+}
+
+.chat-attachment-body strong {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: var(--t-sm);
+  font-weight: var(--fw-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-attachment-body small {
+  color: var(--faint);
+  font-size: var(--t-xs);
+}
+
+.chat-attachment-body p {
+  color: var(--muted);
+  font-size: var(--t-xs);
+  line-height: var(--lh-normal);
+  overflow-wrap: anywhere;
+}
+
+.chat-attachment.error .chat-attachment-body p {
+  color: var(--danger);
+}
+
+.chat-attachment > .icon-button {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  color: var(--faint);
+}
+
+.chat-attachment > .icon-button:hover:not(:disabled) {
+  color: var(--danger);
+}
+
+.chat-attachment button,
+.chat-restore-request {
+  color: var(--accent-text);
+  font-size: var(--t-xs);
+}
+
+.chat-attachment button:disabled {
+  opacity: 0.4;
+}
+
+.chat-message-attachments {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  margin-top: var(--s-3);
+}
+
+.chat-attachment-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-4);
+}
+
+.chat-attachment-actions button {
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
+  padding: 0;
+  color: var(--accent-text);
+  font-size: var(--t-xs);
+  transition: color var(--d-fast) var(--ease);
+}
+
+.chat-attachment-actions button:hover:not(:disabled) {
+  color: var(--accent-hover);
+}
+
+/* Composer integration ----------------------------------------------------- */
+
+.chat-composer .composer-input-row {
+  display: block;
+}
+
+.chat-composer .composer-input-row textarea {
+  width: 100%;
+}
+
+.chat-composer .composer-bottom-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding-top: var(--s-3);
+}
+
+.chat-composer .composer-bottom-bar > .send-button {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+/* Attach. Outlined, not filled: it is a modifier to the prompt, not a
+   decision, and a filled pill next to Send would compete with it. */
+.chat-composer .composer-attach-button {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-height: 24px;
+  padding: 0 var(--s-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  color: var(--muted);
+  background: var(--panel);
+  font-size: var(--t-xs);
+  transition:
+    color var(--d-fast) var(--ease),
+    background var(--d-fast) var(--ease),
+    border-color var(--d-fast) var(--ease);
+}
+
+.chat-composer .composer-attach-button:hover {
+  color: var(--accent-text);
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+}
+
+.chat-composer .composer-attachment-note {
+  color: var(--faint);
+  font-size: var(--t-micro);
+}
+
+.composer-attachment-error,
+.chat-error-guidance {
+  margin: var(--s-3) 0 0;
+  padding: var(--s-3) var(--s-4);
+  border-radius: var(--r-sm);
+  color: var(--text);
+  background: var(--surface-sunken);
+  font-size: var(--t-sm);
+  line-height: var(--lh-normal);
+}
+
+.chat-error-guidance {
+  margin: 0;
+}
+
+/* Inline error text. A left rule instead of a fill, so it does not add a
+   second box to a stack that already has the composer and the note. */
+.chat-composer .composer-attachment-error {
+  border-left: 2px solid var(--danger-line);
+  color: var(--danger);
+}
+
+.chat-restore-request {
+  min-height: 28px;
+  margin-right: 0;
+  padding: 0 var(--s-2);
+  font-size: var(--t-sm);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-tight);
+}
+
+/* Agent handoff notice ----------------------------------------------------- */
+
+.composer-agent-status {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  margin-bottom: var(--s-3);
+  padding: var(--s-3) var(--s-4);
+  border-radius: var(--r-sm);
+  color: var(--muted);
+  background: var(--surface-sunken);
+  font-size: var(--t-sm);
+  line-height: var(--lh-snug);
+}
+
+.composer-agent-status > span {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.composer-agent-status > button {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--s-1);
+  min-height: 24px;
+  padding: 0 var(--s-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  color: var(--accent-text);
+  background: var(--panel);
+  transition: background var(--d-fast) var(--ease);
+}
+
+.composer-agent-status > button:hover {
+  background: var(--surface-hover);
+}
+
+.composer-agent-status.error {
+  border-left: 2px solid var(--danger-line);
+}

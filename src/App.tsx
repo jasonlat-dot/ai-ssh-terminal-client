@@ -39,8 +39,14 @@ import { readBundledBackendStatus } from './api/bundledBackend';
 import { CommandShelf, TerminalWorkspace } from './components/Workspace';
 import { createSessionFileState, initialCommands } from './data/mock';
 import type { ChatAttachment, ChatAgentActivity, ChatMessage, ChatMessageSegment, ChatToolActivity, Host, Navigation } from './types';
-import './App.css';
-import './reference.css';
+import './styles/tokens.css';
+import './styles/base.css';
+import './styles/controls.css';
+import './styles/shell.css';
+import './styles/terminal.css';
+import './styles/agent.css';
+import './styles/overlays.css';
+import './styles/connections.css';
 
 const RemoteTerminalView = lazy(() => import('./components/RemoteTerminalView').then(module => ({ default: module.RemoteTerminalView })));
 
@@ -183,7 +189,9 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
     void readBundledBackendStatus()
       .then(status => {
         if (cancelled || !status || status.status !== 'failed') return;
-        const logHint = status.logPath ? `；启动日志：${status.logPath}` : '';
+        const logHint = status.logDirectory
+          ? `；日志目录：${status.logDirectory}；查看位置：设置 → 客户端与内置后端 → 运行与数据目录 → 运行日志`
+          : '；查看位置：设置 → 客户端与内置后端 → 运行与数据目录 → 运行日志';
         notify(`内置后端自动启动失败：${status.message}${logHint}`, 'error', 15_000);
       })
       .catch(error => {
