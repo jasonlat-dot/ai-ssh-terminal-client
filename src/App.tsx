@@ -1,6 +1,8 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { CSSProperties } from 'react';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useTheme } from './state/useTheme';
+import type { ThemePreference } from './state/useTheme';
 import { agentApi } from './api/agent';
 import type { AgentConfig, AgentStreamEvent } from './api/agent';
 import {
@@ -35,7 +37,9 @@ import { ChatRequestError } from './api/chatErrors';
 import { ActivityBar, AppHeader } from './components/Shell';
 import { BackendSettingsDialog } from './components/BackendSettingsDialog';
 import { readBackendUrl, saveBackendUrl } from './config/backend';
-import { readBundledBackendStatus } from './api/bundledBackend';
+import { readBundledBackendStatus, restartBundledBackend } from './api/bundledBackend';
+import { StartupScreen } from './components/StartupScreen';
+import type { StartupPhase } from './components/StartupScreen';
 import { CommandShelf, TerminalWorkspace } from './components/Workspace';
 import { createSessionFileState, initialCommands } from './data/mock';
 import type { ChatAttachment, ChatAgentActivity, ChatMessage, ChatMessageSegment, ChatToolActivity, Host, Navigation } from './types';
@@ -49,8 +53,12 @@ type CommandRequest = { sessionId: string; command: string };
 const STALE_TERMINAL_TAB_MS = 5 * 60 * 1000;
 const CONNECTION_SIDEBAR_COLLAPSED_KEY = 'ai-ssh-terminal:connection-sidebar-collapsed';
 
-function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBackendChange: (url: string) => void }) {
-  const { theme, setTheme } = useTheme();
+function AppContent({ backendUrl, onBackendChange, theme, setTheme }: {
+  backendUrl: string;
+  onBackendChange: (url: string) => void;
+  theme: ThemePreference;
+  setTheme: (theme: ThemePreference) => void;
+}) {
   const [navigation, setNavigation] = useState<Navigation>('命令');
   const connections = useSshConnections();
   const { hosts } = connections;
@@ -172,28 +180,6 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
   const notify = useCallback((message: string, type: NoticeType = 'info', durationMs?: number) => {
     setToast({ id: ++noticeSequence.current, message, type, ...(durationMs === undefined ? {} : { durationMs }) });
   }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    /*
-     * Tauri 在显示页面之前已经尝试启动内置后端。这里读取启动结果并主动提示，
-     * 不再等 Agent/SSH 请求失败后只显示一个无法定位原因的网络错误。
-     */
-    void readBundledBackendStatus()
-      .then(status => {
-        if (cancelled || !status || status.status !== 'failed') return;
-        const logHint = status.logPath ? `；启动日志：${status.logPath}` : '';
-        notify(`内置后端自动启动失败：${status.message}${logHint}`, 'error', 15_000);
-      })
-      .catch(error => {
-        if (!cancelled) {
-          notify(`无法读取内置后端启动状态：${error instanceof Error ? error.message : String(error)}`, 'error', 10_000);
-        }
-      });
-
-    return () => { cancelled = true; };
-  }, [notify]);
 
   useEffect(() => {
     // 必须等待连接列表成功加载，不能把“接口尚未返回时的空数组”当成真实空数据库。
@@ -1126,12 +1112,130 @@ function AppContent({ backendUrl, onBackendChange }: { backendUrl: string; onBac
 }
 
 export default function App() {
+  const desktop = isTauriRuntime();
+  const { theme, setTheme } = useTheme();
   const [backendUrl, setBackendUrl] = useState(readBackendUrl);
+  const [backendReady, setBackendReady] = useState(!desktop);
+  const [startupBypassed, setStartupBypassed] = useState(false);
+  const [startupPhase, setStartupPhase] = useState<StartupPhase>(desktop ? 'checking' : 'ready');
+  const [startupMessage, setStartupMessage] = useState('正在读取内置服务状态…');
+  const [startupLogDirectory, setStartupLogDirectory] = useState<string | null>(null);
+  const [startupRetrying, setStartupRetrying] = useState(false);
+  const [startupPollVersion, setStartupPollVersion] = useState(0);
+  const readyTimer = useRef<number | null>(null);
   const changeBackend = (url: string) => setBackendUrl(saveBackendUrl(url));
+
+  useLayoutEffect(() => {
+    if (!desktop) return;
+    /*
+     * 主窗口由 Tauri 以 hidden 状态创建。React 完成首次提交后再显示，
+     * 避免用户看到 WebView 初始化期间的空内容或“没有数据”中间态。
+     */
+    void getCurrentWindow().show().catch(error => {
+      console.error('显示主窗口失败', error);
+    });
+  }, [desktop]);
+
+  const revealMain = useCallback((message: string) => {
+    setStartupPhase('ready');
+    setStartupMessage(message || '内置后端已启动');
+    if (readyTimer.current !== null) window.clearTimeout(readyTimer.current);
+    readyTimer.current = window.setTimeout(() => setBackendReady(true), 320);
+  }, []);
+
+  useEffect(() => () => {
+    if (readyTimer.current !== null) window.clearTimeout(readyTimer.current);
+  }, []);
+
+  useEffect(() => {
+    if (!desktop || backendReady || startupBypassed) return;
+
+    let cancelled = false;
+    let pollTimer: number | null = null;
+    const poll = async () => {
+      try {
+        const status = await readBundledBackendStatus();
+        if (cancelled) return;
+        if (!status || status.status === 'running') {
+          revealMain(status?.message ?? '客户端界面已就绪');
+          return;
+        }
+        if (status.status === 'failed') {
+          setStartupPhase('failed');
+          setStartupMessage(status.message || '内置后端启动失败');
+          setStartupLogDirectory(parentDirectory(status.logPath));
+          return;
+        }
+
+        setStartupPhase(status.status === 'starting' ? 'starting' : 'checking');
+        setStartupMessage(status.message || '正在等待内置服务启动…');
+        pollTimer = window.setTimeout(poll, 400);
+      } catch (error) {
+        if (cancelled) return;
+        setStartupPhase('failed');
+        setStartupMessage(`无法读取内置后端状态：${errorMessage(error)}`);
+        setStartupLogDirectory(null);
+      }
+    };
+
+    void poll();
+    return () => {
+      cancelled = true;
+      if (pollTimer !== null) window.clearTimeout(pollTimer);
+    };
+  }, [backendReady, desktop, revealMain, startupBypassed, startupPollVersion]);
+
+  const retryStartup = useCallback(async () => {
+    setStartupRetrying(true);
+    setStartupPhase('starting');
+    setStartupMessage('正在重新启动内置服务…');
+    setStartupLogDirectory(null);
+    try {
+      const status = await restartBundledBackend();
+      if (!status || status.status === 'running') {
+        revealMain(status?.message ?? '内置后端已启动');
+      } else if (status.status === 'failed') {
+        setStartupPhase('failed');
+        setStartupMessage(status.message || '内置后端启动失败');
+        setStartupLogDirectory(parentDirectory(status.logPath));
+      } else {
+        setStartupPhase('starting');
+        setStartupMessage(status.message || '正在等待内置服务启动…');
+        setStartupPollVersion(version => version + 1);
+      }
+    } catch (error) {
+      setStartupPhase('failed');
+      setStartupMessage(`重新启动失败：${errorMessage(error)}`);
+    } finally {
+      setStartupRetrying(false);
+    }
+  }, [revealMain]);
+
+  if (desktop && !backendReady && !startupBypassed) {
+    return <StartupScreen
+      phase={startupPhase}
+      message={startupMessage}
+      logDirectory={startupLogDirectory}
+      retrying={startupRetrying}
+      onRetry={() => { void retryStartup(); }}
+      onContinue={() => setStartupBypassed(true)}
+    />;
+  }
 
   if (!backendUrl) {
     return <BackendSettingsDialog currentUrl="" required onClose={() => {}} onSave={changeBackend} />;
   }
 
-  return <AppContent key={backendUrl} backendUrl={backendUrl} onBackendChange={changeBackend} />;
+  return <AppContent key={backendUrl} backendUrl={backendUrl} onBackendChange={changeBackend} theme={theme} setTheme={setTheme} />;
+}
+
+function parentDirectory(path: string | null): string | null {
+  if (!path) return null;
+  const normalized = path.replace(/[\\/]+$/, '');
+  const separator = Math.max(normalized.lastIndexOf('\\'), normalized.lastIndexOf('/'));
+  return separator > 0 ? normalized.slice(0, separator) : normalized;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

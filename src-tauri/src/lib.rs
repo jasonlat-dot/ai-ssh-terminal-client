@@ -26,10 +26,10 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .setup(|app| {
             /*
-             * 后端启动失败不能阻止桌面窗口打开，否则用户只能看到“应用没有反应”。
-             * start 会保存真实失败原因，页面加载后通过命令读取并展示，同时允许用户重试。
+             * 后端健康检查最长需要 60 秒，不能阻塞 Tauri 主线程和 WebView 首次绘制。
+             * 后台任务会保存真实状态，启动页通过命令轮询并展示，同时允许用户重试。
              */
-            bundled_backend::start(app.handle());
+            bundled_backend::start_in_background(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

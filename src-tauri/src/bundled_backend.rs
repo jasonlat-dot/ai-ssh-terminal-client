@@ -4,7 +4,10 @@ use std::io;
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::Mutex;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Mutex,
+};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -146,23 +149,25 @@ impl Default for BackendStatus {
 pub struct BundledBackendState {
     child: Mutex<Option<Child>>,
     status: Mutex<BackendStatus>,
+    stop_requested: AtomicBool,
 }
 
-/**
- * 准备外置目录并启动安装包内置的 Java 后端。
- *
- * 用户数据目录与安装目录分离：安装升级只替换只读资源，不覆盖用户修改过的配置和数据。
- */
-pub fn start(app: &AppHandle) -> BackendStatus {
-    set_status(
-        app,
-        BackendStatus {
-            status: "starting".into(),
-            message: "正在启动内置后端…".into(),
-            log_path: None,
-        },
-    );
+fn starting_status() -> BackendStatus {
+    BackendStatus {
+        status: "starting".into(),
+        message: "正在启动内置后端…".into(),
+        log_path: None,
+    }
+}
 
+fn begin_start(app: &AppHandle) {
+    app.state::<BundledBackendState>()
+        .stop_requested
+        .store(false, Ordering::Release);
+    set_status(app, starting_status());
+}
+
+fn finish_start(app: &AppHandle) -> BackendStatus {
     let status = match start_inner(app) {
         Ok(log_path) => BackendStatus {
             status: "running".into(),
@@ -177,6 +182,24 @@ pub fn start(app: &AppHandle) -> BackendStatus {
     };
     set_status(app, status.clone());
     status
+}
+
+/**
+ * 准备外置目录并启动安装包内置的 Java 后端。
+ *
+ * 用户数据目录与安装目录分离：安装升级只替换只读资源，不覆盖用户修改过的配置和数据。
+ */
+pub fn start(app: &AppHandle) -> BackendStatus {
+    begin_start(app);
+    finish_start(app)
+}
+
+/** 在后台线程启动后端，让 WebView 和 React 可以立即绘制启动界面。 */
+pub fn start_in_background(app: AppHandle) {
+    begin_start(&app);
+    thread::spawn(move || {
+        finish_start(&app);
+    });
 }
 
 /** 执行资源检查、目录准备、Java 进程启动和存活确认。 */
@@ -241,9 +264,24 @@ fn start_inner(app: &AppHandle) -> Result<PathBuf, Box<dyn std::error::Error>> {
 
     // 等待监听端口就绪后再显示主界面，避免前端首次请求早于 Spring Boot 启动完成。
     let server_port = read_server_port(&backend_home).unwrap_or(8888);
-    wait_until_ready(&mut child, server_port, Duration::from_secs(60))?;
-
     let state = app.state::<BundledBackendState>();
+    wait_until_ready(
+        &mut child,
+        server_port,
+        Duration::from_secs(60),
+        &state.stop_requested,
+    )?;
+
+    if state.stop_requested.load(Ordering::Acquire) {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(io::Error::new(
+            io::ErrorKind::Interrupted,
+            "内置后端启动已取消",
+        )
+        .into());
+    }
+
     let mut guard = state.child.lock().map_err(|_| "内置后端进程状态锁已损坏")?;
     *guard = Some(child);
     Ok(backend_home.join("logs").join("backend-console.log"))
@@ -660,6 +698,7 @@ fn set_status(app: &AppHandle, status: BackendStatus) {
 /** 客户端正常退出时终止它启动的 Java 后端，避免后台残留进程继续占用端口。 */
 pub fn stop(app_handle: &AppHandle) {
     let state = app_handle.state::<BundledBackendState>();
+    state.stop_requested.store(true, Ordering::Release);
     let Ok(mut guard) = state.child.lock() else {
         return;
     };
@@ -816,11 +855,25 @@ fn read_server_port(backend_home: &Path) -> Option<u16> {
 }
 
 /** 等待 Spring Boot 开始监听；进程提前退出或超时会阻止客户端带着不可用后端继续启动。 */
-fn wait_until_ready(child: &mut Child, port: u16, timeout: Duration) -> io::Result<()> {
+fn wait_until_ready(
+    child: &mut Child,
+    port: u16,
+    timeout: Duration,
+    stop_requested: &AtomicBool,
+) -> io::Result<()> {
     let started_at = Instant::now();
     let mut listening_since: Option<Instant> = None;
 
     loop {
+        if stop_requested.load(Ordering::Acquire) {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(io::Error::new(
+                io::ErrorKind::Interrupted,
+                "内置后端启动已取消",
+            ));
+        }
+
         if let Some(status) = child.try_wait()? {
             return Err(io::Error::other(format!(
                 "内置后端启动失败，进程已退出：{status}；请查看 logs/backend-console.log"

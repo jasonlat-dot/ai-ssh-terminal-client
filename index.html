@@ -4,13 +4,74 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/agent-ssh.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#f3f3f3" />
+    <meta name="theme-color" content="#f2f7ff" />
     <meta name="description" content="Agent SSH 智能终端客户端 · 前端演示" />
     <title>Agent SSH</title>
+    <script>
+      try {
+        const preference = localStorage.getItem('agent-ssh-theme') || 'system';
+        const dark = preference === 'dark' || (preference === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
+        document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+        document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
+      } catch (_) {}
+    </script>
+    <style>
+      :root { --boot-bg: #f2f7ff; --boot-panel: #ffffff; --boot-soft: #f7faff; --boot-line: #e2eaf7; --boot-text: #12234e; --boot-muted: #7184b1; --boot-blue: #2675ff; --boot-shadow: #cadef638; background: var(--boot-bg); }
+      :root[data-theme='dark'] { --boot-bg: #0c1320; --boot-panel: #172233; --boot-soft: #111c2b; --boot-line: #26364a; --boot-text: #dce8f6; --boot-muted: #aec0d4; --boot-blue: #68a7ff; --boot-shadow: #02071152; }
+      * { box-sizing: border-box; }
+      html, body, #root { width: 100%; height: 100%; margin: 0; }
+      body { overflow: hidden; background: var(--boot-bg); }
+      .boot-fallback {
+        display: grid;
+        width: 100%;
+        height: 100dvh;
+        grid-template-rows: 64px minmax(0, 1fr) 34px;
+        color: var(--boot-text);
+        background: var(--boot-bg);
+        font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
+      }
+      .boot-header { display: flex; align-items: center; padding: 0 24px; border-bottom: 1px solid var(--boot-line); border-radius: 0 0 13px 13px; background: color-mix(in srgb, var(--boot-panel) 88%, transparent); }
+      .boot-brand { display: flex; align-items: center; gap: 16px; }
+      .boot-mark { display: grid; width: 34px; height: 34px; place-items: center; transform: rotate(-8deg); border-radius: 11px; background: conic-gradient(from 10deg, #274dff, #6860ff, #b79aff, #5876ff, #274dff); }
+      .boot-mark i { width: 18px; height: 18px; transform: rotate(18deg); border-radius: 6px; background: #fdfdff; }
+      .boot-brand > span:last-child { display: flex; flex-direction: column; }
+      .boot-brand strong { font-size: 21px; font-weight: 650; letter-spacing: -.4px; }
+      .boot-brand small { margin-top: -1px; color: var(--boot-muted); font-size: 10px; }
+      .boot-main { display: grid; min-height: 0; place-items: center; padding: 38px; }
+      .boot-panel { display: grid; width: min(780px, 100%); grid-template-columns: 64px minmax(0, 1fr); gap: 22px; padding: 36px 40px; border: 1px solid var(--boot-line); border-radius: 14px; background: color-mix(in srgb, var(--boot-panel) 94%, transparent); box-shadow: 0 18px 54px var(--boot-shadow); }
+      .boot-icon { display: grid; width: 64px; height: 64px; place-items: center; border: 1px solid color-mix(in srgb, var(--boot-blue) 25%, var(--boot-line)); border-radius: 16px; background: color-mix(in srgb, var(--boot-blue) 10%, var(--boot-panel)); }
+      .boot-icon img { width: 34px; height: 34px; }
+      .boot-copy { padding-top: 1px; }
+      .boot-status { display: flex; align-items: center; gap: 8px; margin: 0 0 7px; color: var(--boot-muted); font-size: 11px; font-weight: 650; }
+      .boot-status i { width: 7px; height: 7px; border-radius: 50%; background: var(--boot-blue); }
+      .boot-copy h1 { margin: 0; color: var(--boot-text); font-size: 28px; font-weight: 650; line-height: 1.25; letter-spacing: -.025em; }
+      .boot-copy > p:last-child { margin: 9px 0 0; color: var(--boot-muted); font-size: 12px; line-height: 1.7; }
+      .boot-footer { display: flex; align-items: center; justify-content: space-between; padding: 0 24px; border-top: 1px solid var(--boot-line); color: var(--boot-muted); background: color-mix(in srgb, var(--boot-panel) 88%, transparent); font-size: 10px; }
+    </style>
   </head>
 
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <main class="boot-fallback" aria-live="polite" aria-busy="true">
+        <header class="boot-header">
+          <div class="boot-brand">
+            <span class="boot-mark"><i></i></span>
+            <span><strong>Agent SSH</strong><small>智能远程开发助手</small></span>
+          </div>
+        </header>
+        <section class="boot-main">
+          <div class="boot-panel">
+            <div class="boot-icon"><img src="/agent-ssh.svg" alt="" /></div>
+            <div class="boot-copy">
+              <p class="boot-status"><i></i>正在载入</p>
+              <h1>正在初始化客户端</h1>
+              <p>正在准备窗口与本地运行环境…</p>
+            </div>
+          </div>
+        </section>
+        <footer class="boot-footer"><span>本地运行环境</span><span>启动完成后自动进入</span></footer>
+      </main>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
