@@ -199,6 +199,119 @@
   50% { transform: scale(1.6); opacity: 0.45; }
 }
 
+/* ============================================================================
+ *  健康检查徽章（顶栏与一般 tab 复用）
+ * ========================================================================== */
+
+.settings-health-pill {
+  /* 在顶栏复用 .settings-topbar-status 的外观，但内部 button 元素需要重置默认样式 */
+  border: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s, color 0.12s, box-shadow 0.12s;
+}
+
+.settings-health-pill:hover:not(:disabled) {
+  border-color: var(--line-strong);
+  background: var(--theme-panel, var(--panel));
+}
+
+.settings-health-pill:disabled {
+  cursor: default;
+  opacity: 0.95;
+}
+
+.settings-health-pill .settings-health-dot { /* fallback, real class below */
+  width: 14px;
+  height: 14px;
+}
+
+/* 健康点：跟 settings-status-dot 同形状，颜色按 state 切 */
+.settings-health-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--theme-text-muted, var(--muted)) 22%, transparent);
+}
+
+.settings-health-dot i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--theme-text-muted, var(--muted));
+}
+
+.settings-health-pill.is-up .settings-health-dot { background: #d6f0e1; }
+.settings-health-pill.is-up .settings-health-dot i { background: #1aa179; box-shadow: 0 0 0 3px #1aa17922; }
+.settings-health-pill.is-down .settings-health-dot { background: #fbd5d3; }
+.settings-health-pill.is-down .settings-health-dot i { background: #c1483f; box-shadow: 0 0 0 3px #c1483f22; }
+.settings-health-pill.is-loading .settings-health-dot i,
+.settings-health-pill.is-probing .settings-health-dot i {
+  background: #5d87b8;
+  animation: settings-dot-pulse 1.4s ease-in-out infinite;
+}
+.settings-health-pill.is-error .settings-health-dot { background: #fbecd0; }
+.settings-health-pill.is-error .settings-health-dot i { background: #d18b15; box-shadow: 0 0 0 3px #d18b1522; }
+.settings-health-pill.is-idle .settings-health-dot i { background: var(--theme-text-muted, var(--muted)); }
+
+/* “健康检查”group 内的小卡片 */
+.settings-health-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--settings-radius-sm);
+  background: var(--theme-panel, var(--panel));
+}
+
+.settings-health-card-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.settings-health-card-row strong {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--theme-text-strong, var(--text));
+}
+
+.settings-health-card-row code {
+  font: 600 11px/1.4 var(--mono);
+  color: var(--theme-text-muted, var(--muted));
+  background: var(--surface-hover);
+  padding: 2px 8px;
+  border-radius: 5px;
+  overflow-wrap: anywhere;
+}
+
+.settings-health-card-hint {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 550;
+  color: var(--theme-text-muted, var(--muted));
+  line-height: 1.5;
+}
+
+.settings-health-card-time {
+  margin: 0;
+  font-size: 10.5px;
+  font-weight: 550;
+  color: var(--theme-text-muted, var(--muted));
+}
+
+:root[data-theme='dark'] .settings-health-card-row code { background: #1c2a3a; }
+:root[data-theme='dark'] .settings-health-pill.is-up .settings-health-dot { background: #163527; }
+:root[data-theme='dark'] .settings-health-pill.is-down .settings-health-dot { background: #3a1f1e; }
+:root[data-theme='dark'] .settings-health-pill.is-error .settings-health-dot { background: #3a2c14; }
+:root[data-theme='dark'] .settings-health-card { background: #14253a; border-color: #1f3552; }
+
 /* 通用按钮 */
 .ghost-button {
   display: inline-flex;

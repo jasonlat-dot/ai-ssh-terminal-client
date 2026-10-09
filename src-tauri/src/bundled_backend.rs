@@ -188,6 +188,9 @@ fn finish_start(app: &AppHandle) -> BackendStatus {
  * 准备外置目录并启动安装包内置的 Java 后端。
  *
  * 用户数据目录与安装目录分离：安装升级只替换只读资源，不覆盖用户修改过的配置和数据。
+ *
+ * 启动与否由前端的"自动启动内置后端"开关控制：start_in_background 先看开关，
+ * 关闭时直接停在 stopped 状态，UI 给出手动启动入口。
  */
 pub fn start(app: &AppHandle) -> BackendStatus {
     begin_start(app);
@@ -196,6 +199,17 @@ pub fn start(app: &AppHandle) -> BackendStatus {
 
 /** 在后台线程启动后端，让 WebView 和 React 可以立即绘制启动界面。 */
 pub fn start_in_background(app: AppHandle) {
+    // 用户在设置里关掉了“自动启动内置后端”，就停在 stopped 状态。
+    // 状态不阻塞 UI：前端会展示手动启动按钮，用户点 “启动” 才拉 Java。
+    if !read_auto_start_preference(&app) {
+        let status = BackendStatus {
+            status: "stopped".into(),
+            message: "自动启动已关闭。在设置中开启，或在启动页点“启动”。".into(),
+            log_path: error_log_path(&app).map(|path| path.to_string_lossy().into_owned()),
+        };
+        set_status(&app, status);
+        return;
+    }
     begin_start(&app);
     thread::spawn(move || {
         finish_start(&app);
@@ -304,10 +318,33 @@ pub fn bundled_backend_restart(app: AppHandle) -> BackendStatus {
     start(&app)
 }
 
+/**
+ * 立即停止内置后端。设置页的"停止内置服务"按钮需要它。
+ * 不触碰自动启动偏好——偏好描述的是"客户端启动时是否自动拉起"，
+ * 跟"用户现在想停掉"是两件事。
+ */
+#[tauri::command]
+pub fn bundled_backend_stop(app: AppHandle) -> BackendStatus {
+    stop(&app);
+    let status = BackendStatus {
+        status: "stopped".into(),
+        message: "已停止内置后端".into(),
+        log_path: error_log_path(&app).map(|path| path.to_string_lossy().into_owned()),
+    };
+    set_status(&app, status.clone());
+    status
+}
+
 /** 读取当前 application.yml 与活动 Profile 中真正生效的桌面配置。 */
 #[tauri::command]
 pub fn bundled_backend_config(app: AppHandle) -> Result<BackendConfigView, String> {
     load_backend_config(&app).map_err(|error| error.to_string())
+}
+
+/** 设置页读取当前是否启用了“自动启动内置后端”。 */
+#[tauri::command]
+pub fn bundled_backend_get_auto_start(app: AppHandle) -> bool {
+    read_auto_start_preference(&app)
 }
 
 /**
@@ -513,7 +550,13 @@ fn yaml_list_value(content: &str, path: &[&str]) -> Option<String> {
         if current == path {
             target_indent = Some(indent);
             if !raw_value.trim().is_empty() {
-                return Some(raw_value.trim().trim_matches(['[', ']']).split(',').map(str::trim).collect::<Vec<_>>().join("\n"));
+                let inline_value = strip_inline_comment(raw_value.trim());
+                // `${ENV:item1,item2}` 必须先作为一个完整占位符保留，不能在这里按逗号切开。
+                // 真正的默认值或环境变量值会在 effective_config_value 中解析后再拆成列表。
+                if placeholder_environment(inline_value).is_some() {
+                    return Some(inline_value.to_string());
+                }
+                return Some(inline_value.trim_matches(['[', ']']).split(',').map(str::trim).collect::<Vec<_>>().join("\n"));
             }
         }
         if raw_value.trim().is_empty() { parents.push((indent, key.to_string())); }
@@ -605,17 +648,29 @@ fn replace_yaml_list(content: &str, path: &[&str], old_raw: &str, new_value: &st
         let key = key_part.trim().trim_matches(['\'', '"']);
         let mut current = parents.iter().map(|(_, key)| key.as_str()).collect::<Vec<_>>();
         current.push(key);
-        output.push(line.to_string());
         if current == path {
-            for (index, item) in new_items.iter().enumerate() {
-                let rendered = old_items.get(index)
-                    .and_then(|old| placeholder_environment(old))
-                    .map(|environment| format!("${{{environment}:{item}}}"))
-                    .unwrap_or_else(|| yaml_string(item));
-                output.push(format!("{}- {rendered}", " ".repeat(indent + 2)));
+            if !raw_value.trim().is_empty() {
+                // 行内列表继续保持行内格式；环境变量写法只替换冒号后的默认列表。
+                let joined = new_items.join(",");
+                let rendered = placeholder_environment(old_raw)
+                    .map(|environment| format!("${{{environment}:{joined}}}"))
+                    .unwrap_or_else(|| format!("[{}]", new_items.iter().map(|item| yaml_string(item)).collect::<Vec<_>>().join(", ")));
+                let comment = inline_comment(raw_value).unwrap_or_default();
+                output.push(format!("{}{}: {}{}", " ".repeat(indent), key_part.trim(), rendered, comment));
+            } else {
+                output.push(line.to_string());
+                for (index, item) in new_items.iter().enumerate() {
+                    let rendered = old_items.get(index)
+                        .and_then(|old| placeholder_environment(old))
+                        .map(|environment| format!("${{{environment}:{item}}}"))
+                        .unwrap_or_else(|| yaml_string(item));
+                    output.push(format!("{}- {rendered}", " ".repeat(indent + 2)));
+                }
+                target_indent = Some(indent);
             }
-            target_indent = Some(indent);
             replaced = true;
+        } else {
+            output.push(line.to_string());
         }
         if raw_value.trim().is_empty() { parents.push((indent, key.to_string())); }
     }
@@ -674,7 +729,12 @@ fn active_environment_names(raw: &str) -> Option<String> {
 fn effective_config_value(raw: &str, kind: ConfigValueKind) -> String {
     match kind {
         ConfigValueKind::Scalar => effective_scalar(raw, placeholder_environment(raw).as_deref()),
-        ConfigValueKind::List => raw.lines().map(|item| effective_scalar(item, placeholder_environment(item).as_deref())).collect::<Vec<_>>().join("\n"),
+        ConfigValueKind::List => raw.lines()
+            // 先解析 `${ENV:默认值}`，环境变量和默认值都可能是逗号分隔列表。
+            .map(|item| effective_scalar(item, placeholder_environment(item).as_deref()))
+            .flat_map(|item| item.split(',').map(str::trim).filter(|value| !value.is_empty()).map(str::to_string).collect::<Vec<_>>())
+            .collect::<Vec<_>>()
+            .join("\n"),
     }
 }
 
@@ -798,6 +858,42 @@ fn error_log_path(app: &AppHandle) -> Option<PathBuf> {
         .filter(|path| !path.as_os_str().is_empty())
         .or_else(|| app.path().home_dir().ok().map(|path| path.join(".ai-ssh-terminal")))?;
     Some(backend_home.join("logs").join("backend-console.log"))
+}
+
+/**
+ * 客户端设置“自动启动内置后端”开关的持久化文件。
+ *
+ * 文件不存在或值不是 "false" 时一律视为 true（默认开启，与新用户预期一致）。
+ * 与 application.yml 无关，这个偏好只影响桌面壳是否自动拉 Java 进程。
+ */
+fn auto_start_preference_path(app: &AppHandle) -> Option<PathBuf> {
+    app.path().app_local_data_dir().ok().map(|dir| dir.join("auto-start.txt"))
+}
+
+fn read_auto_start_preference(app: &AppHandle) -> bool {
+    let Some(path) = auto_start_preference_path(app) else { return true; };
+    let Ok(raw) = fs::read_to_string(&path) else { return true; };
+    let stripped = raw.strip_prefix('\u{FEFF}').unwrap_or(&raw);
+    !matches!(stripped.trim().to_ascii_lowercase().as_str(), "false" | "0" | "off" | "no")
+}
+
+/**
+ * 仅持久化自动启动偏好，不在这里拉起或停止 Java。
+ * - 这个开关描述的是“客户端启动时是否自动拉起后端”，生效时机是下一次打开客户端。
+ * - 当前 Java 进程跟偏好是独立的：用户在跑着 Java 时关掉开关 ≠ 让他立刻停；
+ *   真正要停请点设置页的“停止内置服务”按钮。
+ */
+#[tauri::command]
+pub fn bundled_backend_set_auto_start(app: AppHandle, enabled: bool) -> Result<bool, String> {
+    let Some(path) = auto_start_preference_path(&app) else {
+        return Err("无法获取客户端数据目录".into());
+    };
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|error| format!("创建客户端数据目录失败：{error}"))?;
+    }
+    fs::write(&path, if enabled { &b"true"[..] } else { &b"false"[..] })
+        .map_err(|error| format!("保存自动启动设置失败：{error}"))?;
+    Ok(enabled)
 }
 
 /**

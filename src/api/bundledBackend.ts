@@ -44,6 +44,16 @@ export async function restartBundledBackend(): Promise<BundledBackendStatus | nu
   return invoke<BundledBackendStatus>('bundled_backend_restart');
 }
 
+/**
+ * 立即停止内置后端。
+ * 不影响“自动启动”偏好——偏好只决定“客户端启动时是否自动拉起”，
+ * 跟用户当前想不想让它跑是两件事。
+ */
+export async function stopBundledBackend(): Promise<BundledBackendStatus | null> {
+  if (!isTauriRuntime()) return null;
+  return invoke<BundledBackendStatus>('bundled_backend_stop');
+}
+
 /** 读取当前活动 Profile 下真正生效的内置后端配置。 */
 export async function readBundledBackendConfig(): Promise<BundledBackendConfig | null> {
   if (!isTauriRuntime()) return null;
@@ -54,4 +64,21 @@ export async function readBundledBackendConfig(): Promise<BundledBackendConfig |
 export async function saveBundledBackendConfig(update: BundledBackendConfigUpdate): Promise<BundledBackendConfig | null> {
   if (!isTauriRuntime()) return null;
   return invoke<BundledBackendConfig>('bundled_backend_save_config', { update });
+}
+
+/**
+ * “自动启动内置后端”开关状态。
+ *
+ * - true（默认）：Tauri 启动时自动拉起本地 Java，无需用户介入。
+ * - false：Tauri 启动时停在 stopped 状态，前端在启动页和设置页给出“启动”按钮。
+ */
+export async function readBundledBackendAutoStart(): Promise<boolean | null> {
+  if (!isTauriRuntime()) return null;
+  return invoke<boolean>('bundled_backend_get_auto_start');
+}
+
+/** 切换自动启动开关。关闭时如果本地后端正在运行，会被立即 kill。 */
+export async function setBundledBackendAutoStart(enabled: boolean): Promise<boolean | null> {
+  if (!isTauriRuntime()) return null;
+  return invoke<boolean>('bundled_backend_set_auto_start', { enabled });
 }

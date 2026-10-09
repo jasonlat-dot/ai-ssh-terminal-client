@@ -38,8 +38,9 @@ import { ActivityBar, AppHeader } from './components/Shell';
 import { BackendSettingsDialog } from './components/BackendSettingsDialog';
 import { readBackendUrl, saveBackendUrl } from './config/backend';
 import { readBundledBackendStatus, restartBundledBackend } from './api/bundledBackend';
+import { probeBackendHealth } from './api/health';
 import { StartupScreen } from './components/StartupScreen';
-import type { StartupPhase } from './components/StartupScreen';
+import type { StartupHealth, StartupPhase } from './components/StartupScreen';
 import { CommandShelf, TerminalWorkspace } from './components/Workspace';
 import { createSessionFileState, initialCommands } from './data/mock';
 import type { ChatAttachment, ChatAgentActivity, ChatMessage, ChatMessageSegment, ChatToolActivity, Host, Navigation } from './types';
@@ -1122,6 +1123,19 @@ export default function App() {
   const [startupLogDirectory, setStartupLogDirectory] = useState<string | null>(null);
   const [startupRetrying, setStartupRetrying] = useState(false);
   const [startupPollVersion, setStartupPollVersion] = useState(0);
+  /**
+   * stopped 状态时（用户关掉了自动启动），这个标志让“启动”按钮显示“正在启动”并禁用。
+   * 只用于本地启动流程，restart 调用发起后置 true，状态切到 starting/running 时置 false。
+   */
+  const [startupStarting, setStartupStarting] = useState(false);
+  const [startupHealth, setStartupHealth] = useState<StartupHealth>({
+    state: 'idle',
+    backendUrl: readBackendUrl(),
+    latencyMs: null,
+    message: null,
+    checkedAt: null,
+  });
+  const startupHealthAbort = useRef<AbortController | null>(null);
   const readyTimer = useRef<number | null>(null);
   const changeBackend = (url: string) => setBackendUrl(saveBackendUrl(url));
 
@@ -1143,8 +1157,42 @@ export default function App() {
     readyTimer.current = window.setTimeout(() => setBackendReady(true), 320);
   }, []);
 
+  /**
+   * 用 /api/health 探测一次，结果只用于启动页状态展示。
+   * - 不影响 phase 流转：phase 仍由 bundled_backend_status 决定。
+   * - 不阻塞用户点击“继续进入”：health down 也允许继续（业务后端已能响应）。
+   */
+  const runStartupHealthProbe = useCallback(async (targetUrl: string) => {
+    startupHealthAbort.current?.abort();
+    const controller = new AbortController();
+    startupHealthAbort.current = controller;
+    setStartupHealth(previous => ({ ...previous, state: 'probing', backendUrl: targetUrl, message: null }));
+    try {
+      const snapshot = await probeBackendHealth({ backendUrl: targetUrl, signal: controller.signal, timeoutMs: 3000 });
+      if (controller.signal.aborted) return;
+      setStartupHealth({
+        state: snapshot.ok ? 'up' : 'down',
+        backendUrl: snapshot.backendUrl,
+        latencyMs: snapshot.latencyMs,
+        message: snapshot.message,
+        checkedAt: snapshot.checkedAt,
+      });
+    } catch (cause) {
+      if (controller.signal.aborted) return;
+      setStartupHealth(previous => ({
+        ...previous,
+        state: 'error',
+        backendUrl: targetUrl,
+        message: cause instanceof Error ? cause.message : String(cause),
+      }));
+    } finally {
+      if (startupHealthAbort.current === controller) startupHealthAbort.current = null;
+    }
+  }, []);
+
   useEffect(() => () => {
     if (readyTimer.current !== null) window.clearTimeout(readyTimer.current);
+    startupHealthAbort.current?.abort();
   }, []);
 
   useEffect(() => {
@@ -1157,13 +1205,27 @@ export default function App() {
         const status = await readBundledBackendStatus();
         if (cancelled) return;
         if (!status || status.status === 'running') {
+          setStartupStarting(false);
+          // Rust 报告 running 不代表 HTTP 端点能响应；用 /api/health 二次确认，
+          // 真实场景下“端口已开但 Spring 还没就绪”时它会失败，UI 给出明确提示，
+          // 但 phase 仍按 Rust 状态走，避免让启动流程卡死。
+          if (readBackendUrl()) {
+            void runStartupHealthProbe(readBackendUrl());
+          }
           revealMain(status?.message ?? '客户端界面已就绪');
           return;
         }
         if (status.status === 'failed') {
+          setStartupStarting(false);
           setStartupPhase('failed');
           setStartupMessage(status.message || '内置后端启动失败');
           setStartupLogDirectory(parentDirectory(status.logPath));
+          return;
+        }
+        if (status.status === 'stopped') {
+          // 用户关掉了自动启动（或重启后未启动），停在 stopped，等用户点“启动”。
+          setStartupPhase('stopped');
+          setStartupMessage(status.message || '本地服务尚未启动');
           return;
         }
 
@@ -1183,7 +1245,7 @@ export default function App() {
       cancelled = true;
       if (pollTimer !== null) window.clearTimeout(pollTimer);
     };
-  }, [backendReady, desktop, revealMain, startupBypassed, startupPollVersion]);
+  }, [backendReady, desktop, revealMain, runStartupHealthProbe, startupBypassed, startupPollVersion]);
 
   const retryStartup = useCallback(async () => {
     setStartupRetrying(true);
@@ -1193,23 +1255,73 @@ export default function App() {
     try {
       const status = await restartBundledBackend();
       if (!status || status.status === 'running') {
+        setStartupStarting(false);
+        if (readBackendUrl()) void runStartupHealthProbe(readBackendUrl());
         revealMain(status?.message ?? '内置后端已启动');
       } else if (status.status === 'failed') {
+        setStartupStarting(false);
         setStartupPhase('failed');
         setStartupMessage(status.message || '内置后端启动失败');
         setStartupLogDirectory(parentDirectory(status.logPath));
+      } else if (status.status === 'stopped') {
+        // 通常不会发生：restart 应当把 Java 拉起来。回到 stopped 给出“启动”按钮。
+        setStartupStarting(false);
+        setStartupPhase('stopped');
+        setStartupMessage(status.message || '本地服务尚未启动');
       } else {
+        setStartupStarting(false);
         setStartupPhase('starting');
         setStartupMessage(status.message || '正在等待内置服务启动…');
         setStartupPollVersion(version => version + 1);
       }
     } catch (error) {
+      setStartupStarting(false);
       setStartupPhase('failed');
       setStartupMessage(`重新启动失败：${errorMessage(error)}`);
     } finally {
       setStartupRetrying(false);
     }
-  }, [revealMain]);
+  }, [revealMain, runStartupHealthProbe]);
+
+  /**
+   * stopped 状态下点“启动”按钮。逻辑与重试一致，但需要重置 starting 标志位，
+   * 让 UI 切换到“正在启动”文案，并提示用户不要重复点击。
+   */
+  const startManually = useCallback(async () => {
+    setStartupStarting(true);
+    setStartupPhase('starting');
+    setStartupMessage('正在启动内置服务…');
+    setStartupLogDirectory(null);
+    // 把健康检查状态也复位，避免“启动中”时还显示旧的 down 徽章。
+    const targetUrl = readBackendUrl();
+    setStartupHealth({ state: 'idle', backendUrl: targetUrl, latencyMs: null, message: null, checkedAt: null });
+    try {
+      const status = await restartBundledBackend();
+      if (!status || status.status === 'running') {
+        setStartupStarting(false);
+        if (targetUrl) void runStartupHealthProbe(targetUrl);
+        revealMain(status?.message ?? '内置后端已启动');
+      } else if (status.status === 'failed') {
+        setStartupStarting(false);
+        setStartupPhase('failed');
+        setStartupMessage(status.message || '内置后端启动失败');
+        setStartupLogDirectory(parentDirectory(status.logPath));
+      } else {
+        setStartupPhase(status.status === 'starting' ? 'starting' : 'checking');
+        setStartupMessage(status.message || '正在等待内置服务启动…');
+        setStartupPollVersion(version => version + 1);
+      }
+    } catch (error) {
+      setStartupStarting(false);
+      setStartupPhase('failed');
+      setStartupMessage(`启动失败：${errorMessage(error)}`);
+    }
+  }, [revealMain, runStartupHealthProbe]);
+
+  const recheckStartupHealth = useCallback(() => {
+    const target = readBackendUrl();
+    if (target) void runStartupHealthProbe(target);
+  }, [runStartupHealthProbe]);
 
   if (desktop && !backendReady && !startupBypassed) {
     return <StartupScreen
@@ -1219,6 +1331,10 @@ export default function App() {
       retrying={startupRetrying}
       onRetry={() => { void retryStartup(); }}
       onContinue={() => setStartupBypassed(true)}
+      onStart={() => { void startManually(); }}
+      starting={startupStarting}
+      health={startupHealth}
+      onRecheckHealth={recheckStartupHealth}
     />;
   }
 

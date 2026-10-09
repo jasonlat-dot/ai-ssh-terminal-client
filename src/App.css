@@ -69,6 +69,8 @@ kbd { font-family: inherit; font-size: 10px; border: 1px solid var(--line-strong
 .text-button { padding: 4px 0 4px 6px; font-size: 11px; color: var(--muted); }
 .primary-button { color: #fff; background: var(--mint); padding: 9px 18px; font-weight: 600; }
 .primary-button:hover { background: #0f7259; }
+.danger-button { color: #fff; background: #b94740; padding: 9px 18px; font-weight: 600; }
+.danger-button:hover:not(:disabled) { background: #a83b35; }
 .activity-bar { grid-column: 1; grid-row: 2; border-right: 1px solid var(--line); display: flex; flex-direction: column; gap: 3px; padding: 10px 5px; }
 .activity { position: relative; min-height: 57px; flex-direction: column; gap: 2px; font-size: 10px; color: #58616d; }
 .activity svg { width: 21px; height: 21px; }

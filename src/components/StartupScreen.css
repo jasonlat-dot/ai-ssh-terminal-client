@@ -74,7 +74,6 @@
   min-height: 32px;
   align-items: center;
   gap: 8px;
-  margin-left: auto;
   padding: 5px 10px;
   border: 1px solid var(--startup-line);
   border-radius: 9px;
@@ -374,6 +373,93 @@
   color: var(--startup-muted);
   font-size: 9px;
 }
+
+/* ---- 健康检查徽章（header）与详情条 ---- */
+.startup-health-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 10px;
+  margin-left: auto;
+  border: 1px solid var(--startup-line);
+  border-radius: 999px;
+  background: var(--startup-panel-soft);
+  color: var(--startup-muted);
+  font-size: 10.5px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.12s, background 0.12s, color 0.12s;
+}
+
+.startup-health-badge:hover:not(:disabled) {
+  border-color: var(--startup-line-strong);
+  background: var(--startup-panel);
+  color: var(--startup-text);
+}
+
+.startup-health-badge:disabled {
+  cursor: default;
+}
+
+.startup-health-badge-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--startup-faint);
+  flex-shrink: 0;
+}
+
+.startup-health-badge.is-up { color: #126d56; border-color: #bfe5d8; background: #eaf8f2; }
+.startup-health-badge.is-up .startup-health-badge-dot { background: #1aa179; box-shadow: 0 0 0 3px #1aa17922; }
+.startup-health-badge.is-down { color: #a33d3d; border-color: #f1c4c0; background: #fff0ef; }
+.startup-health-badge.is-down .startup-health-badge-dot { background: #c1483f; box-shadow: 0 0 0 3px #c1483f22; }
+.startup-health-badge.is-probing { color: #1e6db8; border-color: #bfd5ee; background: #edf6ff; }
+.startup-health-badge.is-probing .startup-health-badge-dot {
+  background: #5d87b8;
+  animation: startup-health-pulse 1.2s ease-in-out infinite;
+}
+.startup-health-badge.is-idle { color: var(--startup-muted); }
+
+@keyframes startup-health-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.6); opacity: 0.4; }
+}
+
+.startup-health-detail {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 16px;
+  padding: 10px 14px;
+  border-radius: 9px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.startup-health-detail code {
+  font: 600 10.5px/1.4 var(--mono);
+  background: #ffffff70;
+  padding: 1px 6px;
+  border-radius: 4px;
+  margin: 0 2px;
+}
+
+.startup-health-detail.is-down {
+  color: #a33d3d;
+  background: #fff0ef;
+  border: 1px solid #f1c4c0;
+}
+
+:root[data-theme='dark'] .startup-health-badge.is-up { background: #18372f; border-color: #285b4d; color: #8fe0c5; }
+:root[data-theme='dark'] .startup-health-badge.is-down { background: #3a2022; border-color: #704145; color: #ffb9b5; }
+:root[data-theme='dark'] .startup-health-badge.is-probing { background: #1c3050; border-color: #2a456d; color: #a8d0ff; }
+:root[data-theme='dark'] .startup-health-detail.is-down { background: #3a2022; border-color: #704145; color: #ffb9b5; }
+:root[data-theme='dark'] .startup-health-detail code { background: #ffffff10; }
+
 .startup-footer {
   display: flex;
   align-items: center;

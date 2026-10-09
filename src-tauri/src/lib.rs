@@ -28,6 +28,9 @@ pub fn run() {
             /*
              * 后端健康检查最长需要 60 秒，不能阻塞 Tauri 主线程和 WebView 首次绘制。
              * 后台任务会保存真实状态，启动页通过命令轮询并展示，同时允许用户重试。
+             *
+             * 是否在启动时自动拉起本地后端，由 settings 中"自动启动内置后端"开关决定；
+             * 关闭时停留在 stopped 状态，用户可以在启动页或设置页点"启动"按钮手动启。
              */
             bundled_backend::start_in_background(app.handle().clone());
             Ok(())
@@ -35,8 +38,11 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             bundled_backend::bundled_backend_status,
             bundled_backend::bundled_backend_restart,
+            bundled_backend::bundled_backend_stop,
             bundled_backend::bundled_backend_config,
             bundled_backend::bundled_backend_save_config,
+            bundled_backend::bundled_backend_get_auto_start,
+            bundled_backend::bundled_backend_set_auto_start,
             sftp_open,
             sftp_close,
             sftp_entries,

@@ -1,12 +1,19 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { openPath } from '@tauri-apps/plugin-opener';
 import {
   readBundledBackendConfig,
+  readBundledBackendAutoStart,
+  readBundledBackendStatus,
+  restartBundledBackend,
+  stopBundledBackend,
   saveBundledBackendConfig,
+  setBundledBackendAutoStart,
   type BundledBackendConfig,
   type BundledBackendConfigValue,
+  type BundledBackendStatus,
 } from '../api/bundledBackend';
+import { probeBackendHealth, type BackendHealthSnapshot } from '../api/health';
 import { normalizeBackendUrl } from '../config/backend';
 import { isTauriRuntime } from '../state/runtime';
 import { Icon, Toggle } from './Ui';
@@ -274,6 +281,32 @@ function deriveStatus(config: BundledBackendConfig | null, loading: boolean, err
   return 'ok';
 }
 
+/** 把 /api/health 结果收敛成顶栏能直接展示的语义状态。 */
+type HealthState = 'idle' | 'probing' | 'up' | 'down' | 'error';
+function deriveHealthState(snapshot: BackendHealthSnapshot | null, probing: boolean): HealthState {
+  if (probing) return 'probing';
+  if (!snapshot) return 'idle';
+  return snapshot.ok ? 'up' : 'down';
+}
+
+function healthLabel(state: HealthState, snapshot: BackendHealthSnapshot | null): string {
+  if (state === 'probing') return '健康检查中…';
+  if (state === 'idle') return '尚未做健康检查';
+  if (state === 'up') return snapshot?.latencyMs != null ? `健康 · ${snapshot.latencyMs}ms` : '健康 · UP';
+  if (state === 'down') return snapshot?.message ? `异常 · ${snapshot.message}` : '异常 · /api/health 未返回 UP';
+  return '健康检查失败';
+}
+
+function healthToneClass(state: HealthState): string {
+  switch (state) {
+    case 'up': return 'is-up';
+    case 'down': return 'is-down';
+    case 'probing': return 'is-loading';
+    case 'error': return 'is-error';
+    default: return 'is-idle';
+  }
+}
+
 /* ============================================================================
  * 原子组件
  * ========================================================================== */
@@ -287,6 +320,14 @@ function ConfigSource({ meta }: { meta?: BundledBackendConfigValue }) {
 
 function StatusDot({ status }: { status: DotStatus }) {
   return <span className={`settings-status-dot is-${status}`} aria-hidden="true"><i /></span>;
+}
+
+/**
+ * /api/health 探测结果的轻量指示器。
+ * 复用 settings-status-dot 的形状，但颜色按 UP / DOWN / probing 区分。
+ */
+function HealthDot({ state }: { state: HealthState }) {
+  return <span className={`settings-status-dot settings-health-dot is-${healthToneClass(state)}`} aria-hidden="true"><i /></span>;
 }
 
 function SearchBar({ value, onChange, placeholder }: {
@@ -909,6 +950,34 @@ export function BackendSettingsDialog({ currentUrl, required = false, onClose, o
   const [error, setError] = useState('');
   const [result, setResult] = useState('');
   const [search, setSearch] = useState('');
+  /** 默认 true 表示桌面壳会自动拉起本地后端；用户关掉时启动阶段停在 stopped。 */
+  const [autoStartEnabled, setAutoStartEnabled] = useState(true);
+  const [autoStartAvailable, setAutoStartAvailable] = useState(false);
+  const [autoStartError, setAutoStartError] = useState('');
+  /**
+   * 设置页中"启动内置服务"按钮的 loading 状态。
+   * 跟启动页的 startupStarting 是两套：这里用户在客户端里点，不需要切启动页。
+   * 设置页弹一个小提示（来自状态消息）就够了。
+   */
+  const [settingsStarting, setSettingsStarting] = useState(false);
+  /**
+   * 当前后端运行状态。仅用来决定"启动内置服务"按钮是否展示：
+   * running 时不展示（避免误操作重启），其余状态都展示。
+   * null 表示还没读到或者桌面壳没有这个命令（旧版本），按"未在跑"处理。
+   */
+  const [backendStatus, setBackendStatus] = useState<BundledBackendStatus | null>(null);
+  /**
+   * 后端 /api/health 探测结果。仅用于 UI 展示，不影响任何按钮的可用性。
+   * - 在桌面壳里随 bundled_backend_status 的轮询节奏触发；
+   * - 在浏览器开发模式下，URL 改动或"测试连接"时也会触发；
+   * - 与 bundled_backend_status 是互补的：后者描述 Java 进程生命周期，
+   *   前者证明 HTTP 端点真的在响应。
+   */
+  const [healthSnapshot, setHealthSnapshot] = useState<BackendHealthSnapshot | null>(null);
+  const [healthProbing, setHealthProbing] = useState(false);
+  const [healthError, setHealthError] = useState('');
+  const healthAbortRef = useRef<AbortController | null>(null);
+  const healthUrlRef = useRef<string>('');
 
   useEffect(() => {
     if (!isTauriRuntime()) return;
@@ -924,6 +993,166 @@ export function BackendSettingsDialog({ currentUrl, required = false, onClose, o
     return () => { active = false; };
   }, []);
 
+  /** 单独拉取自动启动偏好；浏览器开发模式不展示这个开关。 */
+  useEffect(() => {
+    if (!isTauriRuntime()) return;
+    let active = true;
+    void readBundledBackendAutoStart()
+      .then(value => {
+        if (!active || value === null) return;
+        setAutoStartAvailable(true);
+        setAutoStartEnabled(value);
+      })
+      .catch(cause => {
+        if (!active) return;
+        // 读取失败通常意味着旧版本桌面壳；开关保持可见但禁用作 fallback。
+        setAutoStartError(cause instanceof Error ? cause.message : String(cause));
+      });
+    return () => { active = false; };
+  }, []);
+
+  /** 拉取后端运行状态，用来决定"启动内置服务"按钮是否显示。仅在桌面壳里生效。 */
+  useEffect(() => {
+    if (!isTauriRuntime()) return;
+    let active = true;
+    const refresh = () => {
+      void readBundledBackendStatus()
+        .then(s => { if (active) setBackendStatus(s); })
+        .catch(() => { if (active) setBackendStatus(null); });
+    };
+    refresh();
+    // 后端状态变化不频繁（启动/停止/失败），1.5s 轮询够用且不打扰用户。
+    const timer = window.setInterval(refresh, 1500);
+    return () => { active = false; window.clearInterval(timer); };
+  }, []);
+
+  /**
+   * 探测 /api/health。
+   * 单一入口让多个 effect 共用，避免重复 fetch；URL 变化或 bundled_backend_status
+   * 切到 running 都会触发它。
+   */
+  const runHealthProbe = useCallback(async (targetUrl: string) => {
+    healthAbortRef.current?.abort();
+    const controller = new AbortController();
+    healthAbortRef.current = controller;
+    healthUrlRef.current = targetUrl;
+    setHealthProbing(true);
+    setHealthError('');
+    try {
+      const snapshot = await probeBackendHealth({
+        backendUrl: targetUrl,
+        signal: controller.signal,
+      });
+      // 期间 URL 又被改了，就丢弃旧结果，避免“填了新地址却显示旧探测”的错乱。
+      if (healthUrlRef.current !== targetUrl) return;
+      setHealthSnapshot(snapshot);
+    } catch (cause) {
+      if (controller.signal.aborted) return;
+      if (healthUrlRef.current !== targetUrl) return;
+      setHealthError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      if (healthAbortRef.current === controller) {
+        setHealthProbing(false);
+        healthAbortRef.current = null;
+      }
+    }
+  }, []);
+
+  /**
+   * 桌面壳里，后端一旦被 Rust 报告为 running，就顺手用 /api/health 做一次确认。
+   * running 但 /api/health 不通 = 端口已开但 Spring 还没就绪 / 业务 Bean 初始化失败，
+   * 这是个真实的运维场景，单独靠 bundled_backend_status 看不出来。
+   */
+  useEffect(() => {
+    if (!isTauriRuntime()) return;
+    if (backendStatus?.status !== 'running') return;
+    void runHealthProbe(currentUrl);
+  }, [backendStatus?.status, backendStatus?.message, currentUrl, runHealthProbe]);
+
+  /**
+   * 浏览器开发模式 / 用户切换“客户端访问地址”时也补一次探测，让顶栏徽章跟着走。
+   * 桌面壳里 currentUrl 跟启动页拉的地址一致，依赖上面那个 effect 触发即可。
+   */
+  useEffect(() => {
+    if (isTauriRuntime()) return;
+    if (!currentUrl) return;
+    void runHealthProbe(currentUrl);
+  }, [currentUrl, runHealthProbe]);
+
+  /** 卸载时取消未结束的探测。 */
+  useEffect(() => () => { healthAbortRef.current?.abort(); }, []);
+
+  /**
+   * 切换自动启动。注意：开关本身只描述“客户端启动时是否自动拉起后端”，
+   * 它的生效时机是下一次打开客户端；切换当下不立即拉/停 Java。
+   * 关闭时 Rust 端会顺手 stop 当前 Java（避免开关状态和实际状态不一致），
+   * 打开时不动 Java —— 用户如果想立刻用，可以点“启动内置服务”按钮。
+   */
+  const toggleAutoStart = async () => {
+    setAutoStartError('');
+    const next = !autoStartEnabled;
+    setAutoStartEnabled(next);
+    setSettingsStarting(false);
+    try {
+      const confirmed = await setBundledBackendAutoStart(next);
+      if (confirmed !== null) setAutoStartEnabled(confirmed);
+      // 立刻刷一次后端状态，让按钮按实际情况显隐；
+      // 关闭时 Rust 已经 stop 了，按钮应出现；打开时不动 Java，按钮的显示取决于原状态。
+      void readBundledBackendStatus().then(s => setBackendStatus(s)).catch(() => {});
+    } catch (cause) {
+      setAutoStartEnabled(!next);
+      setAutoStartError(cause instanceof Error ? cause.message : '切换自动启动失败。');
+    }
+  };
+
+  /**
+   * 在客户端内部手动拉起本地 Java。
+   * 复用 restart 命令：它会先 stop 再 start，确保进程状态干净；
+   * 启动完成后我们再读一次状态展示给用户。
+   */
+  const startManuallyFromSettings = async () => {
+    setAutoStartError('');
+    setSettingsStarting(true);
+    try {
+      // 用 restart 而不是 start，是因为用户可能想"重启"——比如改完配置后。
+      const status = await restartBundledBackend();
+      setBackendStatus(status);
+      if (status?.status === 'running') {
+        // 正常路径：按钮会立刻被 status 驱动切到“停止内置后端”。
+        setResult(`已启动：${status.message || '内置后端已就绪'}`);
+      } else if (status?.status === 'failed') {
+        setAutoStartError(status.message || '启动失败');
+      } else if (status?.status === 'stopped') {
+        setAutoStartError(status.message || '未启动，请到启动页查看详情');
+      } else {
+        setResult(status?.message || '正在启动…');
+      }
+    } catch (cause) {
+      setAutoStartError(cause instanceof Error ? cause.message : '启动失败。');
+    } finally {
+      setSettingsStarting(false);
+    }
+  };
+
+  /**
+   * 停止内置后端。直接调用 stop 命令（已存在），不在这里处理偏好。
+   * 偏好跟“运行/停止”解耦：偏好决定“下次开客户端时是否自动起”，
+   * 而这个按钮是“当前要不要让它在跑”。
+   */
+  const stopManuallyFromSettings = async () => {
+    setAutoStartError('');
+    setSettingsStarting(true);
+    try {
+      const status = await stopBundledBackend();
+      setBackendStatus(status);
+      setResult(`已停止：${status?.message || '内置后端已停止'}`);
+    } catch (cause) {
+      setAutoStartError(cause instanceof Error ? cause.message : '停止失败。');
+    } finally {
+      setSettingsStarting(false);
+    }
+  };
+
   const change = (key: string, value: string) => {
     setValues(current => ({ ...current, [key]: value }));
     setError('');
@@ -936,20 +1165,25 @@ export function BackendSettingsDialog({ currentUrl, required = false, onClose, o
     let address: string;
     try { address = normalizeBackendUrl(url); }
     catch (cause) { setError(cause instanceof Error ? cause.message : '地址无效。'); return; }
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
     setTesting(true);
     try {
-      const response = await fetch(`${address}/agent/query_ai_agent_config_list`, { signal: controller.signal });
-      if (!response.ok) throw new Error(`后端响应 HTTP ${response.status}。`);
-      const body = await response.json() as { code?: string; info?: string };
-      if (body.code !== 'SUCCESS_0000') throw new Error(body.info || '后端返回了非成功状态。');
-      setResult('连接成功，Agent 接口可用。');
+      // 复用 /api/health 探测：同时承担“测试连接”和“健康检查”。
+      // 它是后端最轻的存活探针，HTTP 200 + status === "UP" 即可证明 Web 容器可用，
+      // 后续的 Agent 业务接口再由真实业务调用兜底。
+      const snapshot = await probeBackendHealth({ backendUrl: address });
+      if (snapshot.ok) {
+        const latency = snapshot.latencyMs != null ? `（${snapshot.latencyMs}ms）` : '';
+        setResult(`连接成功，/api/health 返回 UP${latency}。`);
+      } else {
+        setError(snapshot.message || '/api/health 未返回 UP。');
+      }
+      // 让顶栏徽章立刻反映这次手动探测的结果。
+      setHealthSnapshot(snapshot);
+      setHealthProbing(false);
+      healthUrlRef.current = address;
     } catch (cause) {
-      setError(controller.signal.aborted ? '连接超时，请检查地址和网络。'
-        : cause instanceof Error ? cause.message : '连接测试失败。');
+      setError(cause instanceof Error ? cause.message : '连接测试失败。');
     } finally {
-      clearTimeout(timeout);
       setTesting(false);
     }
   };
@@ -1050,6 +1284,8 @@ export function BackendSettingsDialog({ currentUrl, required = false, onClose, o
   };
 
   const status = deriveStatus(config, loading, error);
+  const healthState = deriveHealthState(healthSnapshot, healthProbing);
+  const healthLabelText = healthLabel(healthState, healthSnapshot);
   const activeStorageMode = values.fileStorageDefaultId === (values.minioStorageId || 'minio-main') ? 'minio' : 'local';
 
   return <main className={`settings-page ${required ? 'is-standalone' : ''}`} aria-label="客户端设置">
@@ -1065,6 +1301,16 @@ export function BackendSettingsDialog({ currentUrl, required = false, onClose, o
         </div>
       </div>
       <div className="settings-topbar-right">
+        <button
+          type="button"
+          className={`settings-topbar-status settings-health-pill ${healthToneClass(healthState)}`}
+          onClick={() => { void runHealthProbe(currentUrl); }}
+          title={healthSnapshot ? `${healthSnapshot.backendUrl}/api/health · ${healthSnapshot.checkedAt}` : '点击重新探测 /api/health'}
+          aria-label="重新探测 /api/health"
+        >
+          <HealthDot state={healthState} />
+          <span>{healthLabelText}</span>
+        </button>
         <div className={`settings-topbar-status is-${status}`}>
           <StatusDot status={status} />
           <span>{status === 'loading' ? '正在读取配置…'
@@ -1117,6 +1363,94 @@ export function BackendSettingsDialog({ currentUrl, required = false, onClose, o
         </div>}
 
         {!loading && activeSection === 'general' && <>
+          {autoStartAvailable && <SettingsGroup title="启动方式"
+            description="关闭后，桌面壳打开时不会自动拉起本地 Java，你也可以在启动页或此处手动启动。"
+            badge="启动">
+            <div className="settings-toggle-row">
+              <span className="settings-toggle-state">{autoStartEnabled ? '自动启动' : '手动启动'}</span>
+              <Toggle
+                label="自动启动内置后端"
+                value={autoStartEnabled}
+                onChange={() => void toggleAutoStart()}
+              />
+              <span className="settings-toggle-hint">
+                {autoStartEnabled
+                  ? '每次打开客户端都会自动启动内置后端'
+                  : '客户端启动时不会拉起 Java，可在此或启动页点击“启动内置服务”'}
+              </span>
+            </div>
+            {autoStartError && <div className="settings-error">{autoStartError}</div>}
+            {(() => {
+              // 按钮永远显示，文案/样式/handler 跟着当前后端状态走。
+              // running → "停止内置服务"（警告色，stop 命令）；
+              // 其他状态 → "启动内置服务"（主色，restart 命令，重置干净）。
+              const running = backendStatus?.status === 'running';
+              const busy = settingsStarting;
+              const onClick = running
+                ? () => void stopManuallyFromSettings()
+                : () => void startManuallyFromSettings();
+              const label = busy
+                ? (running ? '正在停止…' : '正在启动…')
+                : (running ? '停止内置服务' : '启动内置服务');
+              const hint = busy
+                ? '等待本地服务状态变化'
+                : (running
+                    ? (autoStartEnabled
+                        ? '下次打开客户端会重新拉起；现在先停掉释放资源'
+                        : '当前服务在跑，点击立即停止')
+                    : (autoStartEnabled
+                        ? '自动启动已开启，但内置服务未运行；点击立即拉起'
+                        : '点击手动拉起本地 Java 进程'));
+              return (
+                <div className="settings-toggle-row" style={{ marginTop: 12 }}>
+                  <button
+                    type="button"
+                    className={running ? 'danger-button' : 'primary-button'}
+                    onClick={onClick}
+                    disabled={busy}
+                  >
+                    <Icon name={running ? 'stop' : 'play'} size={14} />
+                    {label}
+                  </button>
+                  <span className="settings-toggle-hint">{hint}</span>
+                </div>
+              );
+            })()}
+          </SettingsGroup>}
+          <SettingsGroup title="后端健康检查"
+            description="调用当前地址的 /api/health，验证 HTTP 端点真实可用；与内置后端的进程状态互补，端口已开但 Spring 还没就绪时也会给出明确提示。"
+            badge="健康检查">
+            <div className="settings-health-card">
+              <div className="settings-health-card-row">
+                <HealthDot state={healthState} />
+                <strong>{healthLabelText}</strong>
+                <code title={healthSnapshot?.backendUrl}>{healthSnapshot?.backendUrl || currentUrl}</code>
+                <button
+                  type="button"
+                  className="ghost-button"
+                  disabled={healthProbing}
+                  onClick={() => { void runHealthProbe(currentUrl); }}
+                >
+                  <Icon name="refresh" size={12} />
+                  {healthProbing ? '探测中…' : '重新探测'}
+                </button>
+              </div>
+              <p className="settings-health-card-hint">
+                {healthState === 'idle' && '点击“重新探测”可立即验证当前地址；自动启动开启时，后端进入 running 状态后会自动探测一次。'}
+                {healthState === 'probing' && '正在等待后端返回 2xx 与 status:UP…'}
+                {healthState === 'up' && (healthSnapshot?.latencyMs != null
+                  ? `已联通，HTTP 200 + status:UP，单次往返 ${healthSnapshot.latencyMs}ms。`
+                  : '已联通，HTTP 200 + status:UP。')}
+                {healthState === 'down' && (healthSnapshot?.message
+                  ? `原因：${healthSnapshot.message}`
+                  : '/api/health 没有返回 status:UP。')}
+                {healthState === 'error' && (healthError || '探测失败，请检查后端地址、网络与 CORS 设置。')}
+              </p>
+              {healthSnapshot?.checkedAt && <p className="settings-health-card-time">
+                上次探测：{new Date(healthSnapshot.checkedAt).toLocaleString()} · {healthSnapshot.usingCustomUrl ? '本次为手动指定地址' : '本次为客户端配置地址'}
+              </p>}
+            </div>
+          </SettingsGroup>
           <SettingsGroup title="客户端访问地址"
             description="可连接外部后端，也可以使用安装包内置后端。"
             badge="客户端级">
