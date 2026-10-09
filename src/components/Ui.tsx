@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef } from 'react';
-import type { ButtonHTMLAttributes, ReactNode } from 'react';
+import type { ButtonHTMLAttributes, HTMLAttributes, ReactNode } from 'react';
 
 const paths = {
   book: 'M12 5v16 M12 5C8 2 4 3 2 4v15c4-2 7-1 10 2 3-3 6-4 10-2V4c-2-1-6-2-10 1 M6 7h2 M16 7h2',
@@ -50,6 +50,43 @@ const paths = {
   database: 'M3 6c0-5 18-5 18 0s-18 5-18 0 M3 6v12c0 5 18 5 18 0V6 M3 12c0 5 18 5 18 0',
 } as const;
 export type IconName = keyof typeof paths;
+export type AccentTone = 'blue' | 'violet' | 'cyan' | 'amber' | 'rose' | 'neutral' | 'success' | 'danger';
+
+export function toneForIcon(icon: IconName): AccentTone {
+  if (icon === 'bot' || icon === 'book') return 'violet';
+  if (icon === 'network' || icon === 'server' || icon === 'database' || icon === 'disk') return 'cyan';
+  if (icon === 'key' || icon === 'shield' || icon === 'folder' || icon === 'box' || icon === 'bolt' || icon === 'power') return 'amber';
+  if (icon === 'file' || icon === 'attach') return 'rose';
+  return 'blue';
+}
+
+export function fileTone(name: string): AccentTone {
+  const type = name.toLowerCase();
+  const isMime = type.includes('/');
+  if (/\.(png|jpe?g|gif|webp|svg)$/.test(type) || type.startsWith('image/')) return 'violet';
+  if (/\.(mp[34]|wav|ogg|webm|mov)$/.test(type) || /^(audio|video)\//.test(type)) return 'rose';
+  if (/\.(pdf|zip|gz|tar|7z|docx?)$/.test(type) || (isMime && /pdf|zip|word|compressed|x-tar/.test(type))) return 'amber';
+  if (/\.(txt|md|json|csv|ya?ml|log|xlsx?)$/.test(type) || type.startsWith('text/') || (isMime && /json|sheet|excel|yaml/.test(type))) return 'cyan';
+  return 'neutral';
+}
+
+export function Badge({ tone = 'neutral', icon, className = '', children, ...props }: HTMLAttributes<HTMLSpanElement> & {
+  tone?: AccentTone;
+  icon?: IconName;
+}) {
+  return <span className={`ui-badge ${className}`} data-accent={tone} {...props}>
+    {icon && <Icon name={icon} size={11} />}{children}
+  </span>;
+}
+
+export function AccentIcon({ icon, tone = toneForIcon(icon), size = 17, className = '' }: {
+  icon: IconName;
+  tone?: AccentTone;
+  size?: number;
+  className?: string;
+}) {
+  return <span className={`ui-accent-icon ${className}`} data-accent={tone} aria-hidden="true"><Icon name={icon} size={size} /></span>;
+}
 export function Icon({ name, size = 20, className = '' }: { name: IconName; size?: number; className?: string }) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.65} strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true"><path d={paths[name]} /></svg>;
 }

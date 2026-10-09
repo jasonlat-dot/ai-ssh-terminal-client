@@ -6,7 +6,7 @@ import type { UploadedFile } from '../api/files';
 import { fileUploadPolicy, formatFileSize } from '../config/fileUpload';
 import type { FileUploadQueue, UploadItem } from '../state/fileUploads';
 import { isTauriRuntime } from '../state/runtime';
-import { Icon, IconButton, Modal } from './Ui';
+import { AccentIcon, Badge, Icon, IconButton, Modal, fileTone } from './Ui';
 import './FileUploadDialog.css';
 
 export function DownloadButton({ file }: { file: Pick<UploadedFile, 'urlExpiresAt' | 'downloadUrl'> }) {
@@ -41,9 +41,13 @@ function UploadRow({ item, queue }: { item: UploadItem; queue: FileUploadQueue }
   const labels = { queued: '等待上传', uploading: '上传中', success: '上传成功', error: '上传失败' };
   return <li className={`file-upload-item ${item.status}`}>
     <div className="upload-item-heading">
-      <span className="upload-file-icon"><Icon name="file" size={19} /></span>
+      <AccentIcon icon="file" tone={fileTone(item.name)} className="upload-file-icon" size={19} />
       <span className="upload-file-name"><strong title={item.result?.fileName ?? item.name}>{item.result?.fileName ?? item.name}</strong><small>{formatFileSize(item.result?.size ?? item.size)}</small></span>
-      <span className="upload-item-status" role="status">{item.status === 'uploading' ? <i className="file-upload-spinner" aria-hidden="true" /> : item.status === 'success' ? <Icon name="check" size={13} /> : null}{labels[item.status]}</span>
+      <Badge className="upload-item-status" role="status"
+        tone={item.status === 'success' ? 'success' : item.status === 'error' ? 'danger' : item.status === 'queued' ? 'amber' : 'blue'}
+        icon={item.status === 'success' ? 'check' : item.status === 'error' ? 'alert' : item.status === 'queued' ? 'history' : undefined}>
+        {item.status === 'uploading' && <i className="file-upload-spinner" aria-hidden="true" />}{labels[item.status]}
+      </Badge>
       <IconButton icon="close" label={`从列表移除 ${item.name}（不删除服务器文件）`} disabled={item.status === 'uploading'} onClick={() => queue.remove(item.id)} />
     </div>
     {item.error && <p className="upload-item-error" role="alert">{item.error}</p>}
@@ -83,7 +87,7 @@ export function FileUploadDialog({ queue, close }: { queue: FileUploadQueue; clo
       }} />
       <details className="upload-supported-types"><summary>支持的文件类型</summary><p>{fileUploadPolicy.extensions.join('、')}</p></details>
       {notice && <p className="upload-selection-notice" role="status">{notice}</p>}
-      <div className="upload-list-heading"><strong>上传记录 <small>{items.length}</small></strong><span>{uploading ? `${uploading} 个文件上传中` : '每个文件独立上传'}</span></div>
+      <div className="upload-list-heading"><strong>上传记录 <Badge tone="rose">{items.length}</Badge></strong><span>{uploading ? `${uploading} 个文件上传中` : '每个文件独立上传'}</span></div>
       {items.length ? <ul className="file-upload-list">{items.map(item => <UploadRow item={item} queue={queue} key={item.id} />)}</ul>
         : <div className="file-upload-empty"><Icon name="file" size={26} /><p>还没有上传文件</p><small>选择文件后，上传状态和下载入口会显示在这里。</small></div>}
     </div>

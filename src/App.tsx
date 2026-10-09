@@ -21,7 +21,7 @@ import type { TerminalDisconnectEvent } from './state/remoteTerminal';
 import { LocalTerminal } from './state/localTerminal';
 import type { TerminalRuntime } from './state/terminalRuntime';
 import { isTauriRuntime } from './state/runtime';
-import { loadTerminalSessions, saveTerminalSessions } from './state/terminalSessions';
+import { isSessionConnected, loadTerminalSessions, saveTerminalSessions } from './state/terminalSessions';
 import { copyText } from './state/clipboard';
 import { NotificationToast } from './components/NotificationToast';
 import type { Notice, NoticeType } from './components/NotificationToast';
@@ -46,6 +46,7 @@ import { createSessionFileState, initialCommands } from './data/mock';
 import type { ChatAttachment, ChatAgentActivity, ChatMessage, ChatMessageSegment, ChatToolActivity, Host, Navigation } from './types';
 import './App.css';
 import './reference.css';
+import './typography.css';
 
 const RemoteTerminalView = lazy(() => import('./components/RemoteTerminalView').then(module => ({ default: module.RemoteTerminalView })));
 
@@ -147,9 +148,9 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme }: {
   const active = sessions.find(session => session.id === activeId);
   const host = hosts.find(item => item.id === active?.connectionId) ?? active?.host;
   const activeClient = active ? terminalClients.current.get(active.id) : undefined;
-  const canRun = !!active && active.connected && !active.busy
+  const canRun = !!active && isSessionConnected(active) && !active.busy
     && activeClient?.sessionId === active.terminalSessionId
-    && !activeClient.closed && !activeClient.disconnected;
+    && !activeClient.closed && !activeClient.disconnected && activeClient.transportAvailable !== false;
 
   useEffect(() => {
     try { saveTerminalSessions(backendUrl, sessions); }
@@ -452,6 +453,17 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme }: {
     running.current.delete(sessionId);
     if (event.reason !== 'CLIENT_CLOSED') notify(event.message, 'error');
   };
+  const handleTerminalTransport = (sessionId: string, available: boolean, sourceRuntime?: TerminalRuntime) => {
+    if (!sourceRuntime || terminalClients.current.get(sessionId) !== sourceRuntime || sourceRuntime.manuallyClosed) return;
+    setSessions(previous => previous.map(session => {
+      if (session.id !== sessionId || session.kind !== 'ssh' || session.manuallyClosed || session.reconnecting
+        || session.terminalSessionId !== sourceRuntime.sessionId || sourceRuntime.disconnected) return session;
+      const connectionStatus = available ? 'connected' : 'unreachable';
+      return session.connectionStatus === connectionStatus ? session : {
+        ...session, connectionStatus, connected: available || session.connected,
+      };
+    }));
+  };
   const verifyTerminalSession = useCallback(async (tabId: string, terminalSessionId: string) => {
     if (!terminalSessionId) return false;
     const runtime = terminalClients.current.get(tabId);
@@ -667,15 +679,15 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme }: {
     setNavigation('命令');
     if (!active) { void openNewTerminal(); notify('正在为你打开本地 CMD。'); return; }
     const client = terminalClients.current.get(active.id);
-    if (!active.connected || !client || client.sessionId !== active.terminalSessionId || client.closed || client.disconnected) {
-      notify(active.kind === 'local' ? '本地 CMD 已退出，请新建终端。' : '当前终端连接不可用，请点击“重新连接”。'); return;
+    if (!isSessionConnected(active) || !client || client.sessionId !== active.terminalSessionId || client.closed || client.disconnected || client.transportAvailable === false) {
+      notify(active.connectionStatus === 'unreachable' ? '后端服务暂不可达，请等待连接恢复或重试读取。' : active.kind === 'local' ? '本地 CMD 已退出，请新建终端。' : '当前终端连接不可用，请点击“重新连接”。'); return;
     }
     void client.write(command).catch(error => notify(error instanceof Error ? error.message : '命令写入失败', 'error'));
   };
   const execute = async (request: CommandRequest) => {
     const session = sessions.find(item => item.id === request.sessionId);
     if (!session || running.current.has(session.id)) return;
-    if (!session.connected) { notify(session.kind === 'local' ? '本地 CMD 已退出，请新建终端。' : '当前终端连接不可用，请点击“重新连接”。', 'error'); return; }
+    if (!isSessionConnected(session)) { notify(session.connectionStatus === 'unreachable' ? '后端服务暂不可达，请等待连接恢复或重试读取。' : session.kind === 'local' ? '本地 CMD 已退出，请新建终端。' : '当前终端连接不可用，请点击“重新连接”。', 'error'); return; }
     running.current.add(session.id);
     setSessions(previous => previous.map(item => item.id === session.id ? { ...item, busy: true } : item));
     try {
@@ -691,7 +703,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme }: {
   const requestRun = (command: string) => {
     if (!command.trim()) return;
     if (!active) { void openNewTerminal(); notify('正在为你打开本地 CMD。'); return; }
-    if (!canRun) { notify(active.busy ? '命令正在执行，请稍候。' : active.kind === 'local' ? '本地 CMD 已退出，请新建终端。' : '当前终端连接不可用，请点击“重新连接”。'); return; }
+    if (!canRun) { notify(active.busy ? '命令正在执行，请稍候。' : active.connectionStatus === 'unreachable' ? '后端服务暂不可达，请等待连接恢复或重试读取。' : active.kind === 'local' ? '本地 CMD 已退出，请新建终端。' : '当前终端连接不可用，请点击“重新连接”。'); return; }
     void execute({ sessionId: active.id, command: command.trim() });
   };
   const navigate = (name: Navigation) => {
@@ -706,9 +718,9 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme }: {
     if (invalid) { notify(invalid, 'error'); return false; }
     const currentSession = active;
     const client = currentSession ? terminalClients.current.get(currentSession.id) : undefined;
-    const terminalSessionId = currentSession?.kind === 'ssh' && currentSession.connected
+    const terminalSessionId = currentSession?.kind === 'ssh' && isSessionConnected(currentSession)
       && client?.sessionId === currentSession.terminalSessionId
-      && !client.closed && !client.disconnected
+      && !client.closed && !client.disconnected && client.transportAvailable !== false
       ? currentSession.terminalSessionId
       : '';
     if (!selectedAgent) {
@@ -1055,12 +1067,14 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme }: {
             <RemoteTerminalView key={runtime?.sessionId ?? `${session.id}:disconnected`} runtime={runtime} visible={session.id === activeId && navigation === '命令'}
               local={session.kind === 'local'}
               connected={session.connected && !!runtime && runtime.sessionId === session.terminalSessionId}
+              transportAvailable={session.connectionStatus !== 'unreachable'}
               disconnectReason={session.disconnectReason}
               reconnectAllowed={session.reconnectAllowed}
               reconnectAttempts={session.reconnectAttempts}
               reconnecting={session.reconnecting}
               manuallyClosed={session.manuallyClosed}
               onDisconnected={event => handleTerminalDisconnected(session.id, event, runtime)}
+              onTransportChange={available => handleTerminalTransport(session.id, available, runtime)}
               onReconnectExhausted={attempts => handleReconnectExhausted(session.id, attempts, runtime)}
               reconnect={options => reconnectTerminal(session.id, options, runtime)}
               disconnect={() => closeSession(session.id)} />
@@ -1084,7 +1098,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme }: {
       <CommandShelf commands={commands} category={category} setCategory={setCategory} fill={fill} run={requestRun} copy={copy} add={() => setDialog('command')} disabled={!canRun} collapsed={commandCollapsed} />
     </main>
     <PanelDivider value={agentWidth} change={setAgentWidth} />
-    <AgentPanel chatDraft={chatDraft} draftScope={chatVersion.current} host={host} connected={active?.kind === 'ssh' && active.connected} localTerminal={active?.kind === 'local'} messages={messages} busy={chatBusy} stopping={chatStopping} send={sendMessage} stop={stopChat} collapsed={agentCollapsed}
+    <AgentPanel chatDraft={chatDraft} draftScope={chatVersion.current} host={host} connected={active?.kind === 'ssh' && isSessionConnected(active)} localTerminal={active?.kind === 'local'} messages={messages} busy={chatBusy} stopping={chatStopping} send={sendMessage} stop={stopChat} collapsed={agentCollapsed}
       clear={clearChat} disabled={Boolean(historyLoadingId) || chatStopping}
       agentAvailability={{ ready: !!selectedAgent, loading: agentLoading, error: agentLoadError, retry: () => setAgentLoadAttempt(attempt => attempt + 1) }}
       history={{
@@ -1209,9 +1223,7 @@ export default function App() {
           // Rust 报告 running 不代表 HTTP 端点能响应；用 /api/health 二次确认，
           // 真实场景下“端口已开但 Spring 还没就绪”时它会失败，UI 给出明确提示，
           // 但 phase 仍按 Rust 状态走，避免让启动流程卡死。
-          if (readBackendUrl()) {
-            void runStartupHealthProbe(readBackendUrl());
-          }
+          void runStartupHealthProbe(status?.backendUrl || readBackendUrl());
           revealMain(status?.message ?? '客户端界面已就绪');
           return;
         }
@@ -1256,7 +1268,7 @@ export default function App() {
       const status = await restartBundledBackend();
       if (!status || status.status === 'running') {
         setStartupStarting(false);
-        if (readBackendUrl()) void runStartupHealthProbe(readBackendUrl());
+        void runStartupHealthProbe(status?.backendUrl || readBackendUrl());
         revealMain(status?.message ?? '内置后端已启动');
       } else if (status.status === 'failed') {
         setStartupStarting(false);
@@ -1299,7 +1311,7 @@ export default function App() {
       const status = await restartBundledBackend();
       if (!status || status.status === 'running') {
         setStartupStarting(false);
-        if (targetUrl) void runStartupHealthProbe(targetUrl);
+        void runStartupHealthProbe(status?.backendUrl || targetUrl);
         revealMain(status?.message ?? '内置后端已启动');
       } else if (status.status === 'failed') {
         setStartupStarting(false);
@@ -1319,9 +1331,9 @@ export default function App() {
   }, [revealMain, runStartupHealthProbe]);
 
   const recheckStartupHealth = useCallback(() => {
-    const target = readBackendUrl();
+    const target = startupHealth.backendUrl || readBackendUrl();
     if (target) void runStartupHealthProbe(target);
-  }, [runStartupHealthProbe]);
+  }, [runStartupHealthProbe, startupHealth.backendUrl]);
 
   if (desktop && !backendReady && !startupBypassed) {
     return <StartupScreen

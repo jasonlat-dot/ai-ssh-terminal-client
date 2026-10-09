@@ -1,15 +1,16 @@
 import type { ReactNode } from 'react';
 import type { Host, SavedCommand, TerminalSession } from '../types';
 import { commandCategoryIcon } from '../data/mock';
-import { Icon, IconButton } from './Ui';
+import { AccentIcon, Badge, Icon, IconButton, toneForIcon } from './Ui';
 import { TerminalWelcome } from './TerminalWelcome';
+import { isSessionConnected } from '../state/terminalSessions';
 
 export function TerminalWorkspace({ remoteViews, sessions, activeId, host, select, close, add, filesOpen, toggleFiles, commandCollapsed, toggleCommands, agentCollapsed, toggleAgent, copy, connections }: { remoteViews: ReactNode; sessions: TerminalSession[]; activeId: string; host?: Host; select: (id: string) => void; close: (id: string) => void; add: () => void; filesOpen: boolean; toggleFiles: () => void; commandCollapsed: boolean; toggleCommands: () => void; agentCollapsed: boolean; toggleAgent: () => void; connections: () => void; copy: (text: string) => void }) {
   const active = sessions.find(session => session.id === activeId);
   return <section className="terminal-workspace" aria-label="终端工作区">
     <div className="terminal-tabs" role="tablist" aria-label="终端会话">
       {sessions.map(session => <div className={"terminal-tab " + (session.id === activeId ? 'selected' : '')} key={session.id}>
-        <button role="tab" aria-selected={session.id === activeId} onClick={() => select(session.id)}><i className={"status-dot " + (session.connected ? '' : 'offline')} /><span>{session.title}</span></button>
+        <button role="tab" aria-selected={session.id === activeId} onClick={() => select(session.id)}><i className={"status-dot " + (session.connectionStatus === 'unreachable' ? 'unreachable' : isSessionConnected(session) ? '' : 'offline')} /><span>{session.title}</span>{session.connectionStatus === 'unreachable' && <span className="terminal-tab-state">不可达</span>}</button>
         <IconButton icon="close" label={'关闭 ' + session.title} onClick={() => close(session.id)} />
       </div>)}
       <button className="new-terminal-button" onClick={add} title="新建本地 CMD"><Icon name="tabs" size={17} /><span>新建终端</span></button>
@@ -17,8 +18,9 @@ export function TerminalWorkspace({ remoteViews, sessions, activeId, host, selec
     {active ? <div className="terminal-body">
       <div className="terminal-pane">
         <div className="terminal-toolbar">
-          <i className={"terminal-connection-dot " + (!active.connected ? 'offline' : '')} aria-hidden="true" />
+          <i className={"terminal-connection-dot " + (active.connectionStatus === 'unreachable' ? 'unreachable' : !isSessionConnected(active) ? 'offline' : '')} aria-hidden="true" />
           <span>{active.kind === 'local' ? `本地 · cmd.exe · ${host?.address ?? ''}` : (host?.user ?? '') + '@' + (host?.address ?? '')}</span>
+          {active.connectionStatus === 'unreachable' && <Badge tone="amber" icon="alert">服务不可达</Badge>}
           {active.kind === 'ssh' && <IconButton icon="copy" label="复制主机地址" onClick={() => copy(host?.address ?? '')} />}
           <div className="inline-actions workspace-panel-controls" aria-label="工作区面板">
             {active.kind === 'ssh' && <IconButton icon="folder" label="打开文件管理" className={filesOpen ? 'selected' : ''} onClick={toggleFiles} aria-pressed={filesOpen} aria-expanded={filesOpen} />}
@@ -36,10 +38,16 @@ export function CommandShelf({ commands, category, setCategory, fill, run, copy,
   const categoryCards = ['全部', ...new Set(commands.map(command => command.category))];
   return <section className={`command-shelf ${collapsed ? 'collapsed' : ''}`} id="commands" tabIndex={-1}>
     <div className="command-shelf-inner" id="command-shelf-content" aria-hidden={collapsed}>
-      <div className="section-heading"><div className="panel-title"><div className="command-library-heading"><h2>常用命令</h2><small>本机持久化命令库</small></div><span className="panel-count">{commands.length}</span></div><button className="text-button command-add-button" onClick={add}><Icon name="plus" />新增</button></div>
-      <div className="command-categories" role="tablist" aria-label="命令分类">{categoryCards.map(item => { const count = item === '全部' ? commands.length : commands.filter(command => command.category === item).length; return <button key={item} role="tab" aria-selected={category === item} className={category === item ? 'selected' : ''} onClick={() => setCategory(item)}><Icon name={item === '全部' ? 'terminal' : commandCategoryIcon(item)} size={16} /><span>{item}</span><small>{count}</small></button>; })}</div>
+      <div className="section-heading"><div className="panel-title"><div className="command-library-heading"><h2>常用命令</h2><small>本机持久化命令库</small></div><Badge tone="violet" className="panel-count">{commands.length}</Badge></div><button className="text-button command-add-button" onClick={add}><Icon name="plus" />新增</button></div>
+      <div className="command-categories" role="tablist" aria-label="命令分类">{categoryCards.map(item => {
+        const count = item === '全部' ? commands.length : commands.filter(command => command.category === item).length;
+        const icon = item === '全部' ? 'terminal' : commandCategoryIcon(item);
+        return <button key={item} role="tab" aria-selected={category === item} className={category === item ? 'selected' : ''} onClick={() => setCategory(item)}>
+          <AccentIcon icon={icon} size={14} className="command-category-icon" /><span>{item}</span><Badge tone={toneForIcon(icon)}>{count}</Badge>
+        </button>;
+      })}</div>
       <div className="command-list-heading"><span>{category}</span><small>{filtered.length} 条命令</small></div>
-      <div className="command-list">{filtered.map(command => <div className="command-row" key={command.id}><button className="command-fill" onClick={() => fill(command.command)} title={`填入终端：${command.command}`}><Icon name={command.icon} size={20} /><span className="command-name">{command.name}</span><code>{command.command}</code></button><button className="run-command labeled-run" aria-label={`运行 ${command.name}`} disabled={disabled} onClick={() => run(command.command)}><Icon name="play" size={14} />运行</button><IconButton icon="copy" label={`复制 ${command.name}`} onClick={() => copy(command.command)} /></div>)}{!filtered.length && <div className="empty-state">此分类暂无命令<button className="text-button mint" onClick={add}>添加第一条命令</button></div>}</div>
+      <div className="command-list">{filtered.map(command => <div className="command-row" key={command.id}><button className="command-fill" onClick={() => fill(command.command)} title={`填入终端：${command.command}`}><AccentIcon icon={command.icon} size={16} className="command-row-icon" /><span className="command-name">{command.name}</span><code>{command.command}</code></button><button className="run-command labeled-run" aria-label={`运行 ${command.name}`} disabled={disabled} onClick={() => run(command.command)}><Icon name="play" size={14} />运行</button><IconButton icon="copy" label={`复制 ${command.name}`} onClick={() => copy(command.command)} /></div>)}{!filtered.length && <div className="empty-state">此分类暂无命令<button className="text-button mint" onClick={add}>添加第一条命令</button></div>}</div>
       <p className="command-hint">点击命令写入终端，点击运行直接执行</p>
     </div>
   </section>;

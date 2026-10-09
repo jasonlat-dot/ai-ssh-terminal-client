@@ -2,6 +2,11 @@ import type { Host, TerminalDisconnectReason, TerminalSession } from '../types';
 
 const storagePrefix = 'agent-ssh-terminal-sessions-v1:';
 
+/** A remembered SSH connection is usable only while the backend can confirm it. */
+export function isSessionConnected(session: TerminalSession | undefined) {
+  return !!session?.connected && session.connectionStatus === 'connected' && !session.manuallyClosed;
+}
+
 type StoredTerminalSession = {
   id: string;
   connectionId: string;

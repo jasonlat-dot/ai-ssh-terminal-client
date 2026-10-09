@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { ConnectionDraft } from '../api/ssh';
 import type { Host } from '../types';
 import type { useSshConnections } from '../state/useSshConnections';
-import { Icon, Modal } from './Ui';
+import { AccentIcon, Icon, Modal } from './Ui';
 
 export const blankSshConnection: Host = {
   id: '', name: '', address: '', user: 'root', port: 22,
@@ -50,14 +50,14 @@ export function SshConnectionDialog({ connections, initial = blankSshConnection,
 
   return <Modal title={editing ? '编辑 SSH 连接' : '新建 SSH 连接'} onClose={onClose} className="ssh-connection-modal" dismissDisabled={busy}>
     <div className="ssh-dialog-intro">
-      <span className="ssh-dialog-symbol" aria-hidden="true"><Icon name="server" size={22} /></span>
+      <AccentIcon className="ssh-dialog-symbol" icon="server" size={22} />
       <p>{editing ? '更新服务器信息与登录方式' : '保存你的服务器，随时开启远程会话'}</p>
     </div>
     <div className="ssh-dialog-layout">
       <form className="ssh-dialog-form" onSubmit={event => { event.preventDefault(); void submit(); }}>
         <fieldset disabled={busy}>
           <section className="ssh-form-section" aria-label="服务器信息">
-          <h3 className="ssh-form-section-heading">服务器信息</h3>
+          <h3 className="ssh-form-section-heading"><AccentIcon icon="server" size={14} className="ssh-section-icon" />服务器信息</h3>
           <div className="ssh-dialog-grid ssh-server-grid">
             <label>连接名称<input data-autofocus required maxLength={60} placeholder="例如：Web 服务器" value={draft.name} onChange={event => setDraft({ ...draft, name: event.target.value })} /></label>
             <label>用户名<input required maxLength={64} autoCapitalize="none" spellCheck={false} placeholder="root" value={draft.user} onChange={event => setDraft({ ...draft, user: event.target.value })} /></label>
@@ -69,7 +69,7 @@ export function SshConnectionDialog({ connections, initial = blankSshConnection,
           </section>
           <section className="ssh-form-section" aria-label="身份认证">
           <div className="ssh-auth-choice">
-          <h3 className="ssh-form-section-heading" id="ssh-auth-label">身份认证</h3>
+          <h3 className="ssh-form-section-heading" id="ssh-auth-label"><AccentIcon icon="key" size={14} className="ssh-section-icon" />身份认证</h3>
           <div className="ssh-auth-switch" data-method={draft.auth ?? 'password'} role="radiogroup" aria-labelledby="ssh-auth-label">
             <label className={(draft.auth ?? 'password') === 'password' ? 'selected' : ''}>
               <input type="radio" name="ssh-auth-method" value="password" checked={(draft.auth ?? 'password') === 'password'} onChange={() => setDraft({ ...draft, auth: 'password' })} />

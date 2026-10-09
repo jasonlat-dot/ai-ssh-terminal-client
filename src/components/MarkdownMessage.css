@@ -2,7 +2,7 @@
 :root[data-theme='dark'] .markdown-message { --syntax-keyword: #c9a4ff; --syntax-string: #85d7ac; --syntax-number: #ffba91; --syntax-title: #8fc3ff; --syntax-comment: #9eafc3; }
 .markdown-message .markdown-body { font-size: 13px; line-height: 1.8; }
 .markdown-message .markdown-body :is(p, ul, ol, blockquote, table) { margin-bottom: 14px; }
-.markdown-message .markdown-body :is(h1, h2, h3, h4, h5, h6) { margin: 24px 0 12px; color: var(--theme-text-strong); line-height: 1.55; font-weight: 650; letter-spacing: -.01em; }
+.markdown-message .markdown-body :is(h1, h2, h3, h4, h5, h6) { margin: 24px 0 12px; color: var(--theme-text-strong); line-height: 1.55; font-weight: var(--weight-title); letter-spacing: -.01em; }
 .markdown-message .markdown-body h1 { font-size: 21px; }
 .markdown-message .markdown-body h2 { font-size: 18px; }
 .markdown-message .markdown-body h3 { font-size: 15px; }

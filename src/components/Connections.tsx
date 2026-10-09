@@ -2,8 +2,9 @@ import { useState } from 'react';
 import type { Host, TerminalSession } from '../types';
 import type { ConnectionDraft } from '../api/ssh';
 import type { useSshConnections } from '../state/useSshConnections';
-import { Icon, IconButton, Modal } from './Ui';
+import { AccentIcon, Badge, Icon, IconButton, Modal } from './Ui';
 import { SshConnectionDialog } from './SshConnectionDialog';
+import { isSessionConnected } from '../state/terminalSessions';
 
 type Props = { connections: ReturnType<typeof useSshConnections>; terminal: (id: string) => void; create: () => void; copy: (value: string) => void };
 
@@ -41,21 +42,22 @@ export function ConnectionSidebar({ connections, sessions, connectingHostIds, ac
     <div className="sidebar-host-list">
       {hosts.map(host => {
         const hostSessions = sessions.filter(session => session.connectionId === host.id);
-        const connectedCount = hostSessions.filter(session => session.connected).length;
+        const connectedCount = hostSessions.filter(isSessionConnected).length;
+        const unreachable = hostSessions.some(session => session.connectionStatus === 'unreachable');
         const connecting = connectingHostIds.has(host.id);
         const reconnecting = hostSessions.some(session => session.reconnecting);
-        const reusableSession = hostSessions.find(session => session.id === activeSessionId && session.connected)
-          ?? hostSessions.find(session => session.connected);
+        const reusableSession = hostSessions.find(session => session.id === activeSessionId && (session.connected || session.connectionStatus === 'unreachable'))
+          ?? hostSessions.find(session => session.connected || session.connectionStatus === 'unreachable');
         const showManagement = manageMode === 'all' || (manageMode === 'selected' && host.id === activeHostId);
-        return <div key={host.id} className={`sidebar-host ${host.id === activeHostId ? 'selected' : ''} ${showManagement ? 'managing' : ''}`}>
+        return <div key={host.id} className={`sidebar-host ${host.id === activeHostId ? 'selected' : ''} ${unreachable ? 'is-unreachable' : ''} ${showManagement ? 'managing' : ''}`}>
         <button className="sidebar-host-main" disabled={connections.busy || connecting} aria-label={connecting ? `${host.name} 正在连接` : reusableSession ? `打开 ${host.name} 已有终端` : `连接 ${host.name}`} onClick={() => reusableSession ? activate(reusableSession.id) : terminal(host.id)}>
-          <i className={`status-dot ${connectedCount ? '' : 'offline'} ${connecting || reconnecting ? 'pending' : ''}`} aria-hidden="true" />
+          <i className={`status-dot ${unreachable ? 'unreachable' : connectedCount ? '' : 'offline'} ${connecting || reconnecting ? 'pending' : ''}`} aria-hidden="true" />
           <span><strong title={host.name}>{host.name}</strong><small title={`${host.user}@${host.address}:${host.port ?? 22}`}>{host.user}@{host.address}:{host.port ?? 22}</small></span>
           <div className="sidebar-host-state" aria-live="polite">
             {connecting || reconnecting
               ? <em className="connection-pending"><i aria-hidden="true" />{connecting ? '连接中' : '重连中'}</em>
-              : <em>{connectedCount ? '已连接' : '已保存'}</em>}
-            {!!connectedCount && <small>{connectedCount} 个会话</small>}
+              : <em className={unreachable ? 'connection-unreachable' : ''}>{unreachable ? '服务不可达' : connectedCount ? '已连接' : '已保存'}</em>}
+            {!unreachable && !!connectedCount && <small>{connectedCount} 个会话</small>}
           </div>
         </button>
         {showManagement && <div className="sidebar-host-actions">
@@ -111,17 +113,17 @@ export function Connections({ connections, terminal, create, copy }: Props) {
     </Modal>}
     {draft && <SshConnectionDialog connections={connections} initial={draft} onClose={() => setDraft(null)} />}
     <div className="connections-filter">
-      <div className="connection-filter-tabs"><button aria-pressed="true" className="selected">全部 <span>{hosts.length}</span></button></div>
+      <div className="connection-filter-tabs"><button aria-pressed="true" className="selected">全部 <Badge tone="violet">{hosts.length}</Badge></button></div>
       <label className="host-search"><Icon name="search" size={16} /><input aria-label="搜索连接" placeholder="搜索主机、IP 或用户" value={query} onChange={e => setQuery(e.target.value)} /></label>
       <IconButton className="connection-refresh" icon="refresh" label="刷新连接" disabled={busy} onClick={() => connections.refresh()} />
     </div>
     <div className="connection-feedback" aria-live="polite">{busy && <span>正在同步连接…</span>}{apiError && <p role="alert" className="form-error">{apiError}</p>}</div>
     <div className="connection-list" role="list">{filtered.map(h => <article className="ssh-host-row" key={h.id} role="listitem">
       <button className="host-row-main" disabled={busy} onClick={() => terminal(h.id)} aria-label={`为 ${h.name} 新建终端会话`}>
-        <span className="host-symbol"><Icon name="server" size={19} /></span>
+        <AccentIcon icon="server" size={19} className="host-symbol" />
         <span className="host-row-identity"><strong title={h.name}>{h.name}</strong><small title={`${h.user}@${h.address}:${h.port ?? 22}`}>{h.user}@{h.address}:{h.port ?? 22}</small></span>
-        <span className="host-row-meta"><span><Icon name="key" size={13} />{h.auth === 'key' ? '私钥' : '密码'}</span><span><Icon name="network" size={13} />SSH</span></span>
-        <span className="host-status"><i />已保存</span>
+        <span className="host-row-meta"><Badge tone="amber" icon="key">{h.auth === 'key' ? '私钥' : '密码'}</Badge><Badge tone="cyan" icon="network">SSH</Badge></span>
+        <Badge className="host-status" icon="check">已保存</Badge>
       </button>
       <div className="host-row-actions">
         <IconButton icon="copy" label={`复制 ${h.name} 地址`} onClick={() => copy(h.address)} />

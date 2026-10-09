@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Icon, Modal } from './Ui';
+import { AccentIcon, Badge, Icon, Modal } from './Ui';
 import welcomeArtDark from '../assets/terminal-welcome.png';
 import welcomeArtLight from '../assets/terminal-welcome-light.png';
 import './TerminalWelcome.css';
@@ -13,9 +13,9 @@ export function TerminalWelcome({ add, connections }: { add: () => void; connect
         <div className="terminal-welcome-art" aria-hidden="true">
           <img className="welcome-art-light" src={welcomeArtLight} alt="" draggable={false} />
           <img className="welcome-art-dark" src={welcomeArtDark} alt="" draggable={false} />
-          <span className="welcome-art-label remote">远程主机</span>
-          <span className="welcome-art-label cloud">云服务器</span>
-          <span className="welcome-art-label welcome-art-transfer">文件传输</span>
+          <Badge className="welcome-art-label remote" tone="cyan" icon="server">远程主机</Badge>
+          <Badge className="welcome-art-label cloud" tone="violet" icon="box">云服务器</Badge>
+          <Badge className="welcome-art-label welcome-art-transfer" tone="amber" icon="folder">文件传输</Badge>
         </div>
         <span className="welcome-ready"><i />终端工作区已就绪</span>
         <h2 id="terminal-welcome-title">开始一个终端会话</h2>
@@ -25,9 +25,9 @@ export function TerminalWelcome({ add, connections }: { add: () => void; connect
           <button className="welcome-guide" onClick={() => setGuideOpen(true)}><Icon name="book" size={22} />查看连接指引</button>
         </div>
         <div className="welcome-features">
-          <article><span className="welcome-feature-icon"><Icon name="bolt" size={29} /></span><div><h3>本地终端</h3><p>默认打开 CMD，快速执行命令</p></div></article>
-          <article><span className="welcome-feature-icon blue"><Icon name="bot" size={29} /></span><div><h3>智能诊断</h3><p>SSH Agent 协助分析日志</p></div></article>
-          <article><span className="welcome-feature-icon"><Icon name="shield" size={29} /></span><div><h3>安全会话</h3><p>会话独立管理，执行前可确认</p></div></article>
+          <article><AccentIcon className="welcome-feature-icon" icon="bolt" size={29} /><div><h3>本地终端</h3><p>默认打开 CMD，快速执行命令</p></div></article>
+          <article><AccentIcon className="welcome-feature-icon" icon="bot" size={29} /><div><h3>智能诊断</h3><p>SSH Agent 协助分析日志</p></div></article>
+          <article><AccentIcon className="welcome-feature-icon" icon="shield" tone="cyan" size={29} /><div><h3>安全会话</h3><p>会话独立管理，执行前可确认</p></div></article>
         </div>
         <p className="welcome-demo-note">远程终端和文件管理仍从左侧连接管理中的服务器进入。</p>
       </div>

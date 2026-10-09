@@ -4,7 +4,7 @@ import type { SftpEntry, SftpTransfer } from '../api/sftp';
 import { useSftp } from '../state/useSftp';
 import { isTauriRuntime } from '../state/runtime';
 import { formatBytes, remoteParent, transferPercent, transferStatus } from '../state/sftp';
-import { Icon, IconButton, Modal } from './Ui';
+import { AccentIcon, Badge, Icon, IconButton, Modal, fileTone } from './Ui';
 import './SftpFileManager.css';
 
 const LOCAL_PATH_DRAG_TYPE = 'application/x-agent-ssh-local-path';
@@ -99,7 +99,7 @@ function FileSource({ side, title, path, parent, roots = [], entries, loading, e
         uploadDrop([localPath]);
       }
     }}>
-    <header className="file-source-heading"><span className="file-source-icon"><Icon name={side === 'local' ? 'monitor' : 'server'} size={16} /></span><span><strong>{title}</strong><small>{side === 'local' ? '当前设备' : '远程服务器'}</small></span></header>
+    <header className="file-source-heading"><AccentIcon className="file-source-icon" icon={side === 'local' ? 'monitor' : 'server'} tone={side === 'local' ? 'violet' : 'cyan'} size={16} /><span><strong>{title}</strong><Badge tone={side === 'local' ? 'violet' : 'cyan'}>{side === 'local' ? '当前设备' : '远程服务器'}</Badge></span></header>
     <form className="path-bar" onSubmit={event => { event.preventDefault(); if (input.trim()) browse(input.trim()); }}>
       <IconButton icon="up" label={`${title}上一级`} disabled={!enabled || !parent || loading} onClick={() => parent && browse(parent)} />
       {side === 'local' && roots.length > 0 && <div ref={rootMenuRef} className={`local-root-picker ${rootMenuOpen ? 'open' : ''}`}>
@@ -146,7 +146,7 @@ function FileSource({ side, title, path, parent, roots = [], entries, loading, e
     <div className="file-tree-scroll" aria-busy={loading}>
       {loading ? <p className="sftp-empty">正在读取目录…</p> : !enabled ? <p className="sftp-empty">连接后浏览服务器文件</p> : !entries.length ? <p className="sftp-empty">空目录</p> : <ul className="sftp-entry-list" aria-label={`${title}文件列表`}>
         {entries.map(entry => <li key={entry.path}><button className={`file-row ${selected === entry.path ? 'selected' : ''}`} aria-pressed={selected === entry.path} title={`${entry.path}\n${entry.permissions}`} disabled={entry.kind !== 'FILE' && entry.kind !== 'DIRECTORY'} draggable={side === 'local' && (entry.kind === 'FILE' || entry.kind === 'DIRECTORY')} onDragStart={event => { if (side === 'local') { event.dataTransfer.effectAllowed = 'copy'; event.dataTransfer.setData(LOCAL_PATH_DRAG_TYPE, entry.path); event.dataTransfer.setData('text/plain', entry.path); dragStart?.(entry.path); } }} onDragEnd={() => { setDropTarget(false); dragEnd?.(); }} onClick={() => select(entry.path)} onContextMenu={event => { event.preventDefault(); select(entry.path); setContextMenu({ entry, x: Math.max(8, Math.min(event.clientX, window.innerWidth - 174)), y: Math.max(8, Math.min(event.clientY, window.innerHeight - 142)) }); }} onDoubleClick={() => { if (entry.kind === 'DIRECTORY') browse(entry.path); }} onKeyDown={event => { if (event.key === 'Enter' && entry.kind === 'DIRECTORY') { event.preventDefault(); browse(entry.path); } }}>
-          <Icon name={entry.kind === 'DIRECTORY' ? 'folder' : 'file'} size={17} className={entry.kind === 'DIRECTORY' ? 'folder-icon' : ''} /><span className="sftp-entry-name">{entry.name}</span><span className="sftp-entry-meta"><small>{entry.kind === 'DIRECTORY' ? '目录' : entry.kind === 'FILE' ? formatBytes(entry.size) : '不支持'}</small><time>{entry.modifiedAt ? new Date(entry.modifiedAt).toLocaleString() : ''}</time></span>
+          <AccentIcon icon={entry.kind === 'DIRECTORY' ? 'folder' : 'file'} size={15} tone={entry.kind === 'DIRECTORY' ? 'amber' : fileTone(entry.name)} className="sftp-entry-icon" /><span className="sftp-entry-name">{entry.name}</span><span className="sftp-entry-meta"><small>{entry.kind === 'DIRECTORY' ? '目录' : entry.kind === 'FILE' ? formatBytes(entry.size) : '不支持'}</small><time>{entry.modifiedAt ? new Date(entry.modifiedAt).toLocaleString() : ''}</time></span>
         </button></li>)}
       </ul>}
     </div>
@@ -284,7 +284,11 @@ export function SessionFiles({ connectionId, title, visible, minimize, remove, c
               <div className="sftp-task-title">
                 <span className="sftp-task-direction"><Icon name={task.direction === 'UPLOAD' ? 'upload' : 'down'} size={14} /><strong>{task.direction === 'UPLOAD' ? '上传' : '下载'}</strong></span>
                 <span className="sftp-task-file"><strong title={identity.relativePath}>{identity.name}</strong><small title={task.remotePath}>{identity.location}</small></span>
-                <small className="sftp-task-status">{transferStatus[progress.status] ?? progress.status}</small>
+                <Badge className="sftp-task-status"
+                  tone={progress.status === 'COMPLETED' ? 'success' : progress.status === 'FAILED' ? 'danger' : progress.status === 'RUNNING' ? 'blue' : progress.status === 'CANCELLED' ? 'neutral' : 'amber'}
+                  icon={progress.status === 'COMPLETED' ? 'check' : progress.status === 'FAILED' ? 'alert' : progress.status === 'RUNNING' ? 'refresh' : progress.status === 'CANCELLED' ? 'stop' : 'history'}>
+                  {transferStatus[progress.status] ?? progress.status}
+                </Badge>
               </div>
               <div className="sftp-task-progress">{percent !== null && <progress max={100} value={percent} aria-label={`${task.direction === 'UPLOAD' ? '上传' : '下载'}字节进度`} />}<span>{percent === null ? `${progress.completedItems} / ${progress.totalItems} 项` : `${percent}% · ${formatBytes(progress.transferredBytes)} / ${formatBytes(progress.totalBytes)}`}</span></div>
               <footer><small>完成 {progress.completedItems}/{progress.totalItems} 项{progress.failedItems > 0 && ` · 失败 ${progress.failedItems} 项`}{progress.awaitingConfirmation > 0 && ` · 待保存确认 ${progress.awaitingConfirmation} 项`}{task.direction === 'DOWNLOAD' && received > 0 && ` · 本机已接收 ${formatBytes(received)}`}{percent === 100 && !finished && ' · 正在提交或等待确认'}</small><div className="inline-actions">{!finished && <><button className="file-mini-action" disabled={!ready || files.working} onClick={() => void files.retry(task.transferId)}>重查并重试</button><button className="file-mini-action" disabled={!ready || files.cancelling.includes(task.transferId)} onClick={() => void files.cancel(task.transferId)}>{files.cancelling.includes(task.transferId) ? '取消中…' : '取消'}</button></>}</div></footer>

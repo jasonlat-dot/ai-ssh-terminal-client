@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { openPath } from '@tauri-apps/plugin-opener';
+import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import {
   readBundledBackendConfig,
   readBundledBackendAutoStart,
   readBundledBackendStatus,
+  resolveBundledBackendUrl,
   restartBundledBackend,
   stopBundledBackend,
   saveBundledBackendConfig,
@@ -14,9 +15,13 @@ import {
   type BundledBackendStatus,
 } from '../api/bundledBackend';
 import { probeBackendHealth, type BackendHealthSnapshot } from '../api/health';
+import { sftpApi, type LocalDirectory } from '../api/sftp';
 import { normalizeBackendUrl } from '../config/backend';
+import { HEALTH_NORMAL_INTERVALS, HEALTH_RETRY_INTERVALS, readHealthRefreshPreferences, saveHealthRefreshPreferences, type HealthRefreshPreferences } from '../config/health';
 import { isTauriRuntime } from '../state/runtime';
-import { Icon, Toggle } from './Ui';
+import { useBackendHealth } from '../state/useBackendHealth';
+import { Badge, Icon, Toggle, fileTone, toneForIcon, type AccentTone, type IconName } from './Ui';
+import { Select } from './Select';
 import './BackendSettingsDialog.css';
 
 /* ============================================================================
@@ -69,9 +74,9 @@ type SectionDefinition = {
   icon: 'settings' | 'bot' | 'network' | 'database';
   /** 该 tab 涉及的配置 key，用于"按 tab 保存"和 dirty 判断 */
   keys: readonly string[];
-  /** 吸底保存条的目标按钮文案，例如"保存连接配置" */
+  /** 底栏保存按钮文案，例如"保存连接配置" */
   saveLabel: string;
-  /** 吸底保存条右侧的说明文字 */
+  /** 底栏的配置生效说明 */
   saveHint: string;
 };
 
@@ -99,42 +104,42 @@ const STORAGE_KEYS = [
   'minioConnectTimeout', 'minioReadTimeout', 'minioWriteTimeout', 'minioCallTimeout',
 ] as const;
 
-/** Rust 侧保留的内部 ID，前端只展示、不写回。 */
+/** Rust 侧保留的内部字段，前端不写回。 */
 const RESERVED_KEYS = new Set(['localStorageId', 'minioStorageId', 'localRootDirectory']);
 
 const sectionItems: SectionDefinition[] = [
   { id: 'general', label: '连接', caption: '地址 · 端口 · 数据目录', icon: 'settings',
     keys: GENERAL_KEYS,
-    saveLabel: '保存连接配置', saveHint: '保存到 YAML，不会重启后端；正在运行的会话不受影响。' },
+    saveLabel: '保存连接配置', saveHint: '修改端口后客户端会立即切换地址；其他字段下次启动后端时生效。' },
   { id: 'model', label: '模型', caption: '渠道 · 协议 · 附件', icon: 'bot',
     keys: MODEL_KEYS,
-    saveLabel: '保存模型配置', saveHint: '保存到 YAML，不会重启后端；模型服务无需重启即可读取新配置。' },
+    saveLabel: '保存模型配置', saveHint: '保存后需重启后端以应用配置；模型密钥留空表示保留现有值。' },
   { id: 'proxy', label: '代理', caption: 'AI 与 SSH HTTP 代理', icon: 'network',
     keys: PROXY_KEYS,
-    saveLabel: '保存代理配置', saveHint: '保存到 YAML，不会重启后端；新连接会使用新代理规则。' },
+    saveLabel: '保存代理配置', saveHint: '新连接会使用新代理规则；已有 SSH 连接仍按原配置保持。' },
   { id: 'storage', label: '存储', caption: '本地与对象存储', icon: 'database',
     keys: STORAGE_KEYS,
-    saveLabel: '保存存储配置', saveHint: '保存到 YAML，不会重启后端；新上传会按新存储设置生效。' },
+    saveLabel: '保存存储配置', saveHint: '新上传会按新存储设置生效；已有上传不会迁移。' },
 ];
 
 const generalFields: FieldDefinition[] = [
   { key: 'serverPort', label: '后端运行端口', kind: 'port', placeholder: '8888', badge: 'TCP' },
-  { key: 'dataDirectory', label: '统一数据目录', placeholder: '/var/lib/ai-ssh-terminal', wide: true,
+  { key: 'dataDirectory', label: '统一数据目录', placeholder: '/var/lib/ai-ssh-terminal',
     help: 'SQLite、上传文件、运行日志都会派生在该目录下。切换前请先停止后端。' },
 ];
 
 const modelFields: FieldDefinition[] = [
   { key: 'aiBaseUrl', label: '模型服务地址', placeholder: 'http://127.0.0.1:8777/', wide: true,
     help: 'OpenAI 兼容服务的根地址，不要附加 /v1/chat/completions。', badge: 'BASE URL' },
-  { key: 'aiApiKey', label: 'API Key', type: 'password', wide: true,
+  { key: 'aiApiKey', label: 'API Key', type: 'password',
     help: '密钥不会回显。留空表示保留现有值。' },
+  { key: 'aiModelName', label: '模型名称', placeholder: 'gpt-5.5', badge: 'MODEL' },
   { key: 'aiCompletionsPath', label: '对话接口路径', kind: 'path-preset',
     pathGroup: 'aiCompletionsPath', placeholder: 'v1/chat/completions',
     help: 'OpenAI 兼容服务通常无需修改。' },
   { key: 'aiEmbeddingsPath', label: '向量接口路径', kind: 'path-preset',
     pathGroup: 'aiEmbeddingsPath', placeholder: 'v1/embeddings',
     help: '只有服务商使用不同路径时才修改。' },
-  { key: 'aiModelName', label: '模型名称', placeholder: 'gpt-5.5', badge: 'MODEL' },
   { key: 'aiReasoningEffort', label: '推理强度', kind: 'reasoning', wide: true,
     help: '越高通常思考时间越长，也可能消耗更多额度。' },
 ];
@@ -161,16 +166,13 @@ const reasoningEffortLevels: { value: string; label: string; english: string; de
 /** 非代理地址快速示例。 */
 const nonProxyPresets = ['localhost', '127.0.0.1', '10.*', '192.168.*', '*.local'];
 
-/** OpenAI 兼容服务常用路径快选。 */
+/** OpenAI 标准接口路径；选择自定义格式后才允许编辑。 */
 const openAiPathPresets: Record<string, { label: string; english: string; path: string }[]> = {
   aiCompletionsPath: [
     { label: 'OpenAI 标准', english: 'v1/chat/completions',     path: 'v1/chat/completions' },
-    { label: 'Azure OpenAI', english: 'openai/deployments',       path: 'openai/deployments/{model}/chat/completions?api-version=...' },
-    { label: '通义 / 智谱', english: 'compatible-mode',          path: 'v1/chat/completions' },
   ],
   aiEmbeddingsPath: [
     { label: 'OpenAI 标准', english: 'v1/embeddings',            path: 'v1/embeddings' },
-    { label: 'Azure OpenAI', english: 'openai/deployments',       path: 'openai/deployments/{model}/embeddings?api-version=...' },
   ],
 };
 
@@ -272,19 +274,11 @@ function collapsePath(value: string, max = 64) {
   return `${value.slice(0, head)}…${value.slice(-tail)}`;
 }
 
-/** 区分展示后端状态。 */
-type DotStatus = 'loading' | 'ok' | 'warn' | 'error';
-function deriveStatus(config: BundledBackendConfig | null, loading: boolean, error: string): DotStatus {
-  if (loading) return 'loading';
-  if (error) return 'error';
-  if (!config) return 'warn';
-  return 'ok';
-}
-
 /** 把 /api/health 结果收敛成顶栏能直接展示的语义状态。 */
 type HealthState = 'idle' | 'probing' | 'up' | 'down' | 'error';
-function deriveHealthState(snapshot: BackendHealthSnapshot | null, probing: boolean): HealthState {
+function deriveHealthState(snapshot: BackendHealthSnapshot | null, probing: boolean, error: string): HealthState {
   if (probing) return 'probing';
+  if (error) return 'error';
   if (!snapshot) return 'idle';
   return snapshot.ok ? 'up' : 'down';
 }
@@ -292,8 +286,8 @@ function deriveHealthState(snapshot: BackendHealthSnapshot | null, probing: bool
 function healthLabel(state: HealthState, snapshot: BackendHealthSnapshot | null): string {
   if (state === 'probing') return '健康检查中…';
   if (state === 'idle') return '尚未做健康检查';
-  if (state === 'up') return snapshot?.latencyMs != null ? `健康 · ${snapshot.latencyMs}ms` : '健康 · UP';
-  if (state === 'down') return snapshot?.message ? `异常 · ${snapshot.message}` : '异常 · /api/health 未返回 UP';
+  if (state === 'up') return snapshot?.latencyMs != null ? `服务正常 · ${snapshot.latencyMs}ms` : '服务正常';
+  if (state === 'down') return '后端未就绪';
   return '健康检查失败';
 }
 
@@ -313,13 +307,43 @@ function healthToneClass(state: HealthState): string {
 
 function ConfigSource({ meta }: { meta?: BundledBackendConfigValue }) {
   if (!meta?.environmentOverride) return null;
-  return <span className="settings-env-override">
-    <Icon name="bolt" size={11} />由 {meta.environmentOverride} 控制
-  </span>;
+  return <Badge className="settings-field-badge" icon="settings">由系统管理</Badge>;
 }
 
-function StatusDot({ status }: { status: DotStatus }) {
-  return <span className={`settings-status-dot is-${status}`} aria-hidden="true"><i /></span>;
+function healthAccentTone(state: HealthState): AccentTone {
+  return state === 'up' ? 'success' : state === 'down' ? 'danger' : state === 'error' ? 'amber' : state === 'probing' ? 'blue' : 'neutral';
+}
+
+const settingsBadgeIcons: Record<string, IconName> = {
+  MODEL: 'bot', 模型: 'bot', 附件: 'attach', 存储: 'box', BUCKET: 'box', REGION: 'server',
+  'BASE URL': 'network', HOST: 'network', 'PUBLIC URL': 'network', PUBLIC: 'network', ENDPOINT: 'network',
+  TCP: 'bolt', 启动: 'power', 运行时: 'disk', 客户端级: 'monitor', 健康检查: 'signal',
+};
+
+function SettingsBadge({ label, className }: { label: string; className: string }) {
+  const icon = settingsBadgeIcons[label] ?? 'settings';
+  return <Badge className={className} tone={toneForIcon(icon)} icon={icon}>{label}</Badge>;
+}
+
+/** 附件与代理地址共用模型模块现有标签的结构和样式。 */
+function SettingsTag({ label, detail, removeLabel, onRemove, tone = 'cyan', icon = 'network' }: {
+  label: string;
+  detail?: string;
+  removeLabel: string;
+  onRemove: () => void;
+  tone?: AccentTone;
+  icon?: IconName;
+}) {
+  return <span className="settings-media-chip" data-accent={tone}>
+    <Icon name={icon} size={13} />
+    <span className="settings-media-chip-text">
+      <b>{label}</b>
+      {detail && <small>{detail}</small>}
+    </span>
+    <button type="button" aria-label={removeLabel} onClick={onRemove}>
+      <Icon name="close" size={11} />
+    </button>
+  </span>;
 }
 
 /**
@@ -327,18 +351,43 @@ function StatusDot({ status }: { status: DotStatus }) {
  * 复用 settings-status-dot 的形状，但颜色按 UP / DOWN / probing 区分。
  */
 function HealthDot({ state }: { state: HealthState }) {
-  return <span className={`settings-status-dot settings-health-dot is-${healthToneClass(state)}`} aria-hidden="true"><i /></span>;
+  return <span className={`settings-status-dot settings-health-dot ${healthToneClass(state)}`} aria-hidden="true"><i /></span>;
 }
 
-function SearchBar({ value, onChange, placeholder }: {
-  value: string;
-  onChange: (value: string) => void;
-  placeholder?: string;
+function BackendHealthCard({ label, address, health, inactiveReason, children }: {
+  label: string;
+  address: string | null;
+  health: ReturnType<typeof useBackendHealth>;
+  inactiveReason?: string;
+  children?: ReactNode;
 }) {
-  return <div className="settings-search">
-    <Icon name="search" size={14} />
-    <input value={value} onChange={event => onChange(event.target.value)} placeholder={placeholder ?? '在当前页搜索字段…'} />
-    {value && <button type="button" aria-label="清空搜索" onClick={() => onChange('')}><Icon name="close" size={11} /></button>}
+  const inactive = !health.snapshot && !health.probing && !health.error ? inactiveReason : undefined;
+  const state = deriveHealthState(health.snapshot, health.probing, health.error);
+  const tone = healthAccentTone(state);
+  const resultIcon: IconName = state === 'up' ? 'check' : state === 'down' || state === 'error' ? 'alert' : state === 'probing' ? 'refresh' : 'history';
+  const hint = (state === 'probing' ? '正在等待服务响应…' : '') || health.error || health.snapshot?.message
+    || (inactive ? '可以随时检查配置的服务地址；启动后会继续自动复查。' : '')
+    || (state === 'up' ? '服务正常，可以连接。'
+      : '可以手动检查，也可以开启自动刷新。');
+  return <div className="settings-health-card">
+    <div className="settings-health-card-row">
+      <Badge tone={label === '内置服务' ? 'violet' : 'cyan'} icon={label === '内置服务' ? 'server' : 'network'}>{label}</Badge>
+      <Badge tone={tone} icon={resultIcon} className="settings-health-state">{inactive || healthLabel(state, health.snapshot)}</Badge>
+      {address && <code title={address}>{address}</code>}
+      <button type="button" className="settings-secondary-button" aria-busy={health.probing}
+        onClick={() => { void health.probe(); }}>
+        <Icon name="refresh" size={12} />{health.probing ? '检查中…' : `检查${label}`}
+      </button>
+    </div>
+    <div className="settings-health-result" data-accent={tone} role="status" aria-live="polite">
+      <Icon name={resultIcon} size={16} />
+      <div><p className="settings-health-card-hint">{hint}</p>
+        {health.snapshot?.checkedAt && <small className="settings-health-card-time" aria-live="off">
+          <Icon name="history" size={12} />上次检查：{new Date(health.snapshot.checkedAt).toLocaleString()}
+        </small>}
+      </div>
+    </div>
+    {children && <div className="settings-health-address">{children}</div>}
   </div>;
 }
 
@@ -367,8 +416,8 @@ function FieldShell({ definition, meta, children }: {
     <div className="settings-field-head">
       <label htmlFor={`backend-setting-${definition.key}`}>{definition.label}</label>
       <div className="settings-field-meta">
-        {meta?.sensitive && <span className="settings-field-secret"><Icon name="shield" size={11} />敏感</span>}
-        {definition.badge && <span className="settings-field-badge">{definition.badge}</span>}
+        {meta?.sensitive && <Badge tone="amber" icon="shield" className="settings-field-secret">敏感</Badge>}
+        {definition.badge && <SettingsBadge className="settings-field-badge" label={definition.badge} />}
         <ConfigSource meta={meta} />
       </div>
     </div>
@@ -414,10 +463,9 @@ function ReasoningEffortGrid({ value, change }: {
   </div>;
 }
 
-function PortPresetPicker({ value, change, meta }: {
+function PortPresetPicker({ value, change }: {
   value: string;
   change: (next: string) => void;
-  meta?: BundledBackendConfigValue;
 }) {
   const numeric = Number(value);
   const matched = serverPortPresets.some(item => item.port === numeric);
@@ -428,18 +476,16 @@ function PortPresetPicker({ value, change, meta }: {
         onChange={event => change(event.target.value)} />
       <span className="settings-input-suffix">TCP</span>
     </div>
-    <div className="settings-port-presets" role="group" aria-label="常用端口预设">
+    <div className="settings-path-preset-list" role="group" aria-label="常用端口预设">
       {serverPortPresets.map(item => <button key={item.port} type="button"
+        aria-pressed={numeric === item.port}
         className={numeric === item.port ? 'selected' : ''}
         onClick={() => change(String(item.port))}>
         <strong>{item.port}</strong>
-        <small>{item.note}</small>
+        <code>{item.note}</code>
       </button>)}
-      {meta?.environmentOverride && <span className="settings-port-warning">
-        <Icon name="bolt" size={11} />环境变量 {meta.environmentOverride} 覆盖中
-      </span>}
       {!matched && value && Number.isInteger(numeric) && numeric > 0 && numeric <= 65535 &&
-        <span className="settings-port-hint">
+        <span className="settings-field-help">
           <Icon name="bulb" size={11} />当前使用自定义端口 {numeric}
         </span>}
     </div>
@@ -453,19 +499,75 @@ function PathPresetPicker({ value, change, group, meta }: {
   meta?: BundledBackendConfigValue;
 }) {
   const presets = openAiPathPresets[group] ?? [];
+  const standardPath = presets[0]?.path ?? '';
+  const [customSelected, setCustomSelected] = useState(() => value !== standardPath);
+  const customDraft = useRef(value);
+  const locallyAppliedValue = useRef(value);
+  const inputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (locallyAppliedValue.current === value) return;
+    locallyAppliedValue.current = value;
+    customDraft.current = value;
+    setCustomSelected(value !== standardPath);
+  }, [value, standardPath]);
   return <div className="settings-path-preset">
     <div className="settings-input-wrap">
-      <input id={`backend-setting-${group}`} type="text" value={value}
-        placeholder="v1/chat/completions" className="settings-control settings-control-mono"
-        onChange={event => change(event.target.value)} />
+      <input ref={inputRef} id={`backend-setting-${group}`} type="text" value={value}
+        readOnly={!customSelected} placeholder={standardPath} className="settings-control settings-control-mono"
+        title={customSelected ? '自定义接口路径' : '标准路径，选择“自定义格式”后可编辑'}
+        onChange={event => {
+          if (!customSelected) return;
+          customDraft.current = event.target.value;
+          locallyAppliedValue.current = event.target.value;
+          change(event.target.value);
+        }} />
       {meta?.configured && value && <span className="settings-input-suffix">
         <Icon name="check" size={11} />
       </span>}
     </div>
-    <div className="settings-path-preset-list" role="group" aria-label="路径快选">
+    <div className="settings-path-preset-list settings-path-format-options" role="group" aria-label="接口路径格式">
       {presets.map(preset => <button key={preset.label} type="button"
-        className={value === preset.path ? 'selected' : ''}
-        onClick={() => change(preset.path)}>
+        className={!customSelected ? 'selected' : ''} aria-pressed={!customSelected}
+        onClick={() => {
+          if (customSelected) customDraft.current = value;
+          setCustomSelected(false);
+          locallyAppliedValue.current = preset.path;
+          change(preset.path);
+        }}>
+        <strong>{preset.label}</strong>
+        <code>{preset.english}</code>
+      </button>)}
+      <button type="button" className={customSelected ? 'selected' : ''} aria-pressed={customSelected}
+        onClick={() => {
+          if (!customSelected) {
+            locallyAppliedValue.current = customDraft.current;
+            change(customDraft.current);
+          }
+          setCustomSelected(true);
+          inputRef.current?.focus();
+        }}>
+        <strong>自定义格式</strong>
+        <small>手动填写接口路径</small>
+      </button>
+    </div>
+  </div>;
+}
+
+function TimeoutPresetGrid({ settingKey, value, change, presets }: {
+  settingKey: string;
+  value: string;
+  change: (next: string) => void;
+  presets: { value: string; label: string; english: string; description: string }[];
+}) {
+  return <div className="settings-path-preset">
+    <input id={`backend-setting-${settingKey}`} value={value}
+      className="settings-control" placeholder="例如：30s 或 2m"
+      onChange={event => change(event.target.value)} />
+    <div className="settings-path-preset-list" role="group" aria-label="超时档位">
+      {presets.map(preset => <button key={preset.value} type="button"
+        aria-pressed={value === preset.value}
+        className={value === preset.value ? 'selected' : ''}
+        title={preset.description} onClick={() => change(preset.value)}>
         <strong>{preset.label}</strong>
         <code>{preset.english}</code>
       </button>)}
@@ -473,22 +575,89 @@ function PathPresetPicker({ value, change, group, meta }: {
   </div>;
 }
 
-function TimeoutPresetGrid({ value, change, presets }: {
-  value: string;
-  change: (next: string) => void;
-  presets: { value: string; label: string; english: string; description: string }[];
-}) {
-  return <div className="settings-timeout-grid" role="radiogroup" aria-label="超时档位">
-    {presets.map(preset => <button key={preset.value} type="button" role="radio"
-      aria-checked={value === preset.value}
-      className={`settings-timeout-card ${value === preset.value ? 'selected' : ''}`}
-      onClick={() => change(preset.value)}>
-      <span className="settings-timeout-card-head">
-        <strong>{preset.label}</strong>
-        <em>{preset.english}</em>
-      </span>
-      <span className="settings-timeout-card-desc">{preset.description}</span>
-    </button>)}
+/** 复用现有本地目录接口，不依赖后端运行状态或新增原生命令。 */
+function DataDirectoryPicker({ value, change }: { value: string; change: (next: string) => void }) {
+  const [browsing, setBrowsing] = useState(false);
+  const [directory, setDirectory] = useState<LocalDirectory | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const requestRef = useRef(0);
+  const pickerButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => () => { requestRef.current += 1; }, []);
+
+  const browse = async (target?: string, fallback = false) => {
+    const request = ++requestRef.current;
+    setBusy(true);
+    setError('');
+    try {
+      let next: LocalDirectory;
+      try { next = await sftpApi.local(target); }
+      catch (cause) {
+        if (!fallback || !target || request !== requestRef.current) throw cause;
+        next = await sftpApi.local();
+      }
+      if (request === requestRef.current) setDirectory(next);
+    } catch (cause) {
+      if (request === requestRef.current) setError(cause instanceof Error ? cause.message : '无法读取目录。');
+    } finally {
+      if (request === requestRef.current) setBusy(false);
+    }
+  };
+
+  const close = () => {
+    requestRef.current += 1;
+    setBrowsing(false);
+    setBusy(false);
+    setError('');
+    setDirectory(null);
+    pickerButtonRef.current?.focus();
+  };
+
+  const folders = directory?.entries.filter(entry => entry.kind === 'DIRECTORY') ?? [];
+  return <div className="settings-directory-picker">
+    <div className="settings-directory-input">
+      <input id="backend-setting-dataDirectory" value={value} className="settings-control"
+        placeholder="输入数据目录的绝对路径" onChange={event => change(event.target.value)} />
+      <button ref={pickerButtonRef} type="button" className="settings-secondary-button" aria-expanded={browsing}
+        aria-controls="settings-directory-browser" onClick={() => {
+          if (browsing) { close(); return; }
+          setBrowsing(true);
+          void browse(value.trim() || undefined, true);
+        }}>
+        <Icon name="folder" size={13} />选择目录
+      </button>
+    </div>
+    {browsing && <div id="settings-directory-browser" className="settings-directory-browser" aria-busy={busy}
+      onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); close(); } }}>
+      {!!directory?.roots.length && <div className="settings-segmented" role="group" aria-label="磁盘位置">
+        {directory.roots.map(root => <button key={root} type="button" disabled={busy}
+          aria-pressed={directory.path.startsWith(root)}
+          className={directory.path.startsWith(root) ? 'selected' : ''}
+          onClick={() => void browse(root)}>{root}</button>)}
+      </div>}
+      <div className="settings-directory-toolbar">
+        <button type="button" className="ghost-button" disabled={busy || !directory?.parent}
+          onClick={() => { if (directory?.parent) void browse(directory.parent); }}>
+          <Icon name="up" size={12} />上一级
+        </button>
+        <span title={directory?.path}>{directory?.path || '正在读取目录…'}</span>
+      </div>
+      {error && <p className="settings-error" role="alert">{error}</p>}
+      <ul className="settings-directory-list" aria-label="子目录">
+        {folders.map(folder => <li key={folder.path}>
+          <button type="button" disabled={busy} onClick={() => void browse(folder.path)}>
+            <Icon name="folder" size={13} /><span>{folder.name}</span><Icon name="right" size={12} />
+          </button>
+        </li>)}
+      </ul>
+      {!busy && directory && !folders.length && <p className="settings-empty">此目录没有子目录，可直接选择。</p>}
+      <div className="settings-directory-actions">
+        <button type="button" className="ghost-button" onClick={close}>取消</button>
+        <button type="button" className="primary-button" disabled={busy || !directory || !!error}
+          onClick={() => { if (directory) { change(directory.path); close(); } }}>使用此目录</button>
+      </div>
+    </div>}
   </div>;
 }
 
@@ -545,21 +714,16 @@ function HostListEditor({ value, change }: {
   };
 
   return <div className="settings-host-list">
-    <div className="settings-host-list-chips" aria-label="已配置的非代理地址">
+    <div className="settings-media-chips" aria-label="已配置的非代理地址">
       {items.length === 0 && <p className="settings-empty">还没有任何例外地址，代理会对所有请求生效</p>}
-      {items.map(item => <span key={item} className="settings-host-chip">
-        <Icon name="signal" size={11} />
-        <code>{item}</code>
-        <button type="button" aria-label={`移除 ${item}`}
-          onClick={() => change(items.filter(current => current !== item).join('\n'))}>
-          <Icon name="close" size={10} />
-        </button>
-      </span>)}
+      {items.map(item => <SettingsTag key={item} label={item} removeLabel={`移除 ${item}`}
+        onRemove={() => change(items.filter(current => current !== item).join('\n'))} />)}
     </div>
     {!bulkMode && <div className="settings-host-list-add">
       <div className="settings-host-list-presets" role="group" aria-label="快速添加">
         {nonProxyPresets.map(preset => <button key={preset} type="button"
-          className={items.includes(preset) ? 'selected' : ''}
+          className={`settings-chip-button ${items.includes(preset) ? 'selected' : ''}`}
+          aria-pressed={items.includes(preset)}
           onClick={() => {
             if (items.includes(preset)) {
               change(items.filter(current => current !== preset).join('\n'));
@@ -572,7 +736,7 @@ function HostListEditor({ value, change }: {
         </button>)}
       </div>
       <div className="settings-host-list-input">
-        <input value={draft} placeholder="输入自定义地址或通配模式，如 *.internal"
+        <input id="backend-setting-aiNonProxyHosts" value={draft} placeholder="输入自定义地址或通配模式，如 *.internal"
           className="settings-control"
           onChange={event => setDraft(event.target.value)}
           onKeyDown={event => {
@@ -588,7 +752,7 @@ function HostListEditor({ value, change }: {
       </div>
     </div>}
     {bulkMode && <div className="settings-host-list-bulk">
-      <textarea value={draft} autoFocus rows={4} placeholder="每行一个地址，匹配 *.example.com / 10.0.0.0/8 等"
+      <textarea id="backend-setting-aiNonProxyHosts" value={draft} autoFocus rows={4} placeholder="每行一个地址，匹配 *.example.com / 10.0.0.0/8 等"
         className="settings-control settings-control-textarea"
         onChange={event => setDraft(event.target.value)} />
       <div className="settings-host-list-bulk-actions">
@@ -615,6 +779,13 @@ function ConfigField({ definition, values, config, change }: {
   const [reveal, setReveal] = useState(false);
   const isPassword = definition.type === 'password';
 
+  if (definition.key === 'dataDirectory') {
+    return <FieldShell definition={definition} meta={meta}>
+      <DataDirectoryPicker value={value} change={next => change(definition.key, next)} />
+      {definition.help && <p className="settings-field-help">{definition.help}</p>}
+    </FieldShell>;
+  }
+
   // 1) 自定义 kind 渲染器
   if (definition.kind === 'reasoning') {
     return <FieldShell definition={definition} meta={meta}>
@@ -624,7 +795,7 @@ function ConfigField({ definition, values, config, change }: {
   }
   if (definition.kind === 'port') {
     return <FieldShell definition={definition} meta={meta}>
-      <PortPresetPicker value={value} change={next => change(definition.key, next)} meta={meta} />
+      <PortPresetPicker value={value} change={next => change(definition.key, next)} />
       {definition.help && <p className="settings-field-help">{definition.help}</p>}
     </FieldShell>;
   }
@@ -639,9 +810,9 @@ function ConfigField({ definition, values, config, change }: {
     const timeoutKey = isTimeoutKey(definition.key);
     if (timeoutKey) {
       return <FieldShell definition={definition} meta={meta}>
-        <TimeoutPresetGrid value={value} change={next => change(definition.key, next)}
+        <TimeoutPresetGrid settingKey={definition.key} value={value} change={next => change(definition.key, next)}
           presets={timeoutPresets[timeoutKey]} />
-        <p className="settings-field-help">支持 5s/30s/60s/2m 这种 Go duration 写法。</p>
+        <p className="settings-field-help">可选常用时长，也可输入自定义值；s 表示秒，m 表示分钟。</p>
       </FieldShell>;
     }
   }
@@ -705,13 +876,12 @@ function BooleanConfigField({ settingKey, label, values, config, change }: {
 }) {
   const meta = config.values[settingKey];
   const enabled = values[settingKey] === 'true';
-  return <FieldShell definition={{ key: settingKey, label }} meta={meta}>
-    <div className="settings-toggle-row">
-      <Toggle label={label} value={enabled} onChange={value => change(settingKey, String(value))} />
-      <span className="settings-toggle-state">{enabled ? '已开启' : '已关闭'}</span>
-      <span className="settings-toggle-hint">{enabled ? '对应网络流量将经过该代理' : '不会向代理发送任何请求'}</span>
-    </div>
-  </FieldShell>;
+  return <div className="settings-toggle-row">
+    <span className="settings-toggle-state">{label}</span>
+    <Toggle label={label} value={enabled} onChange={value => change(settingKey, String(value))} />
+    <span className="settings-field-help">{enabled ? '已开启' : '已关闭'}</span>
+    <ConfigSource meta={meta} />
+  </div>;
 }
 
 function AddressUrlField({ value, onChange, onTest, testing, onSave }: {
@@ -722,7 +892,7 @@ function AddressUrlField({ value, onChange, onTest, testing, onSave }: {
   onSave: () => void;
 }) {
   return <div className="settings-address-row">
-    <FieldShell definition={{ key: 'serverUrl', label: '后端服务器根地址', wide: true,
+    <FieldShell definition={{ key: 'server-url', label: '后端服务器根地址',
       placeholder: 'http://127.0.0.1:8888',
       help: '不要填写 /agent 或 /api/v1/ssh。保存后立即生效，重启仍会保留。' }}>
       <div className="settings-input-wrap">
@@ -733,10 +903,11 @@ function AddressUrlField({ value, onChange, onTest, testing, onSave }: {
     </FieldShell>
     <div className="settings-address-actions">
       <button type="button" className="ghost-button" disabled={testing} onClick={onTest}>
-        <Icon name="signal" size={13} />{testing ? '测试中…' : '测试连接'}
+        <Icon name="signal" size={13} />{testing ? '测试中…' : '测试地址'}
       </button>
       <button type="button" className="primary-button" onClick={onSave}>保存地址</button>
     </div>
+    <p className="settings-address-help">可连接内置或远端服务；保存后立即生效，下次启动仍会保留。</p>
   </div>;
 }
 
@@ -768,16 +939,11 @@ function MediaTypeEditor({ value, change }: { value: string; change: (value: str
       </button>}
     </div>
     <div className="settings-media-chips">
-      {items.map(item => <span key={item} className="settings-media-chip">
-        <span className="settings-media-chip-text">
-          <b>{mediaTypeLabels[item] ?? item}</b>
-          <small>{mediaTypeLabels[item] ? item : '自定义类型'}</small>
-        </span>
-        <button type="button" aria-label={`移除 ${mediaTypeLabels[item] ?? item}`}
-          onClick={() => change(items.filter(current => current !== item).join('\n'))}>
-          <Icon name="close" size={11} />
-        </button>
-      </span>)}
+      {items.map(item => <SettingsTag key={item} label={mediaTypeLabels[item] ?? item}
+        tone={fileTone(item)} icon="file"
+        detail={mediaTypeLabels[item] ? item : '自定义类型'}
+        removeLabel={`移除 ${mediaTypeLabels[item] ?? item}`}
+        onRemove={() => change(items.filter(current => current !== item).join('\n'))} />)}
       {!items.length && <p className="settings-empty">尚未允许任何附件类型</p>}
     </div>
     {adding && <div className="settings-media-add">
@@ -804,13 +970,24 @@ function ProtocolCard() {
         <small>当前版本仅支持 OpenAI 兼容协议，后续会逐步开放更多协议。</small>
       </div>
     </div>
-    <SegmentedControl value={protocol} onChange={setProtocol} ariaLabel="模型接口协议" options={[
-      { value: 'openai', label: 'OpenAI 兼容' },
-    ]} />
-    <div className="settings-protocol-locked">
-      <span><Icon name="shield" size={11} />Anthropic</span>
-      <span><Icon name="shield" size={11} />Ollama</span>
-      <em>当前版本暂未支持</em>
+    <div className="settings-protocol-options" role="radiogroup" aria-label="模型接口协议">
+      {([
+        { value: 'openai', label: 'OpenAI 兼容' },
+        { value: 'anthropic', label: 'Anthropic' },
+        { value: 'google', label: 'Google' },
+      ] as const).map(option => {
+        const selected = option.value === protocol;
+        return <button key={option.value} type="button" role="radio" aria-checked={selected}
+          disabled={option.value !== 'openai'}
+          className={`settings-storage-card settings-protocol-option ${selected ? 'selected' : ''}`}
+          onClick={() => setProtocol('openai')}>
+          <span className="settings-storage-body">
+            <strong>{option.label}</strong>
+            <small>{selected ? '已选择' : '暂未支持'}</small>
+          </span>
+          <Icon name={selected ? 'check' : 'shield'} size={14} />
+        </button>;
+      })}
     </div>
   </div>;
 }
@@ -832,42 +1009,25 @@ function StorageModeSelector({ values, config, change }: {
     if (mode === 'minio' && !minioEnabled) change('minioEnabled', 'true');
   };
 
-  const localState = activeMode === 'local'
-    ? (localEnabled ? '当前使用' : '当前未启用')
-    : (localEnabled ? '备用可用' : '未启用');
-  const minioState = activeMode === 'minio'
-    ? (minioEnabled ? '当前使用' : '当前未启用')
-    : (minioEnabled ? '备用可用' : '未启用');
-
   return <div className="settings-storage-mode">
-    <button type="button" role="radio" aria-checked={activeMode === 'local'}
-      className={`settings-storage-card ${activeMode === 'local' ? 'selected' : ''}`}
-      onClick={() => selectMode('local')}>
-      <span className="settings-storage-icon"><Icon name="folder" size={18} /></span>
-      <span className="settings-storage-body">
-        <strong>本机存储</strong>
-        <small>文件保存在当前电脑，桌面版推荐</small>
-        <span className={`settings-storage-pill is-${activeMode === 'local' ? (localEnabled ? 'on' : 'warn') : (localEnabled ? 'idle' : 'off')}`}>{localState}</span>
-      </span>
-      <span className="settings-storage-tail" onClick={event => event.stopPropagation()}>
-        <span className="settings-storage-tail-label">允许使用本机存储</span>
-        <Toggle label="启用本机存储" value={localEnabled} onChange={value => change('localStorageEnabled', String(value))} />
-      </span>
-    </button>
-    <button type="button" role="radio" aria-checked={activeMode === 'minio'}
-      className={`settings-storage-card ${activeMode === 'minio' ? 'selected' : ''}`}
-      onClick={() => selectMode('minio')}>
-      <span className="settings-storage-icon"><Icon name="server" size={18} /></span>
-      <span className="settings-storage-body">
-        <strong>MinIO 存储</strong>
-        <small>文件保存在独立对象存储服务器</small>
-        <span className={`settings-storage-pill is-${activeMode === 'minio' ? (minioEnabled ? 'on' : 'warn') : (minioEnabled ? 'idle' : 'off')}`}>{minioState}</span>
-      </span>
-      <span className="settings-storage-tail" onClick={event => event.stopPropagation()}>
-        <span className="settings-storage-tail-label">允许使用 MinIO</span>
-        <Toggle label="启用 MinIO" value={minioEnabled} onChange={value => change('minioEnabled', String(value))} />
-      </span>
-    </button>
+    <div className="settings-storage-options" role="radiogroup" aria-label="文件存储方式">
+      {([
+        { mode: 'local', label: '本地存储', description: '文件保存在当前电脑，适合桌面使用', icon: 'folder' },
+        { mode: 'minio', label: 'MinIO', description: '文件保存在独立对象存储服务器', icon: 'server' },
+      ] as const).map(option => <button key={option.mode} type="button" role="radio"
+        aria-checked={activeMode === option.mode}
+        className={`settings-storage-card ${activeMode === option.mode ? 'selected' : ''}`}
+        onClick={() => selectMode(option.mode)}>
+        <span className="settings-storage-icon"><Icon name={option.icon} size={16} /></span>
+        <span className="settings-storage-body">
+          <strong>{option.label}</strong>
+          <small>{option.description}</small>
+        </span>
+        <span className="settings-storage-check" aria-hidden="true">
+          {activeMode === option.mode && <Icon name="check" size={14} />}
+        </span>
+      </button>)}
+    </div>
     <ConfigSource meta={config.values.fileStorageDefaultId} />
     {((activeMode === 'local' && !localEnabled) || (activeMode === 'minio' && !minioEnabled)) &&
       <p className="settings-storage-warning">
@@ -877,8 +1037,9 @@ function StorageModeSelector({ values, config, change }: {
   </div>;
 }
 
-function TabSaveBar({ scope, hint, saving, dirty, onSave, onReset }: {
+function TabSaveBar({ scope, saveLabel, hint, saving, dirty, onSave, onReset }: {
   scope: string;
+  saveLabel: string;
   hint: string;
   saving: boolean;
   dirty: boolean;
@@ -887,38 +1048,47 @@ function TabSaveBar({ scope, hint, saving, dirty, onSave, onReset }: {
 }) {
   return <div className="settings-tab-save" data-scope={scope}>
     <div className="settings-tab-save-meta">
-      <strong><Icon name="check" size={12} />{scope}</strong>
+      <strong>
+        <Icon name={dirty ? 'edit' : 'check'} size={12} />
+        {saving ? '正在保存配置…' : dirty ? '有未保存的修改' : '暂无未保存修改'}
+      </strong>
       <span>{hint}</span>
     </div>
     <div className="settings-tab-save-actions">
-      {dirty && <span className="settings-tab-save-flag">
-        <Icon name="edit" size={10} />有未保存的修改
-      </span>}
       <button type="button" className="ghost-button" disabled={saving || !dirty} onClick={onReset}>
-        <Icon name="history" size={12} />放弃
+        <Icon name="history" size={12} />重置
       </button>
       <button type="button" className="primary-button" disabled={saving} onClick={onSave}>
-        <Icon name="check" size={12} />{saving ? '保存中…' : `保存${scope}配置`}
+        <Icon name="check" size={12} />{saving ? '保存中…' : saveLabel}
       </button>
     </div>
   </div>;
 }
 
-function SettingsGroup({ title, description, badge, children }: {
+function SettingsGroup({ id, title, description, badge, action, expanded, children }: {
+  id?: string;
   title: string;
   description?: string;
   badge?: string;
+  action?: ReactNode;
+  expanded?: boolean;
   children: ReactNode;
 }) {
-  return <section className="settings-group">
+  return <section id={id} className={`settings-group${expanded !== undefined ? ' is-collapsible' : ''}`} aria-label={title}>
     <header>
       <div>
         <h3>{title}</h3>
         {description && <p>{description}</p>}
       </div>
-      {badge && <span className="settings-group-badge">{badge}</span>}
+      {action ? <div className="settings-group-actions">{action}</div>
+        : badge && <SettingsBadge className="settings-group-badge" label={badge} />}
     </header>
-    <div className="settings-group-body">{children}</div>
+    {expanded === undefined ? <div className="settings-group-body">{children}</div>
+      : <div className="settings-disclosure" data-open={expanded} aria-hidden={!expanded} inert={!expanded}>
+        <div className="settings-disclosure-inner">
+          <div className="settings-group-body">{children}</div>
+        </div>
+      </div>}
   </section>;
 }
 
@@ -928,7 +1098,7 @@ function PathPreviewCard({ label, icon, path, hint }: {
   path?: string;
   hint?: string;
 }) {
-  return <div className="settings-path-preview">
+  return <div className="settings-path-preview" data-accent={toneForIcon(icon)}>
     <span><Icon name={icon} size={14} />{label}</span>
     <code title={path}>{path ? collapsePath(path, 72) : '—'}</code>
     {hint && <small>{hint}</small>}
@@ -944,12 +1114,13 @@ export function BackendSettingsDialog({ currentUrl, required = false, onClose, o
   const [url, setUrl] = useState(currentUrl);
   const [config, setConfig] = useState<BundledBackendConfig | null>(null);
   const [values, setValues] = useState<ConfigValues>({});
+  const [pathResetVersion, setPathResetVersion] = useState(0);
   const [loading, setLoading] = useState(isTauriRuntime());
   const [saving, setSaving] = useState(false);
+  const [openingConfigDirectory, setOpeningConfigDirectory] = useState(false);
   const [testing, setTesting] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState('');
-  const [search, setSearch] = useState('');
   /** 默认 true 表示桌面壳会自动拉起本地后端；用户关掉时启动阶段停在 stopped。 */
   const [autoStartEnabled, setAutoStartEnabled] = useState(true);
   const [autoStartAvailable, setAutoStartAvailable] = useState(false);
@@ -961,23 +1132,30 @@ export function BackendSettingsDialog({ currentUrl, required = false, onClose, o
    */
   const [settingsStarting, setSettingsStarting] = useState(false);
   /**
-   * 当前后端运行状态。仅用来决定"启动内置服务"按钮是否展示：
-   * running 时不展示（避免误操作重启），其余状态都展示。
-   * null 表示还没读到或者桌面壳没有这个命令（旧版本），按"未在跑"处理。
+   * 当前内置后端进程状态，用来切换启动/停止按钮，并在状态变化时刷新健康检查。
+   * HTTP 服务是否就绪仍以 /api/health 的结果为准。
    */
   const [backendStatus, setBackendStatus] = useState<BundledBackendStatus | null>(null);
-  /**
-   * 后端 /api/health 探测结果。仅用于 UI 展示，不影响任何按钮的可用性。
-   * - 在桌面壳里随 bundled_backend_status 的轮询节奏触发；
-   * - 在浏览器开发模式下，URL 改动或"测试连接"时也会触发；
-   * - 与 bundled_backend_status 是互补的：后者描述 Java 进程生命周期，
-   *   前者证明 HTTP 端点真的在响应。
-   */
-  const [healthSnapshot, setHealthSnapshot] = useState<BackendHealthSnapshot | null>(null);
-  const [healthProbing, setHealthProbing] = useState(false);
-  const [healthError, setHealthError] = useState('');
-  const healthAbortRef = useRef<AbortController | null>(null);
-  const healthUrlRef = useRef<string>('');
+  const [healthRefresh, setHealthRefresh] = useState(readHealthRefreshPreferences);
+  const [healthRefreshError, setHealthRefreshError] = useState('');
+  const updateHealthRefresh = (patch: Partial<HealthRefreshPreferences>) => {
+    const next = { ...healthRefresh, ...patch };
+    try {
+      saveHealthRefreshPreferences(next);
+      setHealthRefresh(next);
+      setHealthRefreshError('');
+    } catch (cause) {
+      setHealthRefreshError(cause instanceof Error ? cause.message : String(cause));
+    }
+  };
+  const currentHealth = useBackendHealth(currentUrl, backendStatus?.status, true, healthRefresh);
+  const { snapshot: healthSnapshot, probing: healthProbing, error: healthError, probe: runHealthProbe } = currentHealth;
+  const bundledUrl = resolveBundledBackendUrl(backendStatus, config);
+  const bundledHealth = useBackendHealth(bundledUrl, backendStatus?.status, isTauriRuntime(), healthRefresh);
+  const bundledInactiveReason = backendStatus?.status === 'stopped' ? '内置服务未启动'
+    : backendStatus?.status === 'failed' ? '内置服务启动失败，请查看启动提示'
+    : !backendStatus ? '正在读取内置服务状态…' : undefined;
+  const [healthDetailsRequested, setHealthDetailsRequested] = useState(false);
 
   useEffect(() => {
     if (!isTauriRuntime()) return;
@@ -1011,7 +1189,7 @@ export function BackendSettingsDialog({ currentUrl, required = false, onClose, o
     return () => { active = false; };
   }, []);
 
-  /** 拉取后端运行状态，用来决定"启动内置服务"按钮是否显示。仅在桌面壳里生效。 */
+  /** 拉取内置服务进程状态，更新启停按钮并触发健康检查。仅在桌面壳里生效。 */
   useEffect(() => {
     if (!isTauriRuntime()) return;
     let active = true;
@@ -1026,61 +1204,28 @@ export function BackendSettingsDialog({ currentUrl, required = false, onClose, o
     return () => { active = false; window.clearInterval(timer); };
   }, []);
 
-  /**
-   * 探测 /api/health。
-   * 单一入口让多个 effect 共用，避免重复 fetch；URL 变化或 bundled_backend_status
-   * 切到 running 都会触发它。
-   */
-  const runHealthProbe = useCallback(async (targetUrl: string) => {
-    healthAbortRef.current?.abort();
-    const controller = new AbortController();
-    healthAbortRef.current = controller;
-    healthUrlRef.current = targetUrl;
-    setHealthProbing(true);
-    setHealthError('');
+  /** 顶部入口在切换到连接分区并完成渲染后，定位到健康检查模块。 */
+  useEffect(() => {
+    if (!healthDetailsRequested || activeSection !== 'general' || loading) return;
+    const behavior = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
+    document.getElementById('settings-health-check')?.scrollIntoView({ behavior, block: 'start' });
+    setHealthDetailsRequested(false);
+  }, [healthDetailsRequested, activeSection, loading]);
+
+  const openConfigDirectory = async () => {
+    if (!config || openingConfigDirectory) return;
+    setOpeningConfigDirectory(true);
+    setError('');
     try {
-      const snapshot = await probeBackendHealth({
-        backendUrl: targetUrl,
-        signal: controller.signal,
-      });
-      // 期间 URL 又被改了，就丢弃旧结果，避免“填了新地址却显示旧探测”的错乱。
-      if (healthUrlRef.current !== targetUrl) return;
-      setHealthSnapshot(snapshot);
+      // 默认 opener 权限允许定位文件；打开其所在目录并选中主配置文件。
+      await revealItemInDir(config.applicationFile);
     } catch (cause) {
-      if (controller.signal.aborted) return;
-      if (healthUrlRef.current !== targetUrl) return;
-      setHealthError(cause instanceof Error ? cause.message : String(cause));
+      const message = cause instanceof Error ? cause.message : String(cause);
+      setError(`无法打开配置目录：${message}`);
     } finally {
-      if (healthAbortRef.current === controller) {
-        setHealthProbing(false);
-        healthAbortRef.current = null;
-      }
+      setOpeningConfigDirectory(false);
     }
-  }, []);
-
-  /**
-   * 桌面壳里，后端一旦被 Rust 报告为 running，就顺手用 /api/health 做一次确认。
-   * running 但 /api/health 不通 = 端口已开但 Spring 还没就绪 / 业务 Bean 初始化失败，
-   * 这是个真实的运维场景，单独靠 bundled_backend_status 看不出来。
-   */
-  useEffect(() => {
-    if (!isTauriRuntime()) return;
-    if (backendStatus?.status !== 'running') return;
-    void runHealthProbe(currentUrl);
-  }, [backendStatus?.status, backendStatus?.message, currentUrl, runHealthProbe]);
-
-  /**
-   * 浏览器开发模式 / 用户切换“客户端访问地址”时也补一次探测，让顶栏徽章跟着走。
-   * 桌面壳里 currentUrl 跟启动页拉的地址一致，依赖上面那个 effect 触发即可。
-   */
-  useEffect(() => {
-    if (isTauriRuntime()) return;
-    if (!currentUrl) return;
-    void runHealthProbe(currentUrl);
-  }, [currentUrl, runHealthProbe]);
-
-  /** 卸载时取消未结束的探测。 */
-  useEffect(() => () => { healthAbortRef.current?.abort(); }, []);
+  };
 
   /**
    * 切换自动启动。注意：开关本身只描述“客户端启动时是否自动拉起后端”，
@@ -1170,17 +1315,17 @@ export function BackendSettingsDialog({ currentUrl, required = false, onClose, o
       // 复用 /api/health 探测：同时承担“测试连接”和“健康检查”。
       // 它是后端最轻的存活探针，HTTP 200 + status === "UP" 即可证明 Web 容器可用，
       // 后续的 Agent 业务接口再由真实业务调用兜底。
-      const snapshot = await probeBackendHealth({ backendUrl: address });
+      const snapshot = address === normalizeBackendUrl(currentUrl)
+        ? await runHealthProbe()
+        : await probeBackendHealth({ backendUrl: address });
+      if (!snapshot) return;
       if (snapshot.ok) {
         const latency = snapshot.latencyMs != null ? `（${snapshot.latencyMs}ms）` : '';
-        setResult(`连接成功，/api/health 返回 UP${latency}。`);
+        setResult(`连接成功${latency}。`);
       } else {
         setError(snapshot.message || '/api/health 未返回 UP。');
       }
-      // 让顶栏徽章立刻反映这次手动探测的结果。
-      setHealthSnapshot(snapshot);
-      setHealthProbing(false);
-      healthUrlRef.current = address;
+      // 未保存地址的测试只反馈测试结果，不替换顶部当前访问地址的健康状态。
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '连接测试失败。');
     } finally {
@@ -1226,7 +1371,7 @@ export function BackendSettingsDialog({ currentUrl, required = false, onClose, o
         setConfig(saved);
         setValues(Object.fromEntries(Object.entries(saved.values).map(([key, meta]) => [key, meta.value])));
       }
-      setResult(`${definition.label}配置已保存到 YAML，内置后端不会自动重启。`);
+      setResult(`${definition.label}配置已保存，内置后端不会自动重启。`);
       if (definition.id === 'general') {
         const localUrl = `http://127.0.0.1:${values.serverPort || '8888'}`;
         setUrl(localUrl);
@@ -1265,28 +1410,28 @@ export function BackendSettingsDialog({ currentUrl, required = false, onClose, o
       }
       return next;
     });
+    if (scope === 'model') setPathResetVersion(previous => previous + 1);
     setError('');
     setResult('');
   };
 
   const renderFields = (fields: FieldDefinition[]) => {
     if (!config) return null;
-    const filtered = search
-      ? fields.filter(field => {
-          const target = `${field.label} ${field.key} ${field.help ?? ''}`.toLowerCase();
-          return target.includes(search.toLowerCase());
-        })
-      : fields;
-    if (!filtered.length) return <p className="settings-empty">没有匹配 “{search}” 的字段</p>;
     return <div className="settings-fields-grid">
-      {filtered.map(field => <ConfigField key={field.key} definition={field} values={values} config={config} change={change} />)}
+      {fields.map(field => <ConfigField key={`${field.key}:${field.kind === 'path-preset' ? pathResetVersion : 0}`}
+        definition={field} values={values} config={config} change={change} />)}
     </div>;
   };
 
-  const status = deriveStatus(config, loading, error);
-  const healthState = deriveHealthState(healthSnapshot, healthProbing);
+  const healthState = deriveHealthState(healthSnapshot, healthProbing, healthError);
   const healthLabelText = healthLabel(healthState, healthSnapshot);
+  const bundledHealthState = deriveHealthState(bundledHealth.snapshot, bundledHealth.probing, bundledHealth.error);
+  const bundledHealthLabel = bundledHealthState !== 'idle' ? healthLabel(bundledHealthState, bundledHealth.snapshot)
+    : backendStatus?.status === 'stopped' ? '未启动' : backendStatus?.status === 'failed' ? '启动失败'
+    : !backendStatus ? '读取状态中…' : healthLabel(bundledHealthState, bundledHealth.snapshot);
   const activeStorageMode = values.fileStorageDefaultId === (values.minioStorageId || 'minio-main') ? 'minio' : 'local';
+  const activeDefinition = sectionItems.find(item => item.id === activeSection) ?? sectionItems[0];
+  const showSaveBar = !loading && (activeSection === 'general' || config !== null);
 
   return <main className={`settings-page ${required ? 'is-standalone' : ''}`} aria-label="客户端设置">
     {/* ============================== 顶栏 ============================== */}
@@ -1297,30 +1442,43 @@ export function BackendSettingsDialog({ currentUrl, required = false, onClose, o
         </button>}
         <div className="settings-topbar-title">
           <h1>客户端与内置后端设置</h1>
-          <p>修改后会立即写入对应 YAML；不会自动重启后端，下次启动客户端或手动重启后生效。</p>
+          <p>修改后请保存对应配置；服务不会自动重启，下次启动或手动重启后生效。</p>
         </div>
       </div>
       <div className="settings-topbar-right">
         <button
           type="button"
           className={`settings-topbar-status settings-health-pill ${healthToneClass(healthState)}`}
-          onClick={() => { void runHealthProbe(currentUrl); }}
-          title={healthSnapshot ? `${healthSnapshot.backendUrl}/api/health · ${healthSnapshot.checkedAt}` : '点击重新探测 /api/health'}
-          aria-label="重新探测 /api/health"
+          data-accent={healthAccentTone(healthState)}
+          onClick={() => { void runHealthProbe(); }}
+          title={healthError || (healthSnapshot
+            ? [healthSnapshot.message, `上次检查：${new Date(healthSnapshot.checkedAt).toLocaleString()}`].filter(Boolean).join('\n')
+            : '点击重新检查当前后端服务')}
+          aria-label="重新检查后端服务"
         >
           <HealthDot state={healthState} />
-          <span>{healthLabelText}</span>
+          <span>当前后端 · {healthLabelText}</span>
         </button>
-        <div className={`settings-topbar-status is-${status}`}>
-          <StatusDot status={status} />
-          <span>{status === 'loading' ? '正在读取配置…'
-            : status === 'error' ? '读取失败'
-            : status === 'warn' ? '未读取到配置'
-            : '内置后端已就绪'}</span>
-          {config && <code title={config.activeProfiles.join(', ')}>{config.activeProfiles.join(', ') || '默认 profile'}</code>}
-        </div>
-        {config && <button type="button" className="ghost-button" onClick={() => void openPath(config.configDirectory)}>
-          <Icon name="folder" size={14} />配置目录
+        {isTauriRuntime() && <button type="button"
+          className={`settings-topbar-status settings-health-pill ${healthToneClass(bundledHealthState)}`}
+          data-accent={healthAccentTone(bundledHealthState)}
+          aria-busy={bundledHealth.probing}
+          onClick={() => { void bundledHealth.probe(); }}
+          title={bundledHealth.error || bundledHealth.snapshot?.message || '检查内置服务实际监听地址'}
+          aria-label="检查内置服务健康状态">
+          <HealthDot state={bundledHealthState} />
+          <span>内置后端 · {bundledHealthLabel}</span>
+        </button>}
+        <button type="button" className="ghost-button" onClick={() => {
+          setActiveSection('general');
+          setHealthDetailsRequested(true);
+          void runHealthProbe();
+          if (isTauriRuntime()) void bundledHealth.probe();
+        }}><Icon name="signal" size={14} />健康检查</button>
+        {config && <button type="button" className="ghost-button"
+          disabled={openingConfigDirectory} onClick={() => void openConfigDirectory()}
+          title="打开配置文件所在文件夹并选中 application.yml">
+          <Icon name="folder" size={14} />{openingConfigDirectory ? '正在打开…' : '配置目录'}
         </button>}
       </div>
     </header>
@@ -1329,15 +1487,12 @@ export function BackendSettingsDialog({ currentUrl, required = false, onClose, o
     <div className="settings-body">
       {/* 侧导航 */}
       <aside className="settings-nav" aria-label="设置分类">
-        <div className="settings-nav-search">
-          <SearchBar value={search} onChange={setSearch} placeholder="搜索字段（仅当前页）" />
-        </div>
         <div className="settings-nav-list">
           {sectionItems.map(item => <button key={item.id} type="button"
             className={`settings-nav-item ${activeSection === item.id ? 'selected' : ''}`}
             aria-current={activeSection === item.id ? 'page' : undefined}
             onClick={() => setActiveSection(item.id)}>
-            <span className="settings-nav-icon"><Icon name={item.icon} size={17} /></span>
+            <span className="settings-nav-icon" data-accent={toneForIcon(item.icon)}><Icon name={item.icon} size={17} /></span>
             <span className="settings-nav-text">
               <strong>{item.label}</strong>
               <small>{item.caption}</small>
@@ -1348,207 +1503,195 @@ export function BackendSettingsDialog({ currentUrl, required = false, onClose, o
         {config && <div className="settings-nav-footer">
           <span className="settings-nav-footer-label">配置目录</span>
           <code title={config.configDirectory}>{collapsePath(config.configDirectory, 38)}</code>
-          <small>字段写回各自 YAML，并生成 .bak 备份。</small>
+          <small>保存时会自动备份现有配置。</small>
         </div>}
       </aside>
 
-      {/* 内容区 */}
-      <section className="settings-content">
-        {loading && <div className="settings-skeleton" aria-label="正在读取配置">
-          <span style={{ width: '92%' }} />
-          <span style={{ width: '74%' }} />
-          <span style={{ width: '88%' }} />
-          <span style={{ width: '62%' }} />
-          <span style={{ width: '80%' }} />
-        </div>}
+      {/* 内容滚动区与保存底栏分别占用布局空间，底栏不覆盖字段。 */}
+      <div className="settings-content-panel">
+        <section className="settings-content" data-section={activeSection}>
+          {loading && <div className="settings-skeleton" aria-label="正在读取配置">
+            <span style={{ width: '92%' }} />
+            <span style={{ width: '74%' }} />
+            <span style={{ width: '88%' }} />
+            <span style={{ width: '62%' }} />
+            <span style={{ width: '80%' }} />
+          </div>}
 
-        {!loading && activeSection === 'general' && <>
-          {autoStartAvailable && <SettingsGroup title="启动方式"
-            description="关闭后，桌面壳打开时不会自动拉起本地 Java，你也可以在启动页或此处手动启动。"
-            badge="启动">
-            <div className="settings-toggle-row">
-              <span className="settings-toggle-state">{autoStartEnabled ? '自动启动' : '手动启动'}</span>
-              <Toggle
-                label="自动启动内置后端"
-                value={autoStartEnabled}
-                onChange={() => void toggleAutoStart()}
-              />
-              <span className="settings-toggle-hint">
-                {autoStartEnabled
-                  ? '每次打开客户端都会自动启动内置后端'
-                  : '客户端启动时不会拉起 Java，可在此或启动页点击“启动内置服务”'}
-              </span>
-            </div>
-            {autoStartError && <div className="settings-error">{autoStartError}</div>}
-            {(() => {
-              // 按钮永远显示，文案/样式/handler 跟着当前后端状态走。
-              // running → "停止内置服务"（警告色，stop 命令）；
-              // 其他状态 → "启动内置服务"（主色，restart 命令，重置干净）。
-              const running = backendStatus?.status === 'running';
-              const busy = settingsStarting;
-              const onClick = running
-                ? () => void stopManuallyFromSettings()
-                : () => void startManuallyFromSettings();
-              const label = busy
-                ? (running ? '正在停止…' : '正在启动…')
-                : (running ? '停止内置服务' : '启动内置服务');
-              const hint = busy
-                ? '等待本地服务状态变化'
-                : (running
-                    ? (autoStartEnabled
-                        ? '下次打开客户端会重新拉起；现在先停掉释放资源'
-                        : '当前服务在跑，点击立即停止')
-                    : (autoStartEnabled
-                        ? '自动启动已开启，但内置服务未运行；点击立即拉起'
-                        : '点击手动拉起本地 Java 进程'));
-              return (
-                <div className="settings-toggle-row" style={{ marginTop: 12 }}>
-                  <button
-                    type="button"
-                    className={running ? 'danger-button' : 'primary-button'}
-                    onClick={onClick}
-                    disabled={busy}
-                  >
-                    <Icon name={running ? 'stop' : 'play'} size={14} />
-                    {label}
-                  </button>
-                  <span className="settings-toggle-hint">{hint}</span>
-                </div>
-              );
-            })()}
-          </SettingsGroup>}
-          <SettingsGroup title="后端健康检查"
-            description="调用当前地址的 /api/health，验证 HTTP 端点真实可用；与内置后端的进程状态互补，端口已开但 Spring 还没就绪时也会给出明确提示。"
-            badge="健康检查">
-            <div className="settings-health-card">
-              <div className="settings-health-card-row">
-                <HealthDot state={healthState} />
-                <strong>{healthLabelText}</strong>
-                <code title={healthSnapshot?.backendUrl}>{healthSnapshot?.backendUrl || currentUrl}</code>
-                <button
-                  type="button"
-                  className="ghost-button"
-                  disabled={healthProbing}
-                  onClick={() => { void runHealthProbe(currentUrl); }}
-                >
-                  <Icon name="refresh" size={12} />
-                  {healthProbing ? '探测中…' : '重新探测'}
-                </button>
+          {!loading && activeSection === 'general' && <>
+            {autoStartAvailable && <SettingsGroup title="启动方式"
+              description="关闭后，客户端不会自动启动内置服务，可在启动页或此处手动启动。"
+              badge="启动">
+              <div className="settings-toggle-row">
+                <span className="settings-toggle-state">{autoStartEnabled ? '自动启动' : '手动启动'}</span>
+                <Toggle
+                  label="自动启动内置后端"
+                  value={autoStartEnabled}
+                  onChange={() => void toggleAutoStart()}
+                />
+                <span className="settings-toggle-hint">
+                  {autoStartEnabled
+                    ? '每次打开客户端都会自动启动内置后端'
+                    : '可在此或启动页点击“启动内置服务”'}
+                </span>
               </div>
-              <p className="settings-health-card-hint">
-                {healthState === 'idle' && '点击“重新探测”可立即验证当前地址；自动启动开启时，后端进入 running 状态后会自动探测一次。'}
-                {healthState === 'probing' && '正在等待后端返回 2xx 与 status:UP…'}
-                {healthState === 'up' && (healthSnapshot?.latencyMs != null
-                  ? `已联通，HTTP 200 + status:UP，单次往返 ${healthSnapshot.latencyMs}ms。`
-                  : '已联通，HTTP 200 + status:UP。')}
-                {healthState === 'down' && (healthSnapshot?.message
-                  ? `原因：${healthSnapshot.message}`
-                  : '/api/health 没有返回 status:UP。')}
-                {healthState === 'error' && (healthError || '探测失败，请检查后端地址、网络与 CORS 设置。')}
-              </p>
-              {healthSnapshot?.checkedAt && <p className="settings-health-card-time">
-                上次探测：{new Date(healthSnapshot.checkedAt).toLocaleString()} · {healthSnapshot.usingCustomUrl ? '本次为手动指定地址' : '本次为客户端配置地址'}
-              </p>}
-            </div>
-          </SettingsGroup>
-          <SettingsGroup title="客户端访问地址"
-            description="可连接外部后端，也可以使用安装包内置后端。"
-            badge="客户端级">
-            <AddressUrlField value={url} onChange={setUrl}
-              testing={testing} onTest={() => void testConnection()} onSave={saveAddress} />
-          </SettingsGroup>
-          {config && <SettingsGroup title="运行与数据目录"
-            description="修改端口后客户端会自动切换地址；数据目录必须使用绝对路径。"
-            badge="运行时">
-            {renderFields(generalFields)}
-            <div className="settings-derived-paths">
-              <PathPreviewCard label="SQLite 数据库" icon="disk" hint="存放对话、上传元数据等所有关系数据"
-                path={childPath(values.dataDirectory, 'data', 'ai-ssh-terminal.db') || config.sqliteFile} />
-              <PathPreviewCard label="上传文件" icon="file"
-                hint={config.values.localRootDirectory?.environmentOverride ? '由系统环境变量控制' : '跟随统一数据目录的 files 子目录'}
-                path={config.values.localRootDirectory?.environmentOverride
-                  ? values.localRootDirectory
-                  : childPath(values.dataDirectory, 'files') || config.uploadDirectory} />
-              <PathPreviewCard label="运行日志" icon="folder"
-                hint="包含 backend-console.log，可在排查问题时提供上下文"
-                path={childPath(values.dataDirectory, 'logs') || config.logDirectory} />
-            </div>
-          </SettingsGroup>}
-          <TabSaveBar scope="连接" hint="修改端口后客户端会立即切换地址；其他字段下次启动后端时生效。"
-            saving={saving} dirty={isTabDirty('general')}
-            onSave={() => void saveTab('general')} onReset={() => resetTab('general')} />
-        </>}
+              {autoStartError && <div className="settings-error">{autoStartError}</div>}
+              {(() => {
+                // 按钮永远显示，文案/样式/handler 跟着当前后端状态走。
+                // running → "停止内置服务"（警告色，stop 命令）；
+                // 其他状态 → "启动内置服务"（主色，restart 命令，重置干净）。
+                const running = backendStatus?.status === 'running';
+                const busy = settingsStarting;
+                const onClick = running
+                  ? () => void stopManuallyFromSettings()
+                  : () => void startManuallyFromSettings();
+                const label = busy
+                  ? (running ? '正在停止…' : '正在启动…')
+                  : (running ? '停止内置服务' : '启动内置服务');
+                const hint = busy
+                  ? '等待本地服务状态变化'
+                  : (running
+                      ? (autoStartEnabled
+                          ? '下次打开客户端会重新拉起；现在先停掉释放资源'
+                          : '当前服务在跑，点击立即停止')
+                      : (autoStartEnabled
+                          ? '自动启动已开启，但内置服务未运行；点击立即拉起'
+                          : '点击手动启动内置服务'));
+                return (
+                  <div className="settings-toggle-row">
+                    <button
+                      type="button"
+                      className={running ? 'danger-button' : 'primary-button'}
+                      onClick={onClick}
+                      disabled={busy}
+                    >
+                      <Icon name={running ? 'stop' : 'play'} size={14} />
+                      {label}
+                    </button>
+                    <span className="settings-toggle-hint">{hint}</span>
+                  </div>
+                );
+              })()}
+            </SettingsGroup>}
+            <SettingsGroup id="settings-health-check" title="服务健康检查"
+              description="检查实际服务响应；当前后端（含远端）与内置服务共用下方刷新设置。"
+              badge="健康检查">
+              {isTauriRuntime() && <BackendHealthCard label="内置服务" address={bundledUrl}
+                health={bundledHealth} inactiveReason={bundledInactiveReason} />}
+              <BackendHealthCard label="当前后端" address={currentUrl} health={currentHealth}>
+                <AddressUrlField value={url} onChange={setUrl}
+                  testing={testing} onTest={() => void testConnection()} onSave={saveAddress} />
+              </BackendHealthCard>
+              <div className="settings-health-preferences">
+                <div className="settings-toggle-row">
+                  <div><strong>自动刷新</strong><p>设置页打开期间静默检查，修改立即生效并保存在本机。</p></div>
+                  <Toggle value={healthRefresh.enabled} onChange={enabled => updateHealthRefresh({ enabled })} label="自动刷新健康检查" />
+                </div>
+                <div className="settings-fields-grid">
+                  <div className="settings-field"><label htmlFor="health-normal-interval">服务正常时</label>
+                    <Select id="health-normal-interval" className="settings-control" label="服务正常时的刷新间隔" value={healthRefresh.normalIntervalSeconds}
+                      onChange={normalIntervalSeconds => updateHealthRefresh({ normalIntervalSeconds })}
+                      options={HEALTH_NORMAL_INTERVALS.map(seconds => ({ value: seconds, label: seconds < 60 ? `${seconds} 秒` : `${seconds / 60} 分钟` }))} />
+                  </div>
+                  <div className="settings-field"><label htmlFor="health-retry-interval">未就绪或连接失败时</label>
+                    <Select id="health-retry-interval" className="settings-control" label="未就绪或连接失败时的刷新间隔" value={healthRefresh.retryIntervalSeconds}
+                      onChange={retryIntervalSeconds => updateHealthRefresh({ retryIntervalSeconds })}
+                      options={HEALTH_RETRY_INTERVALS.map(seconds => ({ value: seconds, label: seconds < 60 ? `${seconds} 秒` : '1 分钟' }))} />
+                  </div>
+                </div>
+                <p className="settings-health-refresh-help">默认正常时 15 秒、未就绪时 3 秒；从每次检查结束后计时。关闭自动刷新后仍可随时手动检查。</p>
+                {healthRefreshError && <div className="settings-error" role="alert">{healthRefreshError}</div>}
+              </div>
+            </SettingsGroup>
+            {config && <SettingsGroup title="基础设置"
+              description="修改端口后客户端会自动切换地址；数据目录必须使用绝对路径。"
+              badge="运行时">
+              {renderFields(generalFields)}
+              <div className="settings-derived-paths">
+                <PathPreviewCard label="SQLite 数据库" icon="disk" hint="存放对话、上传元数据等所有关系数据"
+                  path={childPath(values.dataDirectory, 'data', 'ai-ssh-terminal.db') || config.sqliteFile} />
+                <PathPreviewCard label="上传文件" icon="file"
+                  hint={config.values.localRootDirectory?.environmentOverride ? '由系统管理' : '随统一数据目录保存上传文件'}
+                  path={config.values.localRootDirectory?.environmentOverride
+                    ? values.localRootDirectory
+                    : childPath(values.dataDirectory, 'files') || config.uploadDirectory} />
+                <PathPreviewCard label="运行日志" icon="folder"
+                  hint="包含 backend-console.log，可在排查问题时提供上下文"
+                  path={childPath(values.dataDirectory, 'logs') || config.logDirectory} />
+              </div>
+            </SettingsGroup>}
+          </>}
 
-        {!loading && activeSection === 'model' && config && <>
-          <SettingsGroup title="模型渠道"
-            description="配置后端调用的大模型服务。"
-            badge="模型">
-            <ProtocolCard />
-            {renderFields(modelFields)}
-          </SettingsGroup>
-          <SettingsGroup title="附件能力"
-            description="控制 Agent 可以发送给模型的文件类型。"
-            badge="附件">
-            <MediaTypeEditor value={values.aiSupportedMediaTypes ?? ''} change={value => change('aiSupportedMediaTypes', value)} />
-          </SettingsGroup>
-          <TabSaveBar scope="模型" hint="保存后端读取到新配置需要重启；模型密钥留空表示保留现有值。"
-            saving={saving} dirty={isTabDirty('model')}
-            onSave={() => void saveTab('model')} onReset={() => resetTab('model')} />
-        </>}
+          {!loading && activeSection === 'model' && config && <>
+            <SettingsGroup title="模型渠道"
+              description="配置后端调用的大模型服务。"
+              badge="模型">
+              <ProtocolCard />
+              {renderFields(modelFields)}
+            </SettingsGroup>
+            <SettingsGroup title="附件能力"
+              description="控制 Agent 可以发送给模型的文件类型。"
+              badge="附件">
+              <MediaTypeEditor value={values.aiSupportedMediaTypes ?? ''} change={value => change('aiSupportedMediaTypes', value)} />
+            </SettingsGroup>
+          </>}
 
-        {!loading && activeSection === 'proxy' && config && <>
-          <SettingsGroup title="AI 接口代理"
-            description="仅影响模型对话与向量接口发出的 HTTP 请求。"
-            badge="HTTP">
-            <BooleanConfigField settingKey="aiProxyEnabled" label="启用 AI HTTP 代理"
-              values={values} config={config} change={change} />
-            {renderFields(aiProxyFields)}
-          </SettingsGroup>
-          <SettingsGroup title="SSH HTTP 代理"
-            description="用于 SSH 连接需要经过 HTTP 代理服务器的场景。"
-            badge="HTTP">
-            <BooleanConfigField settingKey="sshProxyEnabled" label="启用 SSH HTTP 代理"
-              values={values} config={config} change={change} />
-            {renderFields(sshProxyFields)}
-          </SettingsGroup>
-          <TabSaveBar scope="代理" hint="新连接会使用新代理规则；已有 SSH 连接仍按原配置保持。"
-            saving={saving} dirty={isTabDirty('proxy')}
-            onSave={() => void saveTab('proxy')} onReset={() => resetTab('proxy')} />
-        </>}
+          {!loading && activeSection === 'proxy' && config && <>
+            <SettingsGroup title="AI 接口代理"
+              description="仅影响模型对话与向量接口发出的 HTTP 请求。"
+              expanded={values.aiProxyEnabled === 'true'}
+              action={<Toggle label="启用 AI HTTP 代理" value={values.aiProxyEnabled === 'true'}
+                onChange={value => change('aiProxyEnabled', String(value))} />}>
+              {renderFields(aiProxyFields)}
+            </SettingsGroup>
+            <SettingsGroup title="SSH HTTP 代理"
+              description="用于 SSH 连接需要经过 HTTP 代理服务器的场景。"
+              expanded={values.sshProxyEnabled === 'true'}
+              action={<Toggle label="启用 SSH HTTP 代理" value={values.sshProxyEnabled === 'true'}
+                onChange={value => change('sshProxyEnabled', String(value))} />}>
+              {renderFields(sshProxyFields)}
+            </SettingsGroup>
+          </>}
 
-        {!loading && activeSection === 'storage' && config && <>
-          <SettingsGroup title="系统使用哪种存储"
-            description="选择系统实际保存新文件的位置。切换选项时会自动启用对应存储。"
-            badge="存储">
-            <StorageModeSelector values={values} config={config} change={change} />
-          </SettingsGroup>
-          {activeStorageMode === 'local' && <SettingsGroup title="本机存储设置"
-            description="当前已选择本机存储，文件直接保存在这台电脑。"
-            badge="本地">
-            <PathPreviewCard label="文件保存位置" icon="folder"
-              hint="跟随“基础设置”里的统一数据目录，无需单独维护。"
-              path={config.values.localRootDirectory?.environmentOverride
-                ? values.localRootDirectory
-                : childPath(values.dataDirectory, 'files') || values.localRootDirectory || config.uploadDirectory} />
-            {renderFields(localStorageFields)}
-          </SettingsGroup>}
-          {activeStorageMode === 'minio' && <SettingsGroup title="MinIO 对象存储设置"
-            description="当前已选择 MinIO。请确认存储桶已经创建，API 地址不能填写控制台地址。"
-            badge="对象存储">
-            {renderFields(minioFields)}
-          </SettingsGroup>}
-          <TabSaveBar scope="存储" hint="新上传会按新存储设置生效；已有上传不会迁移。"
-            saving={saving} dirty={isTabDirty('storage')}
-            onSave={() => void saveTab('storage')} onReset={() => resetTab('storage')} />
-        </>}
-
-        {error && <p className="settings-banner is-error" role="alert">
-          <Icon name="alert" size={13} />{error}
-        </p>}
-        {result && <p className="settings-banner is-success" role="status">
-          <Icon name="check" size={13} />{result}
-        </p>}
-      </section>
+          {!loading && activeSection === 'storage' && config && <>
+            <SettingsGroup title="文件存储"
+              description="选择系统实际保存新文件的位置。切换选项时会自动启用对应存储。"
+              badge="存储">
+              <StorageModeSelector values={values} config={config} change={change} />
+              <div key={activeStorageMode} className="settings-storage-config">
+                <BooleanConfigField settingKey={activeStorageMode === 'local' ? 'localStorageEnabled' : 'minioEnabled'}
+                  label={activeStorageMode === 'local' ? '启用本地存储' : '启用 MinIO'}
+                  values={values} config={config} change={change} />
+                {activeStorageMode === 'local' ? <>
+                  <PathPreviewCard label="文件保存位置" icon="folder"
+                    hint="跟随基础设置中的统一数据目录。"
+                    path={config.values.localRootDirectory?.environmentOverride
+                      ? values.localRootDirectory
+                      : childPath(values.dataDirectory, 'files') || values.localRootDirectory || config.uploadDirectory} />
+                  {renderFields(localStorageFields)}
+                </> : <>
+                  <p className="settings-field-help">请先创建存储桶，API 地址应填写服务地址。</p>
+                  {renderFields(minioFields)}
+                </>}
+              </div>
+            </SettingsGroup>
+          </>}
+        </section>
+        {(showSaveBar || error || result) && <footer className="settings-footer" aria-label={`${activeDefinition.label}配置操作`}>
+          {(error || result) && <div className="settings-footer-feedback">
+            {error && <p className="settings-banner is-error" role="alert">
+              <Icon name="alert" size={13} />{error}
+            </p>}
+            {result && <p className="settings-banner is-success" role="status">
+              <Icon name="check" size={13} />{result}
+            </p>}
+          </div>}
+          {showSaveBar && <TabSaveBar scope={activeDefinition.label}
+            saveLabel={activeDefinition.saveLabel} hint={activeDefinition.saveHint}
+            saving={saving} dirty={isTabDirty(activeSection)}
+            onSave={() => void saveTab(activeSection)} onReset={() => resetTab(activeSection)} />}
+        </footer>}
+      </div>
     </div>
   </main>;
 }

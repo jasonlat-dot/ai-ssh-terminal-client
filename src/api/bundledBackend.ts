@@ -6,6 +6,8 @@ export type BundledBackendStatus = {
   status: 'starting' | 'running' | 'failed' | 'stopped';
   message: string;
   logPath: string | null;
+  /** 本次启动实际监听的地址；旧版本桌面壳可能不提供。 */
+  backendUrl?: string | null;
 };
 
 export type BundledBackendConfigValue = {
@@ -31,6 +33,13 @@ export type BundledBackendConfigUpdate = {
   /** 只接受 Rust 侧白名单中的逻辑字段名；敏感字段空值表示保留原配置。 */
   values: Record<string, string>;
 };
+
+/** 优先使用运行中的真实地址；旧壳或启动期间回退到已保存配置中的端口。 */
+export function resolveBundledBackendUrl(status: BundledBackendStatus | null, config: BundledBackendConfig | null): string | null {
+  if (status?.backendUrl) return status.backendUrl;
+  const port = Number(config?.values.serverPort?.value);
+  return Number.isInteger(port) && port > 0 && port <= 65535 ? `http://127.0.0.1:${port}` : null;
+}
 
 /** 查询 Tauri 启动阶段保存的后端结果，避免只能从接口网络错误间接判断。 */
 export async function readBundledBackendStatus(): Promise<BundledBackendStatus | null> {

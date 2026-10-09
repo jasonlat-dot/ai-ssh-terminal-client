@@ -3,7 +3,7 @@ import { MarkdownMessage } from './MarkdownMessage';
 import agentRobotAvatar from '../assets/agent-robot-avatar.png';
 import type { ClientChatSession } from '../state/clientChatHistory';
 import type { ChatAttachment, ChatAgentActivity, ChatMessage, ChatToolActivity, Host } from '../types';
-import { Icon } from './Ui';
+import { AccentIcon, Badge, Icon } from './Ui';
 import { CopyMarkdownButton } from './CopyMarkdownButton';
 import { CopyTextButton } from './CopyTextButton';
 import { ChatAttachmentDraft, chatAttachmentPolicy, pastedFiles, insertPastedText, validateChatContent } from '../state/chatAttachments';
@@ -22,9 +22,10 @@ function ToolActivity({ tool, copyable }: { tool: ChatToolActivity; copyable: bo
       : tool.status === 'error' ? '失败' : '状态未知';
   const title = tool.name === 'executeCommand' ? '执行命令' : tool.name;
   const header = <>
-    <Icon name="terminal" size={15} />
+    <AccentIcon icon="terminal" size={15} className="activity-kind-icon" />
     <span className="tool-identity"><span className="tool-name"><strong>{title}</strong>{title !== tool.name && <small>{tool.name}</small>}</span>{tool.command && <code title={tool.command}>{tool.command}</code>}</span>
-    <em className="tool-status"><i aria-hidden="true" />{label}</em>
+    <Badge className="tool-status" tone={tool.status === 'success' ? 'success' : tool.status === 'error' ? 'danger' : tool.status === 'running' ? 'blue' : 'neutral'}
+      icon={tool.status === 'success' ? 'check' : tool.status === 'error' ? 'alert' : tool.status === 'running' ? 'refresh' : 'history'}>{label}</Badge>
   </>;
 
   if (tool.status === 'running') {
@@ -47,7 +48,7 @@ function ToolActivity({ tool, copyable }: { tool: ChatToolActivity; copyable: bo
 function AgentTextActivity({ text, running, copyable }: { text: string; running: boolean; copyable: boolean }) {
   return <details className="agent-activity-thought">
     <summary>
-      <Icon name="bulb" size={15} />
+      <AccentIcon icon="bulb" tone="amber" size={15} className="activity-kind-icon" />
       <span>{running ? '分析中' : '已分析'}</span>
       <small className="agent-activity-thought-open-label">查看文字</small>
       <small className="agent-activity-thought-close-label">收起文字</small>
@@ -71,10 +72,11 @@ function AgentActivity({ agent, copyable }: { agent: ChatAgentActivity; copyable
   const showFinalFallback = Boolean(agent.output && (!hasStreamedText || (agent.status === 'error' && !streamedText.includes(agent.output))));
   return <section className={`agent-activity ${agent.status} ${expanded ? 'expanded' : 'collapsed'}`} aria-label={`子智能体 ${agent.name}：${label}`}>
     <button type="button" className="agent-activity-header" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>
-      <Icon name="bot" size={16} />
+      <AccentIcon icon="bot" size={16} className="activity-kind-icon" />
       <span className="agent-activity-title"><small>派发子智能体</small><strong>{agent.name}</strong></span>
       <span className="agent-activity-disclosure">{expanded ? '收起过程' : agent.status === 'running' ? '查看实时过程' : '查看过程'}</span>
-      <em className="tool-status"><i aria-hidden="true" />{label}</em>
+      <Badge className="tool-status" tone={agent.status === 'success' ? 'success' : agent.status === 'error' ? 'danger' : agent.status === 'running' ? 'blue' : 'neutral'}
+        icon={agent.status === 'success' ? 'check' : agent.status === 'error' ? 'alert' : agent.status === 'running' ? 'refresh' : 'history'}>{label}</Badge>
       <span className={`agent-activity-chevron ${expanded ? 'expanded' : ''}`} aria-hidden="true" />
     </button>
     {agent.task && <p className="agent-activity-task">{agent.task}</p>}
@@ -304,10 +306,12 @@ export function AgentPanel({ chatDraft, draftScope, host, connected, localTermin
     </section>
 
     <form className="chat-composer" aria-hidden={collapsed} onSubmit={event => { event.preventDefault(); void submit(); }}>
-      {localTerminal && <div className="composer-agent-status local-terminal" role="status">
+      {localTerminal && <div className="composer-agent-status local-terminal" data-accent="neutral" role="status">
+        <Icon name="monitor" size={15} />
         <span>本地 CMD 仅在客户端运行，Agent 无法绑定该终端，也不会收到本地会话 ID。</span>
       </div>}
-      {!agentAvailability.ready && <div className={`composer-agent-status ${agentAvailability.error ? 'error' : ''}`} role="status">
+      {!agentAvailability.ready && <div className={`composer-agent-status ${agentAvailability.error ? 'error' : ''}`} data-accent={agentAvailability.error ? 'danger' : 'amber'} role="status">
+        <Icon name={agentAvailability.error ? 'alert' : 'bot'} size={15} />
         <span>{agentAvailability.loading ? '正在加载智能体，你可以先编辑草稿。' : agentAvailability.error || '智能体暂不可用，草稿可以继续编辑。'}</span>
         {!agentAvailability.loading && <button type="button" onClick={agentAvailability.retry}><Icon name="refresh" size={13} />重试加载</button>}
       </div>}

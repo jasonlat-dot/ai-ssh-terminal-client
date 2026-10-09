@@ -1,6 +1,6 @@
 .modal.file-upload-modal { width: min(680px, 100%); max-height: calc(100dvh - 48px); border-radius: 14px; color: var(--theme-text-strong); background: var(--theme-panel); }
 .modal.file-upload-modal > header { padding: 18px 22px; background: var(--theme-panel); }
-.modal.file-upload-modal h2 { font-size: 17px; font-weight: 650; color: var(--theme-text-strong); }
+.modal.file-upload-modal h2 { font-size: 17px; font-weight: var(--weight-title); color: var(--theme-text-strong); }
 .file-upload-content { padding: 0 22px 20px; }
 .file-upload-intro { margin: 16px 0; color: var(--theme-text-muted); font-size: 12px; line-height: 1.7; }
 .file-upload-picker { display: flex; width: 100%; flex-direction: column; align-items: center; justify-content: center; gap: 7px; padding: 20px; border: 1px dashed var(--line-strong); border-radius: 12px; color: var(--theme-text-strong); background: var(--theme-panel-soft); transition: background .18s, border-color .18s; }

@@ -1,0 +1,93 @@
+/* Shared reading hierarchy. Code and terminal output keep their own font sizes. */
+:root :is(.app-shell, .modal) {
+  font-family: var(--font-ui);
+  font-size: var(--font-body);
+  font-weight: var(--weight-body);
+  line-height: 1.6;
+}
+
+:root :is(.app-shell, .modal) :is(button, input, textarea, select) {
+  font-family: var(--font-ui);
+  font-size: var(--font-body);
+}
+:root :is(.app-shell, .modal) button { font-weight: var(--weight-label); }
+:root :is(.app-shell, .modal) :is(input, textarea, select) { font-weight: var(--weight-body); }
+:root :is(.app-shell, .modal) :is(input, textarea)::placeholder { font-weight: var(--weight-body); }
+
+:root :is(.section-heading h2, .panel-title h2, .agent-heading h2, .session-file-panel h2, .card-heading h3, .conversation-card h3) {
+  font-size: var(--font-title);
+  font-weight: var(--weight-title);
+  line-height: 1.4;
+  letter-spacing: normal;
+}
+:root :is(.connections-heading h1, .modal > header h2, .ssh-connection-modal > header h2, .delete-connection-modal > header h2, .disconnect-dialog > header h2) {
+  font-size: var(--font-page-title);
+  font-weight: var(--weight-title);
+  line-height: 1.4;
+  letter-spacing: normal;
+}
+:root :is(.activity strong, .host-sidebar-heading strong, .sidebar-host strong, .host-row-identity strong, .command-name, .conversation-title strong, .agent-history-title, .file-explorer-title strong, .file-source-heading strong, .ssh-form-section-heading) {
+  font-size: var(--font-body);
+  font-weight: var(--weight-title);
+  line-height: 1.5;
+  letter-spacing: normal;
+}
+:root :is(.activity small, .host-sidebar-heading small, .sidebar-host small, .sidebar-host em, .host-row-meta, .panel-title small, .command-list-heading small, .conversation-title small, .agent-history-meta, .file-explorer-title small, .file-source-heading small, .file-list-heading small, .sftp-entry-meta, .terminal-font-hint small, .chat-attachment-meta, .upload-file-name small) {
+  font-family: var(--font-ui);
+  font-size: var(--font-caption);
+  font-weight: var(--weight-body);
+  line-height: 1.5;
+  letter-spacing: normal;
+}
+:root :is(.sidebar-host-state small, .host-row-identity small, .file-current-path, .path-bar input) {
+  font-family: var(--font-ui);
+  font-size: var(--font-small);
+  font-weight: var(--weight-body);
+  line-height: 1.5;
+  letter-spacing: normal;
+}
+:root :is(.sidebar-host-search input, .terminal-tab > button[role='tab'], .new-terminal-button, .terminal-toolbar, .remote-terminal-tools button, .terminal-shortcut-hint, .command-categories button, .command-categories button > span, .command-list-heading, .file-mini-action, .host-row-actions button, .host-card-action) {
+  font-size: var(--font-small);
+  font-weight: var(--weight-label);
+  letter-spacing: normal;
+}
+:root :is(.command-categories button > span, .command-category-picker button, .ssh-auth-switch label, .ssh-boolean-switch button) {
+  font-weight: var(--weight-label);
+}
+:root :is(.connections-heading p, .connection-feedback, .command-hint, .command-persistence-note, .agent-chat-empty p, .ssh-connection-modal .modal-description, .ssh-dialog-grid label, .ssh-credential-field, .ssh-setting-field, .file-list-heading, .sftp-empty, .file-source-card .empty-folder, .transfer-empty, .notification-content p) {
+  font-size: var(--font-small);
+  font-weight: var(--weight-body);
+  line-height: 1.65;
+}
+:root :is(.file-source-card .file-row, .tool-activity, .agent-activity-disclosure, .agent-activity-task, .agent-activity-thought summary, .agent-activity-empty, .tool-empty-result, .advice-card > div, .welcome-note p) {
+  font-size: var(--font-body);
+  font-weight: var(--weight-body);
+  line-height: 1.65;
+}
+:root :is(.chat-composer textarea, .conversation-only .chat-composer textarea) {
+  font-size: var(--font-body);
+  font-weight: var(--weight-body);
+  line-height: 1.7;
+}
+:root :is(.app-shell, .modal) :is(.code-input, .ssh-credential-field textarea, .ssh-known-hosts-field textarea, .terminal-paste-popover textarea) {
+  font-family: var(--mono);
+  font-weight: var(--weight-body);
+}
+:root .settings-page :is(.settings-control-textarea, .settings-control-mono) {
+  font-family: var(--mono);
+  font-weight: var(--weight-body);
+}
+:root :is(.command-fill code, .command-dialog-preview code, .tool-activity .tool-identity code, .tool-activity pre, .ssh-known-hosts-field small code) {
+  font-family: var(--mono);
+  font-size: var(--font-small);
+  font-weight: var(--weight-body);
+  line-height: 1.6;
+}
+:root .markdown-message .markdown-body { font-size: 14px; font-weight: var(--weight-body); }
+:root .markdown-message .markdown-body :is(h1, h2, h3, h4, h5, h6, strong, th) { font-weight: var(--weight-title); }
+:root .markdown-message .markdown-body :is(code, pre) { font-family: var(--mono); }
+:root .markdown-message .markdown-body :is(code, pre code) { font-size: var(--font-small); font-weight: var(--weight-body); }
+:root :is(.command-categories button > .ui-badge, .file-source-heading > span:last-child > .ui-badge, .chat-attachment-meta .ui-badge, .tool-status.ui-badge) {
+  font-size: var(--font-caption);
+  font-weight: var(--weight-label);
+}

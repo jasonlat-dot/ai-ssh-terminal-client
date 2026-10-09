@@ -4,19 +4,23 @@ import type { UploadItem } from '../state/fileUploads';
 import type { ChatAttachmentDraft } from '../state/chatAttachments';
 import { formatFileSize } from '../config/fileUpload';
 import { DownloadButton } from './FileUploadDialog';
-import { Icon, IconButton } from './Ui';
+import { Badge, Icon, IconButton, fileTone } from './Ui';
 import './ChatAttachments.css';
 
 function Preview({ name, url }: { name: string; url?: string }) {
   const [failed, setFailed] = useState(false);
   useEffect(() => setFailed(false), [url]);
-  return <span className="chat-attachment-preview">{url && !failed
+  return <span className="chat-attachment-preview" data-accent={fileTone(name)}>{url && !failed
     ? <img src={url} alt={name} onError={() => setFailed(true)} /> : <Icon name="file" size={22} />}</span>;
 }
 export function DraftAttachments({ items, draft, locked, report }: { items: readonly UploadItem[]; draft: ChatAttachmentDraft; locked: boolean; report: (error: string) => void }) {
   return <ul className="chat-draft-attachments" aria-label="本次消息附件">{items.map(item => <li className={`chat-attachment ${item.status}`} key={item.id}>
     <Preview name={item.name} url={item.previewUrl} />
-    <div className="chat-attachment-body"><strong title={item.name}>{item.name}</strong><small>{formatFileSize(item.size)} · {item.status === 'success' ? item.referenced ? '已附加' : '上传成功' : item.status === 'uploading' ? '上传中' : item.status === 'queued' ? '等待上传' : '上传失败'}</small>
+    <div className="chat-attachment-body"><strong title={item.name}>{item.name}</strong><small className="chat-attachment-meta">{formatFileSize(item.size)}
+      <Badge tone={item.status === 'success' ? 'success' : item.status === 'error' ? 'danger' : item.status === 'queued' ? 'amber' : 'blue'}
+        icon={item.status === 'success' ? 'check' : item.status === 'error' ? 'alert' : item.status === 'queued' ? 'history' : 'refresh'}>
+        {item.status === 'success' ? item.referenced ? '已附加' : '上传成功' : item.status === 'uploading' ? '上传中' : item.status === 'queued' ? '等待上传' : '上传失败'}
+      </Badge></small>
       {item.status === 'uploading' && <i className="file-upload-spinner" aria-label="正在上传" />}
       {item.error && <p role="alert">{item.error}</p>}
       {item.uncertain && <p>重试可能产生新文件。</p>}

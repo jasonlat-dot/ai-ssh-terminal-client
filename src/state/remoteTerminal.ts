@@ -33,6 +33,7 @@ export class RemoteTerminal implements TerminalRuntime {
   manuallyClosed = false;
   disconnectReason: TerminalDisconnectReason | null = null;
   reconnectAllowed = false;
+  transportAvailable = true;
   private closing = false;
   private paused: boolean;
   private writeQueue: Promise<unknown> = Promise.resolve();
@@ -40,6 +41,7 @@ export class RemoteTerminal implements TerminalRuntime {
   private output?: (data: string) => void;
   private report?: (error: string) => void;
   private reportDisconnect?: (event: TerminalDisconnectEvent) => void;
+  private reportTransport?: (available: boolean) => void;
   private backlog: string;
   private pollingGeneration = 0;
   private generation = 0;
@@ -101,16 +103,40 @@ export class RemoteTerminal implements TerminalRuntime {
     if (this.isDisconnectOutput(data)) this.markDisconnected('CHANNEL_DISCONNECTED', false);
   }
 
+  private setTransportAvailable(available: boolean) {
+    if (this.transportAvailable === available) return;
+    this.transportAvailable = available;
+    this.reportTransport?.(available);
+  }
+
+  private reportRequestFailure(error: unknown) {
+    // A business error can still come from a reachable backend.
+    if (error instanceof SshRequestError && error.kind !== 'application') this.setTransportAvailable(false);
+  }
+
   private enqueueWrite<T>(action: () => Promise<T>): Promise<T> {
     const next = this.writeQueue.then(action);
     this.writeQueue = next.catch(() => undefined);
     return next;
   }
 
-  subscribe(output: (data: string) => void, report: (error: string) => void, reportDisconnect?: (event: TerminalDisconnectEvent) => void) {
+  private async request<T>(action: () => Promise<T>): Promise<T> {
+    const version = this.lifecycleVersion;
+    try {
+      return await action();
+    } catch (error) {
+      if (version === this.lifecycleVersion && !this.closed && !this.manuallyClosed) this.reportRequestFailure(error);
+      throw error;
+    }
+  }
+
+  subscribe(output: (data: string) => void, report: (error: string) => void, reportDisconnect?: (event: TerminalDisconnectEvent) => void, reportTransport?: (available: boolean) => void) {
     this.output = output;
     this.report = report;
     this.reportDisconnect = reportDisconnect;
+    this.reportTransport = reportTransport;
+    // Only an actual response can confirm recovery; subscription is not a health check.
+    if (!this.transportAvailable) reportTransport?.(false);
     if (this.backlog) { output(this.backlog); this.backlog = ''; }
     const generation = ++this.generation;
     if (this.disconnected) {
@@ -126,6 +152,7 @@ export class RemoteTerminal implements TerminalRuntime {
       this.output = undefined;
       this.report = undefined;
       this.reportDisconnect = undefined;
+      this.reportTransport = undefined;
     };
   }
 
@@ -173,8 +200,10 @@ export class RemoteTerminal implements TerminalRuntime {
         default:
           throw new Error(`未知的终端读取状态：${String(result.status)}`);
       }
+      this.setTransportAvailable(true);
     } catch (error) {
       if (!this.isActive(generation)) return;
+      this.reportRequestFailure(error);
       const message = error instanceof Error ? error.message : '读取终端失败';
       if (error instanceof SshRequestError && error.code === 'S0003') {
         console.info(`Terminal read 返回 S0003，先校验原会话 sessionId=${this.sessionId}`);
@@ -190,7 +219,7 @@ export class RemoteTerminal implements TerminalRuntime {
         this.readFailureCount += 1;
         nextDelay = READ_RETRY_DELAYS[Math.min(this.readFailureCount - 1, READ_RETRY_DELAYS.length - 1)];
         console.info(`Terminal Long Poll 请求失败，重试原会话 sessionId=${this.sessionId} failure=${this.readFailureCount} retryDelayMs=${nextDelay} reason=${message}`);
-        this.report?.(`${message}；将保留当前会话并在 ${Math.ceil(nextDelay / 1000)} 秒后重试读取。`);
+        this.report?.(`${message.replace(/[。；\s]+$/, '')}；将保留当前会话并在 ${Math.ceil(nextDelay / 1000)} 秒后重试读取。`);
       }
     } finally {
       if (this.readController === controller) this.readController = undefined;
@@ -212,11 +241,18 @@ export class RemoteTerminal implements TerminalRuntime {
         disconnectReason: 'CLIENT_CLOSED', reconnectAllowed: false };
     }
     const version = this.lifecycleVersion;
-    const state = await terminalApi.connected(this.sessionId);
+    let state: TerminalConnectionState;
+    try {
+      state = await terminalApi.connected(this.sessionId);
+    } catch (error) {
+      if (version === this.lifecycleVersion && !this.manuallyClosed) this.reportRequestFailure(error);
+      throw error;
+    }
     if (version !== this.lifecycleVersion || this.manuallyClosed) {
       throw new DOMException('终端状态查询已取消', 'AbortError');
     }
     const connected = state.connected === true && state.sessionId === this.sessionId && state.connectionId === this.connectionId;
+    this.setTransportAvailable(true);
     if (!connected) {
       const reason = state.disconnectReason ?? 'SESSION_NOT_FOUND';
       this.markDisconnected(reason, state.reconnectAllowed === true);
@@ -250,22 +286,23 @@ export class RemoteTerminal implements TerminalRuntime {
   private assertWritable() {
     if (this.closed || this.closing || this.manuallyClosed) throw new Error('终端会话已关闭，请点击“重新连接”恢复会话。');
     if (this.disconnected) throw new Error('终端连接已断开，请先重新连接。');
+    if (!this.transportAvailable) throw new Error('后端服务暂不可达，请等待连接恢复或重试读取。');
     if (this.paused) throw new Error('终端读取已暂停，请先重试读取。');
   }
 
   exec(command: string) {
-    return this.enqueueWrite(async () => { this.assertWritable(); await terminalApi.write(this.sessionId, `${command}\r`); });
+    return this.enqueueWrite(async () => { this.assertWritable(); await this.request(() => terminalApi.write(this.sessionId, `${command}\r`)); });
   }
 
   write(input: string) {
-    return this.enqueueWrite(async () => { this.assertWritable(); await terminalApi.write(this.sessionId, input); });
+    return this.enqueueWrite(async () => { this.assertWritable(); await this.request(() => terminalApi.write(this.sessionId, input)); });
   }
 
   async resize(cols: number, rows: number) {
-    if (this.closed || this.closing || this.paused || this.disconnected || this.manuallyClosed) return;
+    if (this.closed || this.closing || this.paused || this.disconnected || this.manuallyClosed || !this.transportAvailable) return;
     const size = `${cols}:${rows}`;
     if (size === this.lastSize) return;
-    await terminalApi.resize(this.sessionId, cols, rows);
+    await this.request(() => terminalApi.resize(this.sessionId, cols, rows));
     this.lastSize = size;
   }
 

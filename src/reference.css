@@ -17,16 +17,15 @@
   --agent: 406px;
   color: var(--text);
   background: var(--bg);
-  font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
-  font-size: 12px;
+  font-family: var(--font-ui);
+  font-size: var(--font-body);
 }
 .app-shell { grid-template-rows: 64px minmax(0, 1fr) 34px; column-gap: 10px; background: radial-gradient(ellipse at 50% 15%, #e7f1ff 0, #f4f8ff 70%); }
 .app-header { gap: 24px; padding: 0 24px; background: #ffffffc9; border-color: #e7effb; border-radius: 0 0 13px 13px; }
 .brand { gap: 16px; }
 .brand strong { font-size: 21px; letter-spacing: -.4px; }
 .brand small { display: block; font-size: 10px; color: var(--muted); margin-top: -1px; }
-.brand-mark { width: 34px; height: 34px; border: 0; border-radius: 11px; background: conic-gradient(from 10deg, #274dff, #6860ff, #b79aff, #5876ff, #274dff); transform: rotate(-8deg); box-shadow: inset 2px 1px 2px #ffffff70; }
-.brand-mark span { width: 18px; height: 18px; background: white; border-radius: 6px; transform: rotate(18deg); }
+.brand-mark { display: block; width: 34px; height: 34px; border: 0; object-fit: contain; flex-shrink: 0; }
 .project-select { background: #edf3fb; width: 152px; height: 34px; border: 0; border-radius: 9px; font-size: 12px; }
 .project-select > span { margin-right: auto; }
 .project-select > svg { color: #6c82b3; }
@@ -183,7 +182,7 @@
 .tool-activity summary::-webkit-details-marker { display: none; }
 .tool-activity summary span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .tool-activity .tool-identity { display: flex; align-items: center; gap: 7px; }
-.tool-activity .tool-identity strong { flex-shrink: 0; color: #1c365e; font-weight: 650; }
+.tool-activity .tool-identity strong { flex-shrink: 0; color: #1c365e; font-weight: var(--weight-title); }
 .tool-activity .tool-identity code { min-width: 0; overflow: hidden; padding: 2px 6px; border: 1px solid #dce6f3; border-radius: 5px; color: #536b91; background: white; font: 9px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace; text-overflow: ellipsis; white-space: nowrap; }
 .tool-activity summary em { color: #687b9f; }
 .tool-activity.running summary em { color: #d28a00; }
@@ -217,7 +216,7 @@
 .markdown-body > :first-child { margin-top: 0; }
 .markdown-body > :last-child { margin-bottom: 0; }
 .markdown-body p, .markdown-body ul, .markdown-body ol, .markdown-body blockquote, .markdown-body pre, .markdown-body table { margin: 0 0 9px; }
-.markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4 { margin: 14px 0 7px; color: #10284f; font-weight: 650; line-height: 1.35; }
+.markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4 { margin: 14px 0 7px; color: #10284f; font-weight: var(--weight-title); line-height: 1.35; }
 .markdown-body h1 { font-size: 16px; }
 .markdown-body h2 { font-size: 14px; }
 .markdown-body h3 { font-size: 13px; }
@@ -226,14 +225,14 @@
 .markdown-body li + li { margin-top: 3px; }
 .markdown-body li > p { margin: 0; }
 .markdown-body a { color: #176df2; text-decoration: underline; text-underline-offset: 2px; }
-.markdown-body strong { color: #132b52; font-weight: 650; }
+.markdown-body strong { color: #132b52; font-weight: var(--weight-title); }
 .markdown-body blockquote { padding: 7px 10px; border-left: 3px solid #64cdb6; border-radius: 0 7px 7px 0; color: #546a8d; background: #f1faf7; }
 .markdown-body code { padding: 1px 4px; border: 1px solid #dfe7f3; border-radius: 4px; color: #bd3651; background: #f5f7fb; font: 10px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace; }
 .markdown-body pre { max-width: 100%; overflow: auto; padding: 10px 11px; border: 1px solid #dbe5f2; border-radius: 8px; color: #d9e7ff; background: #152238; }
 .markdown-body pre code { padding: 0; border: 0; color: inherit; background: transparent; white-space: pre; }
 .markdown-body table { display: block; width: 100%; overflow-x: auto; border-spacing: 0; border-collapse: collapse; }
 .markdown-body th, .markdown-body td { min-width: 72px; padding: 6px 8px; border: 1px solid #dce6f4; text-align: left; vertical-align: top; }
-.markdown-body th { color: #17345f; font-weight: 650; background: #eef5ff; }
+.markdown-body th { color: #17345f; font-weight: var(--weight-title); background: #eef5ff; }
 .markdown-body tr:nth-child(even) td { background: #f8fafd; }
 .markdown-body hr { height: 1px; margin: 13px 0; border: 0; background: var(--line); }
 .markdown-body input[type='checkbox'] { margin: 0 5px 0 0; accent-color: #00ae8d; }
@@ -387,7 +386,7 @@
 .host-symbol { display: grid; place-items: center; width: 44px; height: 45px; color: #2675ff; flex-shrink: 0; }
 .host-identity { flex: 1; min-width: 0; }
 .host-title-line { display: flex; align-items: center; gap: 9px; height: 22px; min-width: 0; }
-.host-identity h2 { font-size: 14px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.host-identity h2 { font-size: 14px; font-weight: var(--weight-title); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .ssh-host-card .icon-button { color: #7e92b7; flex-shrink: 0; }
 .ssh-host-card > header > .icon-button { position: absolute; right: 12px; top: 10px; width: 22px; height: 22px; }
 .ssh-host-card > header > .icon-button svg { width: 17px; height: 17px; }
@@ -406,7 +405,7 @@
 .ssh-host-card dt { display: flex; align-items: center; gap: 10px; color: #8092b4; white-space: nowrap; }
 .ssh-host-card dd { margin: 0; color: #4b628e; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
 .ssh-host-card footer { display: flex; align-items: center; gap: 7px; margin-top: auto; padding: 0; border: 0; }
-.host-card-action { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 34px; padding: 6px 11px; border: 1px solid transparent; border-radius: 7px; font-size: 11px; font-weight: 550; white-space: nowrap; transition: color .18s ease, background .18s ease, border-color .18s ease, box-shadow .18s ease, transform .18s ease; }
+.host-card-action { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 34px; padding: 6px 11px; border: 1px solid transparent; border-radius: 7px; font-size: 11px; font-weight: var(--weight-label); white-space: nowrap; transition: color .18s ease, background .18s ease, border-color .18s ease, box-shadow .18s ease, transform .18s ease; }
 .host-card-action:hover:not(:disabled) { transform: translateY(-1px); }
 .host-card-action:active:not(:disabled) { transform: translateY(0) scale(.98); }
 .host-card-action:focus-visible { outline: 3px solid #79a9f56b; outline-offset: 2px; }
@@ -451,7 +450,7 @@
 .delete-host-summary { display: flex; align-items: center; gap: 17px; padding: 15px 18px; border: 1px solid #d9e5f7; border-radius: 9px; background: #fff; box-shadow: 0 4px 12px #376aa00b; }
 .delete-host-summary > span { display: grid; place-items: center; width: 50px; height: 50px; flex: 0 0 50px; border-radius: 50%; background: #f4f8ff; color: #2675ff; }
 .delete-host-summary > div { display: flex; min-width: 0; flex-direction: column; gap: 5px; }
-.delete-host-summary strong { overflow: hidden; color: #142b50; font-size: 16px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.delete-host-summary strong { overflow: hidden; color: #142b50; font-size: 16px; font-weight: var(--weight-title); text-overflow: ellipsis; white-space: nowrap; }
 .delete-host-summary small { color: #6880a8; font-size: 13px; font-variant-numeric: tabular-nums; }
 .delete-dialog-error { margin: 14px 0 0 !important; padding: 9px 11px; border-radius: 6px; background: #fff0ef; color: #a63732 !important; }
 .delete-dialog-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 22px; padding-top: 18px; border-top: 1px solid #dce6f4; }
@@ -502,7 +501,7 @@
 .session-file-panel { display: flex; flex-direction: column; gap: 10px; min-width: 0; min-height: 0; color: var(--text); }
 .session-file-panel .files-section { min-height: 190px; padding: 15px 14px 9px; border: 1px solid #dce8fb; border-radius: 11px; background: #ffffffc9; overflow: hidden; }
 .session-file-panel .section-heading { margin: 0; min-height: 28px; padding: 0; }
-.session-file-panel h2 { font-size: 16px; font-weight: 650; }
+.session-file-panel h2 { font-size: 16px; font-weight: var(--weight-title); }
 .session-file-panel .inline-actions { gap: 5px; }
 .session-file-panel .icon-button { width: 25px; height: 25px; color: #6688bb; }
 .session-file-panel .icon-button svg { width: 18px; height: 18px; }
@@ -521,7 +520,7 @@
 .session-file-panel .file-tree-scroll { padding-bottom: 4px; }
 .session-file-panel .transfers { margin: 0; padding: 13px 14px; border: 1px solid #dce8fb; border-radius: 11px; background: #ffffffd9; box-shadow: none; display: flex; flex-direction: column; gap: 10px; max-height: 38%; min-height: 0; flex-shrink: 0; overflow: auto; }
 .transfer-heading { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-shrink: 0; }
-.session-file-panel .transfers h3 { font-size: 14px; font-weight: 650; }
+.session-file-panel .transfers h3 { font-size: 14px; font-weight: var(--weight-title); }
 .transfer-heading .text-button { color: #2675ff; font-size: 10px; }
 .transfer-empty { border: 1px dashed #d4e3fc; border-radius: 8px; padding: 12px 6px; text-align: center; }
 .transfer-empty > div { display: flex; justify-content: center; align-items: center; gap: 9px; }
@@ -606,7 +605,7 @@
 .ssh-connection-modal-backdrop { background: #18243966; backdrop-filter: blur(4px); animation: ssh-backdrop-enter .18s ease-out; }
 .modal.ssh-connection-modal { position: relative; width: min(560px, 100%); max-height: calc(100dvh - 48px); overflow: auto; padding: 24px; border: 1px solid var(--line); border-radius: 16px; background: var(--theme-panel); box-shadow: 0 24px 80px #08162938; color: var(--theme-text-strong); animation: ssh-dialog-enter .22s cubic-bezier(.2, .8, .2, 1); }
 .modal.ssh-connection-modal > header { min-height: 24px; padding: 0 32px 0 56px; border: 0; background: transparent; }
-.ssh-connection-modal > header h2 { margin: 0; font-size: 19px; line-height: 1.4; font-weight: 650; letter-spacing: -.3px; }
+.ssh-connection-modal > header h2 { margin: 0; font-size: 19px; line-height: 1.4; font-weight: var(--weight-title); letter-spacing: -.3px; }
 .ssh-connection-modal > header .icon-button { position: absolute; top: 18px; right: 18px; width: 28px; height: 28px; border-radius: 8px; color: var(--theme-text-muted); }
 .ssh-connection-modal > header .icon-button:hover { background: var(--theme-hover); }
 .ssh-dialog-intro { padding-left: 56px; margin: 4px 0 24px; }
@@ -616,10 +615,10 @@
 .ssh-dialog-form fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
 .ssh-form-section { min-width: 0; }
 .ssh-form-section + .ssh-form-section { margin-top: 22px; padding-top: 20px; border-top: 1px solid var(--line); }
-.ssh-form-section-heading { margin: 0 0 14px; color: var(--theme-text-strong); font-size: 13px; line-height: 1.5; font-weight: 650; }
+.ssh-form-section-heading { margin: 0 0 14px; color: var(--theme-text-strong); font-size: 13px; line-height: 1.5; font-weight: var(--weight-title); }
 .ssh-dialog-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .ssh-endpoint-grid { display: grid; grid-template-columns: minmax(0, 1fr) 100px; gap: 16px; }
-.ssh-dialog-grid label, .ssh-credential-field, .ssh-setting-field { display: flex; min-width: 0; flex-direction: column; gap: 7px; color: var(--theme-text-muted); font-size: 12px; font-weight: 550; }
+.ssh-dialog-grid label, .ssh-credential-field, .ssh-setting-field { display: flex; min-width: 0; flex-direction: column; gap: 7px; color: var(--theme-text-muted); font-size: 12px; font-weight: var(--weight-label); }
 .ssh-dialog-grid input, .ssh-dialog-grid select, .ssh-dialog-grid textarea, .ssh-credential-field input, .ssh-credential-field textarea { width: 100%; min-width: 0; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--theme-panel); color: var(--theme-text-strong); font-size: 13px; transition: border-color .18s, box-shadow .18s; }
 .ssh-dialog-grid input, .ssh-dialog-grid select, .ssh-credential-field input { height: 38px; padding: 8px 11px; }
 .ssh-dialog-grid input::placeholder, .ssh-dialog-grid textarea::placeholder, .ssh-credential-field input::placeholder, .ssh-credential-field textarea::placeholder { color: var(--theme-text-muted); font-size: 12px; font-weight: 400; opacity: .85; }
@@ -629,7 +628,7 @@
 .ssh-auth-switch { position: relative; isolation: isolate; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 220px; padding: 3px; border: 1px solid var(--line); border-radius: 9px; background: var(--theme-control); }
 .ssh-auth-switch::before { position: absolute; z-index: -1; inset: 3px auto 3px 3px; width: calc(50% - 3px); border-radius: 6px; background: var(--theme-panel); box-shadow: 0 1px 4px #08162914, inset 0 0 0 1px var(--line); content: ''; transition: transform .22s cubic-bezier(.2, .8, .2, 1); }
 .ssh-auth-switch[data-method='key']::before { transform: translateX(100%); }
-.ssh-auth-switch label { position: relative; display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 30px; border-radius: 6px; color: var(--theme-text-muted); cursor: pointer; font-size: 12px; font-weight: 550; transition: color .18s; }
+.ssh-auth-switch label { position: relative; display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 30px; border-radius: 6px; color: var(--theme-text-muted); cursor: pointer; font-size: 12px; font-weight: var(--weight-label); transition: color .18s; }
 .ssh-auth-switch label.selected { color: var(--theme-accent-text); }
 .ssh-auth-switch label:hover { color: var(--theme-text-strong); }
 .ssh-auth-switch input { position: absolute; width: 1px; height: 1px; padding: 0; border: 0; overflow: hidden; clip-path: inset(50%); }
@@ -639,15 +638,15 @@
 .ssh-credential-field { margin: 0; animation: ssh-field-enter .18s ease-out; }
 .ssh-credential-field textarea { min-height: 100px; padding: 10px 11px; resize: vertical; font: 12px/1.6 Consolas, monospace; }
 .ssh-boolean-switch { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); overflow: hidden; height: 36px; padding: 3px; border: 1px solid var(--line); border-radius: 8px; background: var(--theme-control); }
-.ssh-boolean-switch button { justify-content: center; border: 0; border-radius: 5px; background: transparent; color: var(--theme-text-muted); font-size: 12px; font-weight: 550; transition: color .18s ease, background .18s ease, box-shadow .18s ease; }
+.ssh-boolean-switch button { justify-content: center; border: 0; border-radius: 5px; background: transparent; color: var(--theme-text-muted); font-size: 12px; font-weight: var(--weight-label); transition: color .18s ease, background .18s ease, box-shadow .18s ease; }
 .ssh-boolean-switch button:hover:not(.selected) { color: var(--theme-accent-text); background: var(--theme-hover); }
 .ssh-boolean-switch button.selected { color: var(--theme-accent-text); background: var(--theme-panel); box-shadow: 0 1px 4px #08162914, inset 0 0 0 1px var(--line); }
 .ssh-known-hosts-field textarea { min-height: 92px; padding: 10px 11px; resize: vertical; font: 12px/1.6 Consolas, monospace; }
 .ssh-known-hosts-field small { color: var(--theme-text-muted); font-size: 11px; font-weight: 400; line-height: 1.55; }
-.ssh-known-hosts-field small strong { color: var(--theme-text-strong); font-weight: 650; }
+.ssh-known-hosts-field small strong { color: var(--theme-text-strong); font-weight: var(--weight-title); }
 .ssh-known-hosts-field small code { padding: 1px 4px; border-radius: 4px; background: var(--theme-control); color: var(--theme-text-strong); font: 10px/1.5 Consolas, monospace; }
 .ssh-advanced-settings { margin-top: 20px; border-top: 1px solid var(--line); }
-.ssh-advanced-settings summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 14px 0 0; color: var(--theme-text-muted); cursor: pointer; font-size: 12px; font-weight: 550; list-style: none; }
+.ssh-advanced-settings summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 14px 0 0; color: var(--theme-text-muted); cursor: pointer; font-size: 12px; font-weight: var(--weight-label); list-style: none; }
 .ssh-advanced-settings summary > span { display: flex; align-items: center; gap: 7px; }
 .ssh-advanced-settings summary:hover { color: var(--theme-accent-text); }
 .ssh-advanced-settings summary::-webkit-details-marker { display: none; }
@@ -735,7 +734,7 @@
   box-shadow: 0 8px 20px #26364b24;
   white-space: nowrap;
 }
-.new-agent-session strong { font-size: 11px; font-weight: 650; }
+.new-agent-session strong { font-size: 11px; font-weight: var(--weight-title); }
 .new-agent-session kbd {
   padding: 2px 6px;
   border: 0;
@@ -944,8 +943,7 @@
   background: #fff;
 }
 .brand { gap: 10px; }
-.brand-mark { width: 28px; height: 28px; border-radius: 8px; }
-.brand-mark span { width: 14px; height: 14px; border-radius: 4px; }
+.brand-mark { width: 28px; height: 28px; }
 .brand strong { font-size: 17px; }
 .brand small { display: none; }
 .profile { margin-left: auto; }
@@ -983,7 +981,7 @@
 .connections-heading .eyebrow { display: block; margin-bottom: 3px; color: #9aa4b2; font: 600 8px/1.2 ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .14em; }
 .connections-heading h1 { font-size: 20px; letter-spacing: -.35px; }
 .connections-heading p { margin-top: 3px; font-size: 10px; }
-.connections-heading p strong { color: #089b75; font-weight: 650; }
+.connections-heading p strong { color: #089b75; font-weight: var(--weight-title); }
 .connections-heading > .primary-button { min-height: 33px; padding: 6px 12px; border-radius: 6px; box-shadow: none; }
 .connections-page .connection-create-button,
 .connections-page .connection-create-button:hover:not(:disabled) { border-color: #242b35; background: #242b35; box-shadow: none; transform: none; }
@@ -1044,7 +1042,7 @@
 .host-row-main:focus-visible { outline: 2px solid #4a8bdd; outline-offset: -2px; }
 .host-row-main .host-symbol { width: 34px; height: 34px; border-radius: 7px; color: #3973b8; background: #edf4fc; }
 .host-row-identity { display: flex; min-width: 0; flex-direction: column; gap: 4px; }
-.host-row-identity strong { overflow: hidden; color: #243348; font-size: 12px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.host-row-identity strong { overflow: hidden; color: #243348; font-size: 12px; font-weight: var(--weight-title); text-overflow: ellipsis; white-space: nowrap; }
 .host-row-identity small { overflow: hidden; color: var(--workbench-muted); font: 10px/1.3 ui-monospace, SFMono-Regular, Consolas, monospace; text-overflow: ellipsis; white-space: nowrap; }
 .host-row-meta { display: flex; gap: 13px; color: #7d899a; font-size: 9px; }
 .host-row-meta > span { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
@@ -1105,14 +1103,14 @@
 .panel-title h2 { color: #27374d; font-size: 12px; }
 .command-shelf > .section-heading .text-button { padding: 4px 6px; border-radius: 5px; background: transparent; font-size: 10px; font-weight: 600; }
 .command-categories { position: static; display: flex; height: auto; margin: 0 0 8px; gap: 3px; overflow-x: auto; }
-.command-categories button { flex: 0 0 auto; padding: 4px 6px; border: 1px solid transparent; border-radius: 4px; font-size: 10px; font-weight: 550; }
+.command-categories button { flex: 0 0 auto; padding: 4px 6px; border: 1px solid transparent; border-radius: 4px; font-size: 10px; font-weight: var(--weight-label); }
 .command-categories button.selected { border-color: #d6e4f5; background: #eef5fd; }
 .command-list { gap: 2px; overflow-y: auto; }
 .command-row { position: relative; min-height: 54px; padding: 7px 6px; gap: 2px; border: 0; border-bottom: 1px solid #ebeff4; border-radius: 0; background: #fff; }
 .command-row:hover { background: #f8fafc; }
 .command-fill { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 2px 7px; align-items: center; }
 .command-fill > svg { grid-row: 1 / span 2; width: 16px; color: #6d7e94; }
-.command-name { width: auto; color: #2d3f57; font-size: 11px; font-weight: 650; }
+.command-name { width: auto; color: #2d3f57; font-size: 11px; font-weight: var(--weight-title); }
 .command-fill code { grid-column: 2; overflow: hidden; padding: 0; border: 0; border-radius: 0; color: #65758b; background: transparent; font: 500 10px/1.35 ui-monospace, SFMono-Regular, Consolas, monospace; text-overflow: ellipsis; white-space: nowrap; }
 .command-row .icon-button { width: 25px; }
 .labeled-run { min-width: 44px; height: 26px; padding: 3px 6px; border: 0; background: transparent; font-size: 10px; font-weight: 600; }
@@ -1234,7 +1232,7 @@
 .sidebar-host-main:hover { background: transparent; }
 .sidebar-host-main > .status-dot { width: 7px; height: 7px; margin: 0; }
 .sidebar-host-main > span { display: flex; min-width: 0; flex-direction: column; gap: 4px; }
-.sidebar-host strong { overflow: hidden; font-size: 11px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar-host strong { overflow: hidden; font-size: 11px; font-weight: var(--weight-title); text-overflow: ellipsis; white-space: nowrap; }
 .sidebar-host small { overflow: hidden; color: #65748a; font: 500 10px/1.35 ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: -.02em; text-overflow: ellipsis; white-space: nowrap; }
 .sidebar-host-state { display: flex; min-width: max-content; flex-direction: column; align-items: flex-end; gap: 3px; }
 .sidebar-host em { padding: 2px 5px; border-radius: 3px; color: #6f7c8e; background: #edf0f4; font-size: 9px; font-weight: 600; font-style: normal; white-space: nowrap; }
@@ -1499,13 +1497,13 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.985); }
   text-align: left;
 }
 .command-categories button > svg { color: #6284aa; }
-.command-categories button > span { min-width: 0; overflow: hidden; font-size: 10px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.command-categories button > span { min-width: 0; overflow: hidden; font-size: 10px; font-weight: var(--weight-title); text-overflow: ellipsis; white-space: nowrap; }
 .command-categories button > small { min-width: 18px; padding: 1px 5px; border-radius: 9px; color: #70839a; background: #eaf0f6; font-size: 9px; text-align: center; }
 .command-categories button:hover { border-color: #bdd2e9; color: #285f9b; background: #f0f5fa; }
 .command-categories button.selected { border-color: #9fc2e7; color: #175da8; background: #e7f1fc; box-shadow: inset 3px 0 #4b86c6; }
 .command-categories button.selected > svg { color: #2871bd; }
 .command-categories button.selected > small { color: #175da8; background: #d4e6f8; }
-.command-list-heading { display: flex; min-width: 215px; align-items: center; justify-content: space-between; padding: 0 4px 6px; border-bottom: 1px solid #edf1f5; color: #334b66; font-size: 10px; font-weight: 650; }
+.command-list-heading { display: flex; min-width: 215px; align-items: center; justify-content: space-between; padding: 0 4px 6px; border-bottom: 1px solid #edf1f5; color: #334b66; font-size: 10px; font-weight: var(--weight-title); }
 .command-list-heading small { color: #8995a4; font-size: 8px; font-weight: 500; }
 .remote-terminal-tools { justify-content: space-between; flex-wrap: wrap; }
 .remote-terminal-clipboard { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-width: 0; }
@@ -1528,7 +1526,7 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.985); }
 .remote-terminal-clipboard .icon-button:disabled { opacity: .45; cursor: default; }
 
 /* Agent conversation uses the same zero-width drawer behaviour. */
-.app-shell { column-gap: 0; transition: grid-template-columns .32s cubic-bezier(.22, .8, .24, 1); }
+.app-shell { column-gap: 0; }
 .app-shell.agent-collapsed { grid-template-columns: var(--rail) 224px minmax(360px, 1fr) 0 0; }
 .agent-panel.conversation-only {
   position: relative;
@@ -1648,7 +1646,6 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.985); }
 .file-source-card.remote { background: color-mix(in srgb, var(--raised) 96%, #e9f4ff); }
 .file-source-heading { display: flex; align-items: center; gap: 7px; min-height: 29px; padding: 0 2px 6px; }
 .file-source-icon { display: grid; place-items: center; width: 25px; height: 25px; border-radius: 6px; color: #346c9f; background: #edf4fa; }
-.file-source-card.remote .file-source-icon { color: #087b62; background: #e6f6f0; }
 .file-source-heading > span:nth-child(2) { display: flex; min-width: 0; flex: 1; flex-direction: column; }
 .file-source-heading strong { color: var(--text); font-size: 10px; line-height: 1.25; }
 .file-source-heading small { overflow: hidden; color: var(--faint); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
@@ -1711,6 +1708,19 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.985); }
   --theme-text-muted: #65748a;
   --theme-accent-text: #175fa6;
   --theme-shadow: #315f8f14;
+  /* 标签与控件高亮复用模型模块的品牌蓝和标签参数。 */
+  --ui-accent: #2675ff;
+  --ui-accent-hover: #1769af;
+  --ui-highlight-bg: #edf6ff;
+  --ui-highlight-border: #bfd5ee;
+  --ui-highlight-text: #1e5f9d;
+  --ui-focus-ring: 0 0 0 3px #2675ff22;
+  --ui-control-height: 36px;
+  --ui-control-radius: 6px;
+  --ui-control-padding: 7px 12px;
+  --ui-menu-radius: 7px;
+  --ui-menu-shadow: 0 14px 36px #1f3a5a1f;
+  --ui-popover-layer: 110;
 }
 .theme-switcher { display: flex; align-items: center; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel); }
 .theme-switcher button { width: 26px; height: 25px; border-radius: 6px; color: var(--faint); }
@@ -1752,6 +1762,10 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.985); }
   --theme-text-muted: #aec0d4;
   --theme-accent-text: #8fc2ff;
   --theme-shadow: #02071152;
+  --ui-highlight-bg: #1c3050;
+  --ui-highlight-border: #2a456d;
+  --ui-highlight-text: #cfe1ff;
+  --ui-menu-shadow: 0 14px 36px #02071152;
   color: var(--text);
   background: var(--bg);
 }
@@ -1796,8 +1810,6 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.985); }
 :root[data-theme='dark'] .agent-activity,
 :root[data-theme='dark'] .agent-activity-thought { color: var(--muted); background: #111c2b; border-color: var(--line); }
 :root[data-theme='dark'] .file-explorer-mark { color: #8dc2ff; background: #213b57; }
-:root[data-theme='dark'] .file-source-icon { color: #8dbbe8; background: #1d3045; }
-:root[data-theme='dark'] .file-source-card.remote .file-source-icon { color: #6fdbbd; background: #173b36; }
 :root[data-theme='dark'] .file-source-card .path-bar,
 :root[data-theme='dark'] .file-source-actions .icon-button,
 :root[data-theme='dark'] .file-mini-action,
@@ -1931,20 +1943,20 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.985); }
 .delete-host-summary { color: var(--theme-text-strong); background: var(--theme-panel); border-color: var(--line); }
 .status-bar { color: var(--theme-text-muted); background: color-mix(in srgb, var(--theme-panel) 84%, transparent); border-color: var(--line); }
 
-/* Readable typography for dense desktop controls and secondary labels. */
-.app-shell { font-weight: 500; }
-.app-shell button { font-weight: 550; }
+/* Typography weights are shared across the desktop shell. */
+.app-shell { font-weight: var(--weight-body); }
+.app-shell button { font-weight: var(--weight-label); }
 .app-shell input::placeholder,
-.app-shell textarea::placeholder { font-weight: 550; opacity: 1; }
-.app-shell small { font-weight: 600; letter-spacing: .01em; }
+.app-shell textarea::placeholder { font-weight: var(--weight-body); opacity: 1; }
+.app-shell small { font-weight: var(--weight-body); letter-spacing: normal; }
 .file-source-card .file-row {
   color: var(--theme-text-strong);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: .005em;
+  font-size: var(--font-small);
+  font-weight: var(--weight-body);
+  letter-spacing: normal;
 }
 .file-explorer-title strong,
-.file-source-heading strong { font-size: 12px; font-weight: 700; }
+.file-source-heading strong { font-size: var(--font-body); font-weight: var(--weight-title); }
 .file-explorer-title small,
 .file-source-heading small,
 .file-list-heading,
@@ -1952,17 +1964,18 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.985); }
 .file-source-card .empty-folder,
 .session-file-panel .transfer-empty {
   color: var(--theme-text-muted);
-  font-size: 10.5px;
-  font-weight: 600;
+  font-size: var(--font-small);
+  font-weight: var(--weight-body);
 }
 .file-current-path {
   color: var(--theme-text-muted);
-  font-size: 10.5px;
-  font-weight: 600;
-  line-height: 1.35;
+  font-family: var(--font-ui);
+  font-size: var(--font-small);
+  font-weight: var(--weight-body);
+  line-height: 1.5;
 }
 .file-source-actions .icon-button,
-.file-mini-action { font-size: 10.5px; font-weight: 650; }
+.file-mini-action { font-size: var(--font-small); font-weight: var(--weight-label); }
 .activity small,
 .host-sidebar-heading small,
 .sidebar-host-search input,
@@ -1980,8 +1993,8 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.985); }
 .agent-activity-thought summary > small,
 .command-dialog-preview small {
   color: var(--theme-text-muted);
-  font-size: 10.5px;
-  font-weight: 600;
+  font-size: var(--font-caption);
+  font-weight: var(--weight-body);
 }
 .command-fill code,
 .command-list-heading,
@@ -1992,7 +2005,7 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.985); }
 .agent-activity-task,
 .agent-activity-thought summary,
 .agent-activity-empty,
-.tool-empty-result { font-weight: 600; }
+.tool-empty-result { font-weight: var(--weight-body); }
 
 .welcome-note p,
 .quick-action small,
@@ -2002,8 +2015,8 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.985); }
 .status-right,
 .demo-badge,
 .panel-count {
-  font-size: 10px;
-  font-weight: 600;
+  font-size: var(--font-caption);
+  font-weight: var(--weight-body);
 }
 
 .quick-action strong,
@@ -2285,7 +2298,7 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.985); }
   color: var(--theme-text-muted);
   background: transparent;
   font-size: 9.5px;
-  font-weight: 650;
+  font-weight: var(--weight-title);
   white-space: nowrap;
 }
 .host-sidebar > .sidebar-management-footer > .sidebar-manage-button:hover:not(:disabled) {
@@ -2369,6 +2382,63 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.985); }
 }
 .terminal-font-hint small { color: var(--theme-text-muted); font-size: 9px; font-weight: 600; }
 
+/* Navigation keeps the same row and icon geometry while its track changes width. */
+.app-shell {
+  --nav-transition-duration: .24s;
+  --nav-transition-easing: cubic-bezier(.22, .8, .24, 1);
+  transition: grid-template-columns var(--nav-transition-duration) var(--nav-transition-easing);
+}
+.app-shell:has(> .panel-divider.dragging) { transition: none; }
+.app-shell .activity-bar { min-width: 0; overflow: hidden; padding: 10px 6px 8px; }
+.app-shell .activity,
+.app-shell .nav-collapse-toggle {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  column-gap: 8px;
+  min-width: 0;
+  padding: 7px 5px;
+  overflow: hidden;
+  transition: column-gap var(--nav-transition-duration) var(--nav-transition-easing), background-color .16s ease, border-color .16s ease, color .16s ease;
+}
+.app-shell .activity { min-height: 48px; }
+.app-shell .nav-collapse-toggle { min-height: 34px; padding-block: 5px; }
+.app-shell .nav-collapse-toggle > svg { justify-self: center; }
+.app-shell .activity > .activity-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  flex-shrink: 0;
+}
+.app-shell .activity > .activity-icon svg { width: 21px; height: 21px; }
+.app-shell .activity > .activity-label,
+.app-shell .nav-collapse-toggle > span {
+  display: flex;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(0);
+  transition: opacity .16s ease .06s, transform var(--nav-transition-duration) var(--nav-transition-easing), visibility var(--nav-transition-duration);
+}
+.app-shell .activity > .activity-label { flex-direction: column; align-items: flex-start; }
+.app-shell.nav-collapsed .activity,
+.app-shell.nav-collapsed .nav-collapse-toggle { column-gap: 0; }
+.app-shell.nav-collapsed .activity > .activity-label,
+.app-shell.nav-collapsed .nav-collapse-toggle > span {
+  opacity: 0;
+  visibility: hidden;
+  transform: translateX(-4px);
+  transition-delay: 0s;
+}
+.app-shell .activity.selected { color: var(--theme-accent-text); background: var(--theme-selected); }
+.app-shell .activity:hover:not(.selected) { color: var(--theme-accent-text); background: var(--theme-hover); }
+.app-shell .activity-bar > button:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; }
+
 @media (max-width: 1280px) {
   .app-shell { --host-sidebar-width: 194px; }
   .app-shell.host-sidebar-collapsed { --host-sidebar-width: 0px; }
@@ -2376,6 +2446,10 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.985); }
 
 @media (prefers-reduced-motion: reduce) {
   .app-shell,
+  .app-shell .activity,
+  .app-shell .nav-collapse-toggle,
+  .app-shell .activity > .activity-label,
+  .app-shell .nav-collapse-toggle > span,
   .host-sidebar,
   .host-sidebar-title,
   .host-sidebar-heading-actions,
@@ -2386,3 +2460,232 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.985); }
   .host-sidebar > footer { transition: none; }
   .connection-pending > i { animation: none; }
 }
+
+/* Shared, restrained highlights for informative labels and current choices. */
+:root :is(button, input, textarea, select, section):focus-visible {
+  outline-color: var(--ui-accent);
+}
+
+:root :is(input, textarea, select):focus-visible { border-color: var(--ui-accent); }
+
+:root :is(.app-shell, .modal, .settings-page) .primary-button {
+  border-color: var(--ui-accent);
+  background: var(--ui-accent);
+  color: #fff;
+}
+
+:root :is(.app-shell, .modal, .settings-page) .primary-button:hover:not(:disabled) {
+  border-color: var(--ui-accent-hover);
+  background: var(--ui-accent-hover);
+}
+
+:root .toggle.on { background: var(--ui-accent); border-color: var(--ui-accent); }
+:root .toggle.on span { background: #fff; }
+:root .app-shell .run-command,
+:root .app-shell .command-list .text-button.mint { color: var(--ui-highlight-text); }
+
+:root :is(.sidebar-host-actions, .host-row-actions) .terminal-icon {
+  border-color: var(--ui-highlight-border);
+  background: var(--ui-highlight-bg);
+  color: var(--ui-highlight-text);
+}
+
+:root :is(.sidebar-host-actions, .host-row-actions) .terminal-icon:hover:not(:disabled) {
+  border-color: var(--ui-accent);
+  background: var(--theme-hover);
+}
+
+:root .host-row-meta { gap: 6px; flex-wrap: wrap; }
+
+:root :is(.app-shell, .modal) :is(.command-categories, .command-category-picker, .theme-switcher, .ssh-boolean-switch) button.selected,
+:root .terminal-toolbar .workspace-panel-controls .icon-button.selected,
+:root .app-shell .model-select {
+  border-color: var(--ui-highlight-border);
+  background: var(--ui-highlight-bg);
+  color: var(--ui-highlight-text);
+}
+
+:root .command-categories button.selected > svg { color: var(--ui-accent); }
+:root .connection-filter-tabs button.selected { color: var(--ui-highlight-text); border-bottom-color: var(--ui-accent); }
+:root .terminal-tab.selected { border-top-color: var(--ui-accent); }
+:root .terminal-tab.selected > button:first-child { color: var(--ui-highlight-text); }
+
+:root :is(.app-shell, .modal) .chat-attachment-preview {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+
+:root :is(.app-shell, .modal) :is(.chat-attachment.uploading, .chat-attachment.queued) {
+  border-color: var(--ui-highlight-border);
+}
+
+:root .upload-supported-types summary { color: var(--accent-violet-ink); }
+
+/* Informational accents share one palette; interaction and focus stay brand blue. */
+:root {
+  --accent-violet-soft: #f2eeff;
+  --accent-violet-line: #dfd5f7;
+  --accent-violet-ink: #7055af;
+  --accent-cyan-soft: #eaf8fb;
+  --accent-cyan-line: #c3e6ec;
+  --accent-cyan-ink: #17798c;
+  --accent-amber-soft: #fff7e7;
+  --accent-amber-line: #eedbb6;
+  --accent-amber-ink: #97630d;
+  --accent-rose-soft: #fceff5;
+  --accent-rose-line: #eed0df;
+  --accent-rose-ink: #a24c79;
+  --accent-neutral-soft: #f1f4f8;
+  --accent-neutral-line: #dce3ed;
+  --accent-neutral-ink: #63758b;
+  --accent-success-soft: #edf8f2;
+  --accent-success-line: #c6e7d5;
+  --accent-success-ink: #207752;
+  --accent-danger-soft: #fff1f0;
+  --accent-danger-line: #efc9c5;
+  --accent-danger-ink: #b4443b;
+}
+
+:root[data-theme='dark'] {
+  --accent-violet-soft: #29213f;
+  --accent-violet-line: #45345f;
+  --accent-violet-ink: #c4acf0;
+  --accent-cyan-soft: #153039;
+  --accent-cyan-line: #28505b;
+  --accent-cyan-ink: #87cedb;
+  --accent-amber-soft: #342b1d;
+  --accent-amber-line: #57462a;
+  --accent-amber-ink: #e9c483;
+  --accent-rose-soft: #352335;
+  --accent-rose-line: #59334c;
+  --accent-rose-ink: #e0a4c0;
+  --accent-neutral-soft: #1c2a3a;
+  --accent-neutral-line: #34465b;
+  --accent-neutral-ink: #a7b6c9;
+  --accent-success-soft: #173126;
+  --accent-success-line: #2b5540;
+  --accent-success-ink: #8ad3ac;
+  --accent-danger-soft: #382326;
+  --accent-danger-line: #633c40;
+  --accent-danger-ink: #f0a19a;
+}
+
+[data-accent] {
+  --accent-soft: var(--accent-neutral-soft);
+  --accent-line: var(--accent-neutral-line);
+  --accent-ink: var(--accent-neutral-ink);
+}
+[data-accent='blue'] { --accent-soft: var(--ui-highlight-bg); --accent-line: var(--ui-highlight-border); --accent-ink: var(--ui-highlight-text); }
+[data-accent='violet'] { --accent-soft: var(--accent-violet-soft); --accent-line: var(--accent-violet-line); --accent-ink: var(--accent-violet-ink); }
+[data-accent='cyan'] { --accent-soft: var(--accent-cyan-soft); --accent-line: var(--accent-cyan-line); --accent-ink: var(--accent-cyan-ink); }
+[data-accent='amber'] { --accent-soft: var(--accent-amber-soft); --accent-line: var(--accent-amber-line); --accent-ink: var(--accent-amber-ink); }
+[data-accent='rose'] { --accent-soft: var(--accent-rose-soft); --accent-line: var(--accent-rose-line); --accent-ink: var(--accent-rose-ink); }
+[data-accent='success'] { --accent-soft: var(--accent-success-soft); --accent-line: var(--accent-success-line); --accent-ink: var(--accent-success-ink); }
+[data-accent='danger'] { --accent-soft: var(--accent-danger-soft); --accent-line: var(--accent-danger-line); --accent-ink: var(--accent-danger-ink); }
+
+:root .ui-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  gap: 4px;
+  min-height: 20px;
+  padding: 2px 7px;
+  border: 1px solid var(--accent-line);
+  border-radius: 999px;
+  color: var(--accent-ink);
+  background: var(--accent-soft);
+  font-size: var(--font-caption);
+  font-weight: var(--weight-label);
+  line-height: 1.35;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+:root .ui-badge > svg { flex-shrink: 0; }
+
+:root .ui-accent-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  color: var(--accent-ink);
+  background: var(--accent-soft);
+}
+:root .ui-accent-icon > svg { flex-shrink: 0; }
+:root :is(.app-shell, .modal, .settings-page) :is(.ui-badge, .ui-accent-icon)[data-accent] {
+  color: var(--accent-ink);
+  background-color: var(--accent-soft);
+  border-color: var(--accent-line);
+}
+:root .host-row-main .host-symbol { width: 34px; height: 34px; color: var(--accent-ink); background: var(--accent-soft); }
+:root .host-row-main .host-status.ui-badge { color: var(--accent-ink); background: var(--accent-soft); }
+:root .command-categories button { grid-template-columns: 24px minmax(0, 1fr) auto; }
+:root .command-category-icon { width: 23px; height: 23px; border-radius: 6px; }
+:root .command-categories button > .ui-badge { font-size: 9px; min-height: 18px; padding: 1px 5px; }
+:root :is(.command-categories, .command-category-picker) button.selected > .ui-accent-icon {
+  --accent-soft: var(--ui-highlight-bg);
+  --accent-ink: var(--ui-highlight-text);
+}
+:root .command-fill { grid-template-columns: 24px minmax(0, 1fr); }
+:root .command-row-icon { grid-row: 1 / span 2; width: 24px; height: 28px; border-radius: 6px; }
+:root .command-dialog-preview > .command-preview-icon { width: 34px; height: 34px; }
+:root .command-dialog-preview > .ui-badge { margin-left: auto; width: auto; }
+:root .file-source-heading { gap: 8px; }
+:root .file-source-heading > span:last-child > .ui-badge { align-self: flex-start; margin-top: 5px; font-size: 9px; min-height: 18px; }
+:root .file-source-icon { width: 28px; height: 28px; color: var(--accent-ink); background: var(--accent-soft); }
+:root .sftp-entry-icon { width: 23px; height: 23px; border-radius: 5px; }
+:root .file-row.selected > .sftp-entry-icon { color: var(--ui-highlight-text); background: var(--ui-highlight-bg); }
+:root .upload-file-icon { width: 34px; height: 38px; }
+:root .upload-item-status.ui-badge { color: var(--accent-ink); }
+:root .chat-attachment-meta { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+:root .chat-attachment-meta .ui-badge { font-size: 9px; min-height: 18px; padding: 1px 5px; }
+:root .welcome-art-label.ui-badge { gap: 5px; font-size: clamp(9px, .9cqi, 12px); padding: 5px 10px; }
+:root .welcome-feature-icon { width: 49px; height: 49px; border-radius: 17px; }
+:root .activity-kind-icon { width: 25px; height: 25px; border-radius: 6px; }
+:root .tool-status.ui-badge { font-size: 9px; font-style: normal; padding: 2px 6px; color: var(--accent-ink); }
+:root .composer-agent-status[data-accent] { color: var(--accent-ink); background: var(--accent-soft); border-left: 2px solid var(--accent-line); }
+:root .composer-agent-status > svg { flex-shrink: 0; }
+:root .ssh-form-section-heading { display: flex; align-items: center; gap: 7px; }
+:root .ssh-section-icon { width: 24px; height: 24px; border-radius: 6px; }
+:root .ssh-dialog-symbol { width: 42px; height: 42px; }
+
+@container (max-width: 760px) {
+  :root .welcome-feature-icon { width: 34px; height: 38px; border-radius: 11px; }
+}
+@media (max-width: 520px) {
+  :root .upload-file-icon { display: none; }
+  :root .upload-item-heading { flex-wrap: wrap; }
+}
+
+/* Service reachability is independent of the last confirmed SSH channel state. */
+:root :is(.status-dot, .terminal-connection-dot).unreachable {
+  background: var(--accent-amber-ink);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-amber-ink) 15%, transparent);
+}
+:root .sidebar-host.is-unreachable .sidebar-host-state em.connection-unreachable {
+  color: var(--accent-amber-ink);
+  background: var(--accent-amber-soft);
+}
+:root .terminal-tab-state {
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: var(--accent-amber-ink);
+  background: var(--accent-amber-soft);
+  font-size: var(--font-caption);
+  font-weight: var(--weight-label);
+  white-space: nowrap;
+}
+:root .remote-terminal-error.is-unreachable {
+  justify-content: flex-start;
+  color: var(--accent-amber-ink);
+  background: var(--accent-amber-soft);
+  border: 1px solid var(--accent-amber-line);
+  border-radius: var(--ui-control-radius);
+  font-size: var(--font-small);
+  line-height: 1.6;
+}
+:root .remote-terminal-error.is-unreachable > span { flex: 1; }
+:root .remote-terminal-error.is-unreachable > button { flex-shrink: 0; }

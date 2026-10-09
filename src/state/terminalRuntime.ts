@@ -10,11 +10,13 @@ export interface TerminalRuntime {
   disconnected: boolean;
   manuallyClosed: boolean;
   reconnectAllowed: boolean;
+  readonly transportAvailable?: boolean;
   setForeground(foreground: boolean): void;
   subscribe(
     output: (data: string) => void,
     report: (error: string) => void,
     reportDisconnect?: (event: TerminalDisconnectEvent) => void,
+    reportTransport?: (available: boolean) => void,
   ): () => void;
   resume(): void;
   verifyConnected(): Promise<TerminalConnectionState>;

@@ -1,7 +1,7 @@
 .disconnect-dialog-backdrop { background: #263e665e; backdrop-filter: blur(3px); }
 .modal.disconnect-dialog { position: relative; width: min(390px, calc(100vw - 32px)); padding: 20px; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--theme-panel); box-shadow: 0 16px 48px #092c6329; color: var(--theme-text-strong); }
 .modal.disconnect-dialog > header { padding: 0; border: 0; background: transparent; gap: 12px; }
-.disconnect-dialog > header h2 { font-size: 16px; line-height: 1.4; font-weight: 650; }
+.disconnect-dialog > header h2 { font-size: 16px; line-height: 1.4; font-weight: var(--weight-title); }
 .disconnect-dialog > header .icon-button { width: 26px; height: 26px; color: var(--theme-text-muted); }
 .disconnect-intro { margin: 10px 0 14px; }
 .disconnect-intro p { font-size: 12px; line-height: 1.65; margin: 0; color: var(--theme-text-muted); }

@@ -16,12 +16,14 @@ type Props = {
   local?: boolean;
   visible: boolean;
   connected: boolean;
+  transportAvailable: boolean;
   disconnectReason: TerminalDisconnectReason | null;
   reconnectAllowed: boolean;
   reconnectAttempts: number;
   reconnecting: boolean;
   manuallyClosed: boolean;
   onDisconnected: (event: TerminalDisconnectEvent) => void;
+  onTransportChange: (available: boolean) => void;
   onReconnectExhausted: (attempts: number) => void;
   reconnect: (options?: { automatic?: boolean; attempt?: number; totalAttempts?: number }) => Promise<boolean>;
   disconnect: () => void;
@@ -52,8 +54,8 @@ function currentTerminalTheme() {
 }
 
 export function RemoteTerminalView({
-  runtime, local = false, visible, connected, disconnectReason, reconnectAllowed, reconnectAttempts,
-  reconnecting, manuallyClosed, onDisconnected, onReconnectExhausted, reconnect, disconnect,
+  runtime, local = false, visible, connected, transportAvailable, disconnectReason, reconnectAllowed, reconnectAttempts,
+  reconnecting, manuallyClosed, onDisconnected, onTransportChange, onReconnectExhausted, reconnect, disconnect,
 }: Props) {
   const element = useRef<HTMLDivElement>(null);
   const term = useRef<Terminal | null>(null);
@@ -73,10 +75,14 @@ export function RemoteTerminalView({
   const systemPasteShortcut = isMac ? '⌘V' : 'Ctrl+V';
   const visibleRef = useRef(visible);
   visibleRef.current = visible;
-  const unavailable = !connected || !runtime || runtime.closed || runtime.disconnected;
+  const sessionUnavailable = !connected || !runtime || runtime.closed || runtime.disconnected;
+  const transportUnavailable = !manuallyClosed && !runtime?.disconnected && !runtime?.closed
+    && (!transportAvailable || runtime?.transportAvailable === false);
+  const unavailable = sessionUnavailable || transportUnavailable;
   const isReconnecting = reconnecting || localReconnecting;
   const allowInput = useRef(!unavailable);
   const disconnectHandler = useRef(onDisconnected);
+  const transportHandler = useRef(onTransportChange);
   const reconnectHandler = useRef(reconnect);
   const exhaustedHandler = useRef(onReconnectExhausted);
   const activeRuntime = useRef(runtime);
@@ -85,6 +91,7 @@ export function RemoteTerminalView({
   fontSizeRef.current = fontSize;
   allowInput.current = !unavailable;
   disconnectHandler.current = onDisconnected;
+  transportHandler.current = onTransportChange;
   reconnectHandler.current = reconnect;
   exhaustedHandler.current = onReconnectExhausted;
 
@@ -213,6 +220,11 @@ export function RemoteTerminalView({
         }),
         setError,
         event => { setError(''); disconnectHandler.current(event); },
+        available => {
+          if (!available) allowInput.current = false;
+          else setError('');
+          transportHandler.current(available);
+        },
       ) ?? (() => {});
       const input = terminal.onData(data => {
         if (!allowInput.current || !runtime) return;
@@ -332,9 +344,12 @@ export function RemoteTerminalView({
       </div>
       <div className="remote-terminal-tool-actions">
       {!local && <button className="remote-terminal-reconnect" disabled={isReconnecting} onClick={() => { void reconnectNow(); }}>{isReconnecting ? '正在重连…' : '重新连接'}</button>}
-      <button className="remote-terminal-disconnect" onClick={disconnect}>{local ? '关闭终端' : unavailable ? '关闭页签' : '断开连接'}</button>
+      <button className="remote-terminal-disconnect" onClick={disconnect}>{local ? '关闭终端' : sessionUnavailable ? '关闭页签' : '断开连接'}</button>
     </div></div>
-    {unavailable && <div role="alert" className="remote-terminal-disconnected">
+    {transportUnavailable && !isReconnecting ? <div role="status" className="remote-terminal-error is-unreachable">
+      <Icon name="alert" size={15} /><span>{error || '后端服务暂不可达，正在重试读取原会话；连接恢复后将自动继续。'}</span>
+      <button disabled={!runtime || runtime.closed || runtime.disconnected} onClick={() => { setError(''); runtime?.resume(); }}>重试读取</button>
+    </div> : sessionUnavailable && <div role="alert" className="remote-terminal-disconnected">
       <Icon name={isReconnecting ? 'refresh' : 'power'} size={15} />
       <span>{unavailableMessage}</span>
     </div>}

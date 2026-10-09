@@ -34,6 +34,8 @@ pub struct BackendStatus {
     message: String,
     /** 当前后端控制台日志的绝对路径。 */
     log_path: Option<String>,
+    /** 本次启动实际使用的监听地址，保存新端口但尚未重启时保持原值。 */
+    backend_url: Option<String>,
 }
 
 /** 单个可编辑配置项的当前值及真实来源文件。 */
@@ -140,6 +142,7 @@ impl Default for BackendStatus {
             status: "stopped".into(),
             message: "内置后端尚未启动".into(),
             log_path: None,
+            backend_url: None,
         }
     }
 }
@@ -157,6 +160,7 @@ fn starting_status() -> BackendStatus {
         status: "starting".into(),
         message: "正在启动内置后端…".into(),
         log_path: None,
+        backend_url: None,
     }
 }
 
@@ -169,15 +173,17 @@ fn begin_start(app: &AppHandle) {
 
 fn finish_start(app: &AppHandle) -> BackendStatus {
     let status = match start_inner(app) {
-        Ok(log_path) => BackendStatus {
+        Ok((log_path, server_port)) => BackendStatus {
             status: "running".into(),
             message: "内置后端已启动".into(),
             log_path: Some(log_path.to_string_lossy().into_owned()),
+            backend_url: Some(format!("http://127.0.0.1:{server_port}")),
         },
         Err(error) => BackendStatus {
             status: "failed".into(),
             message: error.to_string(),
             log_path: error_log_path(app).map(|path| path.to_string_lossy().into_owned()),
+            backend_url: None,
         },
     };
     set_status(app, status.clone());
@@ -206,6 +212,7 @@ pub fn start_in_background(app: AppHandle) {
             status: "stopped".into(),
             message: "自动启动已关闭。在设置中开启，或在启动页点“启动”。".into(),
             log_path: error_log_path(&app).map(|path| path.to_string_lossy().into_owned()),
+            backend_url: None,
         };
         set_status(&app, status);
         return;
@@ -217,7 +224,7 @@ pub fn start_in_background(app: AppHandle) {
 }
 
 /** 执行资源检查、目录准备、Java 进程启动和存活确认。 */
-fn start_inner(app: &AppHandle) -> Result<PathBuf, Box<dyn std::error::Error>> {
+fn start_inner(app: &AppHandle) -> Result<(PathBuf, u16), Box<dyn std::error::Error>> {
     let resource_dir = app.path().resource_dir()?;
     let backend_home = resolve_backend_home(&resource_dir, app)?;
     let java_executable = bundled_java(&resource_dir);
@@ -231,7 +238,10 @@ fn start_inner(app: &AppHandle) -> Result<PathBuf, Box<dyn std::error::Error>> {
                 java_executable.display(),
                 backend_jar.display()
             );
-            return Ok(backend_home.join("logs").join("backend-console.log"));
+            return Ok((
+                backend_home.join("logs").join("backend-console.log"),
+                read_server_port(&backend_home).unwrap_or(8888),
+            ));
         }
         return Err(format!(
             "安装包缺少内置后端资源：java={} jar={}",
@@ -298,7 +308,7 @@ fn start_inner(app: &AppHandle) -> Result<PathBuf, Box<dyn std::error::Error>> {
 
     let mut guard = state.child.lock().map_err(|_| "内置后端进程状态锁已损坏")?;
     *guard = Some(child);
-    Ok(backend_home.join("logs").join("backend-console.log"))
+    Ok((backend_home.join("logs").join("backend-console.log"), server_port))
 }
 
 /** 返回当前内置后端状态，供页面在首次渲染和重试后展示准确结果。 */
@@ -308,6 +318,7 @@ pub fn bundled_backend_status(state: State<'_, BundledBackendState>) -> BackendS
         status: "failed".into(),
         message: "无法读取内置后端状态".into(),
         log_path: None,
+        backend_url: None,
     })
 }
 
@@ -330,6 +341,7 @@ pub fn bundled_backend_stop(app: AppHandle) -> BackendStatus {
         status: "stopped".into(),
         message: "已停止内置后端".into(),
         log_path: error_log_path(&app).map(|path| path.to_string_lossy().into_owned()),
+        backend_url: None,
     };
     set_status(&app, status.clone());
     status

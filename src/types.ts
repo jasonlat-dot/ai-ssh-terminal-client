@@ -14,7 +14,7 @@ export type TerminalDisconnectReason =
   | 'CHANNEL_DISCONNECTED'
   | 'READER_ERROR'
   | 'SESSION_NOT_FOUND';
-export type TerminalConnectionStatus = 'connected' | 'disconnected' | 'reconnecting';
+export type TerminalConnectionStatus = 'connected' | 'disconnected' | 'reconnecting' | 'unreachable';
 export type TerminalSession = {
   id: string;
   kind: 'local' | 'ssh';

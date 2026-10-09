@@ -1,0 +1,66 @@
+.ui-select-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-width: 0;
+  height: var(--ui-control-height);
+  gap: 12px;
+  padding: var(--ui-control-padding);
+  border: 1px solid var(--line);
+  border-radius: var(--ui-control-radius);
+  background: var(--theme-panel-soft);
+  color: var(--theme-text-strong);
+  font: inherit;
+  font-size: var(--font-body);
+  font-weight: var(--weight-body);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 180ms ease, box-shadow 180ms ease;
+}
+.ui-select-trigger > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ui-select-trigger > svg { flex-shrink: 0; color: var(--theme-text-muted); transition: transform 180ms ease; }
+.ui-select-trigger[aria-expanded='true'] > svg { transform: rotate(180deg); }
+.ui-select-trigger:hover:not(:disabled) { border-color: var(--line-strong); }
+.ui-select-trigger:focus-visible,
+.ui-select-trigger[aria-expanded='true'] { outline: none; border-color: var(--ui-accent); box-shadow: var(--ui-focus-ring); }
+.ui-select-trigger:disabled { opacity: .5; cursor: default; }
+.ui-select-menu {
+  position: fixed;
+  z-index: var(--ui-popover-layer);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--line);
+  border-radius: var(--ui-menu-radius);
+  background: var(--theme-panel);
+  color: var(--theme-text-strong);
+  box-shadow: var(--ui-menu-shadow);
+  font-family: inherit;
+  animation: ui-select-enter 120ms ease-out;
+}
+.ui-select-option {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 34px;
+  gap: 12px;
+  padding: 7px 10px;
+  border-radius: var(--ui-control-radius);
+  font-size: var(--font-body);
+  font-weight: var(--weight-body);
+  line-height: 1.4;
+  cursor: pointer;
+}
+.ui-select-option.is-active { color: var(--ui-highlight-text); background: var(--theme-hover); }
+.ui-select-option.is-selected { color: var(--ui-highlight-text); background: var(--ui-highlight-bg); font-weight: var(--weight-label); }
+.ui-select-option > svg { flex-shrink: 0; color: var(--ui-accent); }
+@keyframes ui-select-enter { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) {
+  .ui-select-trigger, .ui-select-trigger > svg { transition: none; }
+  .ui-select-menu { animation: none; }
+}
