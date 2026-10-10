@@ -29,10 +29,10 @@ export const terminalApi = {
   cancelConnect: (connectionId: string, requestId: string, baseUrl: string) => apiRequest<void>('ssh/terminal/cancel_connect', {
     method: 'POST', params: { connectionId, requestId }, baseUrl, service: 'SSH 服务',
   }),
-  write: (sessionId: string, input: string) => request<void>('terminal/write', 'POST', { sessionId, input }),
-  read: (sessionId: string, signal?: AbortSignal) => request<TerminalReadResult>('terminal/read', 'GET', undefined, { sessionId }, signal),
-  connected: (sessionId: string) => request<TerminalConnectionState>('terminal/connected', 'GET', undefined, { sessionId }),
-  resize: (sessionId: string, cols: number, rows: number) => request<void>('terminal/resize', 'POST', { sessionId, cols, rows }),
+  write: (sessionId: string, input: string, baseUrl?: string) => request<void>('terminal/write', 'POST', { sessionId, input }, undefined, undefined, baseUrl),
+  read: (sessionId: string, signal?: AbortSignal, baseUrl?: string) => request<TerminalReadResult>('terminal/read', 'GET', undefined, { sessionId }, signal, baseUrl),
+  connected: (sessionId: string, baseUrl?: string) => request<TerminalConnectionState>('terminal/connected', 'GET', undefined, { sessionId }, undefined, baseUrl),
+  resize: (sessionId: string, cols: number, rows: number, baseUrl?: string) => request<void>('terminal/resize', 'POST', { sessionId, cols, rows }, undefined, undefined, baseUrl),
   close: (sessionId: string, signal?: AbortSignal, baseUrl?: string) => apiRequest<void>('ssh/terminal/close', {
     method: 'POST', params: { sessionId }, signal, baseUrl, service: 'SSH 服务',
   }),

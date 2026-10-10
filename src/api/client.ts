@@ -1,4 +1,5 @@
 import { requireBackendUrl } from '../config/backend.ts';
+import { backendFetch } from './backendFetch';
 
 export type RequestFailureKind = 'timeout' | 'network' | 'http' | 'application';
 
@@ -44,7 +45,7 @@ export async function apiRequest<T>(endpoint: string, {
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const form = body instanceof FormData;
-    const response = await fetch(`${apiUrl(baseUrl ?? requireBackendUrl(), endpoint)}${params ? `?${new URLSearchParams(params)}` : ''}`, {
+    const response = await backendFetch(`${apiUrl(baseUrl ?? requireBackendUrl(), endpoint)}${params ? `?${new URLSearchParams(params)}` : ''}`, {
       method, signal: controller.signal,
       // Never set Content-Type for FormData: fetch supplies the multipart boundary.
       headers: body && !form ? { 'Content-Type': 'application/json' } : undefined,

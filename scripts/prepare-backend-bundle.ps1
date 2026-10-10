@@ -144,4 +144,10 @@ Invoke-Checked -Program $jlink `
     ) `
     -WorkingDirectory $clientRoot
 
+# 默认本机 TLS 在首次启动时生成独立证书，运行时必须携带 keytool，不能打包共享私钥。
+$bundledKeytool = Join-Path $runtimeBundle 'bin\keytool.exe'
+if (-not (Test-Path -LiteralPath $bundledKeytool -PathType Leaf)) {
+    throw "Java Runtime 缺少本机 TLS 证书生成工具：$bundledKeytool"
+}
+
 Write-Host "后端与 Java Runtime 已准备完成：$bundleRoot"

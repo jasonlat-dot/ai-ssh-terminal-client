@@ -1,4 +1,5 @@
 import { normalizeBackendUrl, readBackendUrl } from '../config/backend';
+import { backendFetch } from './backendFetch';
 
 /**
  * 后端 /api/health 探测的标准化结果。
@@ -82,11 +83,11 @@ export async function probeBackendHealth(options: BackendHealthProbeOptions = {}
   let ok = false;
 
   try {
-    const response = await fetch(`${baseUrl}/api/health`, {
+    const response = await backendFetch(`${baseUrl}/api/health`, {
       method: 'GET',
       signal: controller.signal,
       headers: { Accept: 'application/json' },
-    });
+    }, true);
     const latencyMs = Math.round(performance.now() - startedAt);
     if (!response.ok) {
       failureMessage = `健康检查返回 HTTP ${response.status}`;

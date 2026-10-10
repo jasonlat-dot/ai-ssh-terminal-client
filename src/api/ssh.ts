@@ -23,8 +23,8 @@ export type SshConnectionRequest = {
 export const sshUserId = import.meta.env?.VITE_SSH_USER_ID || 'default';
 
 /** Keep SSH callers and terminal error classification on the shared request client. */
-export function request<T>(endpoint: string, method = 'GET', body?: object, params?: Record<string, string>, signal?: AbortSignal): Promise<T> {
-  return apiRequest<T>(`ssh/${endpoint}`, { method, body, params, signal, service: 'SSH 服务' });
+export function request<T>(endpoint: string, method = 'GET', body?: object, params?: Record<string, string>, signal?: AbortSignal, baseUrl?: string): Promise<T> {
+  return apiRequest<T>(`ssh/${endpoint}`, { method, body, params, signal, baseUrl, service: 'SSH 服务' });
 }
 
 export const sshApi = {

@@ -1,21 +1,27 @@
 use crate::sftp::{self, Result};
 use serde_json::Value;
 use std::sync::Arc;
-use tauri::{ipc::Channel, State};
+use tauri::{ipc::Channel, AppHandle, State};
 
 #[tauri::command]
 pub async fn sftp_open(
+    app: AppHandle,
     state: State<'_, sftp::State>,
     backend_url: String,
     connection_id: String,
     root_path: Option<String>,
     on_event: Channel<Value>,
 ) -> Result<Value> {
+    // 文件管理走原生 HTTP，同样支持未启动内置后端、由 IDEA 手工运行的本机服务。
+    crate::bundled_backend::prepare_local_backend_tls(app.clone(), backend_url.clone())
+        .await.map_err(sftp::Error::local)?;
+    let local_certificate = crate::local_backend_tls::certificate_for_url(&app, &backend_url);
     state
         .open(
             backend_url,
             connection_id,
             root_path,
+            local_certificate,
             Arc::new(move |event| {
                 let _ = on_event.send(event);
             }),

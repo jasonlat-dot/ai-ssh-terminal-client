@@ -36,14 +36,14 @@ import { AttachmentPreviews, ChatAttachmentDraft, attachmentReferences, validate
 import { ChatRequestError } from './api/chatErrors';
 import { ActivityBar, AppHeader } from './components/Shell';
 import { BackendSettingsDialog } from './components/BackendSettingsDialog';
-import { readBackendUrl, saveBackendUrl } from './config/backend';
+import { activeBackendConnection, adoptBundledBackendUrl, readBackendUrl, saveBackendUrl } from './config/backend';
 import { readBundledBackendStatus, restartBundledBackend } from './api/bundledBackend';
 import { probeBackendHealth } from './api/health';
 import { StartupScreen } from './components/StartupScreen';
 import type { StartupHealth, StartupPhase } from './components/StartupScreen';
 import { CommandShelf, TerminalWorkspace } from './components/Workspace';
 import { createSessionFileState, initialCommands } from './data/mock';
-import type { ChatAttachment, ChatAgentActivity, ChatMessage, ChatMessageSegment, ChatToolActivity, Host, Navigation } from './types';
+import type { ChatAttachment, ChatAgentActivity, ChatMessage, ChatMessageSegment, ChatToolActivity, Host, Navigation, TerminalSession } from './types';
 import './App.css';
 import './reference.css';
 import './typography.css';
@@ -144,7 +144,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme }: {
           sessionId: session.terminalSessionId,
           connectionId: session.connectionId,
           initialOutput: '',
-        }, true));
+        }, true, backendUrl));
       }
     });
     restoredClientsInitialized.current = true;
@@ -197,11 +197,18 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme }: {
   useEffect(() => {
     const initialAttempts = openingConnections.current;
     const retries = reconnectingAttempts.current;
+    const clients = terminalClients.current;
+    const fileCleanups = sftpCleanups.current;
     return () => {
       initialAttempts.forEach(({ attempt }) => attempt.cancel());
       retries.forEach(attempt => attempt.cancel());
       initialAttempts.clear();
       retries.clear();
+      // 切换后端会卸载当前工作区：停止旧地址上的终端轮询与文件传输，不带到新连接。
+      clients.forEach(client => { void client.close().catch(() => undefined); });
+      clients.clear();
+      fileCleanups.forEach(cleanup => { void cleanup().catch(() => undefined); });
+      fileCleanups.clear();
     };
   }, []);
 
@@ -399,7 +406,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme }: {
       opened = await attempt.open();
       if (!opened?.sessionId) throw new Error('后端未返回终端会话 ID');
       if (attempt.signal.aborted || !stillWanted()) throw new DOMException('SSH 连接已取消', 'AbortError');
-      const runtime = new RemoteTerminal(opened);
+      const runtime = new RemoteTerminal(opened, false, attempt.backendUrl);
       if (runtime.disconnected) throw new Error('终端会话已断开，请重试。');
       return runtime;
     } catch (error) {
@@ -797,6 +804,12 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme }: {
     // 4) 等待所有请求结束；再给一个 800ms 的兜底超时，避免后端卡住导致窗口关不掉。
     await Promise.allSettled([...runtimeCloses, ...sftpCloses]);
     await new Promise(resolve => setTimeout(resolve, 800));
+
+    // 5) 清理持久化的页签恢复信息：markManuallyClosed() 已经让 sessions 状态变化，
+    //    但 useEffect 不一定在 destroy 之前 flush 完；这里直接清空 localStorage 兜底，
+    //    避免下次启动时把已关闭的终端 tab 重新恢复出来。
+    try { localStorage.removeItem(`agent-ssh-terminal-sessions-v1:${backendUrl}`); }
+    catch (error) { console.warn('清理终端页签持久化数据失败', error); }
   }, []);
 
   useEffect(() => {
@@ -1277,7 +1290,9 @@ export default function App() {
   const desktop = isTauriRuntime();
   const { theme, setTheme } = useTheme();
   const [backendUrl, setBackendUrl] = useState(readBackendUrl);
-  const [backendReady, setBackendReady] = useState(!desktop);
+  const [connectionRevision, setConnectionRevision] = useState(0);
+  // 活动连接为远程时不等待本机 Java：其自动启动偏好与远程连接可用性相互独立。
+  const [backendReady, setBackendReady] = useState(() => !desktop || activeBackendConnection().kind === 'remote');
   const [startupBypassed, setStartupBypassed] = useState(false);
   const [startupPhase, setStartupPhase] = useState<StartupPhase>(desktop ? 'checking' : 'ready');
   const [startupMessage, setStartupMessage] = useState('正在读取内置服务状态…');
@@ -1298,7 +1313,17 @@ export default function App() {
   });
   const startupHealthAbort = useRef<AbortController | null>(null);
   const readyTimer = useRef<number | null>(null);
-  const changeBackend = (url: string) => setBackendUrl(saveBackendUrl(url));
+  const changeBackend = (url: string) => {
+    setBackendUrl(saveBackendUrl(url));
+    // 两个档案即使 URL 相同也可能使用不同证书；显式切换始终重建工作区并取消旧请求。
+    setConnectionRevision(previous => previous + 1);
+  };
+  /** 主界面和所有 API 模块使用同一个真实后端地址，而不只是健康检查改成 HTTPS。 */
+  const syncBundledBackendUrl = useCallback((actual: string | null | undefined) => {
+    const selected = adoptBundledBackendUrl(actual);
+    setBackendUrl(selected);
+    return selected;
+  }, []);
 
   useLayoutEffect(() => {
     if (!desktop) return;
@@ -1370,7 +1395,7 @@ export default function App() {
           // Rust 报告 running 不代表 HTTP 端点能响应；用 /api/health 二次确认，
           // 真实场景下“端口已开但 Spring 还没就绪”时它会失败，UI 给出明确提示，
           // 但 phase 仍按 Rust 状态走，避免让启动流程卡死。
-          void runStartupHealthProbe(status?.backendUrl || readBackendUrl());
+          void runStartupHealthProbe(syncBundledBackendUrl(status?.backendUrl));
           revealMain(status?.message ?? '客户端界面已就绪');
           return;
         }
@@ -1404,7 +1429,7 @@ export default function App() {
       cancelled = true;
       if (pollTimer !== null) window.clearTimeout(pollTimer);
     };
-  }, [backendReady, desktop, revealMain, runStartupHealthProbe, startupBypassed, startupPollVersion]);
+  }, [backendReady, desktop, revealMain, runStartupHealthProbe, startupBypassed, startupPollVersion, syncBundledBackendUrl]);
 
   const retryStartup = useCallback(async () => {
     setStartupRetrying(true);
@@ -1415,7 +1440,7 @@ export default function App() {
       const status = await restartBundledBackend();
       if (!status || status.status === 'running') {
         setStartupStarting(false);
-        void runStartupHealthProbe(status?.backendUrl || readBackendUrl());
+        void runStartupHealthProbe(syncBundledBackendUrl(status?.backendUrl));
         revealMain(status?.message ?? '内置后端已启动');
       } else if (status.status === 'failed') {
         setStartupStarting(false);
@@ -1440,7 +1465,7 @@ export default function App() {
     } finally {
       setStartupRetrying(false);
     }
-  }, [revealMain, runStartupHealthProbe]);
+  }, [revealMain, runStartupHealthProbe, syncBundledBackendUrl]);
 
   /**
    * stopped 状态下点“启动”按钮。逻辑与重试一致，但需要重置 starting 标志位，
@@ -1458,7 +1483,7 @@ export default function App() {
       const status = await restartBundledBackend();
       if (!status || status.status === 'running') {
         setStartupStarting(false);
-        void runStartupHealthProbe(status?.backendUrl || targetUrl);
+        void runStartupHealthProbe(syncBundledBackendUrl(status?.backendUrl));
         revealMain(status?.message ?? '内置后端已启动');
       } else if (status.status === 'failed') {
         setStartupStarting(false);
@@ -1475,7 +1500,7 @@ export default function App() {
       setStartupPhase('failed');
       setStartupMessage(`启动失败：${errorMessage(error)}`);
     }
-  }, [revealMain, runStartupHealthProbe]);
+  }, [revealMain, runStartupHealthProbe, syncBundledBackendUrl]);
 
   const recheckStartupHealth = useCallback(() => {
     const target = startupHealth.backendUrl || readBackendUrl();
@@ -1501,7 +1526,7 @@ export default function App() {
     return <BackendSettingsDialog currentUrl="" required onClose={() => {}} onSave={changeBackend} />;
   }
 
-  return <AppContent key={backendUrl} backendUrl={backendUrl} onBackendChange={changeBackend} theme={theme} setTheme={setTheme} />;
+  return <AppContent key={`${backendUrl}:${connectionRevision}`} backendUrl={backendUrl} onBackendChange={changeBackend} theme={theme} setTheme={setTheme} />;
 }
 
 function parentDirectory(path: string | null): string | null {

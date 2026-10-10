@@ -14,9 +14,10 @@ import {
   type BundledBackendConfigValue,
   type BundledBackendStatus,
 } from '../api/bundledBackend';
-import { probeBackendHealth, type BackendHealthSnapshot } from '../api/health';
+import { type BackendHealthSnapshot } from '../api/health';
 import { sftpApi, type LocalDirectory } from '../api/sftp';
-import { normalizeBackendUrl } from '../config/backend';
+import { adoptBundledBackendUrl } from '../config/backend';
+import { BackendConnectionSettings } from './BackendConnectionSettings';
 import { HEALTH_NORMAL_INTERVALS, HEALTH_RETRY_INTERVALS, readHealthRefreshPreferences, saveHealthRefreshPreferences, type HealthRefreshPreferences } from '../config/health';
 import { isTauriRuntime } from '../state/runtime';
 import { useBackendHealth } from '../state/useBackendHealth';
@@ -87,7 +88,8 @@ type SectionDefinition = {
  * ========================================================================== */
 
 /** 按 tab 划分。每个 tab 仅在保存时把对应 keys 写入 YAML，未提交的字段保留原值。 */
-const GENERAL_KEYS = ['serverPort', 'dataDirectory'] as const;
+const GENERAL_KEYS = ['serverPort', 'dataDirectory', 'serverSslAutoGenerate',
+  'serverHttp2Enabled', 'serverSslKeyStore', 'serverSslKeyStoreType', 'serverSslKeyStorePassword', 'serverSslKeyAlias'] as const;
 const MODEL_KEYS = [
   'aiBaseUrl', 'aiApiKey', 'aiCompletionsPath', 'aiEmbeddingsPath',
   'aiModelName', 'aiReasoningEffort', 'aiSupportedMediaTypes',
@@ -112,7 +114,7 @@ const RESERVED_KEYS = new Set(['localStorageId', 'minioStorageId', 'localRootDir
 const sectionItems: SectionDefinition[] = [
   { id: 'general', label: '连接', caption: '地址 · 端口 · 数据目录', icon: 'settings',
     keys: GENERAL_KEYS,
-    saveLabel: '保存连接配置', saveHint: '修改端口后客户端会立即切换地址；其他字段下次启动后端时生效。' },
+    saveLabel: '保存内置后端配置', saveHint: '保存不会切换当前连接；重启内置后端后生效。远程连接在上方单独保存。' },
   { id: 'model', label: '模型', caption: '渠道 · 协议 · 附件', icon: 'bot',
     keys: MODEL_KEYS,
     saveLabel: '保存模型配置', saveHint: '保存后需重启后端以应用配置；模型密钥留空表示保留现有值。' },
@@ -128,6 +130,16 @@ const generalFields: FieldDefinition[] = [
   { key: 'serverPort', label: '后端运行端口', kind: 'port', placeholder: '8888', badge: 'TCP' },
   { key: 'dataDirectory', label: '统一数据目录', placeholder: '/var/lib/ai-ssh-terminal',
     help: 'SQLite、上传文件、运行日志都会派生在该目录下。切换前请先停止后端。' },
+];
+
+const tlsStoreFields: FieldDefinition[] = [
+  { key: 'serverSslKeyStore', label: '本机证书库地址', wide: true, placeholder: 'file:/D:/certs/server.p12',
+    help: '仅用于本机内置 Java。文件必须已存在并包含证书链和私钥；远程 /etc/ssl 路径不能填在这里。' },
+  { key: 'serverSslKeyStoreType', label: '证书库类型', type: 'choice',
+    options: [{ value: 'PKCS12', label: 'PKCS12 (.p12)' }, { value: 'JKS', label: 'JKS' }] },
+  { key: 'serverSslKeyStorePassword', label: '证书库密码', type: 'password',
+    help: '不会回显。留空保留已有配置；仅保存到本机后端配置，不发送到远程服务器。' },
+  { key: 'serverSslKeyAlias', label: '私钥别名（可选）', help: '填写证书库中的实际别名，不能直接照搬默认证书别名。' },
 ];
 
 const modelFields: FieldDefinition[] = [
@@ -886,33 +898,6 @@ function BooleanConfigField({ settingKey, label, values, config, change }: {
   </div>;
 }
 
-function AddressUrlField({ value, onChange, onTest, testing, onSave }: {
-  value: string;
-  onChange: (next: string) => void;
-  onTest: () => void;
-  testing: boolean;
-  onSave: () => void;
-}) {
-  return <div className="settings-address-row">
-    <FieldShell definition={{ key: 'server-url', label: '后端服务器根地址',
-      placeholder: 'http://127.0.0.1:8888',
-      help: '不要填写 /agent 或 /api/v1/ssh。保存后立即生效，重启仍会保留。' }}>
-      <div className="settings-input-wrap">
-        <input id="backend-setting-server-url" type="url" value={value}
-          placeholder="http://127.0.0.1:8888" className="settings-control"
-          onChange={event => onChange(event.target.value)} />
-      </div>
-    </FieldShell>
-    <div className="settings-address-actions">
-      <button type="button" className="ghost-button" disabled={testing} onClick={onTest}>
-        <Icon name="signal" size={13} />{testing ? '测试中…' : '测试地址'}
-      </button>
-      <button type="button" className="primary-button" onClick={onSave}>保存地址</button>
-    </div>
-    <p className="settings-address-help">可连接内置或远端服务；保存后立即生效，下次启动仍会保留。</p>
-  </div>;
-}
-
 /* ============================================================================
  * 区块组件
  * ========================================================================== */
@@ -1113,14 +1098,12 @@ function PathPreviewCard({ label, icon, path, hint }: {
 
 export function BackendSettingsDialog({ currentUrl, required = false, onClose, onSave }: BackendSettingsDialogProps) {
   const [activeSection, setActiveSection] = useState<SettingsSection>('general');
-  const [url, setUrl] = useState(currentUrl);
   const [config, setConfig] = useState<BundledBackendConfig | null>(null);
   const [values, setValues] = useState<ConfigValues>({});
   const [pathResetVersion, setPathResetVersion] = useState(0);
   const [loading, setLoading] = useState(isTauriRuntime());
   const [saving, setSaving] = useState(false);
   const [openingConfigDirectory, setOpeningConfigDirectory] = useState(false);
-  const [testing, setTesting] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState('');
   /** 默认 true 表示桌面壳会自动拉起本地后端；用户关掉时启动阶段停在 stopped。 */
@@ -1265,6 +1248,11 @@ export function BackendSettingsDialog({ currentUrl, required = false, onClose, o
       const status = await restartBundledBackend();
       setBackendStatus(status);
       if (status?.status === 'running') {
+        // 配置页重启也同步真实协议，不能只更新启动页的健康检查地址。
+        const selected = adoptBundledBackendUrl(status.backendUrl);
+        if (selected !== currentUrl) {
+          onSave(selected);
+        }
         // 正常路径：按钮会立刻被 status 驱动切到“停止内置后端”。
         setResult(`已启动：${status.message || '内置后端已就绪'}`);
       } else if (status?.status === 'failed') {
@@ -1306,45 +1294,6 @@ export function BackendSettingsDialog({ currentUrl, required = false, onClose, o
     setResult('');
   };
 
-  const testConnection = async () => {
-    setError('');
-    setResult('');
-    let address: string;
-    try { address = normalizeBackendUrl(url); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : '地址无效。'); return; }
-    setTesting(true);
-    try {
-      // 复用 /api/health 探测：同时承担“测试连接”和“健康检查”。
-      // 它是后端最轻的存活探针，HTTP 200 + status === "UP" 即可证明 Web 容器可用，
-      // 后续的 Agent 业务接口再由真实业务调用兜底。
-      const snapshot = address === normalizeBackendUrl(currentUrl)
-        ? await runHealthProbe()
-        : await probeBackendHealth({ backendUrl: address });
-      if (!snapshot) return;
-      if (snapshot.ok) {
-        const latency = snapshot.latencyMs != null ? `（${snapshot.latencyMs}ms）` : '';
-        setResult(`连接成功${latency}。`);
-      } else {
-        setError(snapshot.message || '/api/health 未返回 UP。');
-      }
-      // 未保存地址的测试只反馈测试结果，不替换顶部当前访问地址的健康状态。
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '连接测试失败。');
-    } finally {
-      setTesting(false);
-    }
-  };
-
-  const saveAddress = () => {
-    setError('');
-    try {
-      onSave(normalizeBackendUrl(url));
-      setResult('客户端访问地址已保存。');
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '保存后端地址失败。');
-    }
-  };
-
   /**
    * 保存单个 tab 的配置：只把该 tab 的 keys 写入 YAML，未提交的字段保留原值。
    * Rust 侧 `save_backend_config` 行为是逐 key 更新，所以这种"按 tab 保存"是天然支持的。
@@ -1361,6 +1310,8 @@ export function BackendSettingsDialog({ currentUrl, required = false, onClose, o
         if (!Number.isInteger(port) || port < 1 || port > 65535) {
           throw new Error('后端端口必须是 1 到 65535 之间的整数。');
         }
+        if (values.serverSslAutoGenerate !== 'true'
+            && !values.serverSslKeyStore?.trim()) throw new Error('自定义证书模式需要填写本机证书库地址。');
       }
       const editableValues: Record<string, string> = {};
       for (const key of definition.keys) {
@@ -1368,17 +1319,17 @@ export function BackendSettingsDialog({ currentUrl, required = false, onClose, o
         if (!(key in values)) continue;
         editableValues[key] = values[key] ?? '';
       }
+      if (definition.id === 'general' && values.serverSslAutoGenerate === 'true') {
+        // 保留动态数据目录引用，不能把页面展示的绝对路径写死；切换数据目录后默认证书跟随。
+        editableValues.serverSslKeyStore = 'file:${app.config.data-directory}/tls/local-backend.p12';
+      }
       const saved = await saveBundledBackendConfig({ values: editableValues });
       if (saved) {
         setConfig(saved);
         setValues(Object.fromEntries(Object.entries(saved.values).map(([key, meta]) => [key, meta.value])));
       }
       setResult(`${definition.label}配置已保存，内置后端不会自动重启。`);
-      if (definition.id === 'general') {
-        const localUrl = `http://127.0.0.1:${values.serverPort || '8888'}`;
-        setUrl(localUrl);
-        onSave(localUrl);
-      }
+      // 保存本地配置不代表切换连接；运行中的服务地址仍以状态为准，重启后再同步。
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -1581,10 +1532,7 @@ export function BackendSettingsDialog({ currentUrl, required = false, onClose, o
               badge="健康检查">
               {isTauriRuntime() && <BackendHealthCard label="内置服务" address={bundledUrl}
                 health={bundledHealth} inactiveReason={bundledInactiveReason} />}
-              <BackendHealthCard label="当前后端" address={currentUrl} health={currentHealth}>
-                <AddressUrlField value={url} onChange={setUrl}
-                  testing={testing} onTest={() => void testConnection()} onSave={saveAddress} />
-              </BackendHealthCard>
+              <BackendHealthCard label="当前后端" address={currentUrl} health={currentHealth} />
               <div className="settings-health-preferences">
                 <div className="settings-toggle-row">
                   <div><strong>自动刷新</strong><p>设置页打开期间静默检查，修改立即生效并保存在本机。</p></div>
@@ -1606,8 +1554,30 @@ export function BackendSettingsDialog({ currentUrl, required = false, onClose, o
                 {healthRefreshError && <div className="settings-error" role="alert">{healthRefreshError}</div>}
               </div>
             </SettingsGroup>
+            <SettingsGroup title="客户端连接" description="选择内置后端或保存多个远程连接，各自的证书信任配置互不覆盖。" badge="客户端">
+              <BackendConnectionSettings localUrl={bundledUrl} onUse={onSave} />
+            </SettingsGroup>
+            {config && <SettingsGroup title="内置后端 HTTPS" description="Java 只接受 HTTPS；这里只配置本机证书，不修改远程服务器或 Nginx 的 SSL 配置。" badge="本机">
+              <div className="settings-field">
+                <label htmlFor="builtin-tls-mode">证书模式</label>
+                <Select id="builtin-tls-mode" className="settings-control" label="内置后端证书模式"
+                  value={values.serverSslAutoGenerate === 'true' ? 'auto' : 'custom'}
+                  onChange={mode => {
+                    change('serverSslAutoGenerate', String(mode === 'auto'));
+                    if (mode === 'auto') change('serverSslKeyStore', 'file:${app.config.data-directory}/tls/local-backend.p12');
+                    if (mode === 'custom' && values.serverSslAutoGenerate === 'true') change('serverSslKeyStore', '');
+                  }} options={[{ value: 'auto', label: 'HTTPS · 自动管理本机自签证书' },
+                    { value: 'custom', label: 'HTTPS · 自定义证书库' }]} />
+                <p className="settings-field-help">自动模式缺失时生成、有效时复用、临近过期续期。保存后需重启内置后端。</p>
+              </div>
+              <BooleanConfigField settingKey="serverHttp2Enabled" label="启用 HTTP/2" values={values} config={config} change={change} />
+              {values.serverSslAutoGenerate !== 'true' && renderFields(tlsStoreFields)}
+              {values.serverSslAutoGenerate === 'true' && <PathPreviewCard
+                label="默认证书目录" icon="folder" path={childPath(values.dataDirectory, 'tls')}
+                hint="证书和随机密码仅保留在本机，不与远程连接共用。" />}
+            </SettingsGroup>}
             {config && <SettingsGroup title="基础设置"
-              description="修改端口后客户端会自动切换地址；数据目录必须使用绝对路径。"
+              description="仅配置内置服务，保存不切换当前连接；数据目录必须使用绝对路径。"
               badge="运行时">
               {renderFields(generalFields)}
               <div className="settings-derived-paths">

@@ -208,6 +208,7 @@ impl State {
         backend: String,
         connection: String,
         root: Option<String>,
+        local_certificate: Option<reqwest::Certificate>,
         emit: Arc<dyn Fn(Value) + Send + Sync>,
     ) -> Result<Value> {
         let url = reqwest::Url::parse(&backend).map_err(|_| Error::local("后端地址无效"))?;
@@ -227,12 +228,18 @@ impl State {
         };
         // All JSON, SSE and content requests share this client and its authentication cookies.
         // The existing server currently uses its configured anonymous Principal fallback.
-        let client = Client::builder()
+        let mut builder = Client::builder()
+            // 原有 SFTP 信任来源保持不变；系统根证书功能仅由独立连接测试显式启用。
+            .tls_built_in_native_certs(false)
             .cookie_store(true)
             .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(Duration::from_secs(30))
-            .read_timeout(Duration::from_secs(120))
-            .build()?;
+            .read_timeout(Duration::from_secs(120));
+        // 只增加该连接显式选择的公开证书；仍校验主机名/有效期，禁止重定向绕过信任范围。
+        if let Some(certificate) = local_certificate {
+            builder = builder.add_root_certificate(certificate);
+        }
+        let client = builder.build()?;
         let data = request(
             &client,
             Method::POST,

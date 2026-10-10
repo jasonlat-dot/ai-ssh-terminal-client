@@ -1802,6 +1802,172 @@
 
 :root[data-theme='dark'] .settings-bucket-rules li.is-warn { color: #efc676; }
 
+.settings-connection-editor { display: grid; gap: 1rem; }
+.settings-connection-toolbar { display: flex; flex-wrap: wrap; gap: .75rem; align-items: center; }
+.settings-connection-toolbar > .settings-control { flex: 1; min-width: 12rem; }
+.settings-connection-fields { display: grid; gap: 1rem; margin: 0; padding: 0; border: 0; min-width: 0; }
+.settings-connection-fields textarea { width: 100%; font-family: var(--font-mono, monospace); resize: vertical; }
+.settings-connection-actions { display: flex; flex-wrap: wrap; gap: .65rem; align-items: center; }
+.settings-connection-fields input[readonly] { opacity: .75; }
+
+/* 公共证书导入使用现有主题和图标，不显示平台原生文件选择器的默认外观。 */
+.settings-certificate-picker {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  width: 100%;
+  min-width: 0;
+  padding: 1rem;
+  border: 1px dashed var(--settings-border-strong);
+  border-radius: var(--settings-radius);
+  background: var(--settings-panel-soft);
+  color: var(--settings-text);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--settings-transition), background var(--settings-transition);
+}
+.settings-certificate-picker:hover:not(:disabled) {
+  border-color: var(--settings-focus);
+  background: var(--settings-hover);
+}
+.settings-certificate-picker:focus-visible,
+.settings-certificate-source summary:focus-visible {
+  outline: 2px solid var(--settings-focus);
+  outline-offset: 3px;
+}
+.settings-certificate-picker:disabled { opacity: .6; cursor: not-allowed; }
+.settings-certificate-picker:active:not(:disabled) { background: var(--settings-tag-bg); }
+.settings-certificate-icon {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: var(--settings-radius-sm);
+  background: var(--settings-tag-bg);
+  color: var(--settings-tag-text);
+}
+.settings-certificate-copy { display: grid; gap: .35rem; min-width: 0; flex: 1; }
+.settings-certificate-copy strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--settings-label-size);
+  font-weight: var(--settings-label-weight);
+}
+.settings-certificate-copy > span { color: var(--settings-text-muted); font-size: var(--settings-help-size); line-height: 1.5; }
+.settings-certificate-action {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+  flex-shrink: 0;
+  padding: .5rem .75rem;
+  border: 1px solid var(--settings-tag-border);
+  border-radius: var(--settings-radius-sm);
+  color: var(--settings-tag-text);
+  background: var(--settings-panel);
+  font-size: var(--settings-help-size);
+  font-weight: var(--settings-label-weight);
+}
+.settings-certificate-source { min-width: 0; }
+.settings-certificate-source summary {
+  display: flex;
+  align-items: center;
+  gap: .45rem;
+  width: fit-content;
+  padding: .35rem 0;
+  color: var(--settings-text-muted);
+  cursor: pointer;
+  list-style: none;
+  font-size: var(--settings-help-size);
+}
+.settings-certificate-source summary::-webkit-details-marker { display: none; }
+.settings-certificate-source summary:hover { color: var(--settings-text); }
+.settings-certificate-source summary > svg { transition: transform var(--settings-transition); }
+.settings-certificate-source[open] summary > svg { transform: rotate(180deg); }
+.settings-certificate-source-label { display: block; margin: .5rem 0; font-size: var(--settings-help-size); color: var(--settings-text-muted); }
+/* 通用 settings-control 有固定单行高度，证书编辑区需显式恢复多行高度。 */
+.settings-connection-fields .settings-certificate-source textarea {
+  height: auto;
+  min-height: 9rem;
+  max-height: 24rem;
+  font: var(--weight-body) var(--settings-help-size)/1.65 var(--mono, monospace);
+}
+.settings-page .settings-field > .settings-certificate-hint {
+  display: flex;
+  gap: .5rem;
+  align-items: flex-start;
+  margin: 0;
+  padding-top: .25rem;
+}
+.settings-certificate-hint > svg { flex-shrink: 0; margin-top: .15rem; }
+
+/* 成功、等待及失败使用同一结构，状态与详情分层，耗时不混在长句中。 */
+.settings-connection-notice {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: .8rem;
+  min-width: 0;
+  padding: 1rem;
+  border: 1px solid var(--accent-line);
+  border-radius: var(--settings-radius);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+.settings-connection-notice-icon {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 2.25rem;
+  height: 2.25rem;
+  border: 1px solid var(--accent-line);
+  border-radius: var(--settings-radius-sm);
+}
+.settings-connection-notice-copy { flex: 1 1 15rem; min-width: 0; }
+.settings-connection-notice-copy strong { display: block; font-size: var(--settings-label-size); font-weight: var(--settings-label-weight); line-height: 1.5; }
+.settings-connection-notice-copy p {
+  margin: .3rem 0 0;
+  color: var(--settings-text-muted);
+  font-size: var(--settings-help-size);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.settings-connection-notice[data-accent='danger'] .settings-connection-notice-copy p { color: var(--accent-ink); }
+.settings-connection-notice-metrics { display: flex; align-items: center; flex-wrap: wrap; gap: .7rem; margin-left: auto; }
+.settings-connection-notice-metrics > span:not(.ui-badge) {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  padding: .3rem 0;
+  font-family: var(--mono, monospace);
+  font-size: var(--settings-label-size);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.settings-connection-notice-metrics small { font: inherit; font-size: var(--settings-micro-size); }
+@media (max-width: 640px) {
+  .settings-certificate-picker { flex-wrap: wrap; gap: .75rem; }
+  .settings-certificate-copy { flex-basis: calc(100% - 3.5rem); }
+  .settings-certificate-action { margin-left: auto; }
+}
+
+.settings-connection-response { min-width: 0; }
+.settings-connection-response pre {
+  margin: .5rem 0 0;
+  padding: .75rem 1rem;
+  max-height: 12rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--settings-border);
+  border-radius: var(--settings-radius-sm);
+  background: var(--settings-panel-soft);
+  color: var(--settings-text);
+  font: var(--font-small)/1.6 var(--font-mono, monospace);
+}
+.settings-connection-response pre:focus-visible { outline: 2px solid var(--settings-focus); outline-offset: 2px; }
+
 /* ============================================================================
  *  Responsive for new components
  * ========================================================================== */

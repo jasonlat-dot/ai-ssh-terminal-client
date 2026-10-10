@@ -1,5 +1,7 @@
 mod cache;
 mod bundled_backend;
+mod local_backend_tls;
+mod backend_connection_probe;
 mod chat_history;
 mod command_store;
 mod local_terminal;
@@ -19,12 +21,15 @@ pub fn run() {
     let app = tauri::Builder::default()
         .manage(ChatHistoryState::default())
         .manage(bundled_backend::BundledBackendState::default())
+        .manage(local_backend_tls::LocalBackendTlsState::default())
         .manage(LocalTerminalState::default())
         .manage(sftp::State::default())
         .manage(CommandStoreState::default())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .setup(|app| {
+            // 先注册本机证书固定信任，再开始后端启动，避免首次 HTTPS 请求早于事件安装。
+            local_backend_tls::install(app.handle())?;
             /*
              * 后端健康检查最长需要 60 秒，不能阻塞 Tauri 主线程和 WebView 首次绘制。
              * 后台任务会保存真实状态，启动页通过命令轮询并展示，同时允许用户重试。
@@ -37,6 +42,9 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             bundled_backend::bundled_backend_status,
+            bundled_backend::prepare_local_backend_tls,
+            local_backend_tls::configure_backend_connection_tls,
+            backend_connection_probe::probe_backend_connection,
             bundled_backend::bundled_backend_restart,
             bundled_backend::bundled_backend_stop,
             bundled_backend::bundled_backend_config,

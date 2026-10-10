@@ -1,6 +1,7 @@
 import { Channel, invoke } from '@tauri-apps/api/core';
 import { requireBackendUrl } from '../config/backend';
 import { isTauriRuntime } from '../state/runtime';
+import { prepareBackendConnectionTls } from './backendFetch';
 
 export type SftpEntry = { name: string; path: string; kind: 'FILE' | 'DIRECTORY' | 'SYMLINK' | 'OTHER'; size: number; modifiedAt: number; permissions: string };
 export type LocalDirectory = { path: string; parent: string | null; roots: string[]; entries: SftpEntry[] };
@@ -32,10 +33,11 @@ async function native<T>(command: string, args: Record<string, unknown> = {}): P
   catch (error) { throw new SftpError(error); }
 }
 export const sftpApi = {
-  open(connectionId: string, rootPath: string, onEvent: (event: SftpEvent) => void) {
+  async open(connectionId: string, rootPath: string, onEvent: (event: SftpEvent) => void) {
     if (!isTauriRuntime()) return Promise.reject(new Error('请在桌面客户端打开文件管理，本地文件传输需要 Tauri。'));
     const channel = new Channel<SftpEvent>();
     channel.onmessage = onEvent;
+    await prepareBackendConnectionTls();
     return native<SftpSession>('sftp_open', { backendUrl: requireBackendUrl(), connectionId, rootPath: rootPath.trim() || null, onEvent: channel });
   },
   close: (sessionId: string) => native<void>('sftp_close', { sessionId }),

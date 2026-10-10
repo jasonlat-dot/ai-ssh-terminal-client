@@ -1,6 +1,7 @@
 import { sshUserId } from './ssh.ts';
 import { requireBackendUrl } from '../config/backend.ts';
 import { ChatRequestError } from './chatErrors.ts';
+import { backendFetch } from './backendFetch';
 
 export type AgentConfig = {
   agentId: string;
@@ -33,7 +34,7 @@ type ApiResponse<T> = { code: string; info?: string; data?: T };
 
 async function request<T>(endpoint: string, method = 'GET', body?: object, signal?: AbortSignal): Promise<T> {
   try {
-    const response = await fetch(`${requireBackendUrl()}/agent/${endpoint}`, {
+    const response = await backendFetch(`${requireBackendUrl()}/agent/${endpoint}`, {
       method,
       signal,
       headers: body ? { 'Content-Type': 'application/json' } : undefined,
@@ -195,7 +196,7 @@ async function chatStream(
 ) {
   let response: Response;
   try {
-    response = await fetch(`${requireBackendUrl()}/agent/chat_stream`, {
+    response = await backendFetch(`${requireBackendUrl()}/agent/chat_stream`, {
       method: 'POST',
       signal,
       headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },

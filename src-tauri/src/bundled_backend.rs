@@ -60,6 +60,8 @@ pub struct BackendConfigView {
     sqlite_file: String,
     upload_directory: String,
     log_directory: String,
+    /** 默认启用 TLS；供前端生成与后端实际监听协议一致的地址。 */
+    ssl_enabled: bool,
 }
 
 /** 设置页提交的字段。敏感字段传空字符串时保留现有值。 */
@@ -99,6 +101,12 @@ struct ConfigField {
 
 const CONFIG_FIELDS: &[ConfigField] = &[
     ConfigField { key: "serverPort", path: &["server", "port"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Plain, sensitive: false },
+    ConfigField { key: "serverSslAutoGenerate", path: &["server", "ssl", "auto-generate"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Plain, sensitive: false },
+    ConfigField { key: "serverHttp2Enabled", path: &["server", "http2", "enabled"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Plain, sensitive: false },
+    ConfigField { key: "serverSslKeyStore", path: &["server", "ssl", "key-store"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false },
+    ConfigField { key: "serverSslKeyStoreType", path: &["server", "ssl", "key-store-type"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false },
+    ConfigField { key: "serverSslKeyStorePassword", path: &["server", "ssl", "key-store-password"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: true },
+    ConfigField { key: "serverSslKeyAlias", path: &["server", "ssl", "key-alias"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false },
     ConfigField { key: "dataDirectory", path: &["app", "config", "data-directory"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false },
     ConfigField { key: "aiBaseUrl", path: &["openai", "ai-api", "base-url"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: false },
     ConfigField { key: "aiApiKey", path: &["openai", "ai-api", "api-key"], kind: ConfigValueKind::Scalar, style: ConfigValueStyle::Text, sensitive: true },
@@ -188,11 +196,11 @@ fn begin_start(app: &AppHandle) {
 
 fn finish_start(app: &AppHandle) -> BackendStatus {
     let status = match start_inner(app) {
-        Ok((log_path, server_port)) => BackendStatus {
+        Ok((log_path, backend_url)) => BackendStatus {
             status: "running".into(),
             message: "内置后端已启动".into(),
             log_path: Some(log_path.to_string_lossy().into_owned()),
-            backend_url: Some(format!("http://127.0.0.1:{server_port}")),
+            backend_url: Some(backend_url),
         },
         Err(error) => BackendStatus {
             status: "failed".into(),
@@ -243,6 +251,17 @@ pub fn start_in_background(app: AppHandle) {
             return;
         }
         if !read_auto_start_preference(&app) {
+            // 自动启动关闭时，仍可连接用户手工启动的本机后端；提前加载已有公开证书。
+            let prepare_trust = || -> Result<(), Box<dyn std::error::Error>> {
+                let resource_dir = app.path().resource_dir()?;
+                let directory = resolve_backend_home(&resource_dir, &app)?;
+                refresh_local_certificate(&app, &directory,
+                    read_server_port(&directory).unwrap_or(8889), read_ssl_enabled(&directory)?)?;
+                Ok(())
+            };
+            if let Err(error) = prepare_trust() {
+                eprintln!("准备手动启动后端的本机证书信任失败：{error}");
+            }
             let status = BackendStatus {
                 status: "stopped".into(),
                 message: "自动启动已关闭。在设置中开启，或在启动页点“启动”。".into(),
@@ -257,9 +276,12 @@ pub fn start_in_background(app: AppHandle) {
 }
 
 /** 执行资源检查、目录准备、Java 进程启动和存活确认。 */
-fn start_inner(app: &AppHandle) -> Result<(PathBuf, u16), Box<dyn std::error::Error>> {
+fn start_inner(app: &AppHandle) -> Result<(PathBuf, String), Box<dyn std::error::Error>> {
     let resource_dir = app.path().resource_dir()?;
     let backend_home = resolve_backend_home(&resource_dir, app)?;
+    let server_port = read_server_port(&backend_home).unwrap_or(8889);
+    let ssl_enabled = read_ssl_enabled(&backend_home)?;
+    let backend_url = format!("https://127.0.0.1:{server_port}");
     let java_executable = bundled_java(&resource_dir);
     let backend_jar = resource_dir.join("backend").join(BACKEND_JAR_NAME);
 
@@ -271,9 +293,10 @@ fn start_inner(app: &AppHandle) -> Result<(PathBuf, u16), Box<dyn std::error::Er
                 java_executable.display(),
                 backend_jar.display()
             );
+            refresh_local_certificate(app, &backend_home, server_port, ssl_enabled)?;
             return Ok((
                 backend_home.join("logs").join("backend-console.log"),
-                read_server_port(&backend_home).unwrap_or(8888),
+                backend_url,
             ));
         }
         return Err(format!(
@@ -320,7 +343,6 @@ fn start_inner(app: &AppHandle) -> Result<(PathBuf, u16), Box<dyn std::error::Er
     })?;
 
     // 等待监听端口就绪后再显示主界面，避免前端首次请求早于 Spring Boot 启动完成。
-    let server_port = read_server_port(&backend_home).unwrap_or(8888);
     let state = app.state::<BundledBackendState>();
     wait_until_ready(
         &mut child,
@@ -339,9 +361,15 @@ fn start_inner(app: &AppHandle) -> Result<(PathBuf, u16), Box<dyn std::error::Er
         .into());
     }
 
+    // 证书在 Tomcat 监听前生成；在发布 running 前加载公开证书，首个 fetch 即可校验。
+    if let Err(error) = refresh_local_certificate(app, &backend_home, server_port, ssl_enabled) {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(error.into());
+    }
     let mut guard = state.child.lock().map_err(|_| "内置后端进程状态锁已损坏")?;
     *guard = Some(child);
-    Ok((backend_home.join("logs").join("backend-console.log"), server_port))
+    Ok((backend_home.join("logs").join("backend-console.log"), backend_url))
 }
 
 /** 返回当前内置后端状态，供页面在首次渲染和重试后展示准确结果。 */
@@ -462,6 +490,8 @@ fn load_backend_config(app: &AppHandle) -> io::Result<BackendConfigView> {
         sqlite_file: data_path.join("data").join("ai-ssh-terminal.db").to_string_lossy().into_owned(),
         upload_directory: data_path.join("files").to_string_lossy().into_owned(),
         log_directory: data_path.join("logs").to_string_lossy().into_owned(),
+        // 协议固定为 HTTPS。配置页仍可打开以查看证书配置，旧的禁用值在启动时拒绝。
+        ssl_enabled: true,
     })
 }
 
@@ -498,7 +528,8 @@ fn validate_config_update(values: &BTreeMap<String, String>) -> io::Result<()> {
             }
         }
     }
-    for key in ["aiProxyEnabled", "localStorageEnabled", "minioEnabled", "sshProxyEnabled"] {
+    for key in ["aiProxyEnabled", "localStorageEnabled", "minioEnabled", "sshProxyEnabled",
+        "serverSslAutoGenerate", "serverHttp2Enabled"] {
         if let Some(value) = values.get(key) {
             if value != "true" && value != "false" {
                 return Err(io::Error::new(io::ErrorKind::InvalidInput, format!("{key} 只能是 true 或 false")));
@@ -564,7 +595,17 @@ fn locate_config_field(files: &[PathBuf], field: &ConfigField) -> io::Result<Loc
             });
         }
     }
-    Err(io::Error::new(io::ErrorKind::NotFound, format!("配置项 {} 不存在", field.path.join("."))))
+    // 已安装版本的 YAML 可能没有新 SSL 字段；读取时只给出默认值，不偷偷修改用户配置。
+    let default = match field.key {
+        "serverSslAutoGenerate" => "${LOCAL_TLS_AUTO_GENERATE:true}",
+        "serverHttp2Enabled" => "${SERVER_HTTP2_ENABLED:true}",
+        "serverSslKeyStore" => "${SERVER_SSL_KEY_STORE:file:${app.config.data-directory}/tls/local-backend.p12}",
+        "serverSslKeyStoreType" => "PKCS12",
+        "serverSslKeyStorePassword" | "serverSslKeyAlias" => "",
+        _ => return Err(io::Error::new(io::ErrorKind::NotFound, format!("配置项 {} 不存在", field.path.join(".")))),
+    };
+    Ok(LocatedConfigValue { raw: default.into(), environment: active_environment_names(default),
+        file: files.first().ok_or_else(|| io::Error::other("配置文件列表为空"))?.clone() })
 }
 
 /** 读取缩进式 YAML 中指定路径的标量值，不改写注释或其他字段。 */
@@ -634,6 +675,7 @@ fn update_effective_field(files: &[PathBuf], field: &ConfigField, new_value: &st
         ConfigValueKind::Scalar => {
             let rendered = render_scalar_value(&located.raw, new_value, field.style);
             replace_yaml_value(&content, field.path, &rendered)
+                .or_else(|| insert_yaml_value(&content, field.path, &rendered))
         }
         ConfigValueKind::List => replace_yaml_list(&content, field.path, &located.raw, new_value),
     }.ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("无法定位配置项 {}", field.path.join("."))))?;
@@ -1008,12 +1050,207 @@ fn open_backend_log(path: &Path) -> io::Result<File> {
  * 同时识别 8888 和 ${SERVER_PORT:8888}，解析失败时由调用方使用默认端口。
  */
 fn read_server_port(backend_home: &Path) -> Option<u16> {
+    if let Ok(port) = std::env::var("SERVER_PORT") {
+        return port.parse().ok();
+    }
     // 与设置页使用同一套 Profile 优先级，避免端口写在 application-prod.yml 时等待错误端口。
     let application_file = backend_home.join("application.yml");
     let profiles = active_profiles(&application_file).ok()?;
     let files = config_files(backend_home, &profiles);
     let port = locate_config_value(&files, &["server", "port"]).ok()?;
     effective_scalar(&port.raw, port.environment.as_deref()).parse::<u16>().ok()
+}
+
+/**
+ * 在最深的现有 YAML 映射内补充新字段，避免旧安装包缺少 SSL 字段时保存失败。
+ * 只插入白名单中的缩进式标量路径，保留既有注释、换行及其他字段；不重写整份 YAML。
+ * @param content 原始配置文本
+ * @param path 已由 CONFIG_FIELDS 限定的配置路径
+ * @param new_value 已完成 YAML 转义的值
+ */
+fn insert_yaml_value(content: &str, path: &[&str], new_value: &str) -> Option<String> {
+    let mut parents: Vec<(usize, String)> = Vec::new();
+    let lines: Vec<_> = content.lines().collect();
+    let mut deepest = None;
+    for (index, line) in lines.iter().enumerate() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with('-') { continue; }
+        let indent = line.len() - line.trim_start().len();
+        while parents.last().is_some_and(|(level, _)| *level >= indent) { parents.pop(); }
+        let Some((key, raw)) = trimmed.split_once(':') else { continue; };
+        let key = key.trim().trim_matches(['\'', '"']);
+        let mut current = parents.iter().map(|(_, name)| name.as_str()).collect::<Vec<_>>();
+        current.push(key);
+        let mapping = strip_inline_comment(raw.trim()).is_empty();
+        if current.len() < path.len() && current == path[..current.len()] {
+            if !mapping { return None; } // 不给行内映射或标量节点创建重复的父键。
+            deepest = Some((current.len(), index, indent));
+        }
+        if mapping { parents.push((indent, key.into())); }
+    }
+    let (depth, insertion, base_indent) = match deepest {
+        Some((depth, index, indent)) => {
+            let end = ((index + 1)..lines.len()).find(|position| {
+                let line = lines[*position];
+                !line.trim().is_empty() && !line.trim_start().starts_with('#')
+                    && line.len() - line.trim_start().len() <= indent
+            }).unwrap_or(lines.len());
+            (depth, end, indent + 2)
+        }
+        None => (0, lines.len(), 0),
+    };
+    let mut output = lines[..insertion].iter().map(|line| line.to_string()).collect::<Vec<_>>();
+    for (offset, key) in path[depth..].iter().enumerate() {
+        let value = if depth + offset + 1 == path.len() { format!(" {new_value}") } else { String::new() };
+        output.push(format!("{}{key}:{value}", " ".repeat(base_indent + offset * 2)));
+    }
+    output.extend(lines[insertion..].iter().map(|line| line.to_string()));
+    let separator = if content.contains("\r\n") { "\r\n" } else { "\n" };
+    Some(format!("{}{separator}", output.join(separator)))
+}
+
+/** 启动前检查旧配置；协议固定为 HTTPS，false 必须显式修正，不能推导出 HTTP 地址。 */
+fn read_ssl_enabled(backend_home: &Path) -> io::Result<bool> {
+    let raw = if let Ok(value) = std::env::var("SERVER_SSL_ENABLED") {
+        value
+    } else {
+        let profiles = active_profiles(&backend_home.join("application.yml"))?;
+        match locate_config_value(&config_files(backend_home, &profiles), &["server", "ssl", "enabled"]) {
+            Ok(value) => effective_scalar(&value.raw, value.environment.as_deref()),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => "true".into(),
+            Err(error) => return Err(error),
+        }
+    };
+    match raw.to_ascii_lowercase().as_str() {
+        "true" => Ok(true),
+        "false" => Err(io::Error::other("Java 后端必须使用 HTTPS；请将旧配置 server.ssl.enabled 改为 true，并移除 SERVER_SSL_ENABLED=false 环境变量")),
+        _ => Err(io::Error::other("server.ssl.enabled 必须为 true 或 false")),
+    }
+}
+
+/** 使用与配置页一致的真实数据根目录，避免配置目录和数据目录分离时读错证书。 */
+fn refresh_local_certificate(app: &AppHandle, backend_home: &Path, port: u16, enabled: bool) -> io::Result<()> {
+    let directory = read_tls_data_directory(app, backend_home)?;
+    // 选择自定义证书或关闭自动生成后，旧的 local-backend.crt 不再代表运行中的后端。
+    let managed = enabled && uses_managed_tls_store(backend_home, &directory)?;
+    crate::local_backend_tls::refresh(app, &directory, port, managed)
+}
+
+/** 仅自动管理模式且 key-store 仍指向默认文件时，才能使用内置证书的固定信任。 */
+fn uses_managed_tls_store(backend_home: &Path, directory: &Path) -> io::Result<bool> {
+    let profiles = active_profiles(&backend_home.join("application.yml"))?;
+    let files = config_files(backend_home, &profiles);
+    let value = |path: &[&str]| -> io::Result<Option<String>> {
+        match locate_config_value(&files, path) {
+            Ok(found) => Ok(Some(effective_scalar(&found.raw, found.environment.as_deref()))),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(error),
+        }
+    };
+    if std::env::var("LOCAL_TLS_AUTO_GENERATE").ok()
+        .or(value(&["server", "ssl", "auto-generate"])?).is_some_and(|value| value.trim() == "false") {
+        return Ok(false);
+    }
+    if value(&["server", "ssl", "certificate"])?.is_some_and(|value| !value.trim().is_empty())
+        || value(&["server", "ssl", "bundle"])?.is_some_and(|value| !value.trim().is_empty()) {
+        return Ok(false);
+    }
+    let Some(store) = std::env::var("SERVER_SSL_KEY_STORE").ok().or(value(&["server", "ssl", "key-store"])?) else {
+        return Ok(true); // 兼容旧 YAML：后端处理器默认使用统一数据目录下的证书。
+    };
+    if store.trim().is_empty() { return Ok(true); }
+    let store = store.replace("${app.config.data-directory}", &directory.to_string_lossy())
+        .replace('\\', "/");
+    let default = directory.join("tls/local-backend.p12").to_string_lossy().replace('\\', "/");
+    let configured = store.strip_prefix("file:").unwrap_or(&store);
+    // Windows file:/C:/... 与 C:/... 表示相同的本机文件；不下载 classpath/网络资源。
+    let configured = if cfg!(windows) && configured.starts_with('/') && configured.as_bytes().get(2) == Some(&b':') {
+        &configured[1..]
+    } else { configured };
+    Ok(if cfg!(windows) { configured.eq_ignore_ascii_case(&default) } else { configured == default })
+}
+
+/** 只读取配置来定位证书，不启动进程、不复制/迁移数据，也不修改 YAML。 */
+fn read_tls_data_directory(app: &AppHandle, backend_home: &Path) -> io::Result<PathBuf> {
+    // 不复用整份设置页快照：证书初始化不应依赖 AI 密钥等不相关配置项是否齐全。
+    let user_home = app.path().home_dir().map_err(io::Error::other)?;
+    let profiles = active_profiles(&backend_home.join("application.yml"))?;
+    let raw = match locate_config_value(&config_files(backend_home, &profiles), &["app", "config", "data-directory"]) {
+        Ok(value) => effective_scalar(&value.raw, value.environment.as_deref())
+            .replace("${user.home}", &user_home.to_string_lossy()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => user_home.join(".ai-ssh-terminal").to_string_lossy().into_owned(),
+        Err(error) => return Err(error),
+    };
+    let directory = PathBuf::from(raw);
+    let directory = if directory.is_absolute() { directory } else { backend_home.join(directory) };
+    Ok(directory)
+}
+
+/**
+ * 在连接 IDEA 等手工启动的本机 HTTPS 后端前加载公开证书。
+ *
+ * @param app 桌面应用句柄，用于读取用户目录和固定信任状态
+ * @param backend_url 用户实际选择的根地址；只处理 HTTPS 回环地址，绝不自动信任远程证书
+ * @return 成功准备，或可展示的文件/证书读取错误；没有默认证书时仍保持系统正常 TLS 校验
+ */
+#[tauri::command]
+pub async fn prepare_local_backend_tls(app: AppHandle, backend_url: String) -> Result<(), String> {
+    backend_blocking_task("准备本机后端证书", move || {
+        prepare_external_local_certificate(&app, &backend_url).map_err(|error| error.to_string())
+    }).await
+}
+
+/** 外部连接不经过 start_inner，因此必须按连接目标加载证书，不能依赖内置后端启动时机。 */
+fn prepare_external_local_certificate(app: &AppHandle, raw_url: &str) -> io::Result<()> {
+    let url = reqwest::Url::parse(raw_url).map_err(io::Error::other)?;
+    if url.scheme() != "https"
+        || !matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"))
+        || !url.username().is_empty() || url.password().is_some()
+    {
+        // HTTP 和远程域名/IP 不读取本机证书，更不会通过此接口获得证书错误豁免。
+        return Ok(());
+    }
+    let port = url.port_or_known_default().ok_or_else(|| io::Error::other("后端 HTTPS 端口无效"))?;
+    let state = app.state::<BundledBackendState>();
+    let owned = state.child.lock().map_err(|_| io::Error::other("后端进程锁已损坏"))?.is_some();
+    let owned_port = state.status.lock().map_err(|_| io::Error::other("后端状态锁已损坏"))?
+        .backend_url.as_deref().and_then(|raw| reqwest::Url::parse(raw).ok())
+        .and_then(|url| url.port_or_known_default());
+    if owned && owned_port == Some(port) {
+        // 真正内置运行的进程已按其真实数据目录加载证书，不用源码默认目录覆盖它。
+        return Ok(());
+    }
+
+    let user_home = app.path().home_dir().map_err(io::Error::other)?;
+    let mut directories = Vec::new();
+    #[cfg(debug_assertions)]
+    {
+        // Tauri dev 与 IDEA 共用源码工作区，但 IDEA 使用源码 YAML，而非安装版的外置 YAML。
+        let resources = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ai-ssh-terminal-server/ai-ssh-terminal-server-app/src/main/resources");
+        if resources.join("application.yml").is_file() {
+            let directory = read_tls_data_directory(app, &resources)?;
+            if !uses_managed_tls_store(&resources, &directory)? {
+                return crate::local_backend_tls::refresh(app, &directory, port, false);
+            }
+            directories.push(directory);
+        }
+    }
+    if let Some(directory) = std::env::var_os("AI_SSH_TERMINAL_HOME") {
+        directories.push(PathBuf::from(directory));
+    }
+    directories.push(user_home.join(".ai-ssh-terminal"));
+    // 也兼容手工使用安装版外置配置启动的 Java；只读取引导文件，不能触发目录复制。
+    let location = app.path().app_local_data_dir().map_err(io::Error::other)?.join("backend-location.txt");
+    if let Ok(value) = fs::read_to_string(location) {
+        let directory = PathBuf::from(value.trim());
+        if directory.join("application.yml").is_file() {
+            directories.push(read_tls_data_directory(app, &directory)?);
+        }
+    }
+    if let Some(directory) = directories.into_iter().find(|directory| directory.join("tls/local-backend.crt").is_file()) {
+        crate::local_backend_tls::refresh(app, &directory, port, true)?;
+    }
+    Ok(())
 }
 
 /** 等待 Spring Boot 开始监听；进程提前退出或超时会阻止客户端带着不可用后端继续启动。 */

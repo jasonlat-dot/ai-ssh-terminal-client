@@ -27,6 +27,8 @@ export type BundledBackendConfig = {
   sqliteFile: string;
   uploadDirectory: string;
   logDirectory: string;
+  /** 后端有效 TLS 配置；旧壳未提供时保留 HTTP 回退行为。 */
+  sslEnabled?: boolean;
 };
 
 export type BundledBackendConfigUpdate = {
@@ -38,7 +40,8 @@ export type BundledBackendConfigUpdate = {
 export function resolveBundledBackendUrl(status: BundledBackendStatus | null, config: BundledBackendConfig | null): string | null {
   if (status?.backendUrl) return status.backendUrl;
   const port = Number(config?.values.serverPort?.value);
-  return Number.isInteger(port) && port > 0 && port <= 65535 ? `http://127.0.0.1:${port}` : null;
+  const scheme = config?.sslEnabled ? 'https' : 'http';
+  return Number.isInteger(port) && port > 0 && port <= 65535 ? `${scheme}://127.0.0.1:${port}` : null;
 }
 
 /** 查询 Tauri 启动阶段保存的后端结果，避免只能从接口网络错误间接判断。 */

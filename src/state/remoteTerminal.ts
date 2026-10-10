@@ -2,8 +2,8 @@ import { terminalApi } from '../api/terminal';
 import type { TerminalConnectionState, TerminalOpen } from '../api/terminal';
 import { SshRequestError } from '../api/ssh';
 import type { TerminalDisconnectReason } from '../types';
-import { terminalReadScheduler } from './terminalReadScheduler';
 import type { TerminalRuntime } from './terminalRuntime';
+import { requireBackendUrl } from '../config/backend';
 
 const READ_RETRY_DELAYS = [1_000, 3_000, 5_000, 10_000] as const;
 
@@ -28,6 +28,8 @@ export function terminalDisconnectMessage(reason: TerminalDisconnectReason | nul
 export class RemoteTerminal implements TerminalRuntime {
   readonly sessionId: string;
   readonly connectionId: string;
+  /** 终端归属的后端地址固定不变，切换连接后绝不能把旧 sessionId 发给新服务器。 */
+  private readonly backendUrl: string;
   closed = false;
   disconnected = false;
   manuallyClosed = false;
@@ -49,11 +51,11 @@ export class RemoteTerminal implements TerminalRuntime {
   private lastSize = '';
   private readFailureCount = 0;
   private readController?: AbortController;
-  private foreground = false;
 
-  constructor(opened: TerminalOpen, startPaused = false) {
+  constructor(opened: TerminalOpen, startPaused = false, backendUrl = requireBackendUrl()) {
     this.sessionId = opened.sessionId;
     this.connectionId = opened.connectionId;
+    this.backendUrl = backendUrl;
     this.backlog = opened.initialOutput || '';
     this.paused = startPaused;
     if (this.isDisconnectOutput(this.backlog)) {
@@ -64,9 +66,8 @@ export class RemoteTerminal implements TerminalRuntime {
 
   get readLoopGeneration() { return this.generation; }
 
-  setForeground(foreground: boolean) {
-    this.foreground = foreground;
-    terminalReadScheduler.prioritize();
+  setForeground(_foreground: boolean) {
+    // 保留 TerminalRuntime 的统一接口；各终端独立读取，不再按前后台排队。
   }
 
   private isDisconnectOutput(data: string) {
@@ -169,11 +170,10 @@ export class RemoteTerminal implements TerminalRuntime {
     this.readController = controller;
     let nextDelay = 0;
     try {
-      const result = await terminalReadScheduler.run(
-        () => terminalApi.read(this.sessionId, controller.signal),
-        controller.signal,
-        () => this.foreground,
-      );
+      // 每个终端独立发起长轮询，不等待其他终端释放全局读取名额。
+      // 上方 pollingGeneration 防止同一代读取循环重复进入；关闭/切换时仍由
+      // AbortController 取消请求，并由 generation 检查阻止旧响应更新新终端。
+      const result = await terminalApi.read(this.sessionId, controller.signal, this.backendUrl);
       if (!this.isActive(generation)) return;
       if (this.readFailureCount > 0) {
         console.info(`Terminal Long Poll 网络已恢复 sessionId=${this.sessionId} failures=${this.readFailureCount}`);
@@ -243,7 +243,7 @@ export class RemoteTerminal implements TerminalRuntime {
     const version = this.lifecycleVersion;
     let state: TerminalConnectionState;
     try {
-      state = await terminalApi.connected(this.sessionId);
+      state = await terminalApi.connected(this.sessionId, this.backendUrl);
     } catch (error) {
       if (version === this.lifecycleVersion && !this.manuallyClosed) this.reportRequestFailure(error);
       throw error;
@@ -291,18 +291,18 @@ export class RemoteTerminal implements TerminalRuntime {
   }
 
   exec(command: string) {
-    return this.enqueueWrite(async () => { this.assertWritable(); await this.request(() => terminalApi.write(this.sessionId, `${command}\r`)); });
+    return this.enqueueWrite(async () => { this.assertWritable(); await this.request(() => terminalApi.write(this.sessionId, `${command}\r`, this.backendUrl)); });
   }
 
   write(input: string) {
-    return this.enqueueWrite(async () => { this.assertWritable(); await this.request(() => terminalApi.write(this.sessionId, input)); });
+    return this.enqueueWrite(async () => { this.assertWritable(); await this.request(() => terminalApi.write(this.sessionId, input, this.backendUrl)); });
   }
 
   async resize(cols: number, rows: number) {
     if (this.closed || this.closing || this.paused || this.disconnected || this.manuallyClosed || !this.transportAvailable) return;
     const size = `${cols}:${rows}`;
     if (size === this.lastSize) return;
-    await this.request(() => terminalApi.resize(this.sessionId, cols, rows));
+    await this.request(() => terminalApi.resize(this.sessionId, cols, rows, this.backendUrl));
     this.lastSize = size;
   }
 
@@ -311,7 +311,7 @@ export class RemoteTerminal implements TerminalRuntime {
     this.markManuallyClosed();
     this.closing = true;
     try {
-      await terminalApi.close(this.sessionId);
+      await terminalApi.close(this.sessionId, undefined, this.backendUrl);
       this.report?.('终端会话已关闭，可点击“重新连接”重新建立会话。');
     } finally {
       this.closed = true;
