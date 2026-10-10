@@ -32,6 +32,9 @@ export function BackendConnectionSettings({ localUrl, onUse }: {
   const [error, setError] = useState('');
   const [responseDetail, setResponseDetail] = useState<{ httpStatus: number | null; body: string } | null>(null);
   const builtin = draft.kind === 'builtin';
+  // 查看/编辑对象与真正活动连接分开；下拉选项不能伪装成已经切换成功。
+  const currentConnection = connections.profiles.find(profile => profile.id === connections.activeId);
+  const pendingUse = draft.id !== connections.activeId;
   const hasCertificate = Boolean(draft.certificatePem.trim());
   const certificateName = importedFile?.pem === draft.certificatePem ? importedFile.name
     : hasCertificate ? '已载入公开证书内容' : '导入服务器公开证书';
@@ -72,6 +75,8 @@ export function BackendConnectionSettings({ localUrl, onUse }: {
       if (activate) {
         activateBackendConnection(saved.id); activated = true;
         await prepareBackendConnectionTls();
+        // onUse 不一定卸载此组件，成功后的“当前连接”也必须反映真实活动 ID。
+        setConnections(readBackendConnections());
         onUse(saved.url);
       } else setMessage({ title: '连接已保存', detail: '当前使用的后端没有变化。' });
     } catch (cause) {
@@ -101,10 +106,10 @@ export function BackendConnectionSettings({ localUrl, onUse }: {
   };
 
   return <div className="settings-connection-editor">
-    <p className="settings-field-help">当前连接：{connections.profiles.find(item => item.id === connections.activeId)?.name}。
-      远程连接与内置后端独立保存；切换不会修改本地 YAML。</p>
+    <p className="settings-field-help">当前正在使用：<strong>{currentConnection?.name}</strong>。
+      下拉框仅选择查看或编辑对象，不会立即切换后端。</p>
     <div className="settings-connection-toolbar">
-      <Select label="选择后端连接" value={draft.id} disabled={busy}
+      <Select label="查看或编辑后端连接" value={draft.id} disabled={busy}
         options={[...connections.profiles.map(profile => ({ value: profile.id, label: profile.name })),
           ...(!connections.profiles.some(profile => profile.id === draft.id) ? [{ value: draft.id, label: '新远程连接' }] : [])]}
         onChange={select} className="settings-control" />
@@ -113,6 +118,14 @@ export function BackendConnectionSettings({ localUrl, onUse }: {
         setError(''); setMessage(null); setResponseDetail(null); setImportedFile(null);
       }}><Icon name="plus" size={13} />新增远程连接</button>
     </div>
+    {pendingUse && <div className="settings-connection-notice" data-accent="blue" role="status">
+      <span className="settings-connection-notice-icon" aria-hidden="true"><Icon name="signal" size={20} /></span>
+      <div className="settings-connection-notice-copy">
+        <strong>{draft.name.trim() || '新远程连接'}：已选择，尚未使用</strong>
+        <p>当前仍使用「{currentConnection?.name}」。点击「{builtin ? '切回内置后端' : '使用此连接'}」才会切换。
+          底部「保存内置后端配置」只保存本机 YAML，不保存或应用此连接。</p>
+      </div>
+    </div>}
     <fieldset disabled={busy} className="settings-connection-fields">
       {!builtin && <div className="settings-field">
         <label htmlFor="connection-name">连接名称</label>

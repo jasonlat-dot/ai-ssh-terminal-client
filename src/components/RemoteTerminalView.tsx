@@ -51,7 +51,11 @@ const terminalThemes = {
 };
 
 function currentTerminalTheme() {
-  return terminalThemes[document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light'];
+  const root = document.documentElement;
+  const theme = terminalThemes[root.dataset.theme === 'dark' ? 'dark' : 'light'];
+  // 壁纸模式只移除 xterm 的独立底色，由 terminal-pane 绘制一次可调背景。
+  // 字体、光标及 ANSI 配色仍跟随主题；不能对整个终端设置 opacity。
+  return root.dataset.wallpaper === 'true' ? { ...theme, background: '#00000000' } : theme;
 }
 
 export function RemoteTerminalView({
@@ -159,7 +163,7 @@ export function RemoteTerminalView({
       const terminalElement = element.current;
       if (!terminalElement) return;
       const terminal = new Terminal({ fontFamily: 'Consolas, "Courier New", monospace', fontSize: fontSizeRef.current, cursorBlink: true, cursorStyle: 'bar', cursorWidth: 2,
-        scrollback: 5000, scrollOnUserInput: true, allowProposedApi: false, overviewRuler: { width: 6 }, theme: currentTerminalTheme() });
+        scrollback: 5000, scrollOnUserInput: true, allowTransparency: true, allowProposedApi: false, overviewRuler: { width: 6 }, theme: currentTerminalTheme() });
       const fit = new FitAddon();
       terminal.loadAddon(fit);
       terminal.open(terminalElement);
@@ -243,7 +247,7 @@ export function RemoteTerminalView({
       });
       observer.observe(terminalElement);
       const themeObserver = new MutationObserver(() => { terminal.options.theme = currentTerminalTheme(); });
-      themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+      themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'data-wallpaper'] });
       cleanup = () => {
         clearTimeout(resizeTimer);
         observer.disconnect();

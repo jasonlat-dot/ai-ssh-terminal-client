@@ -1,4 +1,5 @@
 import remend from 'remend';
+import { normalizeAssistantMath } from './assistantMath.ts';
 
 /** Display-only repairs. Never change stored replies or Markdown copied by users. */
 const shellLanguage = '(?:bash|sh|shell|zsh|powershell|pwsh)';
@@ -74,5 +75,5 @@ export function prepareAssistantMarkdown(source: string): string {
       output.push(command ? `${opening[1]}${opening[2]}${command.language}\n${command.body}` : heading);
     } else output.push(heading);
   }
-  return output.join('\n');
+  return normalizeAssistantMath(output.join('\n'));
 }

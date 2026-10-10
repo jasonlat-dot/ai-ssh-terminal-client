@@ -1,0 +1,75 @@
+/* 只参考左右布局：左侧工作区预览，右侧原图缩略入口和参数，不额外增加导航或工作区列表。 */
+.wallpaper-crop-editor {
+  flex: 1 0 auto; display: grid; grid-template-columns: minmax(0, 1fr) 20rem;
+  /* 最小行高由侧栏内容决定；窄/矮窗口宁可滚动，也不让保存栏覆盖控件。 */
+  grid-template-rows: auto minmax(min-content, 1fr);
+  gap: 14px 24px; min-height: 440px;
+}
+.wallpaper-crop-heading { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 1rem; min-width: 0; }
+.wallpaper-crop-heading > h2 { margin: 0; font-size: var(--font-title); }
+.wallpaper-crop-heading .appearance-title-group { flex: 1 1 22rem; }
+.wallpaper-crop-heading-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 10px 14px; margin-left: auto; }
+/* 左右区域从同一网格行顶部开始，不能为右侧标题额外下移左侧预览。 */
+.wallpaper-crop-main { display: grid; grid-template-rows: minmax(0, 1fr); min-width: 0; min-height: 0; padding-top: 0; align-self: start; }
+/* 高度由模拟窗口比例决定，不拉伸到整行高度；焦点环、指针捕获都只覆盖实际预览。 */
+.wallpaper-crop-frame { width: 100%; min-width: 0; min-height: 0; align-self: start; aspect-ratio: var(--appearance-preview-window-ratio, 16 / 9); display: grid; place-items: start center; cursor: grab; touch-action: none; user-select: none; }
+.wallpaper-crop-frame[aria-disabled='true'] { cursor: default; }
+.wallpaper-crop-frame:active { cursor: grabbing; }
+.wallpaper-crop-frame:focus-visible { outline: 2px solid var(--settings-focus); outline-offset: 4px; border-radius: 10px; }
+.wallpaper-crop-frame > .appearance-preview { width: 100%; min-height: 0; }
+.wallpaper-crop-frame .appearance-preview { pointer-events: none; }
+.appearance-settings .wallpaper-crop-help { display: flex; align-items: center; gap: .4rem; margin: 0; font-size: var(--font-caption); line-height: 1.5; color: var(--settings-text-muted); }
+.wallpaper-crop-controls { display: flex; flex-direction: column; gap: 12px; min-width: 0; padding-left: 20px; border-left: 1px solid var(--settings-border); align-self: start; }
+.wallpaper-source-control h3 { display: flex; align-items: center; gap: 6px; margin: 0 0 8px; font-size: var(--font-small); line-height: 1.5; font-weight: var(--weight-title); }
+.wallpaper-source-control h3 svg { color: var(--settings-tag-text); }
+.wallpaper-source-thumbnail { position: relative; height: 100px; overflow: hidden; border: 1px solid var(--settings-border-strong); border-radius: 8px; background: color-mix(in srgb, var(--theme-panel) 65%, transparent); }
+/* 入口装饰采用铺满缩略背景；原图来源不变，也不跟随左侧草稿的裁剪/缩放/透明度。 */
+.wallpaper-source-image { display: block; width: 100%; height: 100%; object-fit: cover; object-position: center; pointer-events: none; }
+.wallpaper-source-placeholder { display: flex; flex-direction: column; align-items: center; gap: 6px; padding-top: 10px; color: var(--settings-text-muted); font-size: var(--font-caption); }
+.wallpaper-source-actions { position: absolute; inset: 0; background: linear-gradient(180deg, transparent 35%, rgb(8 16 30 / 68%) 100%); }
+.settings-page .appearance-settings .wallpaper-source-actions .appearance-picker { display: flex; align-items: flex-end; justify-content: center; gap: 6px; width: 100%; min-height: 0; height: 100%; padding: 0 40px 12px; border: 0; border-radius: 0; box-shadow: none; background: transparent; color: #fff; font: inherit; font-size: var(--font-small); cursor: pointer; }
+/* 覆盖壁纸模式下通用按钮悬停底色，避免鼠标移入时把缩略图重新盖成主题色块。 */
+:root[data-theme] .settings-page .appearance-settings .wallpaper-source-thumbnail .wallpaper-source-actions .appearance-picker:hover:not(:disabled) { background: rgb(255 255 255 / 6%); }
+.wallpaper-source-thumbnail[data-empty='true'] .wallpaper-source-actions { background: none; }
+.settings-page .appearance-settings .wallpaper-source-thumbnail[data-empty='true'] .appearance-picker { color: var(--settings-tag-text); }
+.wallpaper-source-thumbnail:has(:focus-visible) { outline: 2px solid var(--settings-focus); outline-offset: 3px; }
+.wallpaper-source-remove { position: absolute; bottom: 7px; right: 8px; z-index: 1; border-radius: 5px; background: rgb(8 16 30 / 35%); }
+.appearance-remove-image { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; color: #fff; background: transparent; border: 0; border-radius: 5px; cursor: pointer; transition: color 180ms ease, background-color 180ms ease; }
+.wallpaper-source-thumbnail[data-empty='true'] .wallpaper-source-remove { background: none; }
+.wallpaper-source-thumbnail[data-empty='true'] .appearance-remove-image { color: var(--settings-text-muted); }
+/* 选择器需高于壁纸模式的通用按钮悬停规则，浅/深色主题都保留删除动作的红色提示。 */
+:root[data-theme] .settings-page .appearance-settings .wallpaper-source-remove .appearance-remove-image:is(:hover, :focus-visible):not(:disabled) { color: #ffd6dc; background: #a52638; outline-color: #ed7181; }
+.wallpaper-crop-ratios { margin: 0; padding: 0; border: 0; min-width: 0; }
+.wallpaper-crop-ratios legend { margin-bottom: 8px; padding: 0; font-size: var(--font-small); font-weight: var(--weight-label); }
+.wallpaper-crop-ratios > div { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.wallpaper-crop-ratios button { padding: 6px 4px; min-height: 30px; border: 1px solid var(--settings-border-strong); border-radius: var(--settings-radius-sm); color: var(--settings-text-muted); background: var(--settings-panel-soft); cursor: pointer; font-size: var(--font-small); white-space: nowrap; transition: border-color 180ms ease, color 180ms ease; }
+.wallpaper-crop-ratios button:hover:not(:disabled) { border-color: var(--settings-focus); color: var(--settings-tag-text); }
+:root .settings-page .wallpaper-crop-ratios button.selected { border-color: var(--settings-focus); color: var(--settings-tag-text); box-shadow: inset 0 0 0 1px var(--settings-focus); }
+.wallpaper-crop-zoom-heading { display: flex; align-items: center; gap: 8px; font-size: var(--font-small); font-weight: var(--weight-label); }
+.wallpaper-crop-zoom-heading output { margin-left: auto; font-family: var(--mono); font-variant-numeric: tabular-nums; color: var(--settings-tag-text); }
+.wallpaper-crop-reset { display: inline-flex; align-items: center; gap: 3px; padding: 0 0 0 6px; border: 0; border-left: 1px solid var(--settings-border); background: transparent; color: var(--settings-text-muted); font-size: var(--font-caption); cursor: pointer; }
+.wallpaper-crop-reset:hover:not(:disabled) { color: var(--settings-tag-text); }
+.wallpaper-crop-zoom { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.wallpaper-crop-zoom button { flex-shrink: 0; display: grid; place-items: center; padding: 4px; border: 1px solid var(--settings-border-strong); border-radius: 5px; background: var(--settings-panel-soft); color: var(--settings-text); cursor: pointer; }
+.wallpaper-crop-zoom button:hover:not(:disabled) { border-color: var(--settings-focus); }
+.wallpaper-crop-actions { display: flex; gap: 8px; flex-shrink: 0; }
+.wallpaper-crop-error { grid-column: 1 / -1; }
+@media (max-width: 1050px) {
+  .wallpaper-crop-editor { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto; min-height: 0; gap: 16px; }
+  .wallpaper-crop-main { grid-template-rows: auto; }
+  .wallpaper-crop-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-left: 0; padding-left: 0; align-items: start; }
+  .wallpaper-source-control { grid-column: 1 / -1; }
+  .wallpaper-source-thumbnail { height: 112px; }
+  .wallpaper-crop-heading { align-items: flex-start; }
+  .wallpaper-crop-heading-actions { width: 100%; }
+}
+@media (max-width: 600px) { .wallpaper-crop-controls { grid-template-columns: minmax(0, 1fr); } }
+@media (max-height: 760px) and (min-width: 1051px) {
+  .wallpaper-crop-editor { min-height: 420px; gap: 10px 20px; }
+  .wallpaper-crop-controls { gap: 10px; }
+  .wallpaper-source-thumbnail { height: 92px; }
+  .wallpaper-crop-ratios legend, .wallpaper-fit-control legend { margin-bottom: 6px; }
+  .wallpaper-crop-ratios button { min-height: 28px; padding-block: 4px; }
+  .appearance-surface-controls { padding-top: 10px; }
+}
+@media (prefers-reduced-motion: reduce) { .wallpaper-crop-ratios button, .appearance-remove-image { transition: none; } }

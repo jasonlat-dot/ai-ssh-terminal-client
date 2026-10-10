@@ -1,0 +1,298 @@
+/*
+ * 壁纸与主题遮罩只在根节点绘制一次，包括标签栏剩余空间及面板之间的空隙。
+ * 内部面板/普通控件不再叠加主题底色；文字、图标和状态点不设置 opacity。
+ * 所有覆盖都限制在 data-wallpaper=true，移除壁纸后完整恢复既有浅色/深色主题。
+ */
+:root[data-wallpaper='true'] {
+  --client-wallpaper-tint: color-mix(in srgb, var(--theme-panel, var(--panel)) var(--client-panel-opacity, 75%), transparent);
+}
+/* 仅一层全局保护遮罩：普通卡片依旧透明，不再出现一个个实心色块。 */
+:root[data-wallpaper='true'][data-wallpaper-protection='true'] {
+  --client-wallpaper-minimum-tint: 65%;
+  --client-wallpaper-tint: color-mix(in srgb, var(--theme-panel) max(var(--client-panel-opacity, 75%), var(--client-wallpaper-minimum-tint)), transparent);
+}
+:root[data-wallpaper='true'][data-wallpaper-protection='true'][data-theme='dark'] {
+  --client-wallpaper-minimum-tint: 70%;
+}
+:root[data-wallpaper='true'] #root { isolation: isolate; }
+:root[data-wallpaper='true'] #root::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  /* 遮罩与壁纸处于同一固定层，0% 透明度时空隙也不会单独露出原图。 */
+  background-image: linear-gradient(var(--client-wallpaper-tint), var(--client-wallpaper-tint)), var(--client-wallpaper-image);
+  /* 第一层主题遮罩总是覆盖窗口，第二层图片才按用户选择铺满或完整显示。 */
+  background-size: 100% 100%, var(--client-wallpaper-size, cover);
+  background-position: center;
+  background-repeat: no-repeat;
+  /* 只柔化图片层；轻微放大填补 blur 边缘，不对工作区或终端文字加 filter。 */
+  filter: blur(var(--client-wallpaper-blur, 0px));
+  transform: scale(1.02);
+}
+/* 完整显示不再额外放大图层，否则方形图仍会被裁去上下边缘。 */
+:root[data-wallpaper='true'][data-wallpaper-fit='contain'] #root::before { transform: none; }
+/* 所有常驻面板使用根节点的统一遮罩；不在面板内重复计算 alpha。 */
+:root[data-wallpaper='true'] :is(
+  .app-shell,
+  .app-shell > .app-header,
+  .app-shell > .activity-bar,
+  .app-shell > .status-bar,
+  .app-shell .host-sidebar,
+  .app-shell .central-workspace,
+  .app-shell .terminal-workspace,
+  .app-shell .terminal-tabs,
+  .app-shell .terminal-body,
+  .app-shell .terminal-pane,
+  .app-shell .terminal-empty,
+  .app-shell .terminal-welcome,
+  .app-shell .command-shelf,
+  .app-shell .command-shelf-inner,
+  .app-shell .conversation-card,
+  .app-shell .session-file-panel,
+  .app-shell .connections-page,
+  .settings-page,
+  .app-shell .agent-panel.conversation-only,
+  .app-shell .conversation-card > header,
+  .app-shell .conversation-card .chat-messages,
+  .app-shell .remote-terminal-view,
+  .app-shell .terminal-toolbar,
+  .app-shell .workspace-panel-controls,
+  .app-shell .remote-terminal-screen,
+  .app-shell .host-sidebar-heading,
+  .app-shell .host-sidebar > footer,
+  .settings-page .settings-topbar,
+  .settings-page .settings-nav,
+  .settings-page .settings-group,
+  .settings-page .settings-field,
+  .settings-page .settings-footer
+) { background: transparent; }
+
+/*
+ * 旧主题既有变量底色，也有写死的白/深色底色，单改 --theme-panel 不能覆盖它们。
+ * 普通卡片和输入框使用统一底层；弹窗/菜单等浮层不参与，避免悬浮文字与工作区重叠。
+ * 这里保留原边框、文字颜色、焦点环和状态点；不使用全局 opacity 或修改主题变量。
+ */
+:root[data-wallpaper='true'] .app-shell :is(
+  .terminal-tab,
+  .new-terminal-button,
+  .command-row,
+  .command-fill code,
+  .command-categories button,
+  .sidebar-host,
+  .sidebar-host-search,
+  .sidebar-host-search input,
+  .sidebar-host-actions,
+  .host-sidebar-heading .icon-button,
+  .chat-composer,
+  .chat-composer textarea,
+  .composer-attach-button,
+  .theme-switcher,
+  .theme-switcher button,
+  .icon-button,
+  .outlined-button,
+  .agent-history-button,
+  .model-select,
+  .remote-terminal-reconnect,
+  .remote-terminal-disconnect,
+  .terminal-shortcut-hint kbd,
+  .activity,
+  .nav-collapsed .activity > svg,
+  .connection-refresh,
+  .host-search,
+  .connection-filter-tabs,
+  .ssh-host-row,
+  .connection-stats > div,
+  .file-source-card,
+  .file-source-heading,
+  .path-bar,
+  .session-file-panel .transfers,
+  .transfer,
+  .assistant-content,
+  .tool-activity,
+  .agent-activity,
+  .agent-activity-thought,
+  .user-message,
+  .chat-attachment,
+  .chat-attachment-preview,
+  .markdown-body code,
+  .markdown-body blockquote,
+  .markdown-body th,
+  .markdown-body td,
+  .welcome-features article,
+  .welcome-guide
+):not(:where(.modal *, [role='dialog'] *, [role='menu'] *, .agent-history-popover *)) {
+  background: transparent;
+}
+
+/* legacy 深色主题的新增命令按钮使用 !important，只在这一处做对应的受限覆盖。 */
+:root[data-wallpaper='true'] .app-shell .command-add-button { background: transparent !important; }
+
+/*
+ * 高亮底色也跟随透明度；100% 时用原有的蓝色文字/边框/左侧标记辨别选中项，
+ * 不再留下实心白块或深色块。主操作按钮（发送等）保留语义颜色，不属于主题底色。
+ */
+:root[data-wallpaper='true'] .app-shell :is(
+  .command-categories button.selected,
+  .terminal-tab.selected,
+  .sidebar-host.selected,
+  .theme-switcher button.selected,
+  .workspace-panel-controls .icon-button.selected,
+  .activity.selected,
+  .nav-collapsed .activity.selected > svg
+) {
+  background: color-mix(in srgb, var(--theme-selected) var(--client-panel-opacity, 75%), transparent);
+  border-color: var(--ui-highlight-border);
+}
+:root[data-wallpaper='true'] .app-shell .terminal-tab.selected { border-top-color: var(--ui-accent); }
+:root[data-wallpaper='true'] .app-shell :is(
+  .command-categories button,
+  .command-row,
+  .sidebar-host,
+  .theme-switcher button,
+  .icon-button,
+  .outlined-button,
+  .agent-history-button,
+  .new-terminal-button,
+  .activity
+):hover:not(:disabled):not(:where(.modal *, [role='dialog'] *, [role='menu'] *, .agent-history-popover *)) {
+  background: color-mix(in srgb, var(--theme-hover) var(--client-panel-opacity, 75%), transparent);
+}
+
+/* 小图标与计数标签的语义色仍保留，底色同样不能成为不透明的小方块。 */
+:root[data-wallpaper='true'] .app-shell :is(
+  .command-category-icon,
+  .command-row-icon,
+  .command-categories .ui-badge,
+  .command-library-heading + .ui-badge,
+  .sidebar-host em,
+  .sidebar-host:has(.status-dot:not(.offline)) em,
+  .sidebar-host.is-unreachable .sidebar-host-state em.connection-unreachable
+) {
+  background: color-mix(in srgb, var(--accent-soft, var(--theme-selected)) var(--client-panel-opacity, 75%), transparent);
+}
+
+/* xterm 的渲染底色同时由 TypeScript theme 设为透明，不能只改外围 div。 */
+:root[data-wallpaper='true'] .app-shell :is(.xterm, .xterm-viewport, .xterm-screen) { background-color: transparent; }
+
+/*
+ * 设置页拥有独立的 --settings-* 背景参数；工作区规则不能覆盖这些参数。
+ * 只重定义设置页自身的表面参数，主题文字/边框参数保持原样，关闭壁纸即恢复。
+ * 加上已有的 data-theme 提高优先级，浅/深色样式和 HMR 加载顺序不会抢回实心底色。
+ * 不改根级 --theme-panel：Select 的选项通过 portal 挂到 body，仍需独立的不透明浮层。
+ */
+:root[data-wallpaper='true'][data-theme] .settings-page {
+  --settings-panel: transparent;
+  --settings-panel-soft: transparent;
+  --settings-hover: color-mix(in srgb, var(--theme-hover) var(--client-panel-opacity, 75%), transparent);
+  --settings-selection-bg: color-mix(in srgb, var(--theme-selected) var(--client-panel-opacity, 75%), transparent);
+  --settings-tag-bg: color-mix(in srgb, var(--ui-highlight-bg) var(--client-panel-opacity, 75%), transparent);
+  --settings-tag-hover: color-mix(in srgb, var(--theme-hover) var(--client-panel-opacity, 75%), transparent);
+}
+
+/*
+ * 同时覆盖原生输入与 Select 的 button.ui-select-trigger。
+ * 表单卡片和普通操作按钮透明，主操作/危险操作和开关保留功能色，不淡化文字。
+ * 预览图片及壁纸层不在此集合；弹窗和嵌套菜单也不受影响。
+ */
+:root[data-wallpaper='true'][data-theme] .settings-page :is(
+  .settings-control,
+  .ui-select-trigger,
+  :where(input:not([type='checkbox']):not([type='radio']):not([type='range'])),
+  textarea,
+  select,
+  button:not(:where(.primary-button, .danger-button, .toggle)),
+  .settings-certificate-action,
+  .settings-certificate-icon,
+  .settings-segmented,
+  .settings-protocol-icon,
+  .settings-input-suffix,
+  .settings-field-secret,
+  .settings-path-preset-list code,
+  .settings-connection-response pre
+):not(:where(.modal *, [role='dialog'] *, [role='menu'] *, [role='listbox'] *)) {
+  background: transparent;
+}
+
+/* 选择、悬停和语义提示也跟随滑块，100% 时以文字、边框、焦点环区分状态。 */
+:root[data-wallpaper='true'][data-theme] .settings-page :is(
+  .settings-nav-item.selected,
+  .settings-segmented button.selected,
+  .settings-chip-button.selected,
+  .settings-reasoning-card.selected,
+  .settings-storage-card.selected,
+  .settings-path-preset-list button.selected
+) { background: var(--settings-selection-bg); }
+
+:root[data-wallpaper='true'][data-theme] .settings-page :is(
+  button:not(:where(.primary-button, .danger-button, .toggle)),
+  .appearance-picker
+):hover:not(:disabled):not(:where(.modal *, [role='dialog'] *, [role='menu'] *, [role='listbox'] *)) {
+  background: var(--settings-hover);
+}
+
+:root[data-wallpaper='true'][data-theme] .settings-page :is(
+  .ui-badge,
+  .ui-accent-icon,
+  .settings-group-badge,
+  .settings-field-secret,
+  .settings-media-chip,
+  .settings-health-result,
+  .settings-connection-notice,
+  .settings-banner,
+  .appearance-error
+) {
+  background: color-mix(in srgb, var(--accent-soft, var(--ui-highlight-bg)) var(--client-panel-opacity, 75%), transparent);
+}
+
+/* 高透明度的辅助文字不能继续使用低对比度灰色。这里只调整前景，不动背景/布局。 */
+:root[data-wallpaper='true'][data-wallpaper-readability='true'] {
+  --text: #152638;
+  --muted: #293f57;
+  --faint: #334961;
+  --theme-text-strong: #152638;
+  --theme-text-muted: #293f57;
+  --theme-accent-text: #124b7d;
+  --ui-highlight-text: #124b7d;
+  --accent-neutral-ink: #293f57;
+  --accent-success-ink: #105934;
+  --accent-danger-ink: #8a201b;
+  --accent-cyan-ink: #085265;
+  --accent-violet-ink: #4b2c82;
+  --accent-amber-ink: #694003;
+  --accent-rose-ink: #7b2753;
+  --client-wallpaper-text-shadow: 0 1px 1px #ffffffb3;
+}
+:root[data-wallpaper='true'][data-wallpaper-readability='true'][data-theme='dark'] {
+  --text: #f5f9ff;
+  --muted: #e6eef9;
+  --faint: #d8e5f5;
+  --theme-text-strong: #f5f9ff;
+  --theme-text-muted: #e6eef9;
+  --theme-accent-text: #bcdcff;
+  --ui-highlight-text: #bcdcff;
+  --accent-neutral-ink: #e6eef9;
+  --accent-success-ink: #b3f5d4;
+  --accent-danger-ink: #ffbbb5;
+  --accent-cyan-ink: #b0edf5;
+  --accent-violet-ink: #dfcdff;
+  --accent-amber-ink: #ffe1a6;
+  --accent-rose-ink: #ffcade;
+  --client-wallpaper-text-shadow: 0 1px 2px #000000b3;
+}
+:root[data-wallpaper='true'][data-wallpaper-readability='true'] :is(.app-shell, .settings-page) {
+  text-shadow: var(--client-wallpaper-text-shadow);
+}
+:root[data-wallpaper='true'][data-wallpaper-readability='true'][data-theme] .settings-page {
+  --settings-blue-text: var(--theme-accent-text);
+}
+:root[data-wallpaper='true'][data-wallpaper-readability='true'] :is(.app-shell, .settings-page) :is(input, textarea)::placeholder {
+  color: var(--theme-text-muted);
+  opacity: 1;
+}
+/* 实心主操作及浮层自身已经有足够底色，不需要给它们的文字额外加描边式阴影。 */
+:root[data-wallpaper='true'][data-wallpaper-readability='true'] :is(.app-shell, .settings-page) :is(
+  .primary-button, .danger-button, .send-button, .stop-button, .new-agent-session,
+  .modal, [role='dialog'], [role='menu'], .agent-history-popover
+) { text-shadow: none; }

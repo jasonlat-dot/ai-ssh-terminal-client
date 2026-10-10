@@ -1,15 +1,13 @@
 import { memo, useMemo, useState } from 'react';
-import type { ComponentProps } from 'react';
 import ReactMarkdown from 'react-markdown';
 import type { Components } from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import rehypeHighlight from 'rehype-highlight';
 import { renderableAssistantMarkdown } from '../state/assistantMarkdown';
+import { assistantRehypePlugins, assistantRemarkPlugins } from '../state/assistantMarkdownPlugins';
 import { MarkdownCodeBlock } from './MarkdownCodeBlock';
 import { CopyTextButton } from './CopyTextButton';
+// 使用与 rehype-katex 同版本的本地 CSS/字体，桌面离线运行也能排版公式。
+import 'katex/dist/katex.min.css';
 import './MarkdownMessage.css';
-
-const highlight: NonNullable<ComponentProps<typeof ReactMarkdown>['rehypePlugins']> = [[rehypeHighlight, { detect: false, plainText: ['text', 'plaintext', 'txt', 'log'] }]];
 
 /** Shared by top-level replies, sub-agents and historical replies. Raw HTML is not executed. */
 export const MarkdownMessage = memo(function MarkdownMessage({ children, streaming = false }: { children: string; streaming?: boolean }) {
@@ -21,10 +19,10 @@ export const MarkdownMessage = memo(function MarkdownMessage({ children, streami
   }), [streaming]);
   return <div className="markdown-message">
     <div className="markdown-body">{source ? <pre className="markdown-source">{children}</pre> : <ReactMarkdown
-      remarkPlugins={[remarkGfm]}
+      remarkPlugins={assistantRemarkPlugins}
       // Highlight once the reply finishes; avoid reparsing grammars on each
       // token. Large logs stay plain text to keep the terminal responsive.
-      rehypePlugins={!streaming && markdown.length <= 50_000 ? highlight : []}
+      rehypePlugins={assistantRehypePlugins(streaming, markdown.length)}
       components={components}
     >{markdown}</ReactMarkdown>}</div>
     <div className="markdown-source-actions">

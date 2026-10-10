@@ -417,6 +417,14 @@
 }
 
 .settings-page .primary-button:disabled { border-color: var(--settings-blue); background: var(--settings-blue); }
+/* 未修改或保存中使用中性灰色，避免禁用状态仍像可提交的蓝色主操作。 */
+.settings-page .settings-tab-save-actions .primary-button:disabled {
+  border-color: var(--settings-border-strong);
+  background: var(--settings-panel-soft);
+  color: var(--settings-text-muted);
+  box-shadow: none;
+  cursor: not-allowed;
+}
 
 .settings-page .settings-secondary-button {
   border-color: var(--settings-tag-border);

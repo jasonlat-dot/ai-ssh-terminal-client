@@ -40,3 +40,9 @@
 .markdown-message .hljs-string, .markdown-message .hljs-regexp, .markdown-message .hljs-addition { color: var(--syntax-string); }
 .markdown-message .hljs-number, .markdown-message .hljs-literal, .markdown-message .hljs-deletion { color: var(--syntax-number); }
 .markdown-message .hljs-title, .markdown-message .hljs-built_in, .markdown-message .hljs-attr, .markdown-message .hljs-type { color: var(--syntax-title); }
+
+/* KaTeX 字体保持自身排版，不继承代码字体；宽公式只滚动自身，不撑破聊天面板。 */
+.markdown-message .markdown-body .katex { font-size: 1.08em; color: inherit; text-shadow: none; }
+.markdown-message .markdown-body .katex-display { max-width: 100%; overflow-x: auto; overflow-y: hidden; padding: .45rem .2rem; margin: 1rem 0; }
+.markdown-message .markdown-body .katex-display > .katex { display: block; width: max-content; min-width: 100%; }
+.markdown-message .markdown-body .katex-error { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--accent-danger-ink) !important; font-family: var(--mono); font-size: .95em; }

@@ -1,0 +1,74 @@
+.settings-content-panel > .settings-content[data-section='appearance'] {
+  /* 仅隐藏可见滚动条，小窗口仍可用滚轮、触摸和键盘查看全部控件。 */
+  padding: 16px 20px; scrollbar-width: none;
+}
+.settings-content[data-section='appearance']::-webkit-scrollbar { display: none; }
+.appearance-settings {
+  display: flex; flex-direction: column; gap: 12px; height: 100%; min-height: 0;
+  max-width: 1440px; margin-inline: auto; color: var(--settings-text);
+}
+.appearance-title-group { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.appearance-title-icon { display: grid; place-items: center; width: 38px; height: 38px; flex-shrink: 0; border-radius: 9px; background: var(--settings-tag-bg); color: var(--settings-tag-text); }
+.appearance-title-group h2 { margin: 0; font-size: var(--font-title); font-weight: var(--weight-title); line-height: 1.35; letter-spacing: -.02em; }
+.appearance-settings .appearance-title-group p { margin: 4px 0 0; color: var(--settings-text-muted); font-size: var(--font-small); line-height: 1.5; text-wrap: pretty; }
+.appearance-picker { flex-shrink: 0; white-space: nowrap; }
+.appearance-settings :is(button, input):focus-visible { outline: 2px solid var(--settings-focus); outline-offset: 3px; }
+.settings-page .appearance-settings :is(.outlined-button, .primary-button, .ghost-button) { height: 32px; min-height: 32px; padding: 6px 11px; font-size: var(--font-small); }
+.appearance-settings .appearance-help { margin: .5rem 0 0; color: var(--settings-text-muted); font-size: var(--font-small); line-height: 1.55; }
+
+/* 纯壁纸预览：仅保留画面边界，不叠加任何模拟界面元素。 */
+.appearance-preview {
+  position: relative; isolation: isolate; display: flex; flex-direction: column; margin: 0;
+  width: 100%; aspect-ratio: var(--appearance-preview-window-ratio, 16 / 9); min-width: 0;
+  overflow: hidden; border: 1px solid var(--settings-border-strong); border-radius: 10px;
+  background: var(--theme-panel);
+  --appearance-preview-tint: color-mix(in srgb, var(--theme-panel) var(--appearance-preview-opacity), transparent);
+}
+.appearance-preview[data-protection='true'] {
+  --appearance-preview-tint: color-mix(in srgb, var(--theme-panel) max(var(--appearance-preview-opacity), 65%), transparent);
+}
+:root[data-theme='dark'] .appearance-preview[data-protection='true'] {
+  --appearance-preview-tint: color-mix(in srgb, var(--theme-panel) max(var(--appearance-preview-opacity), 70%), transparent);
+}
+.appearance-preview-background {
+  position: absolute; inset: 0; z-index: -2; overflow: hidden; container-type: size;
+  pointer-events: none; filter: blur(var(--appearance-preview-blur, 0px));
+}
+/* 先按原图选区绘制，再适配窗口；完整显示的留白不拉伸方形选区。 */
+.appearance-preview-image-plane {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: max(100cqw, calc(100cqh * var(--appearance-preview-ratio)));
+  aspect-ratio: var(--appearance-preview-ratio); overflow: hidden;
+}
+.appearance-preview[data-fit='contain'] .appearance-preview-image-plane {
+  width: min(100cqw, calc(100cqh * var(--appearance-preview-ratio)));
+}
+.appearance-preview-image-plane img { position: absolute; max-width: none; max-height: none; object-fit: fill; pointer-events: none; }
+.appearance-preview-tint { position: absolute; inset: 0; z-index: -1; background: var(--appearance-preview-tint); pointer-events: none; }
+
+.appearance-surface-controls { border-top: 1px solid var(--settings-border); padding-top: 12px; }
+.appearance-slider-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; margin-bottom: 6px; }
+.appearance-slider-heading label { font-weight: var(--weight-label); font-size: var(--font-small); }
+.appearance-slider-heading output { color: var(--settings-tag-text); font: var(--weight-label) var(--font-small)/1 var(--mono); font-variant-numeric: tabular-nums; }
+.appearance-slider-heading output small { display: inline; color: inherit; font-size: inherit; margin: 0 0 0 .1rem; }
+:root .settings-page .appearance-slider { display: block; width: 100%; margin: 0; padding: 0; border: 0; background: transparent; box-shadow: none; height: 22px; accent-color: var(--settings-blue); cursor: pointer; }
+.appearance-slider:disabled { cursor: not-allowed; opacity: .5; }
+.appearance-slider-labels { display: flex; justify-content: space-between; gap: .5rem; margin-top: 3px; color: var(--settings-text-muted); font-size: var(--font-caption); }
+.appearance-readability { display: flex; align-items: center; gap: .6rem; padding-top: 10px; border-top: 1px solid var(--settings-border); }
+.appearance-readability > div { flex: 1; min-width: 0; }
+.appearance-readability strong { font-weight: var(--weight-label); font-size: var(--font-small); }
+.appearance-settings .appearance-readability p { margin: 4px 0 0; color: var(--settings-text-muted); font-size: var(--font-caption); line-height: 1.5; }
+.appearance-error { display: flex; align-items: flex-start; gap: .5rem; padding: .65rem .8rem; border: 1px solid var(--accent-danger-line); border-radius: var(--settings-radius-sm); background: var(--accent-danger-soft); color: var(--accent-danger-ink); font-size: var(--font-small); }
+.appearance-error svg { flex-shrink: 0; margin-top: .1rem; }
+.wallpaper-fit-control { margin: 0; padding: 0; border: 0; min-width: 0; }
+.wallpaper-fit-control legend { margin-bottom: 8px; padding: 0; font-weight: var(--weight-label); font-size: var(--font-small); }
+.wallpaper-fit-control > div { display: flex; gap: 6px; }
+.wallpaper-fit-control button { flex: 1; min-height: 32px; border: 1px solid var(--settings-border-strong); border-radius: var(--settings-radius-sm); padding: 6px; background: var(--settings-panel-soft); color: var(--settings-text-muted); font-size: var(--font-small); cursor: pointer; transition: border-color 180ms ease, color 180ms ease; }
+:root .settings-page .wallpaper-fit-control button.selected { color: var(--settings-tag-text); border-color: var(--settings-focus); box-shadow: inset 0 0 0 1px var(--settings-focus); }
+.wallpaper-fit-control button:hover:not(:disabled) { border-color: var(--settings-focus); }
+.appearance-settings .wallpaper-fit-control p { margin: 7px 0 0; color: var(--settings-text-muted); font-size: var(--font-caption); line-height: 1.5; }
+
+@media (max-width: 1050px) {
+  .settings-content-panel > .settings-content[data-section='appearance'] { padding: 14px; }
+}
+@media (prefers-reduced-motion: reduce) { .wallpaper-fit-control button { transition: none; } }

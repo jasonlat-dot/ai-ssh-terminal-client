@@ -18,6 +18,7 @@ import { type BackendHealthSnapshot } from '../api/health';
 import { sftpApi, type LocalDirectory } from '../api/sftp';
 import { adoptBundledBackendUrl } from '../config/backend';
 import { BackendConnectionSettings } from './BackendConnectionSettings';
+import { AppearanceSettings } from './AppearanceSettings';
 import { HEALTH_NORMAL_INTERVALS, HEALTH_RETRY_INTERVALS, readHealthRefreshPreferences, saveHealthRefreshPreferences, type HealthRefreshPreferences } from '../config/health';
 import { isTauriRuntime } from '../state/runtime';
 import { useBackendHealth } from '../state/useBackendHealth';
@@ -38,7 +39,7 @@ type BackendSettingsDialogProps = {
   onSave: (url: string) => void;
 };
 
-type SettingsSection = 'general' | 'model' | 'proxy' | 'storage';
+type SettingsSection = 'general' | 'appearance' | 'model' | 'proxy' | 'storage';
 type ConfigValues = Record<string, string>;
 type FieldType = 'text' | 'password' | 'number' | 'textarea' | 'choice' | 'toggle';
 
@@ -74,7 +75,7 @@ type SectionDefinition = {
   id: SettingsSection;
   label: string;
   caption: string;
-  icon: 'settings' | 'bot' | 'network' | 'database';
+  icon: 'settings' | 'monitor' | 'bot' | 'network' | 'database';
   /** 该 tab 涉及的配置 key，用于"按 tab 保存"和 dirty 判断 */
   keys: readonly string[];
   /** 底栏保存按钮文案，例如"保存连接配置" */
@@ -115,6 +116,9 @@ const sectionItems: SectionDefinition[] = [
   { id: 'general', label: '连接', caption: '地址 · 端口 · 数据目录', icon: 'settings',
     keys: GENERAL_KEYS,
     saveLabel: '保存内置后端配置', saveHint: '保存不会切换当前连接；重启内置后端后生效。远程连接在上方单独保存。' },
+  // 外观是客户端偏好，不加入后端 YAML 白名单，也不显示后端配置保存底栏。
+  { id: 'appearance', label: '外观', caption: '自定义壁纸 · 背景透明度', icon: 'monitor',
+    keys: [], saveLabel: '', saveHint: '仅保存在客户端，实时生效。' },
   { id: 'model', label: '模型', caption: '渠道 · 协议 · 附件', icon: 'bot',
     keys: MODEL_KEYS,
     saveLabel: '保存模型配置', saveHint: '保存后需重启后端以应用配置；模型密钥留空表示保留现有值。' },
@@ -1037,7 +1041,9 @@ function TabSaveBar({ scope, saveLabel, hint, saving, dirty, onSave, onReset }: 
     <div className="settings-tab-save-meta">
       <strong>
         <Icon name={dirty ? 'edit' : 'check'} size={12} />
-        {saving ? '正在保存配置…' : dirty ? '有未保存的修改' : '暂无未保存修改'}
+        {scope === 'general'
+          ? saving ? '正在保存内置后端配置…' : dirty ? '内置后端配置有未保存修改' : '内置后端配置暂无未保存修改'
+          : saving ? '正在保存配置…' : dirty ? '有未保存的修改' : '暂无未保存修改'}
       </strong>
       <span>{hint}</span>
     </div>
@@ -1045,7 +1051,7 @@ function TabSaveBar({ scope, saveLabel, hint, saving, dirty, onSave, onReset }: 
       <button type="button" className="ghost-button" disabled={saving || !dirty} onClick={onReset}>
         <Icon name="history" size={12} />重置
       </button>
-      <button type="button" className="primary-button" disabled={saving} onClick={onSave}>
+      <button type="button" className="primary-button" disabled={saving || !dirty} onClick={onSave}>
         <Icon name="check" size={12} />{saving ? '保存中…' : saveLabel}
       </button>
     </div>
@@ -1298,6 +1304,8 @@ export function BackendSettingsDialog({ currentUrl, required = false, onClose, o
    * Rust 侧 `save_backend_config` 行为是逐 key 更新，所以这种"按 tab 保存"是天然支持的。
    */
   const saveTab = async (scope: SettingsSection) => {
+    // 无修改或正在保存时不发起 YAML 写入，与保存栏的禁用条件保持一致。
+    if (saving || !isTabDirty(scope)) return;
     const definition = sectionItems.find(item => item.id === scope);
     if (!definition) return;
     setError('');
@@ -1327,7 +1335,9 @@ export function BackendSettingsDialog({ currentUrl, required = false, onClose, o
         setConfig(saved);
         setValues(Object.fromEntries(Object.entries(saved.values).map(([key, meta]) => [key, meta.value])));
       }
-      setResult(`${definition.label}配置已保存，内置后端不会自动重启。`);
+      setResult(definition.id === 'general'
+        ? '内置后端配置已保存，当前连接未改变；未保存或应用上方客户端连接。内置后端不会自动重启。'
+        : `${definition.label}配置已保存，内置后端不会自动重启。`);
       // 保存本地配置不代表切换连接；运行中的服务地址仍以状态为准，重启后再同步。
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -1383,7 +1393,7 @@ export function BackendSettingsDialog({ currentUrl, required = false, onClose, o
     : !backendStatus ? '读取状态中…' : healthLabel(bundledHealthState, bundledHealth.snapshot);
   const activeStorageMode = values.fileStorageDefaultId === (values.minioStorageId || 'minio-main') ? 'minio' : 'local';
   const activeDefinition = sectionItems.find(item => item.id === activeSection) ?? sectionItems[0];
-  const showSaveBar = !loading && (activeSection === 'general' || config !== null);
+  const showSaveBar = activeSection !== 'appearance' && !loading && (activeSection === 'general' || config !== null);
 
   return <main className={`settings-page ${required ? 'is-standalone' : ''}`} aria-label="客户端设置">
     {/* ============================== 顶栏 ============================== */}
@@ -1394,7 +1404,8 @@ export function BackendSettingsDialog({ currentUrl, required = false, onClose, o
         </button>}
         <div className="settings-topbar-title">
           <h1>客户端与内置后端设置</h1>
-          <p>修改后请保存对应配置；服务不会自动重启，下次启动或手动重启后生效。</p>
+          <p>{activeSection === 'appearance' ? '画面预览后保存，透明度实时生效；仅保存在客户端，无需重启。'
+            : '修改后请保存对应配置；服务不会自动重启，下次启动或手动重启后生效。'}</p>
         </div>
       </div>
       <div className="settings-topbar-right">
@@ -1463,7 +1474,8 @@ export function BackendSettingsDialog({ currentUrl, required = false, onClose, o
       {/* 内容滚动区与保存底栏分别占用布局空间，底栏不覆盖字段。 */}
       <div className="settings-content-panel">
         <section className="settings-content" data-section={activeSection}>
-          {loading && <div className="settings-skeleton" aria-label="正在读取配置">
+          {activeSection === 'appearance' && <AppearanceSettings />}
+          {loading && activeSection !== 'appearance' && <div className="settings-skeleton" aria-label="正在读取配置">
             <span style={{ width: '92%' }} />
             <span style={{ width: '74%' }} />
             <span style={{ width: '88%' }} />
@@ -1649,7 +1661,7 @@ export function BackendSettingsDialog({ currentUrl, required = false, onClose, o
             </SettingsGroup>
           </>}
         </section>
-        {(showSaveBar || error || result) && <footer className="settings-footer" aria-label={`${activeDefinition.label}配置操作`}>
+        {activeSection !== 'appearance' && (showSaveBar || error || result) && <footer className="settings-footer" aria-label={`${activeDefinition.label}配置操作`}>
           {(error || result) && <div className="settings-footer-feedback">
             {error && <p className="settings-banner is-error" role="alert">
               <Icon name="alert" size={13} />{error}
@@ -1658,7 +1670,7 @@ export function BackendSettingsDialog({ currentUrl, required = false, onClose, o
               <Icon name="check" size={13} />{result}
             </p>}
           </div>}
-          {showSaveBar && <TabSaveBar scope={activeDefinition.label}
+          {showSaveBar && <TabSaveBar scope={activeDefinition.id}
             saveLabel={activeDefinition.saveLabel} hint={activeDefinition.saveHint}
             saving={saving} dirty={isTabDirty(activeSection)}
             onSave={() => void saveTab(activeSection)} onReset={() => resetTab(activeSection)} />}

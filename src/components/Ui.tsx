@@ -9,6 +9,7 @@ const paths = {
   key: 'M14 7a5 5 0 1 1-4 8L3 22H1v-4l7-7 M17 7h.01',
   alert: 'M12 3 22 20H2z M12 9v4 M12 17h.01',
   monitor: 'M3 4h18v13H3z M8 21h8 M12 17v4',
+  palette: 'M12 3a9 9 0 1 0 0 18h1a2 2 0 0 0 1.5-3.3 1.5 1.5 0 0 1 1.1-2.5H18a3 3 0 0 0 3-3 9 9 0 0 0-9-9 M7 10h.01 M9 6.5h.01 M14 6.5h.01 M17 10h.01',
   sun: 'M12 4V2 M12 22v-2 M4 12H2 M22 12h-2 M5.6 5.6 4.2 4.2 M18.4 18.4l-4.2-4.2 M18.4 5.6l-4.2 4.2 M5.6 18.4l4.2-4.2 M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0',
   moon: 'M20 15.5A8.5 8.5 0 0 1 8.5 4 8.5 8.5 0 1 0 20 15.5z',
   left: 'm15 6-6 6 6 6',
@@ -99,8 +100,11 @@ export function Icon({ name, size = 20, className = '' }: { name: IconName; size
 export function IconButton({ icon, label, className = '', ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { icon: IconName; label: string }) {
   return <button type="button" className={`icon-button ${className}`} aria-label={label} title={label} {...props}><Icon name={icon} /></button>;
 }
-export function Toggle({ value, onChange, label }: { value: boolean; onChange: (value: boolean) => void; label: string }) {
-  return <button type="button" role="switch" aria-checked={value} aria-label={label} className={`toggle ${value ? 'on' : ''}`} onClick={() => onChange(!value)}><span /></button>;
+export function Toggle({ value, onChange, label, disabled, 'aria-describedby': describedBy }: {
+  value: boolean; onChange: (value: boolean) => void; label: string; disabled?: boolean; 'aria-describedby'?: string;
+}) {
+  return <button type="button" role="switch" aria-checked={value} aria-label={label} aria-describedby={describedBy} disabled={disabled}
+    className={`toggle ${value ? 'on' : ''}`} onClick={() => onChange(!value)}><span /></button>;
 }
 export function Modal({ title, onClose, children, wide = false, className = '', dismissDisabled = false }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean; className?: string; dismissDisabled?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);

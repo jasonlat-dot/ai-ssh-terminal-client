@@ -2,6 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useSta
 import type { CSSProperties } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useTheme } from './state/useTheme';
+import { useApplyClientAppearance } from './state/useClientAppearance';
 import type { ThemePreference } from './state/useTheme';
 import { agentApi } from './api/agent';
 import type { AgentConfig, AgentStreamEvent } from './api/agent';
@@ -47,6 +48,7 @@ import type { ChatAttachment, ChatAgentActivity, ChatMessage, ChatMessageSegment
 import './App.css';
 import './reference.css';
 import './typography.css';
+import './wallpaper.css';
 
 const RemoteTerminalView = lazy(() => import('./components/RemoteTerminalView').then(module => ({ default: module.RemoteTerminalView })));
 
@@ -1289,6 +1291,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme }: {
 export default function App() {
   const desktop = isTauriRuntime();
   const { theme, setTheme } = useTheme();
+  useApplyClientAppearance();
   const [backendUrl, setBackendUrl] = useState(readBackendUrl);
   const [connectionRevision, setConnectionRevision] = useState(0);
   // 活动连接为远程时不等待本机 Java：其自动启动偏好与远程连接可用性相互独立。
