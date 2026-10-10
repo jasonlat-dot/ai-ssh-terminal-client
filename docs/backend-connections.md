@@ -24,6 +24,14 @@ Java 的 HTTPS 不能关闭，界面不再提供 HTTP 模式；远程 Nginx/Cadd
 「保存内置后端配置」后重启本机服务。连接档案选择「内置后端」并点击「切回内置后端」，
 会按需启动本机 Java，并采用实际协议/端口。不会删除远程档案或改变自动启动偏好。
 
+内置服务状态采用「先订阅事件，再读取一次快照」：Rust 只在 starting/running/failed/stopped
+或说明、地址等发生变化时发送 `bundled-backend-status-changed`，前端根据递增 revision
+忽略旧结果，关闭页面后取消订阅。启动页不再每 400ms 查询，设置页不再每 1.5s 查询。
+Windows 在独立后台线程等待 Java 进程退出的系统信号，意外退出时通知前端；正常停止和
+重启不会被误判为失败。其他平台采用每 2 秒一次的本地子进程检查，不请求 Java 或 WebView。
+开发模式中不是由客户端创建的 IDEA/远程 Java 不纳入进程监视。
+进程状态不代替 `/api/health`：HTTP 健康检查仍使用原有手动检查及可配置的自动刷新。
+
 ## 连接远程 Java 或 Nginx
 
 点击「新增远程连接」，填写名称及根地址，如 `https://ssh.example.com`。

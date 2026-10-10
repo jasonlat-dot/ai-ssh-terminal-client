@@ -37,7 +37,7 @@ import { ChatRequestError } from './api/chatErrors';
 import { ActivityBar, AppHeader } from './components/Shell';
 import { BackendSettingsDialog } from './components/BackendSettingsDialog';
 import { activeBackendConnection, adoptBundledBackendUrl, readBackendUrl, saveBackendUrl } from './config/backend';
-import { readBundledBackendStatus, restartBundledBackend } from './api/bundledBackend';
+import { watchBundledBackendStatus, restartBundledBackend, type BundledBackendStatus } from './api/bundledBackend';
 import { probeBackendHealth } from './api/health';
 import { StartupScreen } from './components/StartupScreen';
 import type { StartupHealth, StartupPhase } from './components/StartupScreen';
@@ -1298,7 +1298,8 @@ export default function App() {
   const [startupMessage, setStartupMessage] = useState('正在读取内置服务状态…');
   const [startupLogDirectory, setStartupLogDirectory] = useState<string | null>(null);
   const [startupRetrying, setStartupRetrying] = useState(false);
-  const [startupPollVersion, setStartupPollVersion] = useState(0);
+  /** 初始查询、事件和重启命令可能交错返回，只处理本次运行中的较新状态。 */
+  const startupStatusRevision = useRef(-1);
   /**
    * stopped 状态时（用户关掉了自动启动），这个标志让“启动”按钮显示“正在启动”并禁用。
    * 只用于本地启动流程，restart 调用发起后置 true，状态切到 starting/running 时置 false。
@@ -1345,7 +1346,7 @@ export default function App() {
 
   /**
    * 用 /api/health 探测一次，结果只用于启动页状态展示。
-   * - 不影响 phase 流转：phase 仍由 bundled_backend_status 决定。
+   * - 不影响 phase 流转：phase 仍由内置进程状态快照/事件决定。
    * - 不阻塞用户点击“继续进入”：health down 也允许继续（业务后端已能响应）。
    */
   const runStartupHealthProbe = useCallback(async (targetUrl: string) => {
@@ -1381,55 +1382,44 @@ export default function App() {
     startupHealthAbort.current?.abort();
   }, []);
 
+  /** 所有启动状态入口共用处理函数，重复事件/命令返回不重复健康探测或重置进入计时。 */
+  const applyStartupStatus = useCallback((status: BundledBackendStatus | null) => {
+    if (status) {
+      if (status.revision <= startupStatusRevision.current) return;
+      startupStatusRevision.current = status.revision;
+    }
+    if (!status || status.status === 'running') {
+      setStartupStarting(false);
+      // 进程状态与 HTTP 健康度分开判断，保持原来的 /api/health 二次确认行为。
+      void runStartupHealthProbe(syncBundledBackendUrl(status?.backendUrl));
+      revealMain(status?.message ?? '客户端界面已就绪');
+      return;
+    }
+    // running 后的短暂进入动画期间若进程退出，取消进入计时，不能带失败状态进入工作区。
+    if (readyTimer.current !== null) {
+      window.clearTimeout(readyTimer.current);
+      readyTimer.current = null;
+    }
+    setStartupLogDirectory(status.status === 'failed' ? parentDirectory(status.logPath) : null);
+    if (status.status === 'failed' || status.status === 'stopped') {
+      setStartupStarting(false);
+      setStartupPhase(status.status);
+      setStartupMessage(status.message || (status.status === 'failed' ? '内置后端启动失败' : '本地服务尚未启动'));
+      return;
+    }
+    setStartupPhase('starting');
+    setStartupMessage(status.message || '正在等待内置服务启动…');
+  }, [revealMain, runStartupHealthProbe, syncBundledBackendUrl]);
+
   useEffect(() => {
     if (!desktop || backendReady || startupBypassed) return;
-
-    let cancelled = false;
-    let pollTimer: number | null = null;
-    const poll = async () => {
-      try {
-        const status = await readBundledBackendStatus();
-        if (cancelled) return;
-        if (!status || status.status === 'running') {
-          setStartupStarting(false);
-          // Rust 报告 running 不代表 HTTP 端点能响应；用 /api/health 二次确认，
-          // 真实场景下“端口已开但 Spring 还没就绪”时它会失败，UI 给出明确提示，
-          // 但 phase 仍按 Rust 状态走，避免让启动流程卡死。
-          void runStartupHealthProbe(syncBundledBackendUrl(status?.backendUrl));
-          revealMain(status?.message ?? '客户端界面已就绪');
-          return;
-        }
-        if (status.status === 'failed') {
-          setStartupStarting(false);
-          setStartupPhase('failed');
-          setStartupMessage(status.message || '内置后端启动失败');
-          setStartupLogDirectory(parentDirectory(status.logPath));
-          return;
-        }
-        if (status.status === 'stopped') {
-          // 用户关掉了自动启动（或重启后未启动），停在 stopped，等用户点“启动”。
-          setStartupPhase('stopped');
-          setStartupMessage(status.message || '本地服务尚未启动');
-          return;
-        }
-
-        setStartupPhase(status.status === 'starting' ? 'starting' : 'checking');
-        setStartupMessage(status.message || '正在等待内置服务启动…');
-        pollTimer = window.setTimeout(poll, 400);
-      } catch (error) {
-        if (cancelled) return;
-        setStartupPhase('failed');
-        setStartupMessage(`无法读取内置后端状态：${errorMessage(error)}`);
-        setStartupLogDirectory(null);
-      }
-    };
-
-    void poll();
-    return () => {
-      cancelled = true;
-      if (pollTimer !== null) window.clearTimeout(pollTimer);
-    };
-  }, [backendReady, desktop, revealMain, runStartupHealthProbe, startupBypassed, startupPollVersion, syncBundledBackendUrl]);
+    // 注册监听后只查一次快照；持续的 starting/running/failed/stopped 由 Rust 推送。
+    return watchBundledBackendStatus(applyStartupStatus, error => {
+      setStartupPhase('failed');
+      setStartupMessage(`无法订阅内置后端状态：${errorMessage(error)}`);
+      setStartupLogDirectory(null);
+    });
+  }, [backendReady, desktop, startupBypassed, applyStartupStatus]);
 
   const retryStartup = useCallback(async () => {
     setStartupRetrying(true);
@@ -1438,26 +1428,7 @@ export default function App() {
     setStartupLogDirectory(null);
     try {
       const status = await restartBundledBackend();
-      if (!status || status.status === 'running') {
-        setStartupStarting(false);
-        void runStartupHealthProbe(syncBundledBackendUrl(status?.backendUrl));
-        revealMain(status?.message ?? '内置后端已启动');
-      } else if (status.status === 'failed') {
-        setStartupStarting(false);
-        setStartupPhase('failed');
-        setStartupMessage(status.message || '内置后端启动失败');
-        setStartupLogDirectory(parentDirectory(status.logPath));
-      } else if (status.status === 'stopped') {
-        // 通常不会发生：restart 应当把 Java 拉起来。回到 stopped 给出“启动”按钮。
-        setStartupStarting(false);
-        setStartupPhase('stopped');
-        setStartupMessage(status.message || '本地服务尚未启动');
-      } else {
-        setStartupStarting(false);
-        setStartupPhase('starting');
-        setStartupMessage(status.message || '正在等待内置服务启动…');
-        setStartupPollVersion(version => version + 1);
-      }
+      applyStartupStatus(status);
     } catch (error) {
       setStartupStarting(false);
       setStartupPhase('failed');
@@ -1465,7 +1436,7 @@ export default function App() {
     } finally {
       setStartupRetrying(false);
     }
-  }, [revealMain, runStartupHealthProbe, syncBundledBackendUrl]);
+  }, [applyStartupStatus]);
 
   /**
    * stopped 状态下点“启动”按钮。逻辑与重试一致，但需要重置 starting 标志位，
@@ -1481,26 +1452,13 @@ export default function App() {
     setStartupHealth({ state: 'idle', backendUrl: targetUrl, latencyMs: null, message: null, checkedAt: null });
     try {
       const status = await restartBundledBackend();
-      if (!status || status.status === 'running') {
-        setStartupStarting(false);
-        void runStartupHealthProbe(syncBundledBackendUrl(status?.backendUrl));
-        revealMain(status?.message ?? '内置后端已启动');
-      } else if (status.status === 'failed') {
-        setStartupStarting(false);
-        setStartupPhase('failed');
-        setStartupMessage(status.message || '内置后端启动失败');
-        setStartupLogDirectory(parentDirectory(status.logPath));
-      } else {
-        setStartupPhase(status.status === 'starting' ? 'starting' : 'checking');
-        setStartupMessage(status.message || '正在等待内置服务启动…');
-        setStartupPollVersion(version => version + 1);
-      }
+      applyStartupStatus(status);
     } catch (error) {
       setStartupStarting(false);
       setStartupPhase('failed');
       setStartupMessage(`启动失败：${errorMessage(error)}`);
     }
-  }, [revealMain, runStartupHealthProbe, syncBundledBackendUrl]);
+  }, [applyStartupStatus]);
 
   const recheckStartupHealth = useCallback(() => {
     const target = startupHealth.backendUrl || readBackendUrl();

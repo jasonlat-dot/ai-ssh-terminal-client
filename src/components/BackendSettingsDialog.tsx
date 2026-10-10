@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import {
   readBundledBackendConfig,
   readBundledBackendAutoStart,
-  readBundledBackendStatus,
+  watchBundledBackendStatus,
   resolveBundledBackendUrl,
   restartBundledBackend,
   stopBundledBackend,
@@ -1121,6 +1121,14 @@ export function BackendSettingsDialog({ currentUrl, required = false, onClose, o
    * HTTP 服务是否就绪仍以 /api/health 的结果为准。
    */
   const [backendStatus, setBackendStatus] = useState<BundledBackendStatus | null>(null);
+  const backendStatusRevision = useRef(-1);
+  /** 事件与启停命令返回共用版本检查，避免旧命令结果覆盖较新的退出/重启通知。 */
+  const updateBackendStatus = useCallback((next: BundledBackendStatus | null) => {
+    if (next && next.revision < backendStatusRevision.current) return false;
+    if (next) backendStatusRevision.current = next.revision;
+    setBackendStatus(previous => previous && next && previous.revision >= next.revision ? previous : next);
+    return true;
+  }, []);
   const [healthRefresh, setHealthRefresh] = useState(readHealthRefreshPreferences);
   const [healthRefreshError, setHealthRefreshError] = useState('');
   const updateHealthRefresh = (patch: Partial<HealthRefreshPreferences>) => {
@@ -1174,20 +1182,13 @@ export function BackendSettingsDialog({ currentUrl, required = false, onClose, o
     return () => { active = false; };
   }, []);
 
-  /** 拉取内置服务进程状态，更新启停按钮并触发健康检查。仅在桌面壳里生效。 */
+  /** 首次读取快照，之后只接收状态变更；关闭设置时自动取消监听。 */
   useEffect(() => {
     if (!isTauriRuntime()) return;
-    let active = true;
-    const refresh = () => {
-      void readBundledBackendStatus()
-        .then(s => { if (active) setBackendStatus(s); })
-        .catch(() => { if (active) setBackendStatus(null); });
-    };
-    refresh();
-    // 后端状态变化不频繁（启动/停止/失败），1.5s 轮询够用且不打扰用户。
-    const timer = window.setInterval(refresh, 1500);
-    return () => { active = false; window.clearInterval(timer); };
-  }, []);
+    return watchBundledBackendStatus(updateBackendStatus, () => {
+      if (backendStatusRevision.current < 0) setBackendStatus(null);
+    });
+  }, [updateBackendStatus]);
 
   /** 顶部入口在切换到连接分区并完成渲染后，定位到健康检查模块。 */
   useEffect(() => {
@@ -1215,8 +1216,7 @@ export function BackendSettingsDialog({ currentUrl, required = false, onClose, o
   /**
    * 切换自动启动。注意：开关本身只描述“客户端启动时是否自动拉起后端”，
    * 它的生效时机是下一次打开客户端；切换当下不立即拉/停 Java。
-   * 关闭时 Rust 端会顺手 stop 当前 Java（避免开关状态和实际状态不一致），
-   * 打开时不动 Java —— 用户如果想立刻用，可以点“启动内置服务”按钮。
+   * 开关不会立即启停当前 Java；要立即操作请点击“启动/停止内置服务”。
    */
   const toggleAutoStart = async () => {
     setAutoStartError('');
@@ -1226,9 +1226,7 @@ export function BackendSettingsDialog({ currentUrl, required = false, onClose, o
     try {
       const confirmed = await setBundledBackendAutoStart(next);
       if (confirmed !== null) setAutoStartEnabled(confirmed);
-      // 立刻刷一次后端状态，让按钮按实际情况显隐；
-      // 关闭时 Rust 已经 stop 了，按钮应出现；打开时不动 Java，按钮的显示取决于原状态。
-      void readBundledBackendStatus().then(s => setBackendStatus(s)).catch(() => {});
+      // 仅保存下次启动偏好，当前进程状态未变化，不额外查询或伪造状态。
     } catch (cause) {
       setAutoStartEnabled(!next);
       setAutoStartError(cause instanceof Error ? cause.message : '切换自动启动失败。');
@@ -1246,7 +1244,8 @@ export function BackendSettingsDialog({ currentUrl, required = false, onClose, o
     try {
       // 用 restart 而不是 start，是因为用户可能想"重启"——比如改完配置后。
       const status = await restartBundledBackend();
-      setBackendStatus(status);
+      // 命令返回前若已收到更新的失败/重启通知，不能再显示旧成功信息或同步旧地址。
+      if (!updateBackendStatus(status)) return;
       if (status?.status === 'running') {
         // 配置页重启也同步真实协议，不能只更新启动页的健康检查地址。
         const selected = adoptBundledBackendUrl(status.backendUrl);
@@ -1279,7 +1278,7 @@ export function BackendSettingsDialog({ currentUrl, required = false, onClose, o
     setSettingsStarting(true);
     try {
       const status = await stopBundledBackend();
-      setBackendStatus(status);
+      if (!updateBackendStatus(status)) return;
       setResult(`已停止：${status?.message || '内置后端已停止'}`);
     } catch (cause) {
       setAutoStartError(cause instanceof Error ? cause.message : '停止失败。');

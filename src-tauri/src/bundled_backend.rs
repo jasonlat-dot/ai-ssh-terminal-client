@@ -12,7 +12,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
@@ -24,10 +24,15 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 /** 安装包内后端 JAR 的固定资源名称。 */
 const BACKEND_JAR_NAME: &str = "ai-ssh-terminal-server-app.jar";
 
+/** 状态改变时的桌面内部事件；与 Java HTTP 健康检查无关。 */
+const BACKEND_STATUS_EVENT: &str = "bundled-backend-status-changed";
+
 /** 前端可查询的内置后端运行状态。 */
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BackendStatus {
+    /** 本次客户端运行期间递增；前端据此丢弃晚到的旧查询/命令结果。 */
+    revision: u64,
     /** starting、running、failed 或 stopped。 */
     status: String,
     /** 面向用户的状态说明；失败时包含真实启动原因。 */
@@ -147,6 +152,7 @@ const CONFIG_FIELDS: &[ConfigField] = &[
 impl Default for BackendStatus {
     fn default() -> Self {
         Self {
+            revision: 0,
             status: "stopped".into(),
             message: "内置后端尚未启动".into(),
             log_path: None,
@@ -180,6 +186,7 @@ async fn backend_blocking_task<T: Send + 'static>(
 
 fn starting_status() -> BackendStatus {
     BackendStatus {
+        revision: 0,
         status: "starting".into(),
         message: "正在启动内置后端…".into(),
         log_path: None,
@@ -197,19 +204,27 @@ fn begin_start(app: &AppHandle) {
 fn finish_start(app: &AppHandle) -> BackendStatus {
     let status = match start_inner(app) {
         Ok((log_path, backend_url)) => BackendStatus {
+            revision: 0,
             status: "running".into(),
             message: "内置后端已启动".into(),
             log_path: Some(log_path.to_string_lossy().into_owned()),
             backend_url: Some(backend_url),
         },
         Err(error) => BackendStatus {
+            revision: 0,
             status: "failed".into(),
             message: error.to_string(),
             log_path: error_log_path(app).map(|path| path.to_string_lossy().into_owned()),
             backend_url: None,
         },
     };
-    set_status(app, status.clone());
+    let status = set_status(app, status);
+    if status.status == "running" {
+        // 只有确实由客户端创建的子进程才安装监视器；开发模式外部 Java 不接管。
+        if let Err(error) = monitor_backend_process(app, status.revision) {
+            eprintln!("安装内置后端进程监视器失败：{error}");
+        }
+    }
     status
 }
 
@@ -234,6 +249,7 @@ pub fn start_in_background(app: AppHandle) {
         let state = app.state::<BundledBackendState>();
         let Ok(_lifecycle) = state.lifecycle.lock() else {
             set_status(&app, BackendStatus {
+                revision: 0,
                 status: "failed".into(),
                 message: "内置后端操作锁已损坏".into(),
                 log_path: None,
@@ -263,6 +279,7 @@ pub fn start_in_background(app: AppHandle) {
                 eprintln!("准备手动启动后端的本机证书信任失败：{error}");
             }
             let status = BackendStatus {
+                revision: 0,
                 status: "stopped".into(),
                 message: "自动启动已关闭。在设置中开启，或在启动页点“启动”。".into(),
                 log_path: error_log_path(&app).map(|path| path.to_string_lossy().into_owned()),
@@ -376,6 +393,7 @@ fn start_inner(app: &AppHandle) -> Result<(PathBuf, String), Box<dyn std::error:
 #[tauri::command]
 pub fn bundled_backend_status(state: State<'_, BundledBackendState>) -> BackendStatus {
     state.status.lock().map(|value| value.clone()).unwrap_or_else(|_| BackendStatus {
+        revision: 0,
         status: "failed".into(),
         message: "无法读取内置后端状态".into(),
         log_path: None,
@@ -411,13 +429,13 @@ pub async fn bundled_backend_stop(app: AppHandle) -> Result<BackendStatus, Strin
         let _lifecycle = state.lifecycle.lock().map_err(|_| "内置后端操作锁已损坏")?;
         stop(&app);
         let status = BackendStatus {
+            revision: 0,
             status: "stopped".into(),
             message: "已停止内置后端".into(),
             log_path: error_log_path(&app).map(|path| path.to_string_lossy().into_owned()),
             backend_url: None,
         };
-        set_status(&app, status.clone());
-        Ok(status)
+        Ok(set_status(&app, status))
     }).await
 }
 
@@ -852,10 +870,118 @@ fn config_view_value(value: &LocatedConfigValue, effective: String, sensitive: b
     }
 }
 
-/** 更新共享状态；锁异常时不再让桌面客户端崩溃。 */
-fn set_status(app: &AppHandle, status: BackendStatus) {
-    if let Ok(mut current) = app.state::<BundledBackendState>().status.lock() {
-        *current = status;
+/**
+ * 唯一状态发布入口：先保存快照，再向前端发送事件，并返回带真实版本号的结果。
+ *
+ * 完全相同的状态不重复发送。事件发送在释放状态锁之后进行，避免 IPC 占用共享锁；
+ * 即使两条通知交错到达，前端仍可通过 revision 判断新旧。页面尚未创建时没有监听者
+ * 也没关系，首次订阅后的一次快照读取会补齐当前状态。
+ */
+fn set_status(app: &AppHandle, mut status: BackendStatus) -> BackendStatus {
+    let state = app.state::<BundledBackendState>();
+    let published = match state.status.lock() {
+        Ok(mut current) => {
+            if current.status == status.status && current.message == status.message
+                && current.log_path == status.log_path && current.backend_url == status.backend_url {
+                return current.clone();
+            }
+            status.revision = current.revision + 1;
+            *current = status.clone();
+            status
+        }
+        Err(_) => {
+            eprintln!("无法发布内置后端状态：状态锁已损坏");
+            return status;
+        }
+    };
+    if let Err(error) = app.emit(BACKEND_STATUS_EVENT, &published) {
+        // 通知错误不撤销真实进程状态，也不能因为界面通知失败而导致客户端崩溃。
+        eprintln!("发送内置后端状态通知失败：{error}");
+    }
+    published
+}
+
+/**
+ * 监测客户端拥有的 Java 子进程。revision 标识本轮运行，PID 仅用于额外核对身份。
+ *
+ * Windows 复制独立进程句柄，在后台线程等待系统的退出信号，不使用定时器或 HTTP。
+ * 独立句柄由 OwnedHandle 自动关闭；等待过程中不持有任何状态/生命周期锁，因此
+ * 手动停止、重启及窗口消息处理不会被阻塞。非 Windows 保留低频本地存活检查，
+ * 不产生 WebView IPC 请求，不监测用户自己启动的远程/IDEA Java。
+ */
+fn monitor_backend_process(app: &AppHandle, revision: u64) -> io::Result<()> {
+    let state = app.state::<BundledBackendState>();
+    let guard = state.child.lock().map_err(|_| io::Error::other("后端进程锁已损坏"))?;
+    let Some(child) = guard.as_ref() else { return Ok(()); };
+    let process_id = child.id();
+
+    #[cfg(target_os = "windows")]
+    let process_handle = {
+        use std::os::windows::io::AsHandle;
+        child.as_handle().try_clone_to_owned()?
+    };
+    drop(guard);
+
+    let app = app.clone();
+    thread::Builder::new().name("bundled-backend-exit".into()).spawn(move || {
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::io::AsRawHandle;
+            use windows::Win32::Foundation::{HANDLE, WAIT_OBJECT_0};
+            use windows::Win32::System::Threading::{WaitForSingleObject, INFINITE};
+            // SAFETY：OwnedHandle 在等待结束前保持存活；它是复制自 Child 的有效进程句柄。
+            // 阻塞只发生在专用后台线程，原 Child 仍由停止逻辑持有并可随时 kill/wait。
+            let result = unsafe { WaitForSingleObject(HANDLE(process_handle.as_raw_handle()), INFINITE) };
+            if result == WAIT_OBJECT_0 {
+                check_backend_process_exit(&app, revision, process_id);
+            } else {
+                eprintln!("等待内置后端退出失败：{}", io::Error::last_os_error());
+            }
+        }
+        #[cfg(not(target_os = "windows"))]
+        loop {
+            if check_backend_process_exit(&app, revision, process_id) { break; }
+            thread::sleep(Duration::from_secs(2));
+        }
+    })?;
+    Ok(())
+}
+
+/**
+ * 核实退出后发布 failed；返回 true 表示本轮监视已经结束。
+ *
+ * 先取得生命周期锁，避免旧进程的退出通知把刚完成重启的新进程标成失败。
+ * 主动 stop/restart 已设置取消标记，不属于意外退出，留给对应命令发布最终状态。
+ * try_wait 不阻塞；不会持着锁等待仍在运行的进程退出。
+ */
+fn check_backend_process_exit(app: &AppHandle, revision: u64, process_id: u32) -> bool {
+    let state = app.state::<BundledBackendState>();
+    let Ok(_lifecycle) = state.lifecycle.lock() else { return true; };
+    if state.stop_requested.load(Ordering::Acquire) { return true; }
+    let previous = match state.status.lock() {
+        Ok(current) if current.revision == revision && current.status == "running" => current.clone(),
+        _ => return true,
+    };
+    let Ok(mut guard) = state.child.lock() else { return true; };
+    let Some(child) = guard.as_mut().filter(|child| child.id() == process_id) else { return true; };
+    match child.try_wait() {
+        Ok(Some(exit)) => {
+            // 清掉已经退出的句柄，避免后续证书逻辑仍把它当作客户端拥有的活进程。
+            guard.take();
+            drop(guard);
+            set_status(app, BackendStatus {
+                status: "failed".into(),
+                message: format!("内置后端意外退出：{exit}；请查看日志目录"),
+                // 保留该进程的真实地址与日志位置，不能用尚未生效的新配置覆盖。
+                ..previous
+            });
+            true
+        }
+        Ok(None) => false,
+        Err(error) => {
+            eprintln!("读取内置后端退出状态失败：{error}");
+            true
+        }
     }
 }
 

@@ -33,7 +33,7 @@ portable-pty = "0.9"
 # 与 Tauri 当前使用的 WebView2/windows 绑定保持一致，用于限定本机证书的信任范围。
 [target.'cfg(target_os = "windows")'.dependencies]
 webview2-com = "0.38.2"
-windows = "0.61.3"
+windows = { version = "0.61.3", features = ["Win32_Foundation", "Win32_System_Threading"] }
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
