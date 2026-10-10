@@ -117,6 +117,16 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme }: {
   const noticeSequence = useRef(0);
   const [commandCollapsed, setCommandCollapsed] = useState(false);
   const [agentCollapsed, setAgentCollapsed] = useState(false);
+  // 应用关闭流程的全局标志位：避免 Tauri onCloseRequested 与 in-page 关闭按钮、
+  // 终端页签关闭等其他路径在快速关窗时重复触发清理。
+  const closingApp = useRef(false);
+  // 由各个文件管理窗口注册的“应用关闭前”清理器；
+  // connectionId -> () => Promise<void>，调用方负责关掉后端 SFTP 会话。
+  const sftpCleanups = useRef(new Map<string, () => Promise<void>>());
+  const registerAppCloseCleanup = useCallback((id: string, handler: () => Promise<void>) => {
+    sftpCleanups.current.set(id, handler);
+    return () => { sftpCleanups.current.delete(id); };
+  }, []);
   const chatVersion = useRef(0);
   const chatting = useRef(false);
   const chatSessionId = useRef('');
@@ -751,6 +761,66 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme }: {
     notify(historySaved ? `当前 ${target.host.name} 终端页签已断开并关闭。` : `当前终端页签已关闭，但本机存储不可用，未能保留连接记录。`, historySaved ? 'success' : 'error');
     return true;
   };
+  /**
+   * 关窗前的集中清理：取消所有未完成的连接尝试、关闭每个终端运行时、
+   * 通知文件管理窗口释放后端 SFTP 会话。所有 IO 失败都吞掉，只记日志。
+   *
+   * 调用方在 await 之后调 getCurrentWindow().destroy() 真正退出。
+   */
+  const cleanupBeforeClose = useCallback(async () => {
+    if (closingApp.current) return;
+    closingApp.current = true;
+    // 1) 取消尚未完成的 SSH 连接尝试（包括重连），释放对应 AbortController。
+    openingConnections.current.forEach(({ attempt }) => attempt.cancel());
+    openingConnections.current.clear();
+    setConnectingHostIds(new Set());
+    reconnectingAttempts.current.forEach(attempt => attempt.cancel());
+    reconnectingAttempts.current.clear();
+
+    // 2) 关闭每个打开的终端（本地 CMD + 远程 SSH）。markManuallyClosed() 让运行时
+    //    停止内部的 read loop / 自动重连，close() 才会真正发往后端释放会话。
+    const runtimeCloses: Promise<unknown>[] = [];
+    terminalClients.current.forEach(runtime => {
+      try { runtime.markManuallyClosed(); }
+      catch (error) { console.warn('标记终端为手动关闭失败', error); }
+      runtimeCloses.push(Promise.resolve(runtime.close()).catch(error => console.warn('关闭终端会话失败', error)));
+    });
+    terminalClients.current.clear();
+
+    // 3) 释放每个文件管理窗口的 SFTP 会话。组件已经被销毁（关窗过程中）也要兜底。
+    const sftpCloses: Promise<unknown>[] = [];
+    sftpCleanups.current.forEach((handler, id) => {
+      sftpCloses.push(Promise.resolve(handler()).catch(error => console.warn(`关闭 ${id} 的 SFTP 会话失败`, error)));
+    });
+    sftpCleanups.current.clear();
+
+    // 4) 等待所有请求结束；再给一个 800ms 的兜底超时，避免后端卡住导致窗口关不掉。
+    await Promise.allSettled([...runtimeCloses, ...sftpCloses]);
+    await new Promise(resolve => setTimeout(resolve, 800));
+  }, []);
+
+  useEffect(() => {
+    if (!isTauriRuntime()) return;
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    // Tauri v2：先 preventDefault 关掉默认的立刻销毁行为，等清理完再 destroy。
+    void getCurrentWindow().onCloseRequested(async event => {
+      if (disposed || closingApp.current) {
+        // 第二次/卸载后的关闭请求不再拦截，让它走默认行为快速退出。
+        return;
+      }
+      event.preventDefault();
+      try { await cleanupBeforeClose(); }
+      catch (error) { console.warn('关闭应用前的清理失败', error); }
+      if (disposed) return;
+      try { await getCurrentWindow().destroy(); }
+      catch (error) { console.error('强制销毁主窗口失败', error); }
+    }).then(stop => {
+      if (disposed) stop();
+      else unlisten = stop;
+    }).catch(error => console.error('监听窗口关闭事件失败', error));
+    return () => { disposed = true; unlisten?.(); };
+  }, [cleanupBeforeClose]);
   const fill = (command: string) => {
     setNavigation('命令');
     if (!active) { void openNewTerminal(); notify('正在为你打开本地 CMD。'); return; }
@@ -1188,7 +1258,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme }: {
         refresh: () => { if (selectedAgent) void refreshChatSessions(selectedAgent.agentId); },
         select: sessionId => { void selectChatSession(sessionId); },
       }} />
-    {fileWindows.map(item => <SessionFiles key={item.connectionId} connectionId={item.connectionId} title={item.title} visible={!backendSettingsOpen && visibleFiles === item.connectionId} minimize={() => setVisibleFiles('')} remove={() => { setFileWindows(previous => previous.filter(window => window.connectionId !== item.connectionId)); setVisibleFiles(current => current === item.connectionId ? '' : current); }} copy={copy} notify={notify} />)}
+    {fileWindows.map(item => <SessionFiles key={item.connectionId} connectionId={item.connectionId} title={item.title} visible={!backendSettingsOpen && visibleFiles === item.connectionId} minimize={() => setVisibleFiles('')} remove={() => { setFileWindows(previous => previous.filter(window => window.connectionId !== item.connectionId)); setVisibleFiles(current => current === item.connectionId ? '' : current); }} copy={copy} notify={notify} registerAppCloseCleanup={registerAppCloseCleanup} />)}
     {toast && <NotificationToast key={toast.id} notice={toast} close={dismissNotice} />}
     {dialog === 'command' && <AddCommandDialog close={closeDialog} categories={[...new Set(commands.map(command => command.category))]} save={async command => {
       const next = [...commands, command];

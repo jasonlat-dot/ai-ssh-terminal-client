@@ -153,6 +153,21 @@ pub struct BundledBackendState {
     child: Mutex<Option<Child>>,
     status: Mutex<BackendStatus>,
     stop_requested: AtomicBool,
+    /** 后台线程串行执行启动、重启和停止，避免异步命令同时创建多个 Java 进程。 */
+    lifecycle: Mutex<()>,
+}
+
+/**
+ * 在阻塞线程池执行进程和文件操作，异步等待期间不占用窗口线程或异步运行时工作线程。
+ * 前端仍收到原有业务结果；线程执行异常通过 invoke 的拒绝路径交给现有错误提示处理。
+ */
+async fn backend_blocking_task<T: Send + 'static>(
+    operation: &'static str,
+    task: impl FnOnce() -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(task)
+        .await
+        .map_err(|error| format!("{operation}后台任务失败：{error}"))?
 }
 
 fn starting_status() -> BackendStatus {
@@ -205,20 +220,38 @@ pub fn start(app: &AppHandle) -> BackendStatus {
 
 /** 在后台线程启动后端，让 WebView 和 React 可以立即绘制启动界面。 */
 pub fn start_in_background(app: AppHandle) {
-    // 用户在设置里关掉了“自动启动内置后端”，就停在 stopped 状态。
-    // 状态不阻塞 UI：前端会展示手动启动按钮，用户点 “启动” 才拉 Java。
-    if !read_auto_start_preference(&app) {
-        let status = BackendStatus {
-            status: "stopped".into(),
-            message: "自动启动已关闭。在设置中开启，或在启动页点“启动”。".into(),
-            log_path: error_log_path(&app).map(|path| path.to_string_lossy().into_owned()),
-            backend_url: None,
-        };
-        set_status(&app, status);
-        return;
-    }
+    // 主线程只发布短时状态；偏好读取和日志路径解析同样包含磁盘 IO，全部移入后台。
     begin_start(&app);
     thread::spawn(move || {
+        let state = app.state::<BundledBackendState>();
+        let Ok(_lifecycle) = state.lifecycle.lock() else {
+            set_status(&app, BackendStatus {
+                status: "failed".into(),
+                message: "内置后端操作锁已损坏".into(),
+                log_path: None,
+                backend_url: None,
+            });
+            return;
+        };
+
+        // 自动启动与手动操作共用生命周期锁；状态查询使用独立短时锁，不等待启动结束。
+        if state.stop_requested.load(Ordering::Acquire) {
+            return;
+        }
+        // 手动操作可能在自动启动线程取得锁前已完成；此时保留其结果，不再重复启动。
+        if !state.status.lock().map(|status| status.status == "starting").unwrap_or(false) {
+            return;
+        }
+        if !read_auto_start_preference(&app) {
+            let status = BackendStatus {
+                status: "stopped".into(),
+                message: "自动启动已关闭。在设置中开启，或在启动页点“启动”。".into(),
+                log_path: error_log_path(&app).map(|path| path.to_string_lossy().into_owned()),
+                backend_url: None,
+            };
+            set_status(&app, status);
+            return;
+        }
         finish_start(&app);
     });
 }
@@ -322,11 +355,18 @@ pub fn bundled_backend_status(state: State<'_, BundledBackendState>) -> BackendS
     })
 }
 
-/** 停止旧进程并重新读取外置配置启动后端，配置修改可通过重启立即生效。 */
+/**
+ * 后台停止旧进程并读取外置配置启动后端。
+ * 前端的 await 只等待结果，Rust 必须显式移入阻塞线程池，否则端口等待会冻结窗口消息处理。
+ */
 #[tauri::command]
-pub fn bundled_backend_restart(app: AppHandle) -> BackendStatus {
-    stop(&app);
-    start(&app)
+pub async fn bundled_backend_restart(app: AppHandle) -> Result<BackendStatus, String> {
+    backend_blocking_task("重启内置后端", move || {
+        let state = app.state::<BundledBackendState>();
+        let _lifecycle = state.lifecycle.lock().map_err(|_| "内置后端操作锁已损坏")?;
+        stop(&app);
+        Ok(start(&app))
+    }).await
 }
 
 /**
@@ -335,28 +375,36 @@ pub fn bundled_backend_restart(app: AppHandle) -> BackendStatus {
  * 跟"用户现在想停掉"是两件事。
  */
 #[tauri::command]
-pub fn bundled_backend_stop(app: AppHandle) -> BackendStatus {
-    stop(&app);
-    let status = BackendStatus {
-        status: "stopped".into(),
-        message: "已停止内置后端".into(),
-        log_path: error_log_path(&app).map(|path| path.to_string_lossy().into_owned()),
-        backend_url: None,
-    };
-    set_status(&app, status.clone());
-    status
+pub async fn bundled_backend_stop(app: AppHandle) -> Result<BackendStatus, String> {
+    // 先发送取消信号，后台启动循环才能及时退出；不能等到取得生命周期锁之后才取消。
+    app.state::<BundledBackendState>().stop_requested.store(true, Ordering::Release);
+    backend_blocking_task("停止内置后端", move || {
+        let state = app.state::<BundledBackendState>();
+        let _lifecycle = state.lifecycle.lock().map_err(|_| "内置后端操作锁已损坏")?;
+        stop(&app);
+        let status = BackendStatus {
+            status: "stopped".into(),
+            message: "已停止内置后端".into(),
+            log_path: error_log_path(&app).map(|path| path.to_string_lossy().into_owned()),
+            backend_url: None,
+        };
+        set_status(&app, status.clone());
+        Ok(status)
+    }).await
 }
 
 /** 读取当前 application.yml 与活动 Profile 中真正生效的桌面配置。 */
 #[tauri::command]
-pub fn bundled_backend_config(app: AppHandle) -> Result<BackendConfigView, String> {
-    load_backend_config(&app).map_err(|error| error.to_string())
+pub async fn bundled_backend_config(app: AppHandle) -> Result<BackendConfigView, String> {
+    backend_blocking_task("读取内置后端配置", move || {
+        load_backend_config(&app).map_err(|error| error.to_string())
+    }).await
 }
 
 /** 设置页读取当前是否启用了“自动启动内置后端”。 */
 #[tauri::command]
-pub fn bundled_backend_get_auto_start(app: AppHandle) -> bool {
-    read_auto_start_preference(&app)
+pub async fn bundled_backend_get_auto_start(app: AppHandle) -> Result<bool, String> {
+    backend_blocking_task("读取自动启动设置", move || Ok(read_auto_start_preference(&app))).await
 }
 
 /**
@@ -364,9 +412,11 @@ pub fn bundled_backend_get_auto_start(app: AppHandle) -> bool {
  * 写入前保留同目录 .bak 副本，用户手工维护的其他 YAML 内容不会被整体重写。
  */
 #[tauri::command]
-pub fn bundled_backend_save_config(app: AppHandle, update: BackendConfigUpdate) -> Result<BackendConfigView, String> {
-    save_backend_config(&app, update).map_err(|error| error.to_string())?;
-    load_backend_config(&app).map_err(|error| error.to_string())
+pub async fn bundled_backend_save_config(app: AppHandle, update: BackendConfigUpdate) -> Result<BackendConfigView, String> {
+    backend_blocking_task("保存内置后端配置", move || {
+        save_backend_config(&app, update).map_err(|error| error.to_string())?;
+        load_backend_config(&app).map_err(|error| error.to_string())
+    }).await
 }
 
 /** 汇总配置文件、活动 Profile 和设置页支持的字段。 */
@@ -771,10 +821,12 @@ fn set_status(app: &AppHandle, status: BackendStatus) {
 pub fn stop(app_handle: &AppHandle) {
     let state = app_handle.state::<BundledBackendState>();
     state.stop_requested.store(true, Ordering::Release);
-    let Ok(mut guard) = state.child.lock() else {
-        return;
+    // 仅取出进程句柄时持锁；kill/wait 的耗时不应延长共享状态锁占用。
+    let child = match state.child.lock() {
+        Ok(mut guard) => guard.take(),
+        Err(_) => return,
     };
-    let Some(mut child) = guard.take() else {
+    let Some(mut child) = child else {
         return;
     };
 
@@ -896,16 +948,18 @@ fn read_auto_start_preference(app: &AppHandle) -> bool {
  *   真正要停请点设置页的“停止内置服务”按钮。
  */
 #[tauri::command]
-pub fn bundled_backend_set_auto_start(app: AppHandle, enabled: bool) -> Result<bool, String> {
-    let Some(path) = auto_start_preference_path(&app) else {
-        return Err("无法获取客户端数据目录".into());
-    };
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|error| format!("创建客户端数据目录失败：{error}"))?;
-    }
-    fs::write(&path, if enabled { &b"true"[..] } else { &b"false"[..] })
-        .map_err(|error| format!("保存自动启动设置失败：{error}"))?;
-    Ok(enabled)
+pub async fn bundled_backend_set_auto_start(app: AppHandle, enabled: bool) -> Result<bool, String> {
+    backend_blocking_task("保存自动启动设置", move || {
+        let Some(path) = auto_start_preference_path(&app) else {
+            return Err("无法获取客户端数据目录".into());
+        };
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(|error| format!("创建客户端数据目录失败：{error}"))?;
+        }
+        fs::write(&path, if enabled { &b"true"[..] } else { &b"false"[..] })
+            .map_err(|error| format!("保存自动启动设置失败：{error}"))?;
+        Ok(enabled)
+    }).await
 }
 
 /**

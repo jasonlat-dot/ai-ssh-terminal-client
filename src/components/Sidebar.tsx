@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import type { SftpEntry, SftpTransfer } from '../api/sftp';
+import { sftpApi } from '../api/sftp';
 import { useSftp } from '../state/useSftp';
 import { isTauriRuntime } from '../state/runtime';
 import { formatBytes, remoteParent, transferPercent, transferStatus } from '../state/sftp';
@@ -8,6 +9,15 @@ import { AccentIcon, Badge, Icon, IconButton, Modal, fileTone } from './Ui';
 import './SftpFileManager.css';
 
 const LOCAL_PATH_DRAG_TYPE = 'application/x-agent-ssh-local-path';
+
+/**
+ * 注册一个“应用关闭前”清理器：当用户关掉整个客户端时，
+ * 父组件会调用所有注册回调，逐个把后端 SFTP 会话释放掉，
+ * 避免 Rust 侧留下一堆无人回收的 Channel / 任务。
+ *
+ * 回调会在组件卸载时自动反注册，调用方拿到的是 async 函数。
+ */
+export type SftpCloseHandler = () => Promise<void>;
 
 function transferIdentity(task: SftpTransfer) {
   const rootItem = task.items.reduce<SftpTransfer['items'][number] | undefined>((root, item) => {
@@ -162,9 +172,10 @@ function FileSource({ side, title, path, parent, roots = [], entries, loading, e
   </section>;
 }
 
-export function SessionFiles({ connectionId, title, visible, minimize, remove, copy, notify }: {
+export function SessionFiles({ connectionId, title, visible, minimize, remove, copy, notify, registerAppCloseCleanup }: {
   connectionId: string; title: string; visible: boolean; minimize: () => void; remove: () => void;
   copy: (text: string) => void; notify: (message: string, type?: 'info' | 'error' | 'success') => void;
+  registerAppCloseCleanup?: (id: string, handler: SftpCloseHandler) => () => void;
 }) {
   // This controller remains mounted while minimized, independently of terminal tabs.
   const files = useSftp(connectionId);
@@ -179,6 +190,22 @@ export function SessionFiles({ connectionId, title, visible, minimize, remove, c
   const [deleting, setDeleting] = useState(false);
   const deleteConfirmRef = useRef<HTMLButtonElement>(null);
   const ready = files.phase === 'ready';
+
+  // 注册到父组件的“应用关闭前”清理队列。
+  // - 仅在可见时（文件窗口还存在）注册；最小化也算存在，只有真正关闭才走 files.close()
+  // - 拿到的 handler 会调用 useSftp 内部的 sessionRef.current 里的 sftpSessionId，
+  //   后端拿到这个 ID 就能释放 Channel 和后台任务。
+  useEffect(() => {
+    if (!registerAppCloseCleanup) return;
+    const handler: SftpCloseHandler = async () => {
+      // 取快照：用户可能正好在窗口里点了“结束文件会话”，sftpSessionId 已经清空。
+      const session = files.session;
+      if (!session?.sftpSessionId) return;
+      try { await sftpApi.close(session.sftpSessionId); }
+      catch (error) { console.warn('应用关闭时释放 SFTP 会话失败', error); }
+    };
+    return registerAppCloseCleanup(connectionId, handler);
+  }, [registerAppCloseCleanup, connectionId, files.session]);
   const activeTransfers = files.tasks.filter(task => !['COMPLETED', 'CANCELLED'].includes(task.progress.status)).length;
   const localEntry = files.local?.entries.find(entry => entry.path === localSelected);
   const remoteEntry = files.entries.find(entry => entry.path === remoteSelected);
