@@ -26,6 +26,7 @@ type Props = {
   onTransportChange: (available: boolean) => void;
   onReconnectExhausted: (attempts: number) => void;
   reconnect: (options?: { automatic?: boolean; attempt?: number; totalAttempts?: number }) => Promise<boolean>;
+  cancelReconnect: () => void;
   disconnect: () => void;
 };
 
@@ -55,7 +56,7 @@ function currentTerminalTheme() {
 
 export function RemoteTerminalView({
   runtime, local = false, visible, connected, transportAvailable, disconnectReason, reconnectAllowed, reconnectAttempts,
-  reconnecting, manuallyClosed, onDisconnected, onTransportChange, onReconnectExhausted, reconnect, disconnect,
+  reconnecting, manuallyClosed, onDisconnected, onTransportChange, onReconnectExhausted, reconnect, cancelReconnect, disconnect,
 }: Props) {
   const element = useRef<HTMLDivElement>(null);
   const term = useRef<Terminal | null>(null);
@@ -87,6 +88,7 @@ export function RemoteTerminalView({
   const exhaustedHandler = useRef(onReconnectExhausted);
   const activeRuntime = useRef(runtime);
   const reconnectingRef = useRef(false);
+  const reconnectGeneration = useRef(0);
   activeRuntime.current = runtime;
   fontSizeRef.current = fontSize;
   allowInput.current = !unavailable;
@@ -260,18 +262,24 @@ export function RemoteTerminalView({
 
   useEffect(() => { if (visible && !unavailable) term.current?.focus(); }, [visible, unavailable]);
   useEffect(() => {
-    if (connected) {
+    if (connected || manuallyClosed) {
+      reconnectGeneration.current += 1;
       setLocalReconnecting(false);
       setPendingAttempt(0);
       reconnectingRef.current = false;
+      if (manuallyClosed) setError('');
     }
-  }, [connected]);
+  }, [connected, manuallyClosed]);
 
   useEffect(() => {
     if (connected || !reconnectAllowed || manuallyClosed || !runtime || runtime.manuallyClosed) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const wait = (delay: number) => new Promise<void>(resolve => { timer = setTimeout(resolve, delay); });
+    let finishWait: (() => void) | undefined;
+    const wait = (delay: number) => new Promise<void>(resolve => {
+      finishWait = resolve;
+      timer = setTimeout(() => { finishWait = undefined; resolve(); }, delay);
+    });
 
     const reconnectAutomatically = async () => {
       for (let index = 0; index < AUTO_RECONNECT_DELAYS.length && !cancelled; index += 1) {
@@ -282,6 +290,7 @@ export function RemoteTerminalView({
         await wait(delay);
         if (cancelled || activeRuntime.current !== runtime || runtime.manuallyClosed) return;
         if (reconnectingRef.current) continue;
+        const generation = ++reconnectGeneration.current;
         reconnectingRef.current = true;
         setLocalReconnecting(true);
         try {
@@ -293,8 +302,10 @@ export function RemoteTerminalView({
           if (cancelled || activeRuntime.current !== runtime) return;
           if (recovered) return;
         } finally {
-          reconnectingRef.current = false;
-          if (!cancelled) setLocalReconnecting(false);
+          if (reconnectGeneration.current === generation) {
+            reconnectingRef.current = false;
+            if (!cancelled) setLocalReconnecting(false);
+          }
         }
       }
       if (!cancelled) {
@@ -304,20 +315,21 @@ export function RemoteTerminalView({
     };
 
     void reconnectAutomatically();
-    return () => { cancelled = true; if (timer) clearTimeout(timer); };
+    return () => { cancelled = true; if (timer) clearTimeout(timer); finishWait?.(); };
   }, [connected, manuallyClosed, reconnectAllowed, runtime]);
 
   const reconnectNow = async () => {
     if (reconnectingRef.current) return;
+    const generation = ++reconnectGeneration.current;
     reconnectingRef.current = true;
     setLocalReconnecting(true);
     try {
       const recovered = await reconnect({ automatic: false });
-      if (!recovered) setLocalReconnecting(false);
+      if (!recovered && reconnectGeneration.current === generation) setLocalReconnecting(false);
     } catch {
-      setLocalReconnecting(false);
+      if (reconnectGeneration.current === generation) setLocalReconnecting(false);
     } finally {
-      reconnectingRef.current = false;
+      if (reconnectGeneration.current === generation) reconnectingRef.current = false;
     }
   };
 
@@ -325,6 +337,7 @@ export function RemoteTerminalView({
   const unavailableMessage = isReconnecting
     ? `正在进行第 ${attempt} 次连接并创建新的终端会话…`
     : error || terminalDisconnectMessage(disconnectReason, reconnectAllowed);
+  const canCancelConnection = !local && !manuallyClosed && (isReconnecting || (!connected && pendingAttempt > 0 && reconnectAllowed));
 
   return <div className="remote-terminal-view" hidden={!visible}>
     <div className="remote-terminal-tools">
@@ -343,7 +356,9 @@ export function RemoteTerminalView({
         </div>}
       </div>
       <div className="remote-terminal-tool-actions">
-      {!local && <button className="remote-terminal-reconnect" disabled={isReconnecting} onClick={() => { void reconnectNow(); }}>{isReconnecting ? '正在重连…' : '重新连接'}</button>}
+      {canCancelConnection
+        ? <button className="remote-terminal-reconnect" onClick={cancelReconnect}><Icon name="close" size={13} />取消连接</button>
+        : !local && <button className="remote-terminal-reconnect" disabled={isReconnecting} onClick={() => { void reconnectNow(); }}>{isReconnecting ? '正在重连…' : '重新连接'}</button>}
       <button className="remote-terminal-disconnect" onClick={disconnect}>{local ? '关闭终端' : sessionUnavailable ? '关闭页签' : '断开连接'}</button>
     </div></div>
     {transportUnavailable && !isReconnecting ? <div role="status" className="remote-terminal-error is-unreachable">

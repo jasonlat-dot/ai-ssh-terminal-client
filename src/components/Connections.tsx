@@ -8,13 +8,14 @@ import { isSessionConnected } from '../state/terminalSessions';
 
 type Props = { connections: ReturnType<typeof useSshConnections>; terminal: (id: string) => void; create: () => void; copy: (value: string) => void };
 
-export function ConnectionSidebar({ connections, sessions, connectingHostIds, activeHostId, activeSessionId, terminal, activate, create, collapsed, toggleCollapsed }: {
+export function ConnectionSidebar({ connections, sessions, connectingHostIds, activeHostId, activeSessionId, terminal, cancelConnection, activate, create, collapsed, toggleCollapsed }: {
   connections: ReturnType<typeof useSshConnections>;
   sessions: TerminalSession[];
   connectingHostIds: ReadonlySet<string>;
   activeHostId?: string | null;
   activeSessionId?: string | null;
   terminal: (id: string) => void;
+  cancelConnection: (id: string) => void;
   activate: (id: string) => void;
   create: () => void;
   collapsed: boolean;
@@ -60,10 +61,13 @@ export function ConnectionSidebar({ connections, sessions, connectingHostIds, ac
             {!unreachable && !!connectedCount && <small>{connectedCount} 个会话</small>}
           </div>
         </button>
-        {showManagement && <div className="sidebar-host-actions">
-            <IconButton icon="terminal" className="terminal-icon" label={`为 ${host.name} 新建终端会话`} disabled={connections.busy} onClick={() => terminal(host.id)} />
-            <IconButton icon="edit" className="edit-icon" label={`编辑 ${host.name}`} disabled={connections.busy} onClick={() => edit(host)} />
-            <IconButton icon="trash" className="destructive-icon" label={`删除 ${host.name}`} disabled={connections.busy} onClick={() => setDeleting(host)} />
+        {(connecting || showManagement) && <div className="sidebar-host-actions">
+          {connecting && <button className="sidebar-host-cancel" aria-label={`取消连接 ${host.name}`} onClick={() => cancelConnection(host.id)}><Icon name="close" size={12} />取消连接</button>}
+          {showManagement && <>
+            <IconButton icon="terminal" className="terminal-icon" label={`为 ${host.name} 新建终端会话`} disabled={connections.busy || connecting} onClick={() => terminal(host.id)} />
+            <IconButton icon="edit" className="edit-icon" label={`编辑 ${host.name}`} disabled={connections.busy || connecting} onClick={() => edit(host)} />
+            <IconButton icon="trash" className="destructive-icon" label={`删除 ${host.name}`} disabled={connections.busy || connecting} onClick={() => setDeleting(host)} />
+          </>}
         </div>}
       </div>;
       })}

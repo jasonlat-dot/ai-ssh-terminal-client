@@ -2,13 +2,15 @@ import type { Navigation } from '../types';
 import type { ThemePreference } from '../state/useTheme';
 import { Icon } from './Ui';
 import type { IconName } from './Ui';
+import { dragAppWindow } from '../state/appWindow';
+import { WindowControls } from './WindowControls';
 export function AppHeader({ notify, theme, setTheme }: {
   notify: (text: string) => void;
   theme: ThemePreference;
   setTheme: (theme: ThemePreference) => void;
 }) {
-  return <header className="app-header">
-    <div className="brand"><img className="brand-mark" src="/icon.svg" alt="" /><div><strong>Agent SSH</strong><small>智能远程开发助手</small></div></div>
+  return <header className="app-header" onMouseDown={dragAppWindow}>
+    <div className="brand"><img className="brand-mark" src="/agent-ssh-header.svg" alt="" draggable={false} /><div><strong>Agent SSH</strong><small>智能远程开发助手</small></div></div>
     <div className="profile">
       <div className="theme-switcher" role="group" aria-label="界面主题">
         {([
@@ -19,6 +21,7 @@ export function AppHeader({ notify, theme, setTheme }: {
       </div>
       <span className="header-divider" />
       <button className="user-menu" onClick={() => notify('zhangsan · 本地演示账户')}><span className="avatar">Z</span><span>zhangsan</span><Icon name="down" size={14} /></button>
+      <WindowControls />
     </div>
   </header>;
 }

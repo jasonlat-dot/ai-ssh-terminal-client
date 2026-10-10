@@ -30,11 +30,12 @@ type RequestOptions = {
   signal?: AbortSignal;
   timeoutMs?: number;
   service?: string;
+  baseUrl?: string;
 };
 
 /** Shared JSON-envelope client. Fetch retains the existing same-origin cookie/auth behaviour. */
 export async function apiRequest<T>(endpoint: string, {
-  method = 'GET', body, params, signal, timeoutMs = 60_000, service = '服务',
+  method = 'GET', body, params, signal, timeoutMs = 60_000, service = '服务', baseUrl,
 }: RequestOptions = {}): Promise<T> {
   const controller = new AbortController();
   const abort = () => controller.abort(signal?.reason);
@@ -43,7 +44,7 @@ export async function apiRequest<T>(endpoint: string, {
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const form = body instanceof FormData;
-    const response = await fetch(`${apiUrl(requireBackendUrl(), endpoint)}${params ? `?${new URLSearchParams(params)}` : ''}`, {
+    const response = await fetch(`${apiUrl(baseUrl ?? requireBackendUrl(), endpoint)}${params ? `?${new URLSearchParams(params)}` : ''}`, {
       method, signal: controller.signal,
       // Never set Content-Type for FormData: fetch supplies the multipart boundary.
       headers: body && !form ? { 'Content-Type': 'application/json' } : undefined,

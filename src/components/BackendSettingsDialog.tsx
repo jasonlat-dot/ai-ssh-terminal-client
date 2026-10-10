@@ -22,6 +22,8 @@ import { isTauriRuntime } from '../state/runtime';
 import { useBackendHealth } from '../state/useBackendHealth';
 import { Badge, Icon, Toggle, fileTone, toneForIcon, type AccentTone, type IconName } from './Ui';
 import { Select } from './Select';
+import { dragAppWindow } from '../state/appWindow';
+import { WindowControls } from './WindowControls';
 import './BackendSettingsDialog.css';
 
 /* ============================================================================
@@ -1435,7 +1437,7 @@ export function BackendSettingsDialog({ currentUrl, required = false, onClose, o
 
   return <main className={`settings-page ${required ? 'is-standalone' : ''}`} aria-label="客户端设置">
     {/* ============================== 顶栏 ============================== */}
-    <header className="settings-topbar">
+    <header className="settings-topbar" onMouseDown={required ? dragAppWindow : undefined}>
       <div className="settings-topbar-left">
         {!required && <button type="button" className="settings-back-button" onClick={onClose} aria-label="返回终端">
           <Icon name="left" size={16} />返回
@@ -1480,6 +1482,7 @@ export function BackendSettingsDialog({ currentUrl, required = false, onClose, o
           title="打开配置文件所在文件夹并选中 application.yml">
           <Icon name="folder" size={14} />{openingConfigDirectory ? '正在打开…' : '配置目录'}
         </button>}
+        {required && <WindowControls />}
       </div>
     </header>
 

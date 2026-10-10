@@ -4,7 +4,10 @@
   "version": "0.1.2",
   "type": "module",
   "scripts": {
+    "prepare:icons": "node scripts/prepare-app-icons.mjs",
+    "predev": "npm run prepare:icons",
     "dev": "vite",
+    "prebuild": "npm run prepare:icons",
     "build": "tsc && vite build",
     "prepare:backend": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/prepare-backend-bundle.ps1",
     "prepare:bundle": "npm run prepare:backend && npm run build",

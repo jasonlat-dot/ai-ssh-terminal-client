@@ -33,7 +33,6 @@ export const sshApi = {
   create: (body: SshConnectionRequest) => request<SshConnection>('create_connection', 'POST', body),
   update: (body: SshConnectionRequest) => request<SshConnection>('update_connection', 'POST', body),
   delete: (connectionId: string) => request<void>('delete_connection', 'POST', undefined, { connectionId }),
-  connect: (connectionId: string) => request<void>('connect', 'POST', undefined, { connectionId }),
 };
 
 export function toHost(dto: SshConnection): Host {

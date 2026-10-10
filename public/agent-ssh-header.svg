@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+<title>Agent SSH header mark</title>
+<defs>
+<linearGradient id="rim" x1="0%" y1="0%" x2="100%" y2="100%"><stop stop-color="#21c9e7"/><stop offset=".45" stop-color="#4284ff"/><stop offset="1" stop-color="#9560ee"/></linearGradient>
+<linearGradient id="face" x1="0%" y1="0%" x2="100%" y2="100%"><stop stop-color="#173668"/><stop offset="1" stop-color="#191d48"/></linearGradient>
+<linearGradient id="fold" x1="0%" y1="100%" x2="100%" y2="0%"><stop stop-color="#7474f9"/><stop offset="1" stop-color="#c3a5ff"/></linearGradient>
+</defs>
+<rect x="5" y="10" width="54" height="44" rx="13" fill="url(#rim)"/>
+<rect x="8" y="13" width="48" height="38" rx="10" fill="url(#face)"/>
+<path d="M18 25 L26 32 L18 39 M33 39 H42" fill="none" stroke="#f4fbff" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M39 51 L53 40 Q56 38 56 42 V44 Q56 51 49 51Z" fill="url(#fold)"/>
+</svg>

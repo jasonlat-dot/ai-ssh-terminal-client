@@ -14,8 +14,8 @@ import type { ClientChatSession } from './state/clientChatHistory';
 import { DisconnectDialog } from './components/DisconnectDialog';
 import { recordDisconnect } from './state/connectionHistory';
 import { loadClientCommands, saveClientCommands } from './state/clientCommands';
-import { sshApi } from './api/ssh';
 import { terminalApi } from './api/terminal';
+import { SshConnectAttempt } from './state/sshConnectAttempt';
 import { RemoteTerminal } from './state/remoteTerminal';
 import type { TerminalDisconnectEvent } from './state/remoteTerminal';
 import { LocalTerminal } from './state/localTerminal';
@@ -140,7 +140,8 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme }: {
     restoredClientsInitialized.current = true;
   }
   const opening = useRef(new Set<string>());
-  const openingConnections = useRef(new Set<string>());
+  const openingConnections = useRef(new Map<string, { attempt: SshConnectAttempt; tabId: string }>());
+  const reconnectingAttempts = useRef(new Map<string, SshConnectAttempt>());
   const [connectingHostIds, setConnectingHostIds] = useState<Set<string>>(() => new Set());
   const tabLastUsedAt = useRef(new Map<string, number>());
   const [terminalError, setTerminalError] = useState('');
@@ -184,6 +185,17 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme }: {
   }, []);
 
   useEffect(() => {
+    const initialAttempts = openingConnections.current;
+    const retries = reconnectingAttempts.current;
+    return () => {
+      initialAttempts.forEach(({ attempt }) => attempt.cancel());
+      retries.forEach(attempt => attempt.cancel());
+      initialAttempts.clear();
+      retries.clear();
+    };
+  }, []);
+
+  useEffect(() => {
     // 必须等待连接列表成功加载，不能把“接口尚未返回时的空数组”当成真实空数据库。
     if (!connections.loaded) return;
 
@@ -198,6 +210,8 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme }: {
 
     // 连接记录已经不在当前数据库中，旧页签无法重新连接；同时释放可能仍存活的后端终端会话。
     staleSessions.forEach(session => {
+      reconnectingAttempts.current.get(session.id)?.cancel();
+      reconnectingAttempts.current.delete(session.id);
       const runtime = terminalClients.current.get(session.id);
       if (runtime) void runtime.close().catch(() => undefined);
       terminalClients.current.delete(session.id);
@@ -368,22 +382,33 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme }: {
       opening.current.delete(tabId);
     }
   };
-  const openTerminalRuntime = async (connectionId: string, stillWanted = () => true) => {
-    let opened: Awaited<ReturnType<typeof terminalApi.open>> | undefined;
+  const openTerminalRuntime = async (attempt: SshConnectAttempt, stillWanted = () => true) => {
+    let opened: Awaited<ReturnType<typeof terminalApi.connect>> | undefined;
     try {
-      if (!stillWanted()) throw new Error('终端页签已关闭');
-      await sshApi.connect(connectionId);
-      if (!stillWanted()) throw new Error('终端页签已关闭');
-      opened = await terminalApi.open(connectionId);
+      if (attempt.signal.aborted || !stillWanted()) throw new DOMException('SSH 连接已取消', 'AbortError');
+      opened = await attempt.open();
       if (!opened?.sessionId) throw new Error('后端未返回终端会话 ID');
-      if (!stillWanted()) throw new Error('终端页签已关闭');
+      if (attempt.signal.aborted || !stillWanted()) throw new DOMException('SSH 连接已取消', 'AbortError');
       const runtime = new RemoteTerminal(opened);
       if (runtime.disconnected) throw new Error('终端会话已断开，请重试。');
       return runtime;
     } catch (error) {
-      if (opened?.sessionId) await terminalApi.close(opened.sessionId).catch(() => undefined);
+      if (opened?.sessionId) void terminalApi.close(opened.sessionId, undefined, attempt.backendUrl).catch(() => undefined);
       throw error;
     }
+  };
+  const cancelHostConnection = (id: string) => {
+    const pending = openingConnections.current.get(id);
+    if (!pending) return;
+    openingConnections.current.delete(id);
+    opening.current.delete(pending.tabId);
+    pending.attempt.cancel();
+    setConnectingHostIds(current => {
+      const next = new Set(current);
+      next.delete(id);
+      return next;
+    });
+    notify(`已取消连接 ${hosts.find(item => item.id === id)?.name ?? '服务器'}。`);
   };
   const selectHost = async (id: string, suppliedHost?: Host) => {
     const nextHost = suppliedHost ?? hosts.find(item => item.id === id);
@@ -393,13 +418,21 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme }: {
       return;
     }
     const tabId = crypto.randomUUID();
-    openingConnections.current.add(id);
+    const attempt = new SshConnectAttempt(id, backendUrl);
+    const pending = { attempt, tabId };
+    openingConnections.current.set(id, pending);
     setConnectingHostIds(current => new Set(current).add(id));
     opening.current.add(tabId);
     try {
       // 首次连接可能一直等待到 SSH 超时，提示在请求结束前保持可见，避免用户误以为没有响应而重复点击。
       notify(`正在连接 ${nextHost.name} 并打开远程终端，请稍候…`, 'info', 60_000);
-      const runtime = await openTerminalRuntime(id);
+      const runtime = await openTerminalRuntime(attempt, () => openingConnections.current.get(id) === pending);
+      if (attempt.signal.aborted || openingConnections.current.get(id) !== pending) {
+        runtime.markManuallyClosed();
+        attempt.cancel();
+        void terminalApi.close(runtime.sessionId, undefined, attempt.backendUrl).catch(() => undefined);
+        return;
+      }
       terminalClients.current.set(tabId, runtime);
       tabLastUsedAt.current.set(tabId, Date.now());
       setSessions(previous => [...previous, {
@@ -422,14 +455,21 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme }: {
       }]);
       setActiveId(tabId); setNavigation('命令');
       notify('远程终端已打开，可以开始操作。', 'success');
-    } catch (error) { notify(error instanceof Error ? error.message : '打开终端失败', 'error', 8000); }
+    } catch (error) {
+      if (!(error instanceof DOMException && error.name === 'AbortError')) {
+        notify(error instanceof Error ? error.message : '打开终端失败', 'error', 8000);
+      }
+      attempt.cancel();
+    }
     finally {
-      openingConnections.current.delete(id);
-      setConnectingHostIds(current => {
-        const next = new Set(current);
-        next.delete(id);
-        return next;
-      });
+      if (openingConnections.current.get(id) === pending) {
+        openingConnections.current.delete(id);
+        setConnectingHostIds(current => {
+          const next = new Set(current);
+          next.delete(id);
+          return next;
+        });
+      }
       opening.current.delete(tabId);
     }
   };
@@ -506,6 +546,24 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme }: {
     selectTerminalTab(tabId);
     setNavigation('命令');
   };
+  const cancelTerminalReconnect = (sessionId: string, quiet = false) => {
+    const attempt = reconnectingAttempts.current.get(sessionId);
+    reconnectingAttempts.current.delete(sessionId);
+    opening.current.delete(sessionId);
+    attempt?.cancel();
+    const runtime = terminalClients.current.get(sessionId);
+    runtime?.markManuallyClosed();
+    if (runtime?.sessionId) {
+      void terminalApi.close(runtime.sessionId, undefined, attempt?.backendUrl ?? backendUrl).catch(() => undefined);
+    }
+    const cancelState = (session: TerminalSession): TerminalSession => session.id === sessionId ? {
+      ...session, connected: false, connectionStatus: 'disconnected', disconnectReason: 'CLIENT_CLOSED',
+      reconnectAllowed: false, reconnecting: false, reconnectAttempts: 0, manuallyClosed: true, busy: false,
+    } : session;
+    sessionsRef.current = sessionsRef.current.map(cancelState);
+    setSessions(previous => previous.map(cancelState));
+    if (!quiet) notify('已取消连接，可点击“重新连接”再试。');
+  };
   const reconnectTerminal = async (
     sessionId: string,
     options?: { automatic?: boolean; attempt?: number; totalAttempts?: number },
@@ -523,6 +581,8 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme }: {
       return false;
     }
     opening.current.add(sessionId);
+    const attempt = new SshConnectAttempt(session.connectionId, backendUrl);
+    reconnectingAttempts.current.set(sessionId, attempt);
     const previousRuntime = terminalClients.current.get(sessionId);
     previousRuntime?.prepareReconnect(!options?.automatic);
     sessionsRef.current = sessionsRef.current.map(item => item.id === sessionId ? { ...item, manuallyClosed: false } : item);
@@ -541,18 +601,22 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme }: {
     }
     const stillWanted = () => {
       const current = sessionsRef.current.find(item => item.id === sessionId);
-      return !!current && !current.manuallyClosed && !previousRuntime?.manuallyClosed
+      return !attempt.signal.aborted && reconnectingAttempts.current.get(sessionId) === attempt
+        && !!current && !current.manuallyClosed && !previousRuntime?.manuallyClosed
         && terminalClients.current.get(sessionId) === previousRuntime;
     };
     try {
       // 重连要关闭旧后端 Channel，但不能把旧运行时标记为“用户主动关闭”，否则 stillWanted 会取消本次重连。
-      if (previousRuntime?.sessionId) await terminalApi.close(previousRuntime.sessionId).catch(() => undefined);
-      const runtime = await openTerminalRuntime(session.connectionId, stillWanted);
+      if (previousRuntime?.sessionId) await terminalApi.close(previousRuntime.sessionId, attempt.signal, attempt.backendUrl)
+        .catch(error => { if (attempt.signal.aborted) throw error; });
+      const runtime = await openTerminalRuntime(attempt, stillWanted);
       const currentSession = sessionsRef.current.find(item => item.id === sessionId);
       const currentRuntime = terminalClients.current.get(sessionId);
-      if (!currentSession || currentSession.manuallyClosed || previousRuntime?.manuallyClosed
+      if (!stillWanted() || !currentSession || currentSession.manuallyClosed || previousRuntime?.manuallyClosed
         || (previousRuntime ? currentRuntime !== previousRuntime : !!currentRuntime)) {
-        await runtime.close().catch(() => undefined);
+        runtime.markManuallyClosed();
+        attempt.cancel();
+        void terminalApi.close(runtime.sessionId, undefined, attempt.backendUrl).catch(() => undefined);
         return false;
       }
       terminalClients.current.set(sessionId, runtime);
@@ -582,8 +646,14 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme }: {
         console.info(`SSH 自动重连请求失败 connectionId=${session.connectionId} attempt=${options.attempt ?? 1} reason=${reason}`);
         notify(`第 ${options.attempt ?? 1}/${options.totalAttempts ?? 1} 次自动重连失败：${reason}`, 'error');
       }
+      attempt.cancel();
       return false;
-    } finally { opening.current.delete(sessionId); }
+    } finally {
+      if (reconnectingAttempts.current.get(sessionId) === attempt) {
+        reconnectingAttempts.current.delete(sessionId);
+        opening.current.delete(sessionId);
+      }
+    }
   };
   const handleReconnectExhausted = (tabId: string, attempts: number, sourceRuntime?: TerminalRuntime) => {
     if (sourceRuntime && terminalClients.current.get(tabId) !== sourceRuntime) return;
@@ -628,6 +698,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme }: {
     return connections.remove(hostId);
   };
   const removeSessionTab = (id: string) => {
+    if (reconnectingAttempts.current.has(id)) cancelTerminalReconnect(id, true);
     terminalClients.current.get(id)?.markManuallyClosed();
     const remaining = sessionsRef.current.filter(session => session.id !== id);
     sessionsRef.current = remaining;
@@ -641,6 +712,11 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme }: {
     const session = sessionsRef.current.find(item => item.id === id);
     if (!session || disconnectTarget) return;
     const runtime = terminalClients.current.get(id);
+    if (session.reconnecting || reconnectingAttempts.current.has(id)) {
+      cancelTerminalReconnect(id, true);
+      removeSessionTab(id);
+      return;
+    }
     if (session.kind === 'local') {
       void runtime?.close().catch(error => {
         notify(error instanceof Error ? error.message : '关闭本地 CMD 失败', 'error');
@@ -1058,7 +1134,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme }: {
     {backendSettingsOpen && <BackendSettingsDialog currentUrl={backendUrl}
       onClose={() => setBackendSettingsOpen(false)}
       onSave={onBackendChange} />}
-    <ConnectionSidebar connections={{ ...connections, remove: removeHost }} sessions={sessions} connectingHostIds={connectingHostIds} activeHostId={active?.kind === 'ssh' ? active.connectionId : undefined} activeSessionId={activeId} terminal={selectHost} activate={activateTerminalFromSidebar} create={openNewConnection} collapsed={connectionSidebarCollapsed} toggleCollapsed={() => setConnectionSidebarCollapsed(value => !value)} />
+    <ConnectionSidebar connections={{ ...connections, remove: removeHost }} sessions={sessions} connectingHostIds={connectingHostIds} activeHostId={active?.kind === 'ssh' ? active.connectionId : undefined} activeSessionId={activeId} terminal={selectHost} cancelConnection={cancelHostConnection} activate={activateTerminalFromSidebar} create={openNewConnection} collapsed={connectionSidebarCollapsed} toggleCollapsed={() => setConnectionSidebarCollapsed(value => !value)} />
     <main hidden={navigation !== '命令'} className={`central-workspace ${!active ? 'no-session' : ''} ${commandCollapsed ? 'command-collapsed' : ''}`}>
       <TerminalWorkspace
         remoteViews={sessions.map(session => {
@@ -1077,6 +1153,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme }: {
               onTransportChange={available => handleTerminalTransport(session.id, available, runtime)}
               onReconnectExhausted={attempts => handleReconnectExhausted(session.id, attempts, runtime)}
               reconnect={options => reconnectTerminal(session.id, options, runtime)}
+              cancelReconnect={() => cancelTerminalReconnect(session.id)}
               disconnect={() => closeSession(session.id)} />
           </Suspense>;
         })}
