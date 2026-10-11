@@ -37,7 +37,8 @@ export type ChatToolActivity = { id: string; name: string; command?: string; sta
 export type ChatAgentSegment = { id: string; type: 'text'; text: string } | { id: string; type: 'tool'; tool: ChatToolActivity };
 export type ChatAgentActivity = { id: string; name: string; task?: string; status: 'running' | 'success' | 'error' | 'unknown'; output?: string; parentToolCallId?: string; tools: ChatToolActivity[]; segments?: ChatAgentSegment[] };
 export type ChatMessageSegment = { id: string; type: 'text'; text: string } | { id: string; type: 'tool'; tool: ChatToolActivity } | { id: string; type: 'agent'; agent: ChatAgentActivity };
-export type ChatAttachment = { fileId: string; fileName: string; contentType: string; size: number; downloadUrl?: string; urlExpiresAt?: string | number; previewUrl?: string };
+export type ChatTextExcerpt = { source: 'terminal' | 'paste'; characters: number; preview: string };
+export type ChatAttachment = { fileId: string; fileName: string; contentType: string; size: number; downloadUrl?: string; urlExpiresAt?: string | number; previewUrl?: string; textExcerpt?: ChatTextExcerpt };
 export type ChatMessage = { attachments?: ChatAttachment[]; errorCode?: string; id: string; role: 'user' | 'assistant'; text: string; segments?: ChatMessageSegment[]; tools?: ChatToolActivity[]; summary?: string; suggestion?: boolean; error?: boolean };
 export type Navigation = '连接' | '命令';
 

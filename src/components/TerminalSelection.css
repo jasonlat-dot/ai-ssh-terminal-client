@@ -1,0 +1,14 @@
+.remote-terminal-view { position: relative; }
+.remote-terminal-clipboard .terminal-add-to-agent {
+  display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; padding: 4px 6px;
+  border: 1px solid var(--line); border-radius: 5px; font-size: var(--font-small); color: var(--theme-accent-text); background: var(--theme-control);
+}
+.terminal-selection-action {
+  position: absolute; z-index: 5; display: flex; align-items: center; padding: 3px;
+  border: 1px solid var(--line-strong); border-radius: 8px; background: var(--theme-panel);
+  box-shadow: 0 4px 16px #152b4826; color: var(--theme-text-strong);
+}
+.terminal-selection-action button { display: inline-flex; align-items: center; gap: 5px; padding: 6px 8px; border-radius: 5px; font-size: var(--font-small); }
+.terminal-selection-action button:hover:not(:disabled), .terminal-add-to-agent:hover:not(:disabled) { background: var(--theme-hover); }
+.terminal-selection-action button:disabled, .terminal-add-to-agent:disabled { opacity: .4; cursor: default; }
+.terminal-selection-action button:focus-visible, .terminal-add-to-agent:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }

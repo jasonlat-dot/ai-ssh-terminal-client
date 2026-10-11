@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
-import { AttachmentPreviews, ChatAttachmentDraft, attachmentReferences, chatAttachmentPolicy, insertPastedText, pastedFiles, storedAttachments, validateChatAttachments, validateChatContent } from '../src/state/chatAttachments.ts';
+import { AttachmentPreviews, ChatAttachmentDraft, attachmentReferences, chatAttachmentPolicy, createChatTextAttachment, isLongChatText, textCharacters, insertPastedText, pastedFiles, storedAttachments, validateChatAttachments, validateChatContent } from '../src/state/chatAttachments.ts';
 import { agentApi } from '../src/api/agent.ts';
 import { ChatRequestError, chatErrorGuidance } from '../src/api/chatErrors.ts';
 import { ApiRequestError } from '../src/api/client.ts';
@@ -32,6 +32,68 @@ test('plain text, URLs, paths and base64-looking text never become files', () =>
   for (const text of ['hello', '/home/file.png', 'C:\\files\\photo.png', 'https://example.test/photo.png', 'data:image/png;base64,AAAA']) {
     const data = clipboard([{ kind: 'string', getAsFile: () => { throw new Error(text); } }]);
     assert.deepEqual(pastedFiles(data), []);
+  }
+});
+
+test('99 characters stay inline, 100 become cards; Unicode characters rather than bytes or UTF-16 units', () => {
+  assert.equal(isLongChatText('x'.repeat(99)), false);
+  assert.equal(isLongChatText('x'.repeat(100)), true);
+  assert.equal(isLongChatText('😀'.repeat(99)), false);
+  assert.equal(isLongChatText('中'.repeat(100)), true);
+  assert.equal(textCharacters('中文😀\r\n'), 5);
+});
+
+test('text card preserves complete UTF-8 text, line breaks and leading/trailing spaces; preview bounded and escaped by React', async () => {
+  const text = '  C:\\Users\\Admin\r\n' + '<script>你好😀</script>\n'.repeat(30) + '  ';
+  const prepared = createChatTextAttachment(text, 'terminal');
+  assert.equal(await prepared.file.text(), text);
+  assert.equal(prepared.file.type, 'text/plain'); assert.match(prepared.file.name, /终端选中文本.*\.txt$/);
+  assert.equal(prepared.excerpt.characters, textCharacters(text));
+  assert.ok(textCharacters(prepared.excerpt.preview) <= 120);
+  assert.equal(prepared.excerpt.source, 'terminal');
+});
+
+test('short text never uploads; long text uses existing queue, metadata survives upload/history/reattach, wire sends only ID', async () => {
+  const previews = new AttachmentPreviews(), captured: File[] = [];
+  const draft = new ChatAttachmentDraft(previews, async file => {
+    captured.push(file); return { ...result('text-ref'), fileName: file.name, size: file.size, contentType: file.type };
+  });
+  assert.equal(draft.addText('short', 'paste'), 'short'); assert.equal(captured.length, 0);
+  const text = '日志行😀\n'.repeat(40);
+  assert.equal(draft.addText(text, 'paste'), ''); assert.equal(captured.length, 1);
+  assert.throws(() => draft.ready(), /等待上传/);
+  await flush();
+  assert.equal(await captured[0].text(), text);
+  assert.equal(draft.getSnapshot()[0].file, undefined);
+  const files = draft.ready(); assert.equal(files[0].textExcerpt?.source, 'paste');
+  assert.equal(validateChatContent('', files), null);
+  assert.deepEqual(attachmentReferences(files), [{ fileId: 'text-ref' }]);
+  const stored = storedAttachments(files); assert.deepEqual(stored[0].textExcerpt, files[0].textExcerpt);
+  draft.clear(); draft.attach(stored); assert.equal(captured.length, 1);
+  assert.deepEqual(draft.getSnapshot()[0].textExcerpt, files[0].textExcerpt);
+  draft.clear(); previews.dispose();
+});
+
+test('text cards share attachment count/byte limits; mixed paste rejects atomically, and failed upload retains text for retry', async () => {
+  const previews = new AttachmentPreviews(); let calls = 0;
+  const draft = new ChatAttachmentDraft(previews, async file => {
+    if (++calls === 1) throw new Error('offline');
+    return { ...result('retry'), fileName: file.name, size: file.size, contentType: file.type };
+  });
+  assert.throws(() => draft.addText('x'.repeat(100), 'paste', Array.from({ length: 4 }, (_, i) => file(`a${i}.txt`))), /4/);
+  assert.equal(calls, 0); assert.equal(draft.getSnapshot().length, 0);
+  assert.throws(() => draft.addText('x'.repeat(100), 'paste', [file('huge.txt', chatAttachmentPolicy.maxBytes)]), /20 MB/);
+  assert.equal(calls, 0);
+  const text = 'original logs\n'.repeat(20); draft.addText(text, 'terminal'); await flush();
+  assert.equal(draft.getSnapshot()[0].status, 'error'); assert.equal(await draft.getSnapshot()[0].file!.text(), text);
+  assert.throws(() => draft.ready(), /重试或移除/);
+  draft.retry(draft.getSnapshot()[0].id); await flush(); assert.equal(draft.ready()[0].textExcerpt?.source, 'terminal');
+  draft.remove(draft.getSnapshot()[0].id); assert.equal(draft.getSnapshot().length, 0); previews.dispose();
+});
+
+test('malformed text-card history metadata cannot masquerade as a legitimate source', () => {
+  for (const textExcerpt of [{ source: 'other', characters: 100, preview: 'x' }, { source: 'terminal', characters: -1, preview: 'x' }, { source: 'paste', characters: 100, preview: {} }]) {
+    assert.equal(storedAttachments([{ ...result('saved'), textExcerpt }])[0].textExcerpt, undefined);
   }
 });
 

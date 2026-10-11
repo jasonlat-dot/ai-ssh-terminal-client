@@ -1,6 +1,25 @@
 import { FileUploadQueue } from './fileUploads.ts';
 import type { UploadedFile } from '../api/files.ts';
-import type { ChatAttachment } from '../types.ts';
+import type { ChatAttachment, ChatTextExcerpt } from '../types.ts';
+
+export const TEXT_ATTACHMENT_THRESHOLD = 100;
+/** Count Unicode characters, not UTF-16 units; retain original whitespace in the file. */
+export function textCharacters(text: string) { let count = 0; for (const _character of text) count++; return count; }
+export function isLongChatText(text: string) { let count = 0; for (const _character of text) if (++count >= TEXT_ATTACHMENT_THRESHOLD) return true; return false; }
+export function textExcerptLabel(source: ChatTextExcerpt['source']) { return source === 'terminal' ? '终端选中文本' : '粘贴的文本'; }
+export function createChatTextAttachment(text: string, source: ChatTextExcerpt['source']) {
+  if (!text.trim()) throw new Error('选中的内容为空。');
+  const file = new File([text], `${textExcerptLabel(source)}-${crypto.randomUUID().slice(0, 8)}.txt`, { type: 'text/plain' });
+  const excerpt: ChatTextExcerpt = { source, characters: textCharacters(text), preview: Array.from(text.slice(0, 512).replace(/\s+/g, ' ').trim()).slice(0, 120).join('') };
+  return { file, excerpt };
+}
+function storedTextExcerpt(value: unknown): ChatTextExcerpt | undefined {
+  if (!value || typeof value !== 'object') return;
+  const excerpt = value as Partial<ChatTextExcerpt>;
+  if ((excerpt.source !== 'terminal' && excerpt.source !== 'paste') || !Number.isSafeInteger(excerpt.characters)
+    || excerpt.characters! <= 0 || typeof excerpt.preview !== 'string') return;
+  return { source: excerpt.source, characters: excerpt.characters!, preview: Array.from(excerpt.preview).slice(0, 120).join('') };
+}
 
 export const chatAttachmentPolicy = {
   maxCount: 4,
@@ -63,9 +82,11 @@ export class AttachmentPreviews {
 
 export class ChatAttachmentDraft {
   private queue: FileUploadQueue;
+  private excerpts = new WeakMap<File, ChatTextExcerpt>();
   constructor(previews: AttachmentPreviews, upload?: (file: File, signal: AbortSignal) => Promise<UploadedFile>) {
     this.queue = new FileUploadQueue(upload, {
       validate: file => validateChatAttachments([file]), preview: previews.create, cancelOnRemove: true,
+      describe: file => ({ textExcerpt: this.excerpts.get(file) }),
     });
   }
   getSnapshot = () => this.queue.getSnapshot();
@@ -86,6 +107,14 @@ export class ChatAttachmentDraft {
     }
     this.queue.add(files);
   };
+  /** Validate file + text pastes atomically; return only text belonging in the textarea. */
+  addText = (text: string, source: ChatTextExcerpt['source'], files: File[] = []): string => {
+    if (!isLongChatText(text) || !text.trim()) { if (files.length) this.add(files); return text; }
+    const prepared = createChatTextAttachment(text, source);
+    this.excerpts.set(prepared.file, prepared.excerpt);
+    this.add([...files, prepared.file]);
+    return '';
+  };
   attach = (attachments: readonly ChatAttachment[]) => {
     const current = this.getSnapshot();
     this.validate([...current, ...attachments.map(file => ({ name: file.fileName, size: file.size }))]);
@@ -97,7 +126,7 @@ export class ChatAttachmentDraft {
     attachments.forEach(file => this.queue.addUploaded({
       fileId: file.fileId, fileName: file.fileName, size: file.size, contentType: file.contentType,
       status: 'UPLOADED', sha256: '', downloadUrl: file.downloadUrl ?? '', urlExpiresAt: file.urlExpiresAt ?? '',
-    }, file.previewUrl));
+    }, file.previewUrl, storedTextExcerpt(file.textExcerpt)));
   };
   retry = (id: string) => { this.validate(this.getSnapshot()); this.queue.retry(id); };
   remove = (id: string) => this.queue.remove(id);
@@ -110,6 +139,7 @@ export class ChatAttachmentDraft {
     return items.map(item => ({
       fileId: item.result!.fileId, fileName: item.name, size: item.size, contentType: item.result!.contentType,
       downloadUrl: item.result!.downloadUrl, urlExpiresAt: item.result!.urlExpiresAt, previewUrl: item.previewUrl,
+      ...(item.textExcerpt ? { textExcerpt: item.textExcerpt } : {}),
     }));
   };
 }
@@ -121,6 +151,7 @@ export function storedAttachments(value: unknown): ChatAttachment[] {
     if (!file || typeof file.fileId !== 'string' || typeof file.fileName !== 'string'
       || typeof file.size !== 'number' || typeof file.contentType !== 'string') return [];
     return [{ fileId: file.fileId, fileName: file.fileName, size: file.size, contentType: file.contentType,
+      ...(storedTextExcerpt(file.textExcerpt) ? { textExcerpt: storedTextExcerpt(file.textExcerpt) } : {}),
       ...(typeof file.downloadUrl === 'string' ? { downloadUrl: file.downloadUrl } : {}),
       ...(typeof file.urlExpiresAt === 'string' || typeof file.urlExpiresAt === 'number' ? { urlExpiresAt: file.urlExpiresAt } : {}),
     }];

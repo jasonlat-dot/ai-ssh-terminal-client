@@ -2,6 +2,7 @@ import { uploadFile } from '../api/files.ts';
 import type { UploadedFile } from '../api/files.ts';
 import { ApiRequestError } from '../api/client.ts';
 import { fileUploadPolicy, validateUploadFile } from '../config/fileUpload.ts';
+import type { ChatTextExcerpt } from '../types.ts';
 
 export type UploadItem = {
   id: string;
@@ -17,6 +18,7 @@ export type UploadItem = {
   result?: UploadedFile;
   previewUrl?: string;
   referenced?: boolean;
+  textExcerpt?: ChatTextExcerpt;
 };
 
 type Upload = (file: File, signal: AbortSignal) => Promise<UploadedFile>;
@@ -29,7 +31,8 @@ export class FileUploadQueue {
   private active = true;
   private upload: Upload;
 
-  private options: { validate?: (file: File) => string | null; preview?: (file: File) => string | undefined; cancelOnRemove?: boolean };
+  private options: { validate?: (file: File) => string | null; preview?: (file: File) => string | undefined; cancelOnRemove?: boolean;
+    describe?: (file: File) => Pick<UploadItem, 'textExcerpt'> };
   constructor(upload: Upload = uploadFile, options: FileUploadQueue['options'] = {}) { this.upload = upload; this.options = options; }
 
   getSnapshot = () => this.items;
@@ -56,7 +59,7 @@ export class FileUploadQueue {
       }
       const error = (this.options.validate ?? validateUploadFile)(file);
       next.push({ id: crypto.randomUUID(), fingerprint, file, name: file.name, size: file.size,
-        status: error ? 'error' : 'queued', error: error ?? undefined, retryable: !error, previewUrl: this.options.preview?.(file) });
+        status: error ? 'error' : 'queued', error: error ?? undefined, retryable: !error, previewUrl: this.options.preview?.(file), ...this.options.describe?.(file) });
     }
     this.publish(next);
     this.pump();
@@ -72,9 +75,9 @@ export class FileUploadQueue {
     this.pump();
   };
 
-  addUploaded = (result: UploadedFile, previewUrl?: string) => {
+  addUploaded = (result: UploadedFile, previewUrl?: string, textExcerpt?: ChatTextExcerpt) => {
     this.publish([...this.items, { id: crypto.randomUUID(), fingerprint: `reference:${result.fileId}`,
-      name: result.fileName, size: result.size, status: 'success', retryable: false, referenced: true, result: { ...result }, previewUrl }]);
+      name: result.fileName, size: result.size, status: 'success', retryable: false, referenced: true, result: { ...result }, previewUrl, textExcerpt }]);
   };
   remove = (id: string) => {
     const controller = this.requests.get(id);

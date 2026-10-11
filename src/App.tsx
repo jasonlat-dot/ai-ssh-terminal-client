@@ -23,6 +23,8 @@ import { LocalTerminal } from './state/localTerminal';
 import type { TerminalRuntime } from './state/terminalRuntime';
 import { isTauriRuntime } from './state/runtime';
 import { isSessionConnected, loadTerminalSessions, saveTerminalSessions } from './state/terminalSessions';
+import { reorderTerminalSessions, replaceTerminalPane, selectTerminalPane, visibleTerminalIds } from './state/terminalLayout';
+import type { TerminalLayout } from './state/terminalLayout';
 import { copyText } from './state/clipboard';
 import { NotificationToast } from './components/NotificationToast';
 import type { Notice, NoticeType } from './components/NotificationToast';
@@ -31,6 +33,7 @@ import { SshConnectionDialog } from './components/SshConnectionDialog';
 import { useSshConnections } from './state/useSshConnections';
 import { PanelDivider } from './components/PanelDivider';
 import { AgentPanel } from './components/AgentPanel';
+import type { AgentComposerHandle } from './components/AgentPanel';
 import { AddCommandDialog } from './components/Dialogs';
 import { SessionFiles } from './components/Sidebar';
 import { AttachmentPreviews, ChatAttachmentDraft, attachmentReferences, validateChatContent } from './state/chatAttachments';
@@ -43,6 +46,7 @@ import { probeBackendHealth } from './api/health';
 import { StartupScreen } from './components/StartupScreen';
 import type { StartupHealth, StartupPhase } from './components/StartupScreen';
 import { CommandShelf, TerminalWorkspace } from './components/Workspace';
+import { Select } from './components/Select';
 import { createSessionFileState, initialCommands } from './data/mock';
 import type { ChatAttachment, ChatAgentActivity, ChatMessage, ChatMessageSegment, ChatToolActivity, Host, Navigation, TerminalSession } from './types';
 import './App.css';
@@ -54,6 +58,7 @@ import './client-typography.css';
 import { useApplyClientTextColors } from './state/useClientTextColors';
 import { useApplyClientTypography } from './state/useClientTypography';
 import './panel-resize.css';
+import './components/TerminalLayout.css';
 
 const RemoteTerminalView = lazy(() => import('./components/RemoteTerminalView').then(module => ({ default: module.RemoteTerminalView })));
 
@@ -81,6 +86,13 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme }: {
   const sessionsRef = useRef(sessions);
   sessionsRef.current = sessions;
   const [activeId, setActiveId] = useState(() => sessions[0]?.id ?? '');
+  const [terminalLayout, setTerminalLayout] = useState<TerminalLayout>('single');
+  const [terminalPanes, setTerminalPanes] = useState<string[]>([]);
+  const visibleIds = visibleTerminalIds(sessions.map(session => session.id), activeId, terminalLayout, terminalPanes);
+  const visibleKey = visibleIds.join(',');
+  useLayoutEffect(() => {
+    if (terminalLayout !== 'single') setTerminalPanes(previous => previous.join(',') === visibleKey ? previous : visibleIds);
+  }, [visibleKey, terminalLayout]);
   const [commands, setCommands] = useState(initialCommands);
   const [category, setCategory] = useState('全部');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -104,6 +116,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme }: {
   const [backendSettingsOpen, setBackendSettingsOpen] = useState(false);
   const [attachmentPreviews] = useState(() => new AttachmentPreviews());
   const [chatDraft] = useState(() => new ChatAttachmentDraft(attachmentPreviews));
+  const agentComposer = useRef<AgentComposerHandle>(null);
   const draftAttachments = useSyncExternalStore(chatDraft.subscribe, chatDraft.getSnapshot);
   useEffect(() => {
     chatDraft.activate();
@@ -556,7 +569,8 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme }: {
       return undefined;
     }
   }, []);
-  const selectTerminalTab = (tabId: string) => {
+  const selectTerminalTab = (tabId: string, panes?: string[]) => {
+    if (terminalLayout !== 'single') setTerminalPanes(panes ?? selectTerminalPane(visibleIds, activeId, tabId));
     const now = Date.now();
     if (activeId && activeId !== tabId) tabLastUsedAt.current.set(activeId, now);
     const lastUsedAt = tabLastUsedAt.current.get(tabId) ?? 0;
@@ -1228,11 +1242,37 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme }: {
     <ConnectionSidebar connections={{ ...connections, remove: removeHost }} sessions={sessions} connectingHostIds={connectingHostIds} activeHostId={active?.kind === 'ssh' ? active.connectionId : undefined} activeSessionId={activeId} terminal={selectHost} cancelConnection={cancelHostConnection} activate={activateTerminalFromSidebar} create={openNewConnection} collapsed={connectionSidebarCollapsed} toggleCollapsed={() => setConnectionSidebarCollapsed(value => !value)} />
     <main hidden={navigation !== '命令'} className={`central-workspace ${!active ? 'no-session' : ''} ${commandCollapsed ? 'command-collapsed' : ''}`}>
       <TerminalWorkspace
+        layout={terminalLayout}
+        visibleIds={visibleIds}
+        changeLayout={layout => {
+          setTerminalPanes(visibleTerminalIds(sessions.map(session => session.id), activeId, layout, [activeId, ...visibleIds]));
+          setTerminalLayout(layout);
+        }}
+        reorder={(draggedId, targetId, after) => setSessions(previous => reorderTerminalSessions(previous, draggedId, targetId, after))}
         remoteViews={sessions.map(session => {
           const runtime = terminalClients.current.get(session.id);
-          return <Suspense key={session.id} fallback={session.id === activeId ? <p>正在加载终端…</p> : null}>
-            <RemoteTerminalView key={runtime?.sessionId ?? `${session.id}:disconnected`} runtime={runtime} visible={session.id === activeId && navigation === '命令'}
+          const visible = visibleIds.includes(session.id);
+          return <section key={session.id} className="terminal-session-pane" hidden={!visible}
+            data-active={session.id === activeId} data-pane-index={visibleIds.indexOf(session.id)} style={{ order: visibleIds.indexOf(session.id) }}
+            aria-label={session.title} onPointerDownCapture={() => { if (session.id !== activeId) selectTerminalTab(session.id); }}
+            onFocusCapture={() => { if (session.id !== activeId) selectTerminalTab(session.id); }}>
+            <div className="terminal-split-heading" hidden={terminalLayout === 'single'}>
+              <div className="terminal-split-selector"><span>{session.id === activeId ? '当前终端' : '对比终端'}</span>
+                <Select label={`选择窗格 ${visibleIds.indexOf(session.id) + 1} 的终端`} className="terminal-pane-select" value={session.id} onChange={id => {
+                  selectTerminalTab(id, replaceTerminalPane(visibleIds, session.id, id));
+                }} options={sessions.map((item, index) => ({ value: item.id, label: `${item.title} · ${item.kind === 'local' ? '本地' : item.host.address} · ${index + 1}` }))} />
+              </div>
+              <button type="button" title="只显示此终端" onClick={() => { selectTerminalTab(session.id); setTerminalLayout('single'); }}>单窗口</button>
+            </div>
+            <Suspense fallback={visible ? <p>正在加载终端…</p> : null}>
+            <RemoteTerminalView key={runtime?.sessionId ?? `${session.id}:disconnected`} runtime={runtime} visible={visible && navigation === '命令'} focused={session.id === activeId}
               local={session.kind === 'local'}
+              canAddToAgent={!chatBusy && !chatStopping && !historyLoadingId}
+              addToAgent={text => {
+                const added = agentComposer.current?.addText(text, 'terminal') ?? false;
+                setAgentCollapsed(false);
+                return added;
+              }}
               connected={session.connected && !!runtime && runtime.sessionId === session.terminalSessionId}
               transportAvailable={session.connectionStatus !== 'unreachable'}
               disconnectReason={session.disconnectReason}
@@ -1246,7 +1286,8 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme }: {
               reconnect={options => reconnectTerminal(session.id, options, runtime)}
               cancelReconnect={() => cancelTerminalReconnect(session.id)}
               disconnect={() => closeSession(session.id)} />
-          </Suspense>;
+            </Suspense>
+          </section>;
         })}
         connections={() => navigate('连接')}
         sessions={sessions}
@@ -1270,7 +1311,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme }: {
     </main>
     <PanelDivider value={agentWidth} change={setAgentWidth} minPixels={300} reservePixels={360} reserveSelector=".central-workspace"
       controls="agent-panel-content" collapsed={agentCollapsed} collapse={() => setAgentCollapsed(true)} />
-    <AgentPanel chatDraft={chatDraft} draftScope={chatVersion.current} host={host} connected={active?.kind === 'ssh' && isSessionConnected(active)} localTerminal={active?.kind === 'local'} messages={messages} busy={chatBusy} stopping={chatStopping} send={sendMessage} stop={stopChat} collapsed={agentCollapsed}
+    <AgentPanel ref={agentComposer} chatDraft={chatDraft} draftScope={chatVersion.current} host={host} connected={active?.kind === 'ssh' && isSessionConnected(active)} localTerminal={active?.kind === 'local'} messages={messages} busy={chatBusy} stopping={chatStopping} send={sendMessage} stop={stopChat} collapsed={agentCollapsed}
       clear={clearChat} disabled={Boolean(historyLoadingId) || chatStopping}
       agentAvailability={{ ready: !!selectedAgent, loading: agentLoading, error: agentLoadError, retry: () => setAgentLoadAttempt(attempt => attempt + 1) }}
       history={{

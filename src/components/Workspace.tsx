@@ -1,19 +1,114 @@
-import type { ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
+import type { TerminalLayout } from '../state/terminalLayout';
 import type { Host, SavedCommand, TerminalSession } from '../types';
 import { commandCategoryIcon } from '../data/mock';
 import { AccentIcon, Badge, Icon, IconButton, toneForIcon } from './Ui';
 import { TerminalWelcome } from './TerminalWelcome';
 import { isSessionConnected } from '../state/terminalSessions';
+import { Select } from './Select';
 
-export function TerminalWorkspace({ remoteViews, sessions, activeId, host, select, close, add, filesOpen, toggleFiles, commandCollapsed, toggleCommands, agentCollapsed, toggleAgent, copy, connections }: { remoteViews: ReactNode; sessions: TerminalSession[]; activeId: string; host?: Host; select: (id: string) => void; close: (id: string) => void; add: () => void; filesOpen: boolean; toggleFiles: () => void; commandCollapsed: boolean; toggleCommands: () => void; agentCollapsed: boolean; toggleAgent: () => void; connections: () => void; copy: (text: string) => void }) {
+export function TerminalWorkspace({ remoteViews, sessions, activeId, host, select, close, add, filesOpen, toggleFiles, commandCollapsed, toggleCommands, agentCollapsed, toggleAgent, copy, connections, layout = 'single', visibleIds = [activeId], changeLayout, reorder }: { remoteViews: ReactNode; sessions: TerminalSession[]; activeId: string; host?: Host; select: (id: string) => void; close: (id: string) => void; add: () => void; filesOpen: boolean; toggleFiles: () => void; commandCollapsed: boolean; toggleCommands: () => void; agentCollapsed: boolean; toggleAgent: () => void; connections: () => void; copy: (text: string) => void; layout?: TerminalLayout; visibleIds?: string[]; changeLayout?: (layout: TerminalLayout) => void; reorder?: (draggedId: string, targetId: string, after: boolean) => void }) {
   const active = sessions.find(session => session.id === activeId);
+  const dragging = useRef<{ id: string; pointerId: number; x: number; y: number; left: number; top: number; width: number; node: HTMLDivElement; moved: boolean; target: { id: string; after: boolean } | null } | null>(null);
+  const suppressClick = useRef(false);
+  const [draggedId, setDraggedId] = useState('');
+  const [dropTarget, setDropTarget] = useState<{ id: string; after: boolean } | null>(null);
+  const [announcement, setAnnouncement] = useState('');
+  const [dragPreview, setDragPreview] = useState<{ title: string; left: number; top: number; width: number } | null>(null);
+  const releaseDrag = () => {
+    const drag = dragging.current; dragging.current = null;
+    if (drag?.node.hasPointerCapture(drag.pointerId)) drag.node.releasePointerCapture(drag.pointerId);
+  };
+  const finishDrag = () => { releaseDrag(); setDraggedId(''); setDropTarget(null); setDragPreview(null); };
+  useEffect(() => {
+    const cancel = () => finishDrag();
+    window.addEventListener('blur', cancel);
+    return () => { window.removeEventListener('blur', cancel); releaseDrag(); };
+  }, []);
   return <section className="terminal-workspace" aria-label="终端工作区">
+    {dragPreview && createPortal(<div className="terminal-tab-drag-preview" aria-hidden="true"
+      style={{ width: dragPreview.width, transform: `translate3d(${dragPreview.left}px, ${dragPreview.top}px, 0)` }}>
+      <Icon name="terminal" size={14} /><span>{dragPreview.title}</span></div>, document.body)}
+    <span className="terminal-layout-announcement" role="status">{announcement}</span>
+    <div className="terminal-tab-strip">
     <div className="terminal-tabs" role="tablist" aria-label="终端会话">
-      {sessions.map(session => <div className={"terminal-tab " + (session.id === activeId ? 'selected' : '')} key={session.id}>
-        <button role="tab" aria-selected={session.id === activeId} onClick={() => select(session.id)}><i className={"status-dot " + (session.connectionStatus === 'unreachable' ? 'unreachable' : isSessionConnected(session) ? '' : 'offline')} /><span>{session.title}</span>{session.connectionStatus === 'unreachable' && <span className="terminal-tab-state">不可达</span>}</button>
+      {sessions.map((session, index) => <div className={"terminal-tab " + (session.id === activeId ? 'selected' : '')} key={session.id}
+        data-visible={layout !== 'single' && visibleIds.includes(session.id)}
+        data-terminal-id={session.id} data-dragging={draggedId === session.id} data-reorderable={!!reorder}
+        data-drop={dropTarget?.id === session.id ? dropTarget.after ? 'after' : 'before' : undefined}
+          onDragStart={event => event.preventDefault()}
+          onPointerDown={event => {
+            if (!reorder || event.button !== 0 || event.isPrimary === false || dragging.current) return;
+            const button = (event.target as Element).closest('button');
+            if (button && button.getAttribute('role') !== 'tab') return;
+            // Stop browser/native text dragging before capture; the whole tab is the handle.
+            event.preventDefault();
+            event.currentTarget.querySelector<HTMLElement>('[role="tab"]')?.focus({ preventScroll: true });
+            const rect = event.currentTarget.getBoundingClientRect();
+            dragging.current = { id: session.id, pointerId: event.pointerId, x: event.clientX, y: event.clientY,
+              left: rect.left, top: rect.top, width: rect.width, node: event.currentTarget, moved: false, target: null };
+            event.currentTarget.setPointerCapture(event.pointerId);
+          }}
+          onPointerMove={event => {
+            const drag = dragging.current;
+            if (!drag || drag.pointerId !== event.pointerId) return;
+            if (!drag.moved && Math.hypot(event.clientX - drag.x, event.clientY - drag.y) < 8) return;
+            drag.moved = true; event.preventDefault(); setDraggedId(drag.id);
+            setDragPreview({ title: session.title, left: drag.left + event.clientX - drag.x, top: drag.top + event.clientY - drag.y, width: drag.width });
+            const tabList = event.currentTarget.closest('.terminal-tabs');
+            // Scroll long tab strips while dragging near their edges.
+            if (tabList) {
+              const bounds = tabList.getBoundingClientRect();
+              if (event.clientX < bounds.left + 28) tabList.scrollLeft -= 16;
+              else if (event.clientX > bounds.right - 28) tabList.scrollLeft += 16;
+            }
+            const target = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('[data-terminal-id]');
+            if (!target || target.closest('.terminal-tabs') !== tabList) { drag.target = null; setDropTarget(null); return; }
+            const box = target.getBoundingClientRect();
+            drag.target = { id: target.dataset.terminalId!, after: event.clientX > box.left + box.width / 2 };
+            setDropTarget(drag.target);
+          }}
+          onPointerUp={event => {
+            const drag = dragging.current;
+            if (!drag || drag.pointerId !== event.pointerId) return;
+            if (drag.moved) {
+              suppressClick.current = true;
+              setTimeout(() => { suppressClick.current = false; }, 0);
+              if (drag.target && drag.id !== drag.target.id) {
+                reorder?.(drag.id, drag.target.id, drag.target.after);
+                setAnnouncement('终端页签顺序已调整');
+              }
+            }
+            finishDrag();
+          }}
+          onPointerCancel={event => {
+            if (dragging.current?.pointerId !== event.pointerId) return;
+            finishDrag();
+          }} onLostPointerCapture={event => { if (dragging.current?.pointerId === event.pointerId) finishDrag(); }}
+        >
+        <button role="tab" aria-selected={session.id === activeId}
+          title="拖动调整顺序；Ctrl+Shift+左右方向键也可排序"
+          onKeyDown={event => {
+            if (event.key === 'Escape' && dragging.current) {
+              event.preventDefault(); finishDrag();
+              return;
+            }
+            if (!reorder || !event.ctrlKey || !event.shiftKey || !['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+            event.preventDefault();
+            const target = sessions[index + (event.key === 'ArrowLeft' ? -1 : 1)];
+            if (target) { reorder(session.id, target.id, event.key === 'ArrowRight'); setAnnouncement(`${session.title} 已移动`); }
+          }} onClick={() => { if (!suppressClick.current) select(session.id); }}><i className={"status-dot " + (session.connectionStatus === 'unreachable' ? 'unreachable' : isSessionConnected(session) ? '' : 'offline')} /><span>{session.title}</span>{session.connectionStatus === 'unreachable' && <span className="terminal-tab-state">不可达</span>}</button>
         <IconButton icon="close" label={'关闭 ' + session.title} onClick={() => close(session.id)} />
       </div>)}
       <button className="new-terminal-button" onClick={add} title="新建本地 CMD"><Icon name="tabs" size={17} /><span>新建终端</span></button>
+    </div>
+    {changeLayout && <div className="terminal-layout-control"><Icon name="sidebar" size={15} /><span>布局</span>
+      <Select label="终端分屏布局" className="terminal-layout-select" value={layout} onChange={changeLayout}
+        options={[{ value: 'single' as TerminalLayout, label: '单窗口' }, ...(sessions.length < 2 ? [] : [
+          { value: 'columns' as TerminalLayout, label: '左右分屏' }, { value: 'rows' as TerminalLayout, label: '上下分屏' },
+          { value: 'grid' as TerminalLayout, label: '网格分屏 · 最多四窗' },
+        ])]} /></div>}
     </div>
     {active ? <div className="terminal-body">
       <div className="terminal-pane">
@@ -28,7 +123,7 @@ export function TerminalWorkspace({ remoteViews, sessions, activeId, host, selec
             <IconButton icon="bot" label={agentCollapsed ? '展开智能体对话' : '收起智能体对话'} className={!agentCollapsed ? 'selected' : ''} onClick={toggleAgent} aria-pressed={!agentCollapsed} aria-expanded={!agentCollapsed} aria-controls="agent-panel-content" />
           </div>
         </div>
-        <>{remoteViews}</>
+        <div className="terminal-view-grid" data-layout={layout} data-count={visibleIds.length}>{remoteViews}</div>
       </div>
     </div> : <TerminalWelcome add={add} connections={connections} />}
   </section>;

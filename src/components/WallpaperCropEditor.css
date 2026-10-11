@@ -26,12 +26,14 @@
 /* 入口装饰采用铺满缩略背景；原图来源不变，也不跟随左侧草稿的裁剪/缩放/透明度。 */
 .wallpaper-source-image { display: block; width: 100%; height: 100%; object-fit: cover; object-position: center; pointer-events: none; }
 .wallpaper-source-placeholder { display: flex; flex-direction: column; align-items: center; gap: 6px; padding-top: 10px; color: var(--settings-text-muted); font-size: var(--font-caption); }
-.wallpaper-source-actions { position: absolute; inset: 0; background: linear-gradient(180deg, transparent 35%, rgb(8 16 30 / 68%) 100%); }
-.settings-page .appearance-settings .wallpaper-source-actions .appearance-picker { display: flex; align-items: flex-end; justify-content: center; gap: 6px; width: 100%; min-height: 0; height: 100%; padding: 0 40px 12px; border: 0; border-radius: 0; box-shadow: none; background: transparent; color: #fff; font: inherit; font-size: var(--font-small); cursor: pointer; }
+.wallpaper-source-actions { position: absolute; inset: 0; background: linear-gradient(180deg, rgb(8 16 30 / 6%) 45%, rgb(8 16 30 / 28%) 100%); }
+.settings-page .appearance-settings .wallpaper-source-actions .appearance-picker { display: flex; align-items: flex-end; justify-content: center; gap: 5px; width: 100%; min-height: 0; height: 100%; padding: 0 40px 10px; border: 0; border-radius: 0; box-shadow: none; background: transparent; color: #fff; font: inherit; font-size: var(--font-caption); cursor: pointer; text-shadow: 0 1px 3px rgb(0 0 0 / 65%); }
+.wallpaper-source-actions .appearance-picker > :is(svg, span) { opacity: .8; transition: opacity 180ms ease; }
+.wallpaper-source-actions .appearance-picker:is(:hover, :focus-visible) > :is(svg, span) { opacity: 1; }
 /* 覆盖壁纸模式下通用按钮悬停底色，避免鼠标移入时把缩略图重新盖成主题色块。 */
 :root[data-theme] .settings-page .appearance-settings .wallpaper-source-thumbnail .wallpaper-source-actions .appearance-picker:hover:not(:disabled) { background: rgb(255 255 255 / 6%); }
 .wallpaper-source-thumbnail[data-empty='true'] .wallpaper-source-actions { background: none; }
-.settings-page .appearance-settings .wallpaper-source-thumbnail[data-empty='true'] .appearance-picker { color: var(--settings-tag-text); }
+.settings-page .appearance-settings .wallpaper-source-thumbnail[data-empty='true'] .appearance-picker { color: var(--settings-tag-text); text-shadow: none; }
 .wallpaper-source-thumbnail:has(:focus-visible) { outline: 2px solid var(--settings-focus); outline-offset: 3px; }
 .wallpaper-source-remove { position: absolute; bottom: 7px; right: 8px; z-index: 1; border-radius: 5px; background: rgb(8 16 30 / 35%); }
 .appearance-remove-image { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; color: #fff; background: transparent; border: 0; border-radius: 5px; cursor: pointer; transition: color 180ms ease, background-color 180ms ease; }

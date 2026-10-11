@@ -27,7 +27,7 @@ export function AppearanceSettings() {
   const disabled = !appearance.ready || appearance.busy || editorSaving;
   const fileAction = <button ref={picker} type="button" className="appearance-picker" disabled={disabled}
     onClick={() => input.current?.click()} title="PNG / JPG / GIF / WebP 最大 10 MB；MP4 最大 100 MB。文件只保存在此客户端。">
-    <Icon name="upload" size={15} />{appearance.wallpaperUrl || pendingWallpaper ? '更换图片' : '选择一张喜欢的图片'}
+    <Icon name="upload" size={13} /><span>{appearance.wallpaperUrl || pendingWallpaper ? '更换壁纸' : '选择一张喜欢的图片'}</span>
   </button>;
   const resetAction = <button type="button" className="appearance-remove-image" aria-label="恢复默认背景"
     title="移除壁纸并恢复默认透明度；主题与连接保持不变"

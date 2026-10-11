@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { ChatAttachment } from '../types';
 import type { UploadItem } from '../state/fileUploads';
 import type { ChatAttachmentDraft } from '../state/chatAttachments';
+import { textExcerptLabel } from '../state/chatAttachments';
 import { formatFileSize } from '../config/fileUpload';
 import { DownloadButton } from './FileUploadDialog';
 import { Badge, Icon, IconButton, fileTone } from './Ui';
@@ -16,10 +17,10 @@ function Preview({ name, url }: { name: string; url?: string }) {
 export function DraftAttachments({ items, draft, locked, report }: { items: readonly UploadItem[]; draft: ChatAttachmentDraft; locked: boolean; report: (error: string) => void }) {
   return <ul className="chat-draft-attachments" aria-label="本次消息附件">{items.map(item => <li className={`chat-attachment ${item.status}`} key={item.id}>
     <Preview name={item.name} url={item.previewUrl} />
-    <div className="chat-attachment-body"><strong title={item.name}>{item.name}</strong><small className="chat-attachment-meta">{formatFileSize(item.size)}
+    <div className="chat-attachment-body"><strong title={item.textExcerpt?.preview ?? item.name}>{item.textExcerpt?.preview || item.name}</strong><small className="chat-attachment-meta">{item.textExcerpt ? `${textExcerptLabel(item.textExcerpt.source)} · ${item.textExcerpt.characters} 字符` : formatFileSize(item.size)}
       <Badge tone={item.status === 'success' ? 'success' : item.status === 'error' ? 'danger' : item.status === 'queued' ? 'amber' : 'blue'}
         icon={item.status === 'success' ? 'check' : item.status === 'error' ? 'alert' : item.status === 'queued' ? 'history' : 'refresh'}>
-        {item.status === 'success' ? item.referenced ? '已附加' : '上传成功' : item.status === 'uploading' ? '上传中' : item.status === 'queued' ? '等待上传' : '上传失败'}
+        {item.status === 'success' ? item.textExcerpt || item.referenced ? '已附加' : '上传成功' : item.status === 'uploading' ? item.textExcerpt ? '正在添加文本' : '上传中' : item.status === 'queued' ? '等待上传' : '上传失败'}
       </Badge></small>
       {item.status === 'uploading' && <i className="file-upload-spinner" aria-label="正在上传" />}
       {item.error && <p role="alert">{item.error}</p>}
@@ -32,7 +33,7 @@ export function DraftAttachments({ items, draft, locked, report }: { items: read
 export function MessageAttachments({ files, attach, disabled }: { files: ChatAttachment[]; attach: (files: ChatAttachment[]) => void; disabled: boolean }) {
   return <div className="chat-message-attachments">{files.map((file, index) => <div className="chat-attachment" key={`${file.fileId}:${index}`}>
     <Preview name={file.fileName} url={file.previewUrl} />
-    <div className="chat-attachment-body"><strong title={file.fileName}>{file.fileName}</strong><small>{formatFileSize(file.size)}</small>
+    <div className="chat-attachment-body"><strong title={file.textExcerpt?.preview ?? file.fileName}>{file.textExcerpt?.preview || file.fileName}</strong><small>{file.textExcerpt ? `${textExcerptLabel(file.textExcerpt.source)} · ${file.textExcerpt.characters} 字符` : formatFileSize(file.size)}</small>
       <div className="chat-attachment-actions"><button type="button" disabled={disabled} onClick={() => attach([file])}><Icon name="plus" size={12} />再次附加</button>
         {file.downloadUrl && file.urlExpiresAt !== undefined && <DownloadButton file={{ downloadUrl: file.downloadUrl, urlExpiresAt: file.urlExpiresAt }} />}
       </div>

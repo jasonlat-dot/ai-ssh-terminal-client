@@ -9,6 +9,8 @@
 .chat-attachment.error .chat-attachment-body p { color: #be5252; }
 :root[data-theme='dark'] .chat-attachment.error .chat-attachment-body p { color: #ed9696; }
 .chat-attachment > .icon-button { width: 22px; height: 22px; flex-shrink: 0; color: var(--theme-text-muted); }
+.chat-attachment > .icon-button:is(:hover, :focus-visible):not(:disabled) { color: #cf4254; background: #cf42541a; }
+.chat-attachment-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
 .chat-attachment button, .chat-restore-request { color: var(--theme-accent-text); font-size: 11px; }
 .chat-attachment button:disabled { opacity: .4; cursor: default; }
 .chat-message-attachments { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }

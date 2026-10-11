@@ -94,7 +94,7 @@ test('无壁纸时仍提供选择图片与默认预览，不读取不存在的�
 
 test('外观页左侧为工作区效果，右侧原图入口和参数，不增加额外导航或工作区列表', () => {
   const html = renderAppearance(appearance);
-  assert.equal((html.match(/>更换图片</g) ?? []).length, 1);
+  assert.equal((html.match(/>更换壁纸</g) ?? []).length, 1);
   assert.equal((html.match(/aria-label="恢复默认背景"/g) ?? []).length, 1);
   assert.match(html, /wallpaper-source-thumbnail/);
   assert.match(html, /wallpaper-source-actions/);

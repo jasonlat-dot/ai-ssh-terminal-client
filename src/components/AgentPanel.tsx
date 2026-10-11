@@ -1,12 +1,13 @@
-import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
+import type { Ref } from 'react';
 import { MarkdownMessage } from './MarkdownMessage';
 import agentRobotAvatar from '../assets/agent-robot-avatar.png';
 import type { ClientChatSession } from '../state/clientChatHistory';
-import type { ChatAttachment, ChatAgentActivity, ChatMessage, ChatToolActivity, Host } from '../types';
+import type { ChatAttachment, ChatAgentActivity, ChatMessage, ChatToolActivity, ChatTextExcerpt, Host } from '../types';
 import { AccentIcon, Badge, Icon } from './Ui';
 import { CopyMarkdownButton } from './CopyMarkdownButton';
 import { CopyTextButton } from './CopyTextButton';
-import { ChatAttachmentDraft, chatAttachmentPolicy, pastedFiles, insertPastedText, validateChatContent } from '../state/chatAttachments';
+import { ChatAttachmentDraft, chatAttachmentPolicy, isLongChatText, pastedFiles, insertPastedText, validateChatContent } from '../state/chatAttachments';
 import { DraftAttachments, MessageAttachments } from './ChatAttachments';
 import { chatErrorGuidance } from '../api/chatErrors';
 import { agentToMarkdown, messageToMarkdown, toolToMarkdown } from '../state/chatMarkdown';
@@ -127,7 +128,9 @@ function sessionTime(value: ClientChatSession['updatedAt']): string {
   });
 }
 
-export function AgentPanel({ chatDraft, draftScope, host, connected, localTerminal, messages, busy, stopping, send, stop, clear, disabled, agentAvailability, history, collapsed }: {
+export type AgentComposerHandle = { addText: (text: string, source: ChatTextExcerpt['source']) => boolean };
+export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localTerminal, messages, busy, stopping, send, stop, clear, disabled, agentAvailability, history, collapsed }: {
+  ref?: Ref<AgentComposerHandle>;
   chatDraft: ChatAttachmentDraft;
   draftScope: number;
   host?: Host;
@@ -166,6 +169,17 @@ export function AgentPanel({ chatDraft, draftScope, host, connected, localTermin
   const scrollRef = useRef<HTMLDivElement>(null);
   const followOutputRef = useRef(true);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  useImperativeHandle(ref, () => ({ addText(text, source) {
+    if (locked || !text.trim()) return false;
+    try {
+      const inline = chatDraft.addText(text, source);
+      if (inline) setDraft(previous => previous + (previous && !previous.endsWith('\n') ? '\n' : '') + inline);
+      setAttachmentError('');
+      const scope = draftScope;
+      requestAnimationFrame(() => { if (scopeRef.current === scope) textareaRef.current?.focus(); });
+      return true;
+    } catch (error) { setAttachmentError((error as Error).message); return false; }
+  } }));
 
   const submit = async () => {
     if (locked || !agentAvailability.ready || sendingRef.current) return;
@@ -308,7 +322,7 @@ export function AgentPanel({ chatDraft, draftScope, host, connected, localTermin
     <form className="chat-composer" aria-hidden={collapsed} onSubmit={event => { event.preventDefault(); void submit(); }}>
       {localTerminal && <div className="composer-agent-status local-terminal" data-accent="neutral" role="status">
         <Icon name="monitor" size={15} />
-        <span>本地 CMD 仅在客户端运行，Agent 无法绑定该终端，也不会收到本地会话 ID。</span>
+        <span>本地 CMD 仅在客户端运行；可手动添加选中文本，Agent 不会收到本地会话 ID。</span>
       </div>}
       {!agentAvailability.ready && <div className={`composer-agent-status ${agentAvailability.error ? 'error' : ''}`} data-accent={agentAvailability.error ? 'danger' : 'amber'} role="status">
         <Icon name={agentAvailability.error ? 'alert' : 'bot'} size={15} />
@@ -316,20 +330,23 @@ export function AgentPanel({ chatDraft, draftScope, host, connected, localTermin
         {!agentAvailability.loading && <button type="button" onClick={agentAvailability.retry}><Icon name="refresh" size={13} />重试加载</button>}
       </div>}
       {!!attachments.length && <DraftAttachments items={attachments} draft={chatDraft} locked={locked} report={setAttachmentError} />}
-      <div className="composer-input-row"><textarea ref={textareaRef} rows={1} aria-label="智能体任务输入" placeholder="输入问题，或粘贴截图与文件" value={draft} disabled={locked} onChange={event => setDraft(event.target.value)}
+      <div className="composer-input-row"><textarea ref={textareaRef} rows={1} aria-label="智能体任务输入" placeholder="输入问题，或粘贴文本、截图与文件" value={draft} disabled={locked} onChange={event => setDraft(event.target.value)}
         onPaste={event => {
           const files = pastedFiles(event.clipboardData);
-          if (!files.length) return;
+          const text = event.clipboardData.getData('text/plain');
+          if (!files.length && !isLongChatText(text)) return;
           event.preventDefault();
           if (locked) return;
-          const text = event.clipboardData.getData('text/plain');
-          if (text) {
-            const next = insertPastedText(event.currentTarget.value, text, event.currentTarget.selectionStart, event.currentTarget.selectionEnd);
-            setDraft(next.text);
-            const scope = draftScope;
-            requestAnimationFrame(() => { if (scopeRef.current === scope) textareaRef.current?.setSelectionRange(next.cursor, next.cursor); });
-          }
-          addFiles(files);
+          try {
+            const inline = chatDraft.addText(text, 'paste', files);
+            if (inline) {
+              const next = insertPastedText(event.currentTarget.value, inline, event.currentTarget.selectionStart, event.currentTarget.selectionEnd);
+              setDraft(next.text);
+              const scope = draftScope;
+              requestAnimationFrame(() => { if (scopeRef.current === scope) textareaRef.current?.setSelectionRange(next.cursor, next.cursor); });
+            }
+            setAttachmentError('');
+          } catch (error) { setAttachmentError((error as Error).message); }
         }}
         onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void submit(); } }} /></div>
       <div className="composer-bottom-bar">
@@ -338,7 +355,7 @@ export function AgentPanel({ chatDraft, draftScope, host, connected, localTermin
           if (!locked && event.target.files?.length) addFiles(Array.from(event.target.files));
           event.target.value = '';
         }} />
-        <span className="composer-attachment-note">{attachments.length}/4 · 合计 ≤ 20 MB</span>
+        <span className="composer-attachment-note" title="粘贴或添加的文本少于 100 字符时直接显示，100 字符及以上转为文本附件；发送完整内容。">{attachments.length}/4 · 合计 ≤ 20 MB</span>
         {busy || stopping
           ? <button type="button" className="send-button stop-button" aria-label={stopping ? '正在停止' : '停止生成'} title={stopping ? '正在停止' : '停止生成'} onClick={stop} disabled={stopping}><Icon name="stop" size={16} /></button>
           : <button type="submit" className="send-button" aria-label="发送消息" title={agentAvailability.ready ? '发送消息' : '智能体就绪后即可发送，草稿会保留'} disabled={(!draft.trim() && !attachments.length) || locked || notReady || !agentAvailability.ready}><Icon name="send" size={20} /></button>}
