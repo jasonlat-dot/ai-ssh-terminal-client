@@ -1,0 +1,9 @@
+.startup-update-prompt-backdrop { z-index: 100; }
+.modal.startup-update-prompt { width: min(560px, 100%); background: var(--raised); color: var(--text); }
+.startup-update-content { display: flex; flex-direction: column; gap: 16px; padding: 22px; }
+.startup-update-version { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.startup-update-version > svg { color: var(--ui-accent); }
+.startup-update-content p { margin: 0; }
+.startup-update-content small { color: var(--muted); line-height: 1.6; }
+.startup-update-notes { margin: 0; padding: 14px; max-height: min(260px, 35vh); overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--font-ui); line-height: 1.75; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; }
+.startup-update-content .dialog-actions { flex-wrap: wrap; margin-top: 0; }

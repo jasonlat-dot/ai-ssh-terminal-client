@@ -1,6 +1,6 @@
 [package]
 name = "ai-ssh-terminal-client"
-version = "0.1.5"
+version = "0.1.6"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
@@ -30,6 +30,8 @@ tokio = { version = "1", features = ["fs", "io-util", "sync", "time", "macros", 
 tokio-util = { version = "0.7", features = ["io", "rt"] }
 futures-util = "0.3"
 portable-pty = "0.9"
+# Safely simplify canonical Windows paths before passing them to Java.
+dunce = "1.0.5"
 
 # 与 Tauri 当前使用的 WebView2/windows 绑定保持一致，用于限定本机证书的信任范围。
 [target.'cfg(target_os = "windows")'.dependencies]

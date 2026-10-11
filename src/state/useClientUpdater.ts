@@ -18,16 +18,18 @@ export function useClientUpdater() {
   return snapshot;
 }
 
-export function useStartupUpdateCheck(notify: (message: string) => void) {
-  const snapshot = useClientUpdater();
-  const announced = useRef('');
+export function useStartupUpdateCheck(onAvailable: (version: string) => void) {
+  const callback = useRef(onAvailable);
+  callback.current = onAvailable;
   useEffect(() => {
-    const timer = setTimeout(() => { void clientUpdater.check(true); }, 10_000);
-    return () => clearTimeout(timer);
+    let active = true;
+    // The app root stays mounted across startup, settings and backend changes.
+    // Only a successful automatic check announces an update; failures stay silent.
+    const timer = setTimeout(() => {
+      void clientUpdater.check(true).then(version => {
+        if (active && version) callback.current(version);
+      });
+    }, 3_000);
+    return () => { active = false; clearTimeout(timer); };
   }, []);
-  useEffect(() => {
-    if (snapshot.phase !== 'available' || !snapshot.version || announced.current === snapshot.version) return;
-    announced.current = snapshot.version;
-    notify(`发现客户端新版本 ${snapshot.version}，可在设置 → 关于与更新中查看并下载。`);
-  }, [snapshot.phase, snapshot.version, notify]);
 }

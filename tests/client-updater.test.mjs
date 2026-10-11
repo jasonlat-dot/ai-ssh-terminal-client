@@ -6,11 +6,11 @@ import ts from 'typescript';
 import { makeManifest, validatePublicKey, validateVersion, UPDATE_ENDPOINT } from '../scripts/updater-release.mjs';
 
 const source = path => readFileSync(new URL(`../src/${path}`, import.meta.url), 'utf8');
-function load(path, requireModule = () => { throw new Error('Unexpected import'); }) {
+function load(path, requireModule = () => { throw new Error('Unexpected import'); }, globals = {}) {
   const compiled = ts.transpileModule(source(path), { compilerOptions: {
     module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX,
   } }).outputText;
-  const context = vm.createContext({ exports: {}, require: requireModule });
+  const context = vm.createContext({ exports: {}, require: requireModule, ...globals });
   vm.runInContext(compiled, context); return context.exports;
 }
 const { createClientUpdater } = load('state/clientUpdater.ts');
@@ -30,7 +30,7 @@ function fixture(options = {}) {
   return { updater, calls, resource };
 }
 const deferred = () => { let resolve, reject; const promise = new Promise((a, b) => { resolve = a; reject = b; }); return { promise, resolve, reject }; };
-const flush = async () => { for (let i = 0; i < 8; i++) await Promise.resolve(); };
+const flush = async () => { for (let i = 0; i < 32; i++) await Promise.resolve(); };
 
 test('disabled configurations never check, download, prepare or install', async () => {
   for (const disabled of [{ configured: false }, { development: true }, { supported: false }]) {
@@ -49,9 +49,71 @@ test('initialization is shared; failure can be retried without reporting current
 });
 test('automatic check happens once; manual check remains available; prior resource is closed', async () => {
   const { updater, calls } = fixture();
-  await updater.check(true); await updater.check(true); assert.equal(calls.filter(x => x === 'check').length, 1);
+  assert.equal(await updater.check(true), '0.1.6'); assert.equal(await updater.check(true), null);
+  assert.equal(calls.filter(x => x === 'check').length, 1);
   assert.equal(updater.getSnapshot().version, '0.1.6'); assert.equal(updater.getSnapshot().checkedAt, 1234);
   await updater.check(); assert.deepEqual(calls, ['configuration', 'check', 'close', 'check']);
+});
+
+function startupHook(updater) {
+  const timers = new Map(), slots = [];
+  let cursor = 0, pendingEffects = [];
+  const { useStartupUpdateCheck } = load('state/useClientUpdater.ts', name => {
+    if (name === 'react') return {
+      useRef: initial => { const i = cursor++; return slots[i] ??= { current: initial }; },
+      useEffect: callback => { const i = cursor++; if (!slots[i]) pendingEffects.push(() => { slots[i] = { cleanup: callback() }; }); },
+    };
+    if (name === './clientUpdater') return { createClientUpdater: () => updater };
+    if (name === './runtime') return { isTauriRuntime: () => true };
+    if (name === '@tauri-apps/api/core') return { invoke() {} };
+    if (name === '@tauri-apps/plugin-updater') return { check() {} };
+    if (name === '../../package.json') return { version: '0.1.5' };
+    throw new Error(name);
+  }, {
+    setTimeout: (callback, delay) => { assert.equal(delay, 3000); const id = Symbol(); timers.set(id, callback); return id; },
+    clearTimeout: id => timers.delete(id),
+  });
+  return {
+    render(notify) { cursor = 0; useStartupUpdateCheck(notify); pendingEffects.forEach(run => run()); pendingEffects = []; },
+    run() { for (const [id, callback] of timers) { timers.delete(id); callback(); } },
+    cleanup() { slots.forEach(slot => slot?.cleanup?.()); },
+    timerCount: () => timers.size,
+  };
+}
+
+test('startup check is delayed, checks once, announces only availability, and never downloads', async () => {
+  const { updater, calls } = fixture(), announced = [];
+  const hook = startupHook(updater);
+  hook.render(version => announced.push(version)); assert.deepEqual(calls, []); assert.equal(hook.timerCount(), 1);
+  hook.run(); await flush(); assert.deepEqual(announced, ['0.1.6']);
+  assert.deepEqual(calls, ['configuration', 'check']);
+  hook.render(() => { throw new Error('must not announce again'); }); assert.equal(hook.timerCount(), 0);
+  // Remounts (including StrictMode) cannot repeat an already completed startup check.
+  hook.cleanup(); const remount = startupHook(updater); remount.render(() => { throw new Error('duplicate'); });
+  remount.run(); await flush(); assert.equal(calls.filter(x => x === 'check').length, 1);
+});
+
+test('startup checks remain silent for no update, network/config failures and disabled modes', async () => {
+  for (const options of [{ current: true }, { config: { development: true } }, { config: { configured: false } },
+    { config: { supported: false } }, { deps: { check: async () => { throw new Error('network unavailable'); } } },
+    { deps: { configuration: async () => { throw new Error('IPC failed'); } } }]) {
+    const { updater, calls } = fixture(options), announced = [];
+    const hook = startupHook(updater); hook.render(version => announced.push(version)); hook.run(); await flush();
+    assert.deepEqual(announced, []); assert.ok(!calls.includes('download')); assert.ok(!calls.includes('install'));
+  }
+});
+
+test('startup timer cleanup and callback refresh do not produce stale notifications', async () => {
+  const cancelled = startupHook(fixture().updater); cancelled.render(() => { throw new Error('unmounted'); });
+  cancelled.cleanup(); assert.equal(cancelled.timerCount(), 0);
+  const wait = deferred(), { updater } = fixture({ deps: { check: () => wait.promise } });
+  const hook = startupHook(updater), announced = [];
+  hook.render(() => { throw new Error('stale callback'); }); hook.run(); await flush();
+  hook.render(version => announced.push(version)); wait.resolve({ ...fixture().resource }); await flush();
+  assert.deepEqual(announced, ['0.1.6']);
+  const late = deferred(), lateHook = startupHook(fixture({ deps: { check: () => late.promise } }).updater);
+  lateHook.render(() => { throw new Error('unmounted in-flight'); }); lateHook.run(); await flush();
+  lateHook.cleanup(); late.resolve(fixture().resource); await flush();
 });
 test('no update vs failed network are distinct; duplicate checks are serialized', async () => {
   const current = fixture({ current: true }); await current.updater.check(); assert.equal(current.updater.getSnapshot().phase, 'current');
@@ -136,21 +198,22 @@ test('release validation rejects private/invalid keys, prereleases, paths and mi
   assert.throws(() => makeManifest({ version: '0.1.6', installerName: 'client_0.1.6_x64-setup.exe', signature: sig, date: 'invalid' }));
 });
 
-function ui(initial = {}) {
+function ui(initial = {}, component = 'ClientUpdateSettings') {
   let state = { phase: 'available', config, version: '0.1.6', notes: '<script>alert(1)</script>', downloaded: 0, total: null, verified: false, error: '', checkedAt: null, ...initial };
   const calls = [], slots = []; let cursor = 0, tree;
   const beforeInstall = async () => calls.push('save');
+  let announce;
   const node = (type, props) => ({ type, props });
-  const { ClientUpdateSettings } = load('components/ClientUpdateSettings.tsx', name => {
+  const module = load(`components/${component}.tsx`, name => {
     if (name === 'react') return { useState: initial => { const i = cursor++; if (!(i in slots)) slots[i] = initial;
       return [slots[i], value => { slots[i] = value; }]; } };
     if (name === 'react/jsx-runtime') return { jsx: node, jsxs: node };
-    if (name === '../state/useClientUpdater') return { useClientUpdater: () => state, clientUpdater: {
+    if (name === '../state/useClientUpdater') return { useClientUpdater: () => state, useStartupUpdateCheck: callback => { announce = callback; }, clientUpdater: {
       check: async () => calls.push('check'), download: async () => calls.push('download'), discard: async () => calls.push('discard'),
       install: async callback => { calls.push('install'); assert.equal(callback, beforeInstall); },
     } };
     if (name === '../state/runtime') return { isTauriRuntime: () => true };
-    if (name === './Ui') return { Badge: 'badge', Icon: 'icon' };
+    if (name === './Ui') return { Badge: 'badge', Icon: 'icon', Modal: 'modal' };
     if (name === '@tauri-apps/plugin-opener') return { openUrl: async () => calls.push('open') };
     if (name.endsWith('.css')) return {};
     throw new Error(name);
@@ -159,9 +222,32 @@ function ui(initial = {}) {
     if (!item || typeof item !== 'object') return []; return [item, ...nodes(item.props.children)]; }
   function text(item) { if (Array.isArray(item)) return item.map(text).join(''); if (!item || typeof item !== 'object') return typeof item === 'string' ? item : '';
     return text(item.props.children); }
-  function render(patch = {}) { state = { ...state, ...patch }; cursor = 0; tree = ClientUpdateSettings({ beforeInstall }); }
-  render(); return { calls, render, nodes: () => nodes(tree), button: label => nodes(tree).find(x => x.type === 'button' && text(x) === label) };
+  function render(patch = {}) { state = { ...state, ...patch }; cursor = 0; tree = module[component]({ beforeInstall, onViewUpdate: () => calls.push('view') }); }
+  render(); return { calls, render, announce: version => announce(version), nodes: () => nodes(tree), button: label => nodes(tree).find(x => x.type === 'button' && text(x) === label) };
 }
+
+test('startup prompt persists until dismissed; viewing uses the guarded settings update flow', () => {
+  const view = ui({}, 'StartupUpdatePrompt'); assert.equal(view.nodes().length, 0);
+  view.announce('0.1.6'); view.render();
+  assert.equal(view.nodes().find(x => x.type === 'modal').props.title, '发现客户端新版本');
+  const notes = view.nodes().find(x => x.props.className === 'startup-update-notes');
+  assert.equal(notes.props.children, '<script>alert(1)</script>'); assert.equal(notes.props.dangerouslySetInnerHTML, undefined);
+  view.render(); assert.ok(view.button('稍后再说'));
+  view.button('稍后再说').props.onClick(); view.render(); assert.equal(view.nodes().length, 0); assert.deepEqual(view.calls, []);
+  view.announce('0.1.6'); view.render(); view.button('查看并下载更新').props.onClick(); view.render();
+  assert.equal(view.nodes().length, 0); assert.deepEqual(view.calls, ['view']);
+});
+
+test('startup prompt does not show stale versions or manual check failures', () => {
+  const view = ui({}, 'StartupUpdatePrompt'); view.announce('0.1.6'); view.render({ version: '0.1.7' });
+  assert.equal(view.nodes().length, 0); view.render({ version: '0.1.6', phase: 'error' }); assert.equal(view.nodes().length, 0);
+  const app = source('App.tsx'), dialog = source('components/BackendSettingsDialog.tsx');
+  assert.ok(!app.includes('useStartupUpdateCheck(notify)'));
+  assert.match(app, /return <>\{page\}<StartupUpdatePrompt/);
+  assert.match(app, /waitingForBackend && !updateSettingsRequested/);
+  assert.match(app, /beforeClientUpdate=\{prepareForClientUpdate\}/);
+  assert.match(dialog, /if \(showUpdates\) setActiveSection\('about'\)/);
+});
 test('UI blocks unavailable updates, allows configuration-error retry, and renders escaped notes', () => {
   const disabled = ui({ config: { ...config, configured: false }, phase: 'disabled' });
   assert.equal(disabled.button('检查更新').props.disabled, true); assert.equal(disabled.button('下载更新').props.disabled, true);

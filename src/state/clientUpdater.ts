@@ -45,20 +45,22 @@ export function createClientUpdater(deps: Dependencies) {
     return initialization;
   };
   const check = async (automatic = false) => {
-    if (busy || snapshot.verified || (automatic && startupChecked)) return;
+    if (busy || snapshot.verified || (automatic && startupChecked)) return null;
     if (automatic) startupChecked = true;
     busy = true;
     try {
       await initialize();
-      if (!usable()) return;
+      if (!usable()) return null;
       publish({ phase: 'checking', error: '', verified: false, version: '', notes: '', date: undefined, downloaded: 0, total: null });
       await release();
       const next = await deps.check();
       resource = next;
       publish({ phase: next ? 'available' : 'current', version: next?.version ?? '', notes: next?.body ?? '',
         date: next?.date, downloaded: 0, total: null, checkedAt: (deps.now ?? Date.now)() });
+      return next?.version ?? null;
     } catch (error) {
       publish({ phase: 'error', error: `检查更新失败：${message(error)}。请检查网络，或确认发布者已上传 latest.json。` });
+      return null;
     } finally { busy = false; }
   };
   const download = async () => {

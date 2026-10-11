@@ -60,7 +60,7 @@ import './client-text-colors.css';
 import './client-typography.css';
 import { useApplyClientTextColors } from './state/useClientTextColors';
 import { useApplyClientTypography } from './state/useClientTypography';
-import { useStartupUpdateCheck } from './state/useClientUpdater';
+import { StartupUpdatePrompt } from './components/StartupUpdatePrompt';
 import './panel-resize.css';
 import './components/TerminalLayout.css';
 
@@ -70,11 +70,13 @@ type Dialog = 'command' | 'connection' | null;
 const STALE_TERMINAL_TAB_MS = 5 * 60 * 1000;
 const CONNECTION_SIDEBAR_COLLAPSED_KEY = 'ai-ssh-terminal:connection-sidebar-collapsed';
 
-function AppContent({ backendUrl, onBackendChange, theme, setTheme }: {
+function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettingsRequested, clearUpdateSettingsRequest }: {
   backendUrl: string;
   onBackendChange: (url: string) => void;
   theme: ThemePreference;
   setTheme: (theme: ThemePreference) => void;
+  updateSettingsRequested: boolean;
+  clearUpdateSettingsRequest: () => void;
 }) {
   const [navigation, setNavigation] = useState<Navigation>('命令');
   const connections = useSshConnections();
@@ -130,6 +132,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme }: {
   const [disconnectTarget, setDisconnectTarget] = useState<{ tabId: string; host: Host } | null>(null);
   const [dialog, setDialog] = useState<Dialog>(null);
   const [backendSettingsOpen, setBackendSettingsOpen] = useState(false);
+  useEffect(() => { if (updateSettingsRequested) setBackendSettingsOpen(true); }, [updateSettingsRequested]);
   const [attachmentPreviews] = useState(() => new AttachmentPreviews());
   const [chatDraft] = useState(() => new ChatAttachmentDraft(attachmentPreviews));
   const agentComposer = useRef<AgentComposerHandle>(null);
@@ -231,7 +234,6 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme }: {
   const notify = useCallback((message: string, type: NoticeType = 'info', durationMs?: number) => {
     setToast({ id: ++noticeSequence.current, message, type, ...(durationMs === undefined ? {} : { durationMs }) });
   }, []);
-  useStartupUpdateCheck(notify);
 
   useEffect(() => {
     const initialAttempts = openingConnections.current;
@@ -1278,9 +1280,10 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme }: {
 
   return <div style={{ '--agent-width': `${agentWidth}%`, '--command-width': `${commandWidth}px` } as CSSProperties} className={`app-shell ${agentCollapsed ? 'agent-collapsed' : ''} ${navCollapsed ? 'nav-collapsed' : ''} ${connectionSidebarCollapsed ? 'host-sidebar-collapsed' : ''} ${navigation === '连接' ? 'connections-view' : 'terminal-view'} ${backendSettingsOpen ? 'settings-view' : ''}`}>
     <AppHeader notify={notify} theme={theme} setTheme={setTheme} />
-    <ActivityBar active={navigation} onSelect={name => { setBackendSettingsOpen(false); navigate(name); }} onSettings={() => setBackendSettingsOpen(value => !value)} settingsOpen={backendSettingsOpen} collapsed={navCollapsed} toggleCollapsed={() => setNavCollapsed(value => !value)} />
+    <ActivityBar active={navigation} onSelect={name => { setBackendSettingsOpen(false); clearUpdateSettingsRequest(); navigate(name); }} onSettings={() => { clearUpdateSettingsRequest(); setBackendSettingsOpen(value => !value); }} settingsOpen={backendSettingsOpen} collapsed={navCollapsed} toggleCollapsed={() => setNavCollapsed(value => !value)} />
     {backendSettingsOpen && <BackendSettingsDialog currentUrl={backendUrl}
-      onClose={() => setBackendSettingsOpen(false)}
+      onClose={() => { setBackendSettingsOpen(false); clearUpdateSettingsRequest(); }}
+      showUpdates={updateSettingsRequested}
       beforeClientUpdate={prepareForClientUpdate}
       onSave={onBackendChange} />}
     <ConnectionSidebar connections={{ ...connections, remove: removeHost }} sessions={sessions} connectingHostIds={connectingHostIds} activeHostId={active?.kind === 'ssh' ? active.connectionId : undefined} activeSessionId={activeId} terminal={selectHost} cancelConnection={cancelHostConnection} activate={activateTerminalFromSidebar} create={openNewConnection} collapsed={connectionSidebarCollapsed} toggleCollapsed={() => setConnectionSidebarCollapsed(value => !value)} />
@@ -1403,6 +1406,7 @@ export default function App() {
   useApplyClientTypography();
   const [backendUrl, setBackendUrl] = useState(readBackendUrl);
   const [connectionRevision, setConnectionRevision] = useState(0);
+  const [updateSettingsRequested, setUpdateSettingsRequested] = useState(false);
   // 活动连接为远程时不等待本机 Java：其自动启动偏好与远程连接可用性相互独立。
   const [backendReady, setBackendReady] = useState(() => !desktop || activeBackendConnection().kind === 'remote');
   const [startupBypassed, setStartupBypassed] = useState(false);
@@ -1577,8 +1581,8 @@ export default function App() {
     if (target) void runStartupHealthProbe(target);
   }, [runStartupHealthProbe, startupHealth.backendUrl]);
 
-  if (desktop && !backendReady && !startupBypassed) {
-    return <StartupScreen
+  const waitingForBackend = desktop && !backendReady && !startupBypassed;
+  const page = waitingForBackend && !updateSettingsRequested ? <StartupScreen
       phase={startupPhase}
       message={startupMessage}
       logDirectory={startupLogDirectory}
@@ -1589,14 +1593,13 @@ export default function App() {
       starting={startupStarting}
       health={startupHealth}
       onRecheckHealth={recheckStartupHealth}
-    />;
-  }
-
-  if (!backendUrl) {
-    return <BackendSettingsDialog currentUrl="" required onClose={() => {}} onSave={changeBackend} />;
-  }
-
-  return <AppContent key={`${backendUrl}:${connectionRevision}`} backendUrl={backendUrl} onBackendChange={changeBackend} theme={theme} setTheme={setTheme} />;
+    /> : !backendUrl || waitingForBackend ? <BackendSettingsDialog currentUrl={backendUrl}
+      required={!backendUrl} showUpdates={updateSettingsRequested}
+      onClose={() => setUpdateSettingsRequested(false)} onSave={changeBackend} />
+    : <AppContent key={`${backendUrl}:${connectionRevision}`} backendUrl={backendUrl} onBackendChange={changeBackend}
+      theme={theme} setTheme={setTheme} updateSettingsRequested={updateSettingsRequested}
+      clearUpdateSettingsRequest={() => setUpdateSettingsRequested(false)} />;
+  return <>{page}<StartupUpdatePrompt onViewUpdate={() => setUpdateSettingsRequested(true)} /></>;
 }
 
 function parentDirectory(path: string | null): string | null {

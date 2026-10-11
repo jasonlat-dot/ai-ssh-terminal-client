@@ -39,6 +39,7 @@ type BackendSettingsDialogProps = {
   onClose: () => void;
   onSave: (url: string) => void;
   beforeClientUpdate?: () => Promise<void>;
+  showUpdates?: boolean;
 };
 
 type SettingsSection = 'general' | 'appearance' | 'model' | 'proxy' | 'storage' | 'about';
@@ -1086,8 +1087,9 @@ function PathPreviewCard({ label, icon, path, hint }: {
  * 主组件
  * ========================================================================== */
 
-export function BackendSettingsDialog({ currentUrl, required = false, onClose, onSave, beforeClientUpdate }: BackendSettingsDialogProps) {
-  const [activeSection, setActiveSection] = useState<SettingsSection>('general');
+export function BackendSettingsDialog({ currentUrl, required = false, onClose, onSave, beforeClientUpdate, showUpdates = false }: BackendSettingsDialogProps) {
+  const [activeSection, setActiveSection] = useState<SettingsSection>(showUpdates ? 'about' : 'general');
+  useEffect(() => { if (showUpdates) setActiveSection('about'); }, [showUpdates]);
   const [config, setConfig] = useState<BundledBackendConfig | null>(null);
   const [values, setValues] = useState<ConfigValues>({});
   const [pathResetVersion, setPathResetVersion] = useState(0);

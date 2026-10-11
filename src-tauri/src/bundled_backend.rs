@@ -288,7 +288,11 @@ pub fn start_in_background(app: AppHandle) {
 /** 执行资源检查、目录准备、Java 进程启动和存活确认。 */
 fn start_inner(app: &AppHandle) -> Result<(PathBuf, String), Box<dyn std::error::Error>> {
     let resource_dir = app.path().resource_dir()?;
+    // Installed Tauri resource paths can be verbatim Windows paths. Java needs the
+    // equivalent ordinary form for both its executable and the -jar argument.
+    let resource_dir = backend_process::launch_path(&resource_dir)?;
     let backend_home = resolve_backend_home(&resource_dir, app)?;
+    let backend_home = backend_process::launch_path(&backend_home)?.to_path_buf();
     let server_port = read_server_port(&backend_home).unwrap_or(8889);
     let ssl_enabled = read_ssl_enabled(&backend_home)?;
     let backend_url = format!("https://127.0.0.1:{server_port}");

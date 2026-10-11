@@ -3,6 +3,22 @@
 //! Even TerminateProcess/Ctrl+C skips Rust destructors, the OS closes the job handle.
 use std::{ffi::OsStr, fs::File, io, path::Path};
 
+/// JVM startup does not support the verbatim prefix returned by Windows canonicalize.
+/// Do not blindly strip it: reserved names, trailing dots and long paths can change meaning.
+/// dunce only converts paths that have an equivalent ordinary Windows representation.
+pub fn launch_path(path: &Path) -> io::Result<&Path> {
+    let path = dunce::simplified(path);
+    #[cfg(target_os = "windows")]
+    if matches!(path.components().next(), Some(std::path::Component::Prefix(prefix)) if prefix.kind().is_verbatim())
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "内置 Java 无法使用此 Windows 扩展路径；请使用较短、无特殊文件名的普通安装或数据目录。",
+        ));
+    }
+    Ok(path)
+}
+
 #[cfg(not(target_os = "windows"))]
 pub type BackendProcess = std::process::Child;
 
@@ -232,6 +248,10 @@ mod platform {
         stdout: File,
         stderr: File,
     ) -> io::Result<BackendProcess> {
+        // Both lpApplicationName and argv[0] must use the same JVM-compatible path.
+        // Leave non-path arguments untouched and preserve the atomic kill-on-close Job.
+        let program = launch_path(program)?;
+        let directory = launch_path(directory)?;
         let application = wide(program.as_os_str())?;
         let directory = wide(directory.as_os_str())?;
         let mut command = command_line(program, args)?;
@@ -531,6 +551,101 @@ mod platform {
             assert!(fs::read_to_string(fixture.directory.join("java.err"))
                 .unwrap()
                 .contains("version"));
+        }
+
+        #[test]
+        fn bundled_java_runs_from_verbatim_resource_path() {
+            let directory = Path::new(env!("CARGO_MANIFEST_DIR"));
+            let program = std::env::var_os("AISHELL_TEST_JAVA")
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|| directory.join("bundle/runtime/bin/java.exe"));
+            if !program.is_file() {
+                assert!(
+                    std::env::var_os("AISHELL_TEST_JAVA").is_none(),
+                    "AISHELL_TEST_JAVA must point to a real runtime"
+                );
+                eprintln!("No prepared Java runtime; skipping optional JVM smoke test");
+                return;
+            }
+            // Tauri's installed resource directory uses the same prefix as std::canonicalize.
+            let program = fs::canonicalize(program).unwrap();
+            assert!(program.as_os_str().to_string_lossy().starts_with(r"\\?\"));
+            let fixture = Fixture::new();
+            let working_directory = fs::canonicalize(&fixture.directory).unwrap();
+            let stdout = fixture.directory.join("verbatim-java.out");
+            let stderr = fixture.directory.join("verbatim-java.err");
+            let mut java = spawn(
+                &program,
+                &[OsStr::new("--version")],
+                &working_directory,
+                File::create(&stdout).unwrap(),
+                File::create(&stderr).unwrap(),
+            )
+            .unwrap();
+            let deadline = Instant::now() + Duration::from_secs(15);
+            let status = loop {
+                if let Some(status) = java.try_wait().unwrap() {
+                    break status;
+                }
+                assert!(Instant::now() < deadline, "Java --version did not finish");
+                thread::sleep(Duration::from_millis(20));
+            };
+            drop(java);
+            // A JVM crash message can include a path encoded in the Windows code page.
+            let logs = format!(
+                "{}\n{}",
+                String::from_utf8_lossy(&fs::read(stdout).unwrap()),
+                String::from_utf8_lossy(&fs::read(stderr).unwrap())
+            );
+            assert!(
+                status.success(),
+                "Java failed for installed-style resource path: {logs}"
+            );
+            assert!(
+                logs.contains("OpenJDK"),
+                "Expected real Java version: {logs}"
+            );
+            assert!(!logs.contains("fatal error"));
+        }
+
+        #[test]
+        fn launch_paths_simplify_without_changing_argument_or_filename_semantics() {
+            assert_eq!(
+                launch_path(Path::new(r"\\?\E:\中文 空格\runtime\bin\java.exe")).unwrap(),
+                Path::new(r"E:\中文 空格\runtime\bin\java.exe")
+            );
+            assert_eq!(
+                launch_path(Path::new(r"E:\中文 空格\backend\app.jar")).unwrap(),
+                Path::new(r"E:\中文 空格\backend\app.jar")
+            );
+            assert_eq!(
+                launch_path(Path::new(r"\\server\share\java.exe")).unwrap(),
+                Path::new(r"\\server\share\java.exe")
+            );
+            for path in [
+                r"\\?\C:\CON\java.exe",
+                r"\\?\C:\folder.\java.exe",
+                r"\\?\C:\folder \java.exe",
+                r"\\?\UNC\server\share\java.exe",
+            ] {
+                assert_eq!(
+                    launch_path(Path::new(path)).unwrap_err().kind(),
+                    io::ErrorKind::InvalidInput
+                );
+            }
+            let long_path = format!(r"\\?\C:\{}\java.exe", "long\\".repeat(60));
+            assert!(launch_path(Path::new(&long_path)).is_err());
+            let program = launch_path(Path::new(r"\\?\C:\中文 空格\java.exe")).unwrap();
+            let argument = OsStr::new(r"literal \\?\C:\keep unchanged");
+            let command = command_line(program, &[argument]).unwrap();
+            assert_eq!(
+                String::from_utf16(&command[..command.len() - 1]).unwrap(),
+                format!(
+                    "\"{}\" \"{}\"",
+                    program.display(),
+                    argument.to_str().unwrap()
+                )
+            );
         }
 
         #[test]
