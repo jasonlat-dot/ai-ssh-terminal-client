@@ -3,7 +3,7 @@ use std::fs::{self, File, OpenOptions};
 use std::io;
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use crate::backend_process::{self, BackendProcess};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Mutex,
@@ -13,13 +13,6 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
-
-#[cfg(target_os = "windows")]
-use std::os::windows::process::CommandExt;
-
-/** Windows 创建无控制台窗口子进程时使用的系统标志。 */
-#[cfg(target_os = "windows")]
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 /** 安装包内后端 JAR 的固定资源名称。 */
 const BACKEND_JAR_NAME: &str = "ai-ssh-terminal-server-app.jar";
@@ -164,7 +157,7 @@ impl Default for BackendStatus {
 /** 保存后端子进程及前端可读取的启动结果。 */
 #[derive(Default)]
 pub struct BundledBackendState {
-    child: Mutex<Option<Child>>,
+    child: Mutex<Option<BackendProcess>>,
     status: Mutex<BackendStatus>,
     stop_requested: AtomicBool,
     /** 后台线程串行执行启动、重启和停止，避免异步命令同时创建多个 Java 进程。 */
@@ -331,24 +324,14 @@ fn start_inner(app: &AppHandle) -> Result<(PathBuf, String), Box<dyn std::error:
     let error_log = log_file.try_clone()?;
     let config_location = spring_file_directory(&backend_home);
 
-    let mut command = Command::new(&java_executable);
-    command
-        .arg("--enable-native-access=ALL-UNNAMED")
-        .arg("-jar")
-        .arg(&backend_jar)
-        .arg(format!(
-            "--spring.config.additional-location={config_location}"
-        ))
-        .current_dir(&backend_home)
-        .stdin(Stdio::null())
-        .stdout(Stdio::from(log_file))
-        .stderr(Stdio::from(error_log));
-
-    // 正式版是 Windows GUI 程序，启动 Java 时不应弹出额外的黑色控制台窗口。
-    #[cfg(target_os = "windows")]
-    command.creation_flags(CREATE_NO_WINDOW);
-
-    let mut child = command.spawn().map_err(|error| {
+    let config_argument = format!("--spring.config.additional-location={config_location}");
+    // Windows 在创建时就绑定独立 Job，强制退出也能回收，不影响外部 Java。
+    let mut child = backend_process::spawn(&java_executable, &[
+        std::ffi::OsStr::new("--enable-native-access=ALL-UNNAMED"),
+        std::ffi::OsStr::new("-jar"),
+        backend_jar.as_os_str(),
+        std::ffi::OsStr::new(&config_argument),
+    ], &backend_home, log_file, error_log).map_err(|error| {
         io::Error::new(
             error.kind(),
             format!(
@@ -1381,7 +1364,7 @@ fn prepare_external_local_certificate(app: &AppHandle, raw_url: &str) -> io::Res
 
 /** 等待 Spring Boot 开始监听；进程提前退出或超时会阻止客户端带着不可用后端继续启动。 */
 fn wait_until_ready(
-    child: &mut Child,
+    child: &mut BackendProcess,
     port: u16,
     timeout: Duration,
     stop_requested: &AtomicBool,

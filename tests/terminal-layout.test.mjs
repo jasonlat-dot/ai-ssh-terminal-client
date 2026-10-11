@@ -16,6 +16,16 @@ const model = load('state/terminalLayout.ts');
 const visible = (...args) => Array.from(model.visibleTerminalIds(...args));
 const sessions = ['a', 'b', 'c', 'd', 'e'].map(id => ({ id, title: id, kind: 'local', connectionStatus: 'connected', connected: true }));
 
+test('终端隐藏原生白色滚动轨道及箭头，保留 xterm 自有滑块与滚轮处理', () => {
+  const css = source('reference.css'), terminal = source('components/RemoteTerminalView.tsx');
+  assert.match(css, /\.remote-terminal-screen \.xterm :is\(\.xterm-viewport, \.xterm-scrollable-element\) \{ scrollbar-width: none; \}/);
+  assert.match(css, /:is\(\.xterm-viewport, \.xterm-scrollable-element\)::-webkit-scrollbar \{[^}]*display: none;[^}]*width: 0;/s);
+  assert.match(css, /:is\(\.xterm-viewport, \.xterm-scrollable-element\)::-webkit-scrollbar-button \{ display: none; \}/);
+  assert.match(css, /\.xterm-scrollable-element > \.scrollbar.vertical > \.slider \{[^}]*width: 4px !important;/s);
+  assert.doesNotMatch(css, /\.xterm-scrollable-element > \.scrollbar[^}]*display: none/s);
+  assert.match(terminal, /scrollback: 5000, scrollOnUserInput: true/);
+});
+
 test('页签排序只移动原会话对象，不改变活动 ID、运行时或其他会话；无效目标与同页签不修改', () => {
   const reordered = model.reorderTerminalSessions(sessions, 'a', 'c', true);
   assert.deepEqual(Array.from(reordered, item => item.id), ['b', 'c', 'a', 'd', 'e']);

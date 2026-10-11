@@ -563,16 +563,16 @@
 .remote-terminal-screen .xterm { height: 100%; }
 .remote-terminal-screen .xterm .xterm-viewport {
   background-color: #fff;
-  scrollbar-width: thin;
-  scrollbar-color: #b8c7db transparent;
+  scrollbar-width: none;
 }
-.remote-terminal-screen .xterm .xterm-viewport::-webkit-scrollbar { width: 4px; }
-.remote-terminal-screen .xterm .xterm-viewport::-webkit-scrollbar-track { background: transparent; }
-.remote-terminal-screen .xterm .xterm-viewport::-webkit-scrollbar-thumb {
-  border-radius: 4px;
-  background: #b8c7db;
+/* Hide native rails/arrows; xterm's own auto-hiding slider and scroll handling remain. */
+.remote-terminal-screen .xterm :is(.xterm-viewport, .xterm-scrollable-element) { scrollbar-width: none; }
+.remote-terminal-screen .xterm :is(.xterm-viewport, .xterm-scrollable-element)::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
-.remote-terminal-screen .xterm .xterm-viewport::-webkit-scrollbar-thumb:hover { background: #91a6c1; }
+.remote-terminal-screen .xterm :is(.xterm-viewport, .xterm-scrollable-element)::-webkit-scrollbar-button { display: none; }
 .remote-terminal-screen .xterm .xterm-scrollable-element > .scrollbar.vertical > .slider {
   width: 4px !important;
   left: 1px !important;

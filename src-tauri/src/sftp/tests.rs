@@ -203,6 +203,7 @@ async fn fixture(manifest: Vec<Value>, content: &[u8]) -> Fixture {
             format!("http://{address}"),
             "connection".into(),
             None,
+            None,
             Arc::new(|_| {}),
         )
         .await

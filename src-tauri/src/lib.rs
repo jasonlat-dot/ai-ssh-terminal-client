@@ -1,5 +1,6 @@
 mod cache;
 mod bundled_backend;
+mod backend_process;
 mod local_backend_tls;
 mod backend_connection_probe;
 mod chat_history;
