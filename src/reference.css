@@ -1564,7 +1564,7 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.985); }
   transition: opacity .2s ease, transform .32s cubic-bezier(.22, .8, .24, 1), visibility 0s .32s;
 }
 .panel-divider { transition: opacity .18s ease; }
-.app-shell.agent-collapsed .panel-divider { opacity: 0; pointer-events: none; }
+.app-shell.agent-collapsed > .panel-divider { opacity: 0; pointer-events: none; }
 
 /* Persistent command editor. */
 .modal.add-command-dialog { width: min(560px, 100%); border-color: #cddceb; border-radius: 12px; box-shadow: 0 28px 80px #183a5e35; }

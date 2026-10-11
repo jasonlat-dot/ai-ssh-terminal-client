@@ -58,11 +58,16 @@ export function cropOutputSize(rect: CropRect): ImageSize {
  * 只在用户确认后导出选区。使用已验证的本地 Blob URL，不加载任意网络图片。
  * 不改原文件；新 File 仍须通过现有壁纸校验与 IndexedDB 事务才能正式应用。
  */
-export async function exportWallpaperCrop(source: ImageSize & { url: string; name: string }, rect: CropRect): Promise<File> {
+export async function exportWallpaperCrop(source: ImageSize & { url: string; name: string; blob?: Blob; kind?: string }, rect: CropRect): Promise<File> {
   if (![rect.x, rect.y, rect.width, rect.height].every(Number.isFinite)
       || rect.x < 0 || rect.y < 0 || rect.width <= 0 || rect.height <= 0
       || rect.x + rect.width > source.width + .001 || rect.y + rect.height > source.height + .001) {
     throw new Error('裁剪区域超出原图，请重置位置后重试。');
+  }
+  // 动图/视频只保存取景参数，绝不能通过 Canvas 把动画变成单帧或重新编码视频。
+  if (source.kind === 'animated' || source.kind === 'video') {
+    if (!source.blob) throw new Error('动态壁纸原文件丢失，请重新选择。');
+    return new File([source.blob], source.name, { type: source.blob.type });
   }
   const image = new Image();
   image.src = source.url;

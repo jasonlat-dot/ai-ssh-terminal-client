@@ -1,0 +1,53 @@
+/* 根节点保留原主题颜色作为隔离区的回退；不要重写根主题或任何 ANSI/语法 token。 */
+:root {
+  --client-original-text: var(--text);
+  --client-original-muted: var(--muted);
+  --client-original-faint: var(--faint);
+  --client-original-strong: var(--theme-text-strong);
+  --client-original-secondary: var(--theme-text-muted);
+}
+:root[data-client-text-primary='true'] :is(.app-shell, .settings-page) {
+  --text: var(--client-text-primary);
+  --theme-text-strong: var(--client-text-primary);
+  --settings-text: var(--client-text-primary);
+  color: var(--client-text-primary);
+}
+:root[data-client-text-secondary='true'] :is(.app-shell, .settings-page) {
+  --muted: var(--client-text-secondary);
+  --faint: var(--client-text-secondary);
+  --theme-text-muted: var(--client-text-secondary);
+  --settings-text-muted: var(--client-text-secondary);
+}
+/* 少量旧中性文案写死了颜色，定点覆盖，不使用会染掉状态/高亮的全元素选择器。 */
+:root[data-client-text-primary='true'][data-theme] .app-shell :is(
+  .brand strong, .user-menu > span:not(.avatar), .section-heading h2, .command-name,
+  .sidebar-host strong, .conversation-card > header h2, .terminal-tab-title, .activity-label strong,
+  .chat-composer textarea, .sidebar-host-search input, .markdown-body > p,
+  .terminal-welcome h2, .welcome-features h3, .welcome-guide
+) { color: var(--client-text-primary); }
+:root[data-client-text-primary='true'][data-theme] .settings-page :is(
+  .settings-control, .ui-select-trigger, .settings-nav-item strong
+) { color: var(--client-text-primary); }
+:root[data-client-text-secondary='true'][data-theme] .app-shell :is(
+  .brand small, .sidebar-host small, .command-library-heading small, .command-hint, .activity-label small,
+  .command-list-heading, .command-fill code, .terminal-toolbar > span,
+  .welcome-description, .welcome-features p, .welcome-demo-note
+) { color: var(--client-text-secondary); }
+:root[data-client-text-secondary='true'][data-theme] :is(.app-shell, .settings-page) :is(input, textarea)::placeholder {
+  color: var(--client-text-secondary); opacity: 1;
+}
+/* 代码与语义状态组件隔离中性变量；语法 token、警告色和按钮的前景仍由原样式负责。 */
+:root:is([data-client-text-primary='true'], [data-client-text-secondary='true']) :is(.app-shell, .settings-page) :is(
+  .xterm, .remote-terminal-screen, pre, .markdown-body code, .markdown-code-card,
+  .badge, .notification-toast, .settings-connection-notice, .settings-result, .settings-error,
+  .primary-button, .danger-button, .send-button, .stop-button, .new-agent-session, .avatar,
+  [role='alert'], [role='dialog'], [role='menu'], [role='listbox']
+) {
+  --text: var(--client-original-text);
+  --muted: var(--client-original-muted);
+  --faint: var(--client-original-faint);
+  --theme-text-strong: var(--client-original-strong);
+  --theme-text-muted: var(--client-original-secondary);
+  --settings-text: var(--client-original-strong);
+  --settings-text-muted: var(--client-original-secondary);
+}

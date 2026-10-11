@@ -3,6 +3,8 @@ import { resetClientAppearance, setClientPanelTransparency, setClientReadability
 import { useClientAppearance } from '../state/useClientAppearance';
 import { Icon, Toggle } from './Ui';
 import { WallpaperCropEditor } from './WallpaperCropEditor';
+import { TextColorSettings } from './TextColorSettings';
+import { TypographySettings } from './TypographySettings';
 import './AppearanceSettings.css';
 
 /** 外观独立于后端；透明度即时保存，画面选区预览后确认，不需要重启 Java。 */
@@ -24,7 +26,7 @@ export function AppearanceSettings() {
   // Canvas 导出先于存储事务，此时也禁止更换/删除图片，避免两次操作交叉覆盖。
   const disabled = !appearance.ready || appearance.busy || editorSaving;
   const fileAction = <button ref={picker} type="button" className="appearance-picker" disabled={disabled}
-    onClick={() => input.current?.click()} title="PNG / JPG / WebP，最大 10 MB。图片只保存在此客户端。">
+    onClick={() => input.current?.click()} title="PNG / JPG / GIF / WebP 最大 10 MB；MP4 最大 100 MB。文件只保存在此客户端。">
     <Icon name="upload" size={15} />{appearance.wallpaperUrl || pendingWallpaper ? '更换图片' : '选择一张喜欢的图片'}
   </button>;
   const resetAction = <button type="button" className="appearance-remove-image" aria-label="恢复默认背景"
@@ -49,11 +51,11 @@ export function AppearanceSettings() {
   </div>;
   const heading = <div className="appearance-title-group">
     <span className="appearance-title-icon"><Icon name="palette" size={20} /></span>
-    <div><h2 id="appearance-title">工作区外观</h2><p>在工作区预览中调整画面，保存后应用。透明度与文字保护自动保存。</p></div>
+    <div><h2 id="appearance-title">工作区外观</h2><p>在预览中调整画面，保存后应用。透明度、文字保护与界面文字颜色自动保存。</p></div>
   </div>;
 
   return <section className="appearance-settings" aria-labelledby="appearance-title">
-    <input ref={input} id="appearance-wallpaper-file" type="file" accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp"
+    <input ref={input} id="appearance-wallpaper-file" type="file" accept="image/png,image/jpeg,image/gif,image/webp,video/mp4,.png,.jpg,.jpeg,.gif,.webp,.mp4"
           hidden disabled={disabled} onChange={event => {
             const file = event.currentTarget.files?.[0];
             event.currentTarget.value = '';
@@ -64,7 +66,7 @@ export function AppearanceSettings() {
           externalBusy={appearance.busy || !appearance.ready} onSavingChange={setEditorSaving}
           transparency={appearance.transparency} protection={appearance.readabilityProtection}
           fileAction={fileAction} surfaceControls={surfaceControls} resetAction={resetAction}
-          readabilityControl={readabilityControl} heading={heading}
+          readabilityControl={<>{readabilityControl}<TextColorSettings /><TypographySettings /></>} heading={heading}
           externalError={pendingWallpaper ? undefined : appearance.error}
           onClose={pendingWallpaper ? () => {
             restoreFocus.current = true;

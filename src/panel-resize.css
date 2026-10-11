@@ -1,0 +1,10 @@
+/* Both shelves resize independently; collapsed tracks never discard their saved width. */
+.app-shell .central-workspace:not(.no-session):not(.command-collapsed) {
+  grid-template-columns: minmax(0, 1fr) clamp(220px, var(--command-width, 260px), min(450px, max(220px, calc(100% - 280px))));
+}
+.command-shelf > .command-panel-divider {
+  position: absolute; left: -4px; top: 0; bottom: 0; width: 8px; margin: 0; z-index: 2;
+}
+.command-panel-divider::before { inset: 0; }
+.command-shelf.collapsed > .command-panel-divider { visibility: hidden; pointer-events: none; }
+.central-workspace:has(.command-panel-divider.dragging) { transition: none; }

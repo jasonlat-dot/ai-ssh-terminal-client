@@ -7,6 +7,7 @@ import type { CropView } from '../state/wallpaperCrop';
 import { Icon } from './Ui';
 import { WallpaperFitControl } from './WallpaperFitControl';
 import { WallpaperWorkspacePreview } from './WallpaperWorkspacePreview';
+import { WallpaperVideo } from './WallpaperVideo';
 import './WallpaperCropEditor.css';
 
 const FIXED_RATIOS = [
@@ -265,13 +266,18 @@ export function WallpaperCropEditor({ file, onClose, externalBusy = false, onSav
         <h3><Icon name="palette" size={17} />背景设置</h3>
         {/* 直接读取原图作铺满式缩略背景；入口自身的适配不改变左侧选区或保存数据。 */}
         <div className="wallpaper-source-thumbnail" data-empty={!source} aria-busy={loading}>
-          {source ? <img className="wallpaper-source-image" src={source.url} alt="当前壁纸原图缩略图" draggable={false} />
-            : <span className="wallpaper-source-placeholder"><Icon name="file" size={24} />{loading ? '正在读取图片…' : error ? '请选择其他图片' : 'PNG / JPG / WebP · 最大 10 MB'}</span>}
+          {source ? source.kind === 'video'
+            ? <WallpaperVideo className="wallpaper-source-image" src={source.url} playing={false} />
+            : <img className="wallpaper-source-image" src={source.url} alt="当前壁纸原图缩略图" draggable={false} />
+            : <span className="wallpaper-source-placeholder"><Icon name="file" size={24} />{loading ? '正在读取壁纸…' : error ? '请选择其他壁纸' : '图片 / GIF / WebP · 10 MB；MP4 · 100 MB'}</span>}
           <div className="wallpaper-source-actions">{fileAction}</div>
           {resetAction && <div className="wallpaper-source-remove">{resetAction}</div>}
         </div>
       </div>
       {!empty && <>
+      {source?.kind && source.kind !== 'image' && <p className="wallpaper-crop-help" role="note">
+        {source.kind === 'video' ? '视频静音循环，窗口最小化或不可见时暂停，失焦仍播放。推荐 H.264 编码 MP4。' : '保留原文件动画，不导出静态帧。'}比例、缩放和位置仅调整显示区域。
+      </p>}
       <fieldset className="wallpaper-crop-ratios" disabled={disabled}><legend>画面比例</legend>
         <div>{ratios.map(option => <button key={option.key} type="button" aria-pressed={ratioKey === option.key}
           className={ratioKey === option.key ? 'selected' : ''} onClick={() => {

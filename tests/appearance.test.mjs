@@ -15,6 +15,7 @@ function environment() {
     record: undefined, preferences: new Map(), urls: new Map(), revoked: [],
     failWrite: null, failRead: null, failPreference: null, failDecode: false,
     dimensions: { width: 1920, height: 1080 }, dimensionsByMarker: new Map(), sequence: 0, holdWrite: null,
+    failVideo: false, holdVideo: false, videos: [], timers: new Map(),
   };
   const indexedDB = {
     open() {
@@ -57,6 +58,21 @@ function environment() {
   };
   const globals = {
     Blob, File, Error, DOMException, indexedDB,
+    setTimeout(callback) { const key = Symbol(); state.timers.set(key, callback); return key; },
+    clearTimeout(key) { state.timers.delete(key); },
+    document: { createElement(tag) {
+      assert.equal(tag, 'video');
+      const video = {
+        videoWidth: state.dimensions.width, videoHeight: state.dimensions.height,
+        pause() { this.paused = true; }, load() { this.released = true; },
+        removeAttribute(name) { assert.equal(name, 'src'); this.cleared = true; },
+        set src(value) {
+          this.url = value;
+          if (!state.holdVideo) queueMicrotask(() => state.failVideo ? this.onerror?.() : this.onloadeddata?.());
+        },
+      };
+      state.videos.push(video); return video;
+    } },
     localStorage: {
       getItem: key => state.preferences.get(key) ?? null,
       setItem(key, value) {
@@ -97,6 +113,14 @@ function environment() {
 function png(name = 'wallpaper.png', marker = 0) {
   return new File([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, marker, 0, 0, 0])], name, { type: 'image/png' });
 }
+function gif() { return new File(['GIF89a', new Uint8Array(12)], 'moving.gif', { type: 'image/gif' }); }
+function webp(animated) {
+  return new File(['RIFF', new Uint8Array(4), 'WEBPVP8X', new Uint8Array([10, 0, 0, 0, animated ? 2 : 0])],
+    'moving.webp', { type: 'image/webp' });
+}
+function mp4(brand = 'mp42') {
+  return new File([new Uint8Array([0, 0, 0, 24]), 'ftyp', brand, new Uint8Array(4), brand, brand], 'moving.mp4', { type: 'video/mp4' });
+}
 
 function releaseDraft(env, draft) {
   env.state.urls.delete(draft.url);
@@ -105,6 +129,102 @@ function releaseDraft(env, draft) {
 
 // VM 对象与当前 Node realm 不同，用字段值比较持久化的纯数据。
 const plain = value => JSON.parse(JSON.stringify(value));
+
+test('GIF 和动画 WebP 保留字节与选区，重启/再次编辑恢复；普通 WebP 仍走静态路径', async () => {
+  for (const file of [gif(), webp(true)]) {
+    const env = environment(), api = env.load();
+    const draft = await api.prepareClientWallpaper(file);
+    assert.equal(draft.kind, 'animated');
+    const crop = { ratio: 1, view: { zoom: 2, centerX: .4, centerY: .5 } };
+    assert.equal(await api.chooseClientWallpaper(file, 'contain', { source: draft, crop }), true);
+    assert.equal(api.readClientAppearance().wallpaperKind, 'animated');
+    assert.deepEqual(plain(api.readClientAppearance().wallpaperCrop), crop);
+    assert.deepEqual(await env.state.record.blob.arrayBuffer(), await file.arrayBuffer());
+    const reopened = env.load(); await reopened.initializeClientAppearance();
+    assert.equal(reopened.readClientAppearance().wallpaperKind, 'animated');
+    assert.deepEqual(plain(reopened.readClientAppearance().wallpaperCrop), crop);
+    const next = await reopened.prepareSavedClientWallpaper();
+    assert.equal(next.kind, 'animated'); assert.equal(next.limitedSource, false);
+    assert.deepEqual(plain(next.crop), crop);
+    assert.deepEqual(await next.blob.arrayBuffer(), await file.arrayBuffer());
+    await reopened.resetClientAppearance();
+    assert.equal(reopened.readClientAppearance().wallpaperKind, 'image');
+    assert.equal(reopened.readClientAppearance().wallpaperCrop, undefined);
+  }
+  assert.equal((await environment().load().prepareClientWallpaper(webp(false))).kind, 'image');
+});
+
+test('MP4 验证容器与实际解码，保存/重启完整恢复文件、显示方式及取景', async () => {
+  const env = environment(), api = env.load(), file = mp4();
+  const source = await api.prepareClientWallpaper(file);
+  assert.equal(source.kind, 'video'); assert.equal(source.width, 1920);
+  assert.ok(env.state.videos.every(video => video.paused && video.cleared && video.released));
+  assert.equal(env.state.timers.size, 0);
+  const crop = { ratio: 4 / 3, view: { zoom: 1.5, centerX: .6, centerY: .5 } };
+  assert.equal(await api.chooseClientWallpaper(file, 'contain', { source, crop }), true);
+  assert.equal(env.state.record.blob, env.state.record.original.blob, '不在同一记录中另存一份视频');
+  const reopened = env.load(); await reopened.initializeClientAppearance();
+  assert.equal(reopened.readClientAppearance().wallpaperKind, 'video');
+  assert.equal(reopened.readClientAppearance().wallpaperFit, 'contain');
+  assert.deepEqual(plain(reopened.readClientAppearance().wallpaperCrop), crop);
+  const edit = await reopened.prepareSavedClientWallpaper();
+  assert.equal(edit.kind, 'video'); assert.deepEqual(plain(edit.crop), crop);
+  assert.deepEqual(await edit.blob.arrayBuffer(), await file.arrayBuffer());
+  assert.ok(env.state.videos.every(video => video.muted && video.paused && video.cleared && video.released));
+});
+
+test('视频解码错误/超时/过大尺寸不覆盖旧壁纸，所有临时解码器和 URL 都释放', async () => {
+  const env = environment(), api = env.load(); await api.chooseClientWallpaper(png());
+  const original = api.readClientAppearance().wallpaperUrl, originalRecord = env.state.record;
+  env.state.failVideo = true;
+  assert.equal(await api.chooseClientWallpaper(mp4()), false);
+  assert.match(api.readClientAppearance().error, /无法解码/);
+  env.state.failVideo = false; env.state.dimensions = { width: 4000, height: 3000 };
+  assert.equal(await api.chooseClientWallpaper(mp4()), false);
+  assert.match(api.readClientAppearance().error, /尺寸/);
+  env.state.dimensions = { width: 1920, height: 1080 }; env.state.holdVideo = true;
+  const pending = api.chooseClientWallpaper(mp4());
+  for (let i = 0; i < 20 && !env.state.timers.size; i++) await new Promise(resolve => setImmediate(resolve));
+  assert.equal(env.state.timers.size, 1);
+  env.state.timers.values().next().value(); await pending;
+  assert.match(api.readClientAppearance().error, /超时/);
+  assert.equal(api.readClientAppearance().wallpaperUrl, original);
+  assert.equal(env.state.record, originalRecord);
+  assert.equal(api.readClientAppearance().busy, false);
+  assert.equal(env.state.timers.size, 0);
+  assert.ok(env.state.videos.every(video => video.cleared && video.released && video.paused));
+  assert.equal(env.state.urls.size, 1, '只保留旧壁纸 URL');
+});
+
+test('图片 10 MB、视频 100 MB 的边界独立；伪装文件或非法品牌仍拒绝', async () => {
+  const env = environment(), api = env.load();
+  const tooBigImage = gif(); Object.defineProperty(tooBigImage, 'size', { value: api.MAX_WALLPAPER_BYTES + 1 });
+  await assert.rejects(() => api.prepareClientWallpaper(tooBigImage), /10 MB/);
+  const tooBigVideo = mp4(); Object.defineProperty(tooBigVideo, 'size', { value: api.MAX_VIDEO_WALLPAPER_BYTES + 1 });
+  await assert.rejects(() => api.prepareClientWallpaper(tooBigVideo), /100 MB/);
+  await assert.rejects(() => api.prepareClientWallpaper(mp4('heic')), /仅支持/);
+  await assert.rejects(() => api.prepareClientWallpaper(new File(['<script>'], 'fake.mp4', { type: 'video/mp4' })), /仅支持/);
+  const biggerVideo = new File([await mp4().arrayBuffer(), new Uint8Array(api.MAX_WALLPAPER_BYTES)], 'large.mp4');
+  assert.equal((await api.prepareClientWallpaper(biggerVideo)).kind, 'video');
+  assert.equal(env.state.timers.size, 0);
+});
+
+test('动态壁纸禁止保存为静态帧；存储失败保持旧视频与选区，可重新保存', async () => {
+  const env = environment(), api = env.load(), source = await api.prepareClientWallpaper(gif());
+  const crop = { ratio: 1, view: { zoom: 1, centerX: .5, centerY: .5 } };
+  await api.chooseClientWallpaper(mp4());
+  const before = api.readClientAppearance().wallpaperUrl, record = env.state.record;
+  assert.equal(await api.chooseClientWallpaper(png(), 'cover', { source, crop }), false);
+  assert.match(api.readClientAppearance().error, /静态帧/);
+  env.state.failWrite = new DOMException('full', 'QuotaExceededError');
+  assert.equal(await api.chooseClientWallpaper(gif(), 'contain', { source, crop }), false);
+  assert.equal(api.readClientAppearance().wallpaperUrl, before);
+  assert.equal(env.state.record, record);
+  env.state.failWrite = null;
+  assert.equal(await api.chooseClientWallpaper(gif(), 'contain', { source, crop }), true);
+  assert.equal(api.readClientAppearance().wallpaperKind, 'animated');
+  assert.deepEqual(plain(api.readClientAppearance().wallpaperCrop), crop);
+});
 
 test('保存原图和选区，重启后能反复重裁；每次都读取完整原图而不是上次裁剪图', async () => {
   const env = environment(), api = env.load();
@@ -480,7 +600,7 @@ test('拖动滑块仅更新背景变量，不反复写 data-wallpaper 触发终�
   };
   const hookSource = readFileSync(new URL('../src/state/useClientAppearance.ts', import.meta.url), 'utf8');
   const hookContext = vm.createContext({
-    exports: {}, document: { documentElement: root },
+    exports: {}, document: { documentElement: root, getElementById: () => null },
     require(name) {
       if (name === 'react') return { useLayoutEffect: callback => { cleanup = callback(); } };
       return api;
@@ -594,8 +714,9 @@ test('保护仅柔化底层图片，遮罩有最低值，文字对比随主题�
   const darkProtection = wallpaperRules.find(rule => rule.selector.includes("[data-wallpaper-protection='true'][data-theme='dark']"));
   assert.match(darkProtection.body, /--client-wallpaper-minimum-tint:\s*70%/);
   const filtered = wallpaperRules.filter(rule => /(?:^|;)\s*filter\s*:/.test(rule.body));
-  assert.equal(filtered.length, 1);
-  assert.ok(filtered[0].selector.endsWith('#root::before'), '不能模糊整个应用或终端');
+  assert.equal(filtered.length, 3);
+  assert.ok(filtered.every(rule => rule.selector.endsWith('#root::before') || rule.selector.endsWith('.client-wallpaper-motion')),
+    '只能柔化背景层，不能模糊整个应用或终端');
   for (const themeSelector of ["[data-wallpaper-readability='true']", "[data-wallpaper-readability='true'][data-theme='dark']"]) {
     const palette = wallpaperRules.find(rule => rule.selector === `:root[data-wallpaper='true']${themeSelector}`);
     assert.match(palette.body, /--theme-text-muted:/);

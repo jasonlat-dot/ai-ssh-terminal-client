@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useSyncExternalStore } from 'react';
 import { initializeClientAppearance, readClientAppearance, subscribeClientAppearance, wallpaperReadability } from './clientAppearance';
+import { createWallpaperMotionLayer } from './wallpaperMotion';
 
 /** 外观页订阅共享偏好，不因关闭设置、切换后端或重建工作区而丢失选中的壁纸。 */
 export function useClientAppearance() {
@@ -15,13 +16,18 @@ export function useClientAppearance() {
 export function useApplyClientAppearance() {
   useLayoutEffect(() => {
     const root = document.documentElement;
+    const container = document.getElementById('root');
+    const motion = container ? createWallpaperMotionLayer(container) : null;
     const apply = () => {
       const appearance = readClientAppearance();
       const enabled = appearance.wallpaperUrl ? 'true' : 'false';
       // xterm 监听此属性切换透明底色；拖动滑块不能反复触发终端主题重绘。
       if (root.dataset.wallpaper !== enabled) root.dataset.wallpaper = enabled;
       if (root.dataset.wallpaperFit !== appearance.wallpaperFit) root.dataset.wallpaperFit = appearance.wallpaperFit;
-      const image = appearance.wallpaperUrl ? `url(${JSON.stringify(appearance.wallpaperUrl)})` : 'none';
+      const kind = appearance.wallpaperKind ?? 'image';
+      if (root.dataset.wallpaperKind !== kind) root.dataset.wallpaperKind = kind;
+      motion?.apply(appearance);
+      const image = appearance.wallpaperUrl && kind === 'image' ? `url(${JSON.stringify(appearance.wallpaperUrl)})` : 'none';
       const opacity = `${100 - appearance.transparency}%`;
       const protection = !!appearance.wallpaperUrl && appearance.readabilityProtection;
       const readability = wallpaperReadability(appearance.transparency, protection);
@@ -41,10 +47,12 @@ export function useApplyClientAppearance() {
     void initializeClientAppearance();
     return () => {
       release();
+      motion?.dispose();
       delete root.dataset.wallpaper;
       delete root.dataset.wallpaperProtection;
       delete root.dataset.wallpaperReadability;
       delete root.dataset.wallpaperFit;
+      delete root.dataset.wallpaperKind;
       root.style.removeProperty('--client-wallpaper-image');
       root.style.removeProperty('--client-panel-opacity');
       root.style.removeProperty('--client-wallpaper-blur');

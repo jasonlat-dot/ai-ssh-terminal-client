@@ -49,6 +49,11 @@ import './App.css';
 import './reference.css';
 import './typography.css';
 import './wallpaper.css';
+import './client-text-colors.css';
+import './client-typography.css';
+import { useApplyClientTextColors } from './state/useClientTextColors';
+import { useApplyClientTypography } from './state/useClientTypography';
+import './panel-resize.css';
 
 const RemoteTerminalView = lazy(() => import('./components/RemoteTerminalView').then(module => ({ default: module.RemoteTerminalView })));
 
@@ -67,6 +72,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme }: {
   const connections = useSshConnections();
   const { hosts } = connections;
   const [agentWidth, setAgentWidth] = useState(22);
+  const [commandWidth, setCommandWidth] = useState(260);
   const [navCollapsed, setNavCollapsed] = useState(true);
   const [connectionSidebarCollapsed, setConnectionSidebarCollapsed] = useState(
     () => localStorage.getItem(CONNECTION_SIDEBAR_COLLAPSED_KEY) === 'true',
@@ -1213,7 +1219,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme }: {
     return () => window.removeEventListener('online', verifyAfterNetworkRestore);
   }, [sessions, verifyTerminalSession]);
 
-  return <div style={{ '--agent-width': `${agentWidth}%` } as CSSProperties} className={`app-shell ${agentCollapsed ? 'agent-collapsed' : ''} ${navCollapsed ? 'nav-collapsed' : ''} ${connectionSidebarCollapsed ? 'host-sidebar-collapsed' : ''} ${navigation === '连接' ? 'connections-view' : 'terminal-view'} ${backendSettingsOpen ? 'settings-view' : ''}`}>
+  return <div style={{ '--agent-width': `${agentWidth}%`, '--command-width': `${commandWidth}px` } as CSSProperties} className={`app-shell ${agentCollapsed ? 'agent-collapsed' : ''} ${navCollapsed ? 'nav-collapsed' : ''} ${connectionSidebarCollapsed ? 'host-sidebar-collapsed' : ''} ${navigation === '连接' ? 'connections-view' : 'terminal-view'} ${backendSettingsOpen ? 'settings-view' : ''}`}>
     <AppHeader notify={notify} theme={theme} setTheme={setTheme} />
     <ActivityBar active={navigation} onSelect={name => { setBackendSettingsOpen(false); navigate(name); }} onSettings={() => setBackendSettingsOpen(value => !value)} settingsOpen={backendSettingsOpen} collapsed={navCollapsed} toggleCollapsed={() => setNavCollapsed(value => !value)} />
     {backendSettingsOpen && <BackendSettingsDialog currentUrl={backendUrl}
@@ -1257,9 +1263,13 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme }: {
         agentCollapsed={agentCollapsed}
         toggleAgent={() => setAgentCollapsed(value => !value)}
       />
-      <CommandShelf commands={commands} category={category} setCategory={setCategory} fill={fill} run={requestRun} copy={copy} add={() => setDialog('command')} disabled={!canRun} collapsed={commandCollapsed} />
+      <CommandShelf commands={commands} category={category} setCategory={setCategory} fill={fill} run={requestRun} copy={copy} add={() => setDialog('command')} disabled={!canRun} collapsed={commandCollapsed}
+        resize={<PanelDivider value={commandWidth} change={setCommandWidth} unit="pixels" min={220} max={450} defaultValue={260}
+          reservePixels={280} containerSelector=".central-workspace" className="command-panel-divider" label="调整常用命令宽度"
+          controls="command-shelf-content" collapsed={commandCollapsed} collapse={() => setCommandCollapsed(true)} />} />
     </main>
-    <PanelDivider value={agentWidth} change={setAgentWidth} />
+    <PanelDivider value={agentWidth} change={setAgentWidth} minPixels={300} reservePixels={360} reserveSelector=".central-workspace"
+      controls="agent-panel-content" collapsed={agentCollapsed} collapse={() => setAgentCollapsed(true)} />
     <AgentPanel chatDraft={chatDraft} draftScope={chatVersion.current} host={host} connected={active?.kind === 'ssh' && isSessionConnected(active)} localTerminal={active?.kind === 'local'} messages={messages} busy={chatBusy} stopping={chatStopping} send={sendMessage} stop={stopChat} collapsed={agentCollapsed}
       clear={clearChat} disabled={Boolean(historyLoadingId) || chatStopping}
       agentAvailability={{ ready: !!selectedAgent, loading: agentLoading, error: agentLoadError, retry: () => setAgentLoadAttempt(attempt => attempt + 1) }}
@@ -1292,6 +1302,8 @@ export default function App() {
   const desktop = isTauriRuntime();
   const { theme, setTheme } = useTheme();
   useApplyClientAppearance();
+  useApplyClientTextColors();
+  useApplyClientTypography();
   const [backendUrl, setBackendUrl] = useState(readBackendUrl);
   const [connectionRevision, setConnectionRevision] = useState(0);
   // 活动连接为远程时不等待本机 Java：其自动启动偏好与远程连接可用性相互独立。

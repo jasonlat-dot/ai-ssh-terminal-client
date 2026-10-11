@@ -18,6 +18,8 @@ function loadModule(path, requireModule, globals = {}) {
 }
 
 const geometry = loadModule('state/wallpaperCrop.ts', () => { throw new Error('Unexpected geometry import'); });
+const textColors = loadModule('state/clientTextColors.ts', () => { throw new Error('Unexpected text color import'); });
+const typography = loadModule('state/clientTypography.ts', () => { throw new Error('Unexpected typography import'); });
 const appearance = {
   ready: true, busy: false, error: null, wallpaperUrl: 'blob:current', wallpaperName: 'cat-wallpaper.webp',
   width: 1920, height: 1080, transparency: 25, readabilityProtection: true, wallpaperFit: 'cover',
@@ -40,8 +42,13 @@ function renderAppearance(snapshot) {
     if (name === './Ui') return ui;
     if (name.endsWith('/clientAppearance')) return api;
     if (name.endsWith('/useClientAppearance')) return { useClientAppearance: () => snapshot };
+    if (name.endsWith('/clientTextColors')) return textColors;
+    if (name.endsWith('/useClientTextColors')) return { useClientTextColors: () => ({ ...textColors.readClientTextColors(), theme: 'light' }) };
+    if (name.endsWith('/clientTypography')) return typography;
+    if (name.endsWith('/useClientTypography')) return { useClientTypography: typography.readClientTypography };
     if (name.endsWith('/wallpaperCrop')) return geometry;
-    if (name === './WallpaperCropEditor' || name === './WallpaperFitControl' || name === './WallpaperWorkspacePreview') {
+    if (name.endsWith('/wallpaperPlayback')) return { bindWallpaperPlayback: () => () => {} };
+    if (name === './WallpaperCropEditor' || name === './WallpaperFitControl' || name === './WallpaperWorkspacePreview' || name === './TextColorSettings' || name === './TypographySettings' || name === './WallpaperVideo') {
       if (!cache.has(name)) cache.set(name, loadModule(`components/${name.slice(2)}.tsx`, requireModule, { window: windowSize }));
       return cache.get(name);
     }
@@ -59,6 +66,14 @@ test('已有壁纸打开外观页即可看到比例、缩放、显示方式，�
   assert.match(html, /还原已保存画面/);
   assert.match(html, /id="appearance-transparency"/);
   assert.match(html, /文字可读性保护/);
+  assert.match(html, /界面文字颜色/);
+  assert.match(html, /主要文字 HEX/);
+  assert.match(html, /辅助文字 HEX/);
+  assert.match(html, /恢复当前主题文字颜色/);
+  assert.match(html, /界面字体/);
+  assert.match(html, /正常字体粗细/);
+  assert.match(html, /粗体字体粗细/);
+  assert.match(html, /自定义本机字体/);
   const preview = html.match(/<figure class="appearance-preview"[\s\S]*?<\/figure>/)?.[0];
   assert.ok(preview);
   assert.doesNotMatch(preview, /<svg|<aside|<i\b|•••|appearance-preview-(?:bar|workspace|dots|terminal|agent)/);
@@ -209,6 +224,7 @@ function editorHarness({ file, initialCrop, hasWallpaper = true, initializing = 
     if (name === './Ui') return { Icon: () => createNode('svg') };
     if (name.endsWith('/clientAppearance')) return api;
     if (name.endsWith('/wallpaperCrop')) return { ...geometry, exportWallpaperCrop: exportCrop };
+    if (name === './WallpaperVideo') return { WallpaperVideo: props => createNode('video', { ...props, muted: true, loop: true, playsInline: true }) };
     if (name === './WallpaperFitControl') return fitControl ??= loadModule('components/WallpaperFitControl.tsx', requireModule);
     if (name === './WallpaperWorkspacePreview') return workspacePreview ??= loadModule('components/WallpaperWorkspacePreview.tsx', requireModule);
     throw new Error(`Unexpected import: ${name}`);

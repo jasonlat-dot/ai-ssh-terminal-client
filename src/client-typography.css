@@ -1,0 +1,25 @@
+/* 根主题始终保持原值；代码/终端/公式可恢复这些已解析的别名。 */
+:root {
+  --client-original-font: var(--font-ui);
+  --client-original-weight-body: var(--weight-body);
+  --client-original-weight-label: var(--weight-label);
+  --client-original-weight-title: var(--weight-title);
+}
+:root[data-client-font='true'] :is(.app-shell, .settings-page, .modal) {
+  --font-ui: var(--client-ui-font); --sans: var(--client-ui-font); font-family: var(--client-ui-font);
+}
+:root[data-client-weight-normal='true'] :is(.app-shell, .settings-page, .modal) {
+  --weight-body: var(--client-ui-weight-normal); --weight-label: var(--client-ui-weight-normal);
+  font-weight: var(--client-ui-weight-normal);
+}
+:root[data-client-weight-bold='true'] :is(.app-shell, .settings-page, .modal) { --weight-title: var(--client-ui-weight-bold); }
+/* 兼容仍写死权重的旧标题；不覆盖代码及公式内的强弱字形。 */
+:root[data-client-weight-bold='true'] :is(.app-shell, .settings-page, .modal) :is(h1, h2, h3, h4, h5, h6, strong, b, th, .command-name):not(:where(.xterm *, .remote-terminal-screen *, pre *, code *, .katex *)) {
+  font-weight: var(--client-ui-weight-bold);
+}
+:root:is([data-client-font='true'], [data-client-weight-normal='true'], [data-client-weight-bold='true']) :is(.app-shell, .settings-page, .modal)
+  :is(.xterm, .remote-terminal-screen, .terminal-output, pre, code, .markdown-code-card, .katex, .code-input, .settings-control-mono, .terminal-paste-popover, .settings-connection-fields textarea, .ssh-credential-field textarea, .ssh-known-hosts-field textarea) {
+  --font-ui: var(--client-original-font); --sans: var(--client-original-font);
+  --weight-body: var(--client-original-weight-body); --weight-label: var(--client-original-weight-label); --weight-title: var(--client-original-weight-title);
+  font-weight: var(--client-original-weight-body);
+}

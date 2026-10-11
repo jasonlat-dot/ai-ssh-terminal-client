@@ -2,6 +2,7 @@ import type { CSSProperties, Ref } from 'react';
 import type { PreparedWallpaper, WallpaperFit } from '../state/clientAppearance';
 import { wallpaperReadability } from '../state/clientAppearance';
 import type { CropRect } from '../state/wallpaperCrop';
+import { WallpaperVideo } from './WallpaperVideo';
 
 type WallpaperWorkspacePreviewProps = {
   source?: PreparedWallpaper | null;
@@ -38,7 +39,8 @@ export function WallpaperWorkspacePreview({ source, rect, fit, transparency, pro
     aria-label="壁纸与背景透明度的工作区预览">
     <div className="appearance-preview-background" aria-hidden="true">
       {hasImage && <div ref={imagePlaneRef} className="appearance-preview-image-plane">
-        <img src={source.url} style={imageStyle} alt="" draggable={false} />
+        {source.kind === 'video' ? <WallpaperVideo src={source.url} style={imageStyle} />
+          : <img src={source.url} style={imageStyle} alt="" draggable={false} />}
       </div>}
     </div>
     <div className="appearance-preview-tint" aria-hidden="true" />

@@ -33,10 +33,11 @@ export function TerminalWorkspace({ remoteViews, sessions, activeId, host, selec
     </div> : <TerminalWelcome add={add} connections={connections} />}
   </section>;
 }
-export function CommandShelf({ commands, category, setCategory, fill, run, copy, add, disabled, collapsed }: { commands: SavedCommand[]; category: string; setCategory: (value: string) => void; fill: (command: string) => void; run: (command: string) => void; copy: (text: string) => void; add: () => void; disabled: boolean; collapsed: boolean }) {
+export function CommandShelf({ commands, category, setCategory, fill, run, copy, add, disabled, collapsed, resize }: { commands: SavedCommand[]; category: string; setCategory: (value: string) => void; fill: (command: string) => void; run: (command: string) => void; copy: (text: string) => void; add: () => void; disabled: boolean; collapsed: boolean; resize?: ReactNode }) {
   const filtered = commands.filter(command => category === '全部' || command.category === category);
   const categoryCards = ['全部', ...new Set(commands.map(command => command.category))];
   return <section className={`command-shelf ${collapsed ? 'collapsed' : ''}`} id="commands" tabIndex={-1}>
+    {resize}
     <div className="command-shelf-inner" id="command-shelf-content" aria-hidden={collapsed}>
       <div className="section-heading"><div className="panel-title"><div className="command-library-heading"><h2>常用命令</h2><small>本机持久化命令库</small></div><Badge tone="violet" className="panel-count">{commands.length}</Badge></div><button className="text-button command-add-button" onClick={add}><Icon name="plus" />新增</button></div>
       <div className="command-categories" role="tablist" aria-label="命令分类">{categoryCards.map(item => {

@@ -33,6 +33,25 @@
 }
 /* 完整显示不再额外放大图层，否则方形图仍会被裁去上下边缘。 */
 :root[data-wallpaper='true'][data-wallpaper-fit='contain'] #root::before { transform: none; }
+/* 动态媒体单独绘制，原根层仅保留一份主题遮罩，透明度不影响前景。 */
+:root[data-wallpaper='true']:is([data-wallpaper-kind='animated'], [data-wallpaper-kind='video']) #root::before {
+  background-image: linear-gradient(var(--client-wallpaper-tint), var(--client-wallpaper-tint));
+  transform: none; filter: none;
+}
+:root[data-wallpaper='true'] .client-wallpaper-motion {
+  position: fixed; inset: 0; z-index: -2; overflow: hidden; pointer-events: none;
+  container-type: size; filter: blur(var(--client-wallpaper-blur, 0px));
+}
+:root[data-wallpaper='true'] .client-wallpaper-motion-plane {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: max(100cqw, calc(100cqh * var(--motion-ratio))); aspect-ratio: var(--motion-ratio); overflow: hidden;
+}
+:root[data-wallpaper='true'] .client-wallpaper-motion[data-fit='contain'] .client-wallpaper-motion-plane {
+  width: min(100cqw, calc(100cqh * var(--motion-ratio)));
+}
+:root[data-wallpaper='true'] .client-wallpaper-motion-plane :is(img, video) {
+  position: absolute; max-width: none; max-height: none; object-fit: fill; pointer-events: none;
+}
 /* 所有常驻面板使用根节点的统一遮罩；不在面板内重复计算 alpha。 */
 :root[data-wallpaper='true'] :is(
   .app-shell,

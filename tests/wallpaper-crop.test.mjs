@@ -17,6 +17,18 @@ const api = load();
 const centered = { zoom: 1, centerX: .5, centerY: .5 };
 const close = (actual, expected) => assert.ok(Math.abs(actual - expected) < .00001, `${actual} != ${expected}`);
 
+test('GIF/WebP 动画与 MP4 调整选区只保留原文件，不解码 Canvas 或导出静态帧', async () => {
+  for (const [kind, type] of [['animated', 'image/gif'], ['animated', 'image/webp'], ['video', 'video/mp4']]) {
+    const blob = new Blob(['original animation bytes'], { type });
+    const source = { width: 1920, height: 1080, url: 'blob:dynamic', name: 'moving', kind, blob };
+    const rect = api.wallpaperCropRect(source, 1, { zoom: 2, centerX: .5, centerY: .5 });
+    const file = await api.exportWallpaperCrop(source, rect);
+    assert.equal(file.type, type); assert.equal(file.name, source.name);
+    assert.deepEqual(await file.arrayBuffer(), await blob.arrayBuffer());
+    await assert.rejects(() => api.exportWallpaperCrop({ ...source, blob: undefined }, rect), /原文件丢失/);
+  }
+});
+
 test('横图铺满与竖图居中裁剪使用同一原图坐标；缩放只缩小选区', () => {
   const landscape = api.wallpaperCropRect({ width: 1920, height: 1080 }, 16 / 9, centered);
   close(landscape.x, 0); close(landscape.y, 0);
