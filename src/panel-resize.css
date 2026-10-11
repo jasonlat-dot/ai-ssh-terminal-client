@@ -8,3 +8,13 @@
 .command-panel-divider::before { inset: 0; }
 .command-shelf.collapsed > .command-panel-divider { visibility: hidden; pointer-events: none; }
 .central-workspace:has(.command-panel-divider.dragging) { transition: none; }
+.panel-divider.collapse-pending { z-index: var(--ui-popover-layer); }
+.panel-divider.collapse-pending > span { width: 3px; height: 64px; background: var(--ui-accent); box-shadow: 0 0 0 4px var(--ui-highlight-bg); }
+.panel-collapse-hint {
+  position: absolute; right: calc(100% + 10px); top: 50%; transform: translateY(-50%);
+  display: flex; flex-direction: column; gap: 2px; padding: 9px 12px;
+  border: 1px solid var(--ui-accent); border-radius: 8px; background: var(--theme-panel);
+  color: var(--theme-text-strong); box-shadow: var(--ui-menu-shadow); white-space: nowrap; pointer-events: none;
+}
+.panel-collapse-hint strong { font-size: var(--font-small); color: var(--theme-accent-text); }
+.panel-collapse-hint small { color: var(--theme-text-muted); }

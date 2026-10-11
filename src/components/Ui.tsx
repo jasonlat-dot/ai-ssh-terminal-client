@@ -2,6 +2,7 @@ import { useEffect, useId, useRef } from 'react';
 import type { ButtonHTMLAttributes, HTMLAttributes, ReactNode } from 'react';
 
 const paths = {
+  github: 'M9 19c-4.3 1.4-4.3-2.5-6-3 M15 22v-3.9a3.4 3.4 0 0 0-.9-2.6c3-.3 6.2-1.5 6.2-6.9A5.4 5.4 0 0 0 18.8 5a5 5 0 0 0-.1-3.6S17.5 1 15 2.8a13.4 13.4 0 0 0-6 0C6.5 1 5.3 1.4 5.3 1.4A5 5 0 0 0 5.2 5a5.4 5.4 0 0 0-1.5 3.6c0 5.4 3.2 6.6 6.2 6.9A3.4 3.4 0 0 0 9 18.1V22',
   book: 'M12 5v16 M12 5C8 2 4 3 2 4v15c4-2 7-1 10 2 3-3 6-4 10-2V4c-2-1-6-2-10 1 M6 7h2 M16 7h2',
   bolt: 'm13 2-9 12h7l-1 8 10-13h-8z',
   shield: 'm12 2 9 4v6c0 5-5 8-9 10-4-2-9-5-9-10V6z M7 12l3 3 7-7',

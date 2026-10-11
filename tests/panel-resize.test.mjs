@@ -5,11 +5,11 @@ import vm from 'node:vm';
 import ts from 'typescript';
 
 const source = path => readFileSync(new URL(`../src/${path}`, import.meta.url), 'utf8');
-function load(path, requireModule = () => { throw new Error('Unexpected import'); }) {
+function load(path, requireModule = () => { throw new Error('Unexpected import'); }, globals = {}) {
   const compiled = ts.transpileModule(source(path), { compilerOptions: {
     module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX,
   } }).outputText;
-  const context = vm.createContext({ exports: {}, require: requireModule });
+  const context = vm.createContext({ exports: {}, require: requireModule, ...globals });
   vm.runInContext(compiled, context); return context.exports;
 }
 const geometry = load('state/panelResize.ts');
@@ -31,7 +31,7 @@ test('像素和百分比边界：精确最小值不折叠、小于最小值折�
 });
 
 function divider(overrides = {}) {
-  const slots = [], effects = []; let cursor = 0, tree;
+  const slots = [], effects = [], listeners = new Map(); let cursor = 0, tree;
   const state = { width: overrides.unit === 'pixels' ? 260 : 22, collapsed: false, changes: [], collapseCount: 0 };
   const hooks = {
     useState(initial) { const index = cursor++; if (!(index in slots)) slots[index] = initial;
@@ -49,7 +49,7 @@ function divider(overrides = {}) {
     if (name === 'react/jsx-runtime') return { jsx: node, jsxs: node };
     if (name === '../state/panelResize') return geometry;
     throw new Error(name);
-  });
+  }, { window: { addEventListener: (name, listener) => listeners.set(name, listener), removeEventListener: name => listeners.delete(name) } });
   const captures = new Set(), container = {
     getBoundingClientRect: () => ({ width: 1200, left: 0 }),
     querySelector: () => ({ getBoundingClientRect: () => ({ left: 280 }) }),
@@ -68,6 +68,7 @@ function divider(overrides = {}) {
   }
   render();
   return { state, captures, event, render, container, tree: () => tree,
+    blur: () => { listeners.get('blur')(); render(); },
     unmount: () => { for (const slot of slots) slot?.cleanup?.(); } };
 }
 
@@ -75,12 +76,20 @@ for (const [unit, options, start, min, toMinimum] of [
   ['pixels', { min: 220, max: 450, defaultValue: 260, reservePixels: 280 }, 260, 220, 940],
   ['percent', { minPixels: 300, reservePixels: 360, reserveSelector: '.central-workspace' }, 22, 25, 900],
 ]) {
-  test(`${unit}：向右低于最小宽度收起，保留最后宽度，重新展开不重置`, () => {
+  test(`${unit}：向右低于最小宽度只预提示，松开才收起，保留最后宽度，重新展开不重置`, () => {
     const ui = divider({ unit, ...options });
     assert.equal(ui.state.width, start);
     ui.event('onPointerDown'); ui.event('onPointerMove', { clientX: toMinimum });
     assert.equal(ui.state.width, min); assert.equal(ui.state.collapsed, false);
     ui.event('onPointerMove', { clientX: toMinimum + 1 });
+    assert.equal(ui.state.collapsed, false); assert.equal(ui.state.width, min);
+    assert.equal(ui.state.collapseCount, 0); assert.equal(ui.captures.size, 1);
+    assert.match(ui.tree().props.className, /collapse-pending/);
+    assert.match(ui.tree().props['aria-valuetext'], /松开鼠标收起/);
+    assert.ok(ui.tree().props.children.find(child => child?.props?.className === 'panel-collapse-hint'));
+    ui.event('onPointerUp', { pointerId: 2, clientX: toMinimum + 1 });
+    assert.equal(ui.state.collapseCount, 0); assert.equal(ui.captures.size, 1);
+    ui.event('onPointerUp', { clientX: toMinimum + 1 });
     assert.equal(ui.state.collapsed, true); assert.equal(ui.state.width, min);
     assert.equal(ui.state.collapseCount, 1); assert.equal(ui.captures.size, 0);
     assert.equal(ui.tree().props.tabIndex, -1);
@@ -88,9 +97,38 @@ for (const [unit, options, start, min, toMinimum] of [
     ui.state.collapsed = false; ui.render(); assert.equal(ui.state.width, min);
     ui.event('onPointerDown'); ui.event('onPointerMove', { clientX: 840 });
     assert.ok(ui.state.width > min); assert.equal(ui.state.collapsed, false);
-    ui.event('onPointerUp'); assert.equal(ui.captures.size, 0);
+    ui.event('onPointerUp', { clientX: 840 }); assert.equal(ui.captures.size, 0);
   });
 }
+
+test('拖回阈值内撤销收起预告；松手以最终位置为准，不使用上一次 move 的状态', () => {
+  const ui = divider({ unit: 'pixels', min: 220, max: 450, collapseLabel: '常用命令' });
+  ui.event('onPointerDown'); ui.event('onPointerMove', { clientX: 1000 });
+  assert.match(ui.tree().props['aria-valuetext'], /常用命令/);
+  ui.event('onPointerMove', { clientX: 930 });
+  assert.equal(ui.state.width, 230); assert.equal(ui.tree().props['aria-valuetext'], undefined);
+  assert.doesNotMatch(ui.tree().props.className, /collapse-pending/);
+  ui.event('onPointerUp', { clientX: 930 }); assert.equal(ui.state.collapseCount, 0);
+  ui.event('onPointerDown'); ui.event('onPointerMove', { clientX: 1000 });
+  ui.event('onPointerUp', { clientX: 890 });
+  assert.equal(ui.state.collapseCount, 0); assert.equal(ui.state.width, 240);
+  ui.event('onPointerDown'); ui.event('onPointerUp', { clientX: 1000 });
+  assert.equal(ui.state.collapseCount, 1); assert.equal(ui.state.width, 220);
+});
+
+test('预告收起时取消、失去捕获、Esc 或窗口失焦都不折叠，清理提示及捕获', () => {
+  for (const cancel of ['onPointerCancel', 'onLostPointerCapture', 'Escape', 'blur']) {
+    const ui = divider({ unit: 'pixels', min: 220, max: 450 });
+    ui.event('onPointerDown'); ui.event('onPointerMove', { clientX: 1000 });
+    if (cancel === 'Escape') ui.event('onKeyDown', { key: 'Escape' });
+    else if (cancel === 'blur') ui.blur();
+    else ui.event(cancel);
+    assert.equal(ui.state.collapsed, false); assert.equal(ui.captures.size, 0);
+    assert.equal(ui.tree().props['aria-valuetext'], undefined);
+    assert.doesNotMatch(ui.tree().props.className, /dragging|collapse-pending/);
+    ui.event('onPointerUp', { clientX: 1000 }); assert.equal(ui.state.collapseCount, 0);
+  }
+});
 
 test('双击默认、键盘调整与吸附收起；取消拖动不残留捕获，非主键/其他指针不修改', () => {
   const ui = divider({ unit: 'pixels', min: 220, max: 450, defaultValue: 260 });

@@ -4,6 +4,10 @@ import { Icon } from './Ui';
 import type { IconName } from './Ui';
 import { dragAppWindow } from '../state/appWindow';
 import { WindowControls } from './WindowControls';
+import { openUrl } from '@tauri-apps/plugin-opener';
+import { isTauriRuntime } from '../state/runtime';
+
+const PROJECT_GITHUB_URL = 'https://github.com/jasonlat-dot/ai-ssh-terminal-server';
 export function AppHeader({ notify, theme, setTheme }: {
   notify: (text: string) => void;
   theme: ThemePreference;
@@ -20,7 +24,13 @@ export function AppHeader({ notify, theme, setTheme }: {
         ] as const).map(([value, icon, label]) => <button type="button" key={value} className={theme === value ? 'selected' : ''} aria-label={label} title={label} aria-pressed={theme === value} onClick={() => setTheme(value)}><Icon name={icon} size={15} /></button>)}
       </div>
       <span className="header-divider" />
-      <button className="user-menu" onClick={() => notify('zhangsan · 本地演示账户')}><span className="avatar">Z</span><span>zhangsan</span><Icon name="down" size={14} /></button>
+      <a className="user-menu github-link" href={PROJECT_GITHUB_URL} target="_blank" rel="noopener noreferrer"
+        aria-label="jasonlat · 打开 GitHub 项目" title="jasonlat · GitHub 项目"
+        onClick={event => {
+          if (!isTauriRuntime()) return;
+          event.preventDefault();
+          void openUrl(PROJECT_GITHUB_URL).catch(() => notify('无法打开 GitHub 项目，请检查系统浏览器。'));
+        }}><span className="avatar"><Icon name="github" size={21} /></span><span>jasonlat</span><Icon name="upRight" size={14} /></a>
       <WindowControls />
     </div>
   </header>;

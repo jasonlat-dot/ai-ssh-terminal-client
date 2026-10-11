@@ -1344,7 +1344,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme }: {
         disabled={broadcastBusy || (commandMode === 'single' ? !canRun : !commandPlan.targets.length)} collapsed={commandCollapsed} broadcast={commandMode !== 'single'}
         resize={<PanelDivider value={commandWidth} change={setCommandWidth} unit="pixels" min={220} max={450} defaultValue={260}
           reservePixels={280} containerSelector=".central-workspace" className="command-panel-divider" label="调整常用命令宽度"
-          controls="command-shelf-content" collapsed={commandCollapsed} collapse={() => setCommandCollapsed(true)} />} />
+          controls="command-shelf-content" collapseLabel="常用命令" collapsed={commandCollapsed} collapse={() => setCommandCollapsed(true)} />} />
     </main>
     <PanelDivider value={agentWidth} change={setAgentWidth} minPixels={300} reservePixels={360} reserveSelector=".central-workspace"
       controls="agent-panel-content" collapsed={agentCollapsed} collapse={() => setAgentCollapsed(true)} />

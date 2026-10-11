@@ -50,8 +50,9 @@ function readTerminalFontSize() {
 }
 
 const terminalThemes = {
-  light: { background: '#ffffff', foreground: '#243b60', cursor: '#246fe5', cursorAccent: '#ffffff', selectionBackground: '#cfe2ff', scrollbarSliderBackground: '#aebdd180', scrollbarSliderHoverBackground: '#91a6c1a6', scrollbarSliderActiveBackground: '#7890b3bf', black: '#243b60', red: '#be3434', green: '#00885e', yellow: '#946500', blue: '#276ac0', magenta: '#8750bb', cyan: '#008c9e', white: '#d2dceb' },
-  dark: { background: '#0d1624', foreground: '#d8e5f4', cursor: '#72adff', cursorAccent: '#0d1624', selectionBackground: '#31547a', scrollbarSliderBackground: '#52698380', scrollbarSliderHoverBackground: '#69839fa6', scrollbarSliderActiveBackground: '#7894b5bf', black: '#162235', red: '#ff7b72', green: '#45d3a6', yellow: '#e7bd65', blue: '#70a9ff', magenta: '#c099ff', cyan: '#56d4df', white: '#e5eef8' },
+  // xterm 的概览标尺用 canvas 绘制边线，未指定时为白色；隐藏原生滚动条并不能移除它。
+  light: { background: '#ffffff', foreground: '#243b60', cursor: '#246fe5', cursorAccent: '#ffffff', selectionBackground: '#cfe2ff', overviewRulerBorder: '#00000000', scrollbarSliderBackground: '#aebdd180', scrollbarSliderHoverBackground: '#91a6c1a6', scrollbarSliderActiveBackground: '#7890b3bf', black: '#243b60', red: '#be3434', green: '#00885e', yellow: '#946500', blue: '#276ac0', magenta: '#8750bb', cyan: '#008c9e', white: '#d2dceb' },
+  dark: { background: '#0d1624', foreground: '#d8e5f4', cursor: '#72adff', cursorAccent: '#0d1624', selectionBackground: '#31547a', overviewRulerBorder: '#00000000', scrollbarSliderBackground: '#52698380', scrollbarSliderHoverBackground: '#69839fa6', scrollbarSliderActiveBackground: '#7894b5bf', black: '#162235', red: '#ff7b72', green: '#45d3a6', yellow: '#e7bd65', blue: '#70a9ff', magenta: '#c099ff', cyan: '#56d4df', white: '#e5eef8' },
 };
 
 function currentTerminalTheme() {

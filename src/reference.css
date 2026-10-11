@@ -31,6 +31,10 @@
 .project-select > svg { color: #6c82b3; }
 .avatar { background: linear-gradient(145deg, #6485ff, #343ed0); width: 32px; height: 32px; box-shadow: inset 1px 1px 2px #ffffff50; }
 .user-menu { font-size: 12px; }
+.github-link { display: inline-flex; align-items: center; padding: 4px 8px; border-radius: 7px; color: var(--theme-text-strong); text-decoration: none; transition: background-color .16s; }
+.github-link:hover { background: var(--theme-hover); }
+.github-link:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
+.github-link .avatar { color: var(--theme-text-strong); background: var(--theme-hover); box-shadow: none; }
 .profile { gap: 12px; }
 .profile > .icon-button { color: #496197; }
 .header-divider { height: 23px; background: #e8edf8; }
