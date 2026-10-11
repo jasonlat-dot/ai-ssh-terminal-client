@@ -105,6 +105,23 @@ export function BackendConnectionSettings({ localUrl, onUse }: {
     finally { setBusy(false); setTesting(false); }
   };
 
+  const connectionActions = (
+    <div className="settings-connection-actions">
+      <button type="button" className="ghost-button" disabled={busy || !draft.url} aria-busy={testing} onClick={() => void test()}>
+        <Icon name={testing ? 'refresh' : 'signal'} size={14} />{testing ? '正在测试…' : '测试连接'}</button>
+      {!builtin && <button type="button" className="outlined-button" disabled={busy} onClick={() => void save(false)}>
+        {connections.activeId === draft.id ? '保存并使用' : '保存连接'}</button>}
+      <button type="button" className="primary-button" disabled={busy || (!builtin && !draft.name.trim())}
+        onClick={() => void save(true)}>{busy ? '处理中…' : builtin ? '切回内置后端' : '使用此连接'}</button>
+      {!builtin && connections.activeId !== draft.id && connections.profiles.some(profile => profile.id === draft.id)
+        && <button type="button" className="ghost-button" disabled={busy} onClick={() => {
+          try { deleteBackendConnection(draft.id); setConnections(readBackendConnections());
+            select(BUILTIN_BACKEND_ID); setMessage({ title: '远程连接已删除', detail: '当前连接未改变。' }); }
+          catch (cause) { setError(String(cause)); }
+        }}>删除连接</button>}
+    </div>
+  );
+
   return <div className="settings-connection-editor">
     <p className="settings-field-help">当前正在使用：<strong>{currentConnection?.name}</strong>。
       下拉框仅选择查看或编辑对象，不会立即切换后端。</p>
@@ -134,8 +151,11 @@ export function BackendConnectionSettings({ localUrl, onUse }: {
       </div>}
       <div className="settings-field">
         <label htmlFor="connection-url">{builtin ? '内置后端地址' : '远程后端根地址'}</label>
-        <input id="connection-url" className="settings-control" type="url" value={draft.url} readOnly={builtin}
-          placeholder="https://ssh.example.com" onChange={event => change({ url: event.target.value })} />
+        <div className={builtin ? 'settings-builtin-address-row' : undefined}>
+          <input id="connection-url" className="settings-control" type="url" value={draft.url} readOnly={builtin}
+            placeholder="https://ssh.example.com" onChange={event => change({ url: event.target.value })} />
+          {builtin && connectionActions}
+        </div>
         <p className="settings-field-help">{builtin
           ? '地址由内置服务的实际协议和端口决定。修改下方内置设置后，重启内置服务生效。'
           : '不附加 /agent 或 /api/v1/ssh。Nginx 提供 HTTPS 时填写公网域名，不填写内部端口。'}</p>
@@ -189,20 +209,7 @@ export function BackendConnectionSettings({ localUrl, onUse }: {
         </p>
       </div>}
     </fieldset>
-    <div className="settings-connection-actions">
-      <button type="button" className="ghost-button" disabled={busy || !draft.url} aria-busy={testing} onClick={() => void test()}>
-        <Icon name={testing ? 'refresh' : 'signal'} size={14} />{testing ? '正在测试…' : '测试连接'}</button>
-      {!builtin && <button type="button" className="outlined-button" disabled={busy} onClick={() => void save(false)}>
-        {connections.activeId === draft.id ? '保存并使用' : '保存连接'}</button>}
-      <button type="button" className="primary-button" disabled={busy || (!builtin && !draft.name.trim())}
-        onClick={() => void save(true)}>{busy ? '处理中…' : builtin ? '切回内置后端' : '使用此连接'}</button>
-      {!builtin && connections.activeId !== draft.id && connections.profiles.some(profile => profile.id === draft.id)
-        && <button type="button" className="ghost-button" disabled={busy} onClick={() => {
-          try { deleteBackendConnection(draft.id); setConnections(readBackendConnections());
-            select(BUILTIN_BACKEND_ID); setMessage({ title: '远程连接已删除', detail: '当前连接未改变。' }); }
-          catch (cause) { setError(String(cause)); }
-        }}>删除连接</button>}
-    </div>
+    {!builtin && connectionActions}
     <p className="settings-field-help">测试使用上方填写的地址和证书验证方式，无需先保存或应用。
       桌面版独立检查 TLS 和 /api/health，不借用内置证书；业务登录、权限与 WebView 跨域另行验证。</p>
     {testing && <div className="settings-connection-notice" data-accent="blue" role="status">

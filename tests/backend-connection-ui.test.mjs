@@ -72,7 +72,7 @@ function connectionHarness({ activeId = 'builtin', tlsFailure = false } = {}) {
     return [value, ...nodes(value.props.children)];
   }
   function text(value) {
-    if (value == null) return '';
+    if (value == null || typeof value === 'boolean') return '';
     if (typeof value !== 'object') return String(value);
     if (Array.isArray(value)) return value.map(text).join('');
     return typeof value.type === 'function' ? text(value.type(value.props)) : text(value.props.children);
@@ -91,8 +91,23 @@ function connectionHarness({ activeId = 'builtin', tlsFailure = false } = {}) {
     render();
   }
   render();
-  return { select, click, backend, writes, uses, tlsIdentities, text: () => text(tree), get starts() { return starts; } };
+  return { select, click, backend, writes, uses, tlsIdentities, find, textOf: text, text: () => text(tree), get starts() { return starts; } };
 }
+
+test('内置后端地址同行显示两个操作且不重复，远程操作保持独立', async () => {
+  const ui = connectionHarness();
+  const row = ui.find(node => node.props.className === 'settings-builtin-address-row');
+  assert.ok(row);
+  assert.equal(row.props.children[0].props.id, 'connection-url');
+  assert.match(ui.textOf(row), /测试连接切回内置后端/);
+  assert.equal(ui.text().split('测试连接').length - 1, 1);
+  await ui.click('测试连接');
+  assert.equal(ui.writes.length, 0);
+  assert.equal(ui.uses.length, 0);
+  ui.select('remote');
+  assert.equal(ui.find(node => node.props.className === 'settings-builtin-address-row'), undefined);
+  assert.match(ui.textOf(ui.find(node => node.props.className === 'settings-connection-actions')), /测试连接保存连接使用此连接删除连接/);
+});
 
 test('选择远程只编辑草稿，提示尚未使用，真正活动连接及存储不变', () => {
   const ui = connectionHarness();

@@ -1,18 +1,19 @@
 /* 只参考左右布局：左侧工作区预览，右侧原图缩略入口和参数，不额外增加导航或工作区列表。 */
 .wallpaper-crop-editor {
-  flex: 1 0 auto; display: grid; grid-template-columns: minmax(0, 1fr) 20rem;
-  /* 最小行高由侧栏内容决定；窄/矮窗口宁可滚动，也不让保存栏覆盖控件。 */
-  grid-template-rows: auto minmax(min-content, 1fr);
-  gap: 14px 24px; min-height: 440px;
+  flex: 0 0 auto; display: grid; grid-template-columns: minmax(0, 1fr) 380px;
+  /* 按内容自然撑高，不把剩余窗口高度分给预览；小窗口仍由设置页滚动。 */
+  grid-template-rows: auto auto;
+  gap: 20px 24px; min-height: 0;
 }
 .wallpaper-crop-heading { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 1rem; min-width: 0; }
 .wallpaper-crop-heading > h2 { margin: 0; font-size: var(--font-title); }
 .wallpaper-crop-heading .appearance-title-group { flex: 1 1 22rem; }
 .wallpaper-crop-heading-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 10px 14px; margin-left: auto; }
-/* 左右区域从同一网格行顶部开始，不能为右侧标题额外下移左侧预览。 */
-.wallpaper-crop-main { display: grid; grid-template-rows: minmax(0, 1fr); min-width: 0; min-height: 0; padding-top: 0; align-self: start; }
+/* 两列使用等高标题，预览与原图缩略入口自然对齐，不用补偿 padding。 */
+.wallpaper-crop-main { display: grid; grid-template-rows: auto auto; min-width: 0; min-height: 0; padding-top: 0; align-self: start; }
+.wallpaper-preview-heading, .wallpaper-source-control h3 { display: flex; align-items: center; gap: 6px; min-height: 22px; margin: 0 0 8px; font-size: var(--font-small); line-height: 1.5; font-weight: var(--weight-title); }
 /* 高度由模拟窗口比例决定，不拉伸到整行高度；焦点环、指针捕获都只覆盖实际预览。 */
-.wallpaper-crop-frame { width: 100%; min-width: 0; min-height: 0; align-self: start; aspect-ratio: var(--appearance-preview-window-ratio, 16 / 9); display: grid; place-items: start center; cursor: grab; touch-action: none; user-select: none; }
+.wallpaper-crop-frame { width: 100%; max-width: min(900px, calc(500px * var(--appearance-preview-window-ratio, 1.777778))); min-width: 0; min-height: 0; align-self: start; justify-self: center; aspect-ratio: var(--appearance-preview-window-ratio, 16 / 9); display: grid; place-items: start center; cursor: grab; touch-action: none; user-select: none; }
 .wallpaper-crop-frame[aria-disabled='true'] { cursor: default; }
 .wallpaper-crop-frame:active { cursor: grabbing; }
 .wallpaper-crop-frame:focus-visible { outline: 2px solid var(--settings-focus); outline-offset: 4px; border-radius: 10px; }
@@ -20,13 +21,12 @@
 .wallpaper-crop-frame .appearance-preview { pointer-events: none; }
 .appearance-settings .wallpaper-crop-help { display: flex; align-items: center; gap: .4rem; margin: 0; font-size: var(--font-caption); line-height: 1.5; color: var(--settings-text-muted); }
 .wallpaper-crop-controls { display: flex; flex-direction: column; gap: 12px; min-width: 0; padding-left: 20px; border-left: 1px solid var(--settings-border); align-self: start; }
-.wallpaper-source-control h3 { display: flex; align-items: center; gap: 6px; margin: 0 0 8px; font-size: var(--font-small); line-height: 1.5; font-weight: var(--weight-title); }
-.wallpaper-source-control h3 svg { color: var(--settings-tag-text); }
-.wallpaper-source-thumbnail { position: relative; height: 100px; overflow: hidden; border: 1px solid var(--settings-border-strong); border-radius: 8px; background: color-mix(in srgb, var(--theme-panel) 65%, transparent); }
+.wallpaper-source-control h3 > .ui-badge { margin-left: auto; }
+.wallpaper-source-thumbnail { position: relative; height: 112px; overflow: hidden; border: 1px solid var(--settings-border-strong); border-radius: 8px; background: color-mix(in srgb, var(--theme-panel) 65%, transparent); }
 /* 入口装饰采用铺满缩略背景；原图来源不变，也不跟随左侧草稿的裁剪/缩放/透明度。 */
 .wallpaper-source-image { display: block; width: 100%; height: 100%; object-fit: cover; object-position: center; pointer-events: none; }
 .wallpaper-source-placeholder { display: flex; flex-direction: column; align-items: center; gap: 6px; padding-top: 10px; color: var(--settings-text-muted); font-size: var(--font-caption); }
-.wallpaper-source-actions { position: absolute; inset: 0; background: linear-gradient(180deg, rgb(8 16 30 / 6%) 45%, rgb(8 16 30 / 28%) 100%); }
+.wallpaper-source-actions { position: absolute; inset: 0; background: linear-gradient(180deg, rgb(8 16 30 / 18%) 45%, rgb(8 16 30 / 34%) 100%); }
 .settings-page .appearance-settings .wallpaper-source-actions .appearance-picker { display: flex; align-items: flex-end; justify-content: center; gap: 5px; width: 100%; min-height: 0; height: 100%; padding: 0 40px 10px; border: 0; border-radius: 0; box-shadow: none; background: transparent; color: #fff; font: inherit; font-size: var(--font-caption); cursor: pointer; text-shadow: 0 1px 3px rgb(0 0 0 / 65%); }
 .wallpaper-source-actions .appearance-picker > :is(svg, span) { opacity: .8; transition: opacity 180ms ease; }
 .wallpaper-source-actions .appearance-picker:is(:hover, :focus-visible) > :is(svg, span) { opacity: 1; }
@@ -44,7 +44,7 @@
 .wallpaper-crop-ratios { margin: 0; padding: 0; border: 0; min-width: 0; }
 .wallpaper-crop-ratios legend { margin-bottom: 8px; padding: 0; font-size: var(--font-small); font-weight: var(--weight-label); }
 .wallpaper-crop-ratios > div { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
-.wallpaper-crop-ratios button { padding: 6px 4px; min-height: 30px; border: 1px solid var(--settings-border-strong); border-radius: var(--settings-radius-sm); color: var(--settings-text-muted); background: var(--settings-panel-soft); cursor: pointer; font-size: var(--font-small); white-space: nowrap; transition: border-color 180ms ease, color 180ms ease; }
+.wallpaper-crop-ratios button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 6px 4px; min-height: 30px; border: 1px solid var(--settings-border-strong); border-radius: var(--settings-radius-sm); color: var(--settings-text-muted); background: var(--settings-panel-soft); cursor: pointer; font-size: var(--font-small); white-space: nowrap; transition: border-color 180ms ease, color 180ms ease, background-color 180ms ease; }
 .wallpaper-crop-ratios button:hover:not(:disabled) { border-color: var(--settings-focus); color: var(--settings-tag-text); }
 :root .settings-page .wallpaper-crop-ratios button.selected { border-color: var(--settings-focus); color: var(--settings-tag-text); box-shadow: inset 0 0 0 1px var(--settings-focus); }
 .wallpaper-crop-zoom-heading { display: flex; align-items: center; gap: 8px; font-size: var(--font-small); font-weight: var(--weight-label); }
@@ -67,7 +67,7 @@
 }
 @media (max-width: 600px) { .wallpaper-crop-controls { grid-template-columns: minmax(0, 1fr); } }
 @media (max-height: 760px) and (min-width: 1051px) {
-  .wallpaper-crop-editor { min-height: 420px; gap: 10px 20px; }
+  .wallpaper-crop-editor { gap: 16px 24px; }
   .wallpaper-crop-controls { gap: 10px; }
   .wallpaper-source-thumbnail { height: 92px; }
   .wallpaper-crop-ratios legend, .wallpaper-fit-control legend { margin-bottom: 6px; }

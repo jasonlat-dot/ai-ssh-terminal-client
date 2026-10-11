@@ -155,6 +155,7 @@ function controlsHarness() {
   const { api } = load('components/TextColorSettings.tsx', name => {
     if (name === 'react') return hooks;
     if (name === 'react/jsx-runtime') return { jsx: node, jsxs: node };
+    if (name === './Ui') return { Icon: () => node('svg'), AccentIcon: () => node('svg'), Badge: props => node('span', props) };
     if (name.endsWith('/clientTextColors')) return env.api;
     if (name.endsWith('/useClientTextColors')) return { useClientTextColors: () => ({ ...env.api.readClientTextColors(), theme }) };
     throw new Error(name);

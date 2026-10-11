@@ -129,6 +129,8 @@ function controls() {
   const { api } = load('components/TypographySettings.tsx', name => {
     if (name === 'react') return hooks;
     if (name === 'react/jsx-runtime') return { jsx: node, jsxs: node };
+    if (name === './Ui') return { Icon: () => node('svg'), AccentIcon: () => node('svg'), Badge: props => node('span', props) };
+    if (name === './Select') return { Select: props => node('font-select', props) };
     if (name === '../state/clientTypography') return env.api;
     if (name === '../state/useClientTypography') return { useClientTypography: env.api.readClientTypography };
     throw new Error(name);
@@ -142,12 +144,18 @@ function controls() {
   }
   render(); render();
   return { ...env, render, find, input: id => find(node => node.props.id === id),
-    change(id, value) { this.input(id).props.onChange({ target: { value } }); render(); render(); } };
+    change(id, value) { const control = this.input(id); control.props.onChange(control.type === 'font-select' ? value : { target: { value } }); render(); render(); } };
 }
 
 test('真实字体控件：预设/自定义/恢复默认、无效与部分字重输入、保存失败保留原值', () => {
   const ui = controls();
+  assert.ok(ui.input('ui-font-family').props.options.some(option => option.value === 'custom'));
+  assert.ok(ui.input('ui-font-family').props.options.some(option => option.value === 'Consolas'));
   ui.change('ui-font-family', 'Consolas'); assert.equal(ui.api.readClientTypography().family, 'Consolas');
+  ui.state.fail = true; ui.change('ui-font-family', 'Arial');
+  assert.equal(ui.api.readClientTypography().family, 'Consolas');
+  assert.equal(ui.input('ui-font-family').props.value, 'Consolas');
+  ui.state.fail = false;
   ui.change('ui-normalWeight', '7'); assert.equal(ui.api.readClientTypography().normalWeight, null);
   ui.input('ui-normalWeight').props.onBlur(); ui.render(); assert.equal(ui.input('ui-normalWeight').props['aria-invalid'], true);
   ui.change('ui-normalWeight', '700'); assert.equal(ui.api.readClientTypography().normalWeight, 700);
@@ -169,4 +177,45 @@ test('普通字体规则与代码、终端、公式隔离；安装根订阅而�
   assert.match(css, /--weight-body: var\(--client-original-weight-body\)/);
   assert.doesNotMatch(css, /--mono:|font-size:|opacity:|:not\(\*\)/);
   assert.match(source('App.tsx'), /useApplyClientTypography\(\)/);
+});
+
+test('字体下拉的真实 Select 处理方向键、确认、Esc 与禁用，不依赖原生菜单', () => {
+  const slots = []; let cursor = 0, tree, value = '', disabled = false;
+  const node = (type, props) => ({ type, props: props ?? {} });
+  const hooks = {
+    useId: () => 'font-choice',
+    useState(initial) { const index = cursor++;
+      if (!(index in slots)) slots[index] = initial;
+      return [slots[index], next => { slots[index] = typeof next === 'function' ? next(slots[index]) : next; }]; },
+    useRef(initial) { const index = cursor++; return slots[index] ??= { current: initial }; },
+    useEffect() {}, useLayoutEffect() {},
+  };
+  const { api } = load('components/Select.tsx', name => {
+    if (name === 'react') return hooks;
+    if (name === 'react/jsx-runtime') return { jsx: node, jsxs: node };
+    if (name === 'react-dom') return { createPortal: children => children };
+    if (name === './Ui') return { Icon: () => node('svg') };
+    if (name.endsWith('.css')) return {};
+    throw new Error(name);
+  }, { document: { body: {} } });
+  const options = [{ value: '', label: '跟随默认字体' }, { value: 'Consolas', label: 'Consolas' }, { value: 'custom', label: '自定义本机字体…' }];
+  function render() { cursor = 0; tree = api.Select({ id: 'ui-font-family', label: '界面字体', value, disabled, options, onChange: next => { value = next; } }); }
+  function find(predicate, candidate = tree) {
+    if (Array.isArray(candidate)) return candidate.map(child => find(predicate, child)).find(Boolean);
+    if (!candidate?.props) return;
+    return predicate(candidate) ? candidate : find(predicate, candidate.props.children ?? null);
+  }
+  const trigger = () => find(candidate => candidate.props.role === 'combobox');
+  const key = key => { trigger().props.onKeyDown({ key, preventDefault() {}, stopPropagation() {} }); render(); };
+  render(); key('ArrowDown');
+  assert.equal(trigger().props['aria-expanded'], true);
+  assert.equal(find(candidate => candidate.props.role === 'option' && candidate.props['aria-selected']).props.id, 'ui-font-family-options-0');
+  key('ArrowDown'); key('Enter');
+  assert.equal(value, 'Consolas'); assert.equal(trigger().props['aria-expanded'], false);
+  key('ArrowDown'); key('End'); key('Enter');
+  assert.equal(value, 'custom');
+  key('ArrowDown'); key('ArrowUp'); key('Escape');
+  assert.equal(value, 'custom'); assert.equal(trigger().props['aria-expanded'], false);
+  disabled = true; render(); key('ArrowDown');
+  assert.equal(trigger().props.disabled, true); assert.equal(trigger().props['aria-expanded'], false);
 });

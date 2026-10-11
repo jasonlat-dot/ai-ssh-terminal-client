@@ -35,7 +35,7 @@ export function AppearanceSettings() {
     onClick={() => { setPendingWallpaper(null); void resetClientAppearance(); }}><Icon name="trash" size={16} /></button>;
   // 自动保存项放在同一侧栏，不与需要确认保存的画面选区混用状态提示。
   const surfaceControls = <div className="appearance-surface-controls">
-    <div className="appearance-slider-heading"><label htmlFor="appearance-transparency">背景透明度</label>
+    <div className="appearance-slider-heading"><label htmlFor="appearance-transparency" className="appearance-control-label"><Icon name="sun" size={14} />背景透明度</label>
       <output htmlFor="appearance-transparency">{appearance.transparency}<small>%</small></output></div>
     <input id="appearance-transparency" className="appearance-slider" type="range" min={0} max={100} step={1}
       value={appearance.transparency} disabled={disabled || !appearance.wallpaperUrl}
@@ -44,7 +44,7 @@ export function AppearanceSettings() {
     <div id="appearance-transparency-help" className="appearance-slider-labels"><span>不透明</span><span>壁纸更明显 · 自动保存</span></div>
   </div>;
   const readabilityControl = <div className="appearance-readability">
-      <div><strong id="appearance-readability-label">文字可读性保护</strong>
+      <div><strong id="appearance-readability-label" className="appearance-control-label"><Icon name="shield" size={14} />文字可读性保护</strong>
         <p id="appearance-readability-help">保留遮罩，柔化壁纸，增强文字对比。</p></div>
       <Toggle label="文字可读性保护" value={appearance.readabilityProtection} disabled={disabled}
         aria-describedby="appearance-readability-help" onChange={setClientReadabilityProtection} />
@@ -66,11 +66,15 @@ export function AppearanceSettings() {
           externalBusy={appearance.busy || !appearance.ready} onSavingChange={setEditorSaving}
           transparency={appearance.transparency} protection={appearance.readabilityProtection}
           fileAction={fileAction} surfaceControls={surfaceControls} resetAction={resetAction}
-          readabilityControl={<>{readabilityControl}<TextColorSettings /><TypographySettings /></>} heading={heading}
+          readabilityControl={readabilityControl} heading={heading}
           externalError={pendingWallpaper ? undefined : appearance.error}
           onClose={pendingWallpaper ? () => {
             restoreFocus.current = true;
             setPendingWallpaper(null);
           } : undefined} />
+    <div className="appearance-interface-settings" aria-label="界面文字设置">
+      <TextColorSettings />
+      <TypographySettings />
+    </div>
   </section>;
 }

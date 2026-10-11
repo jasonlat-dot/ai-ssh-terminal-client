@@ -25,6 +25,9 @@ import { isTauriRuntime } from './state/runtime';
 import { isSessionConnected, loadTerminalSessions, saveTerminalSessions } from './state/terminalSessions';
 import { reorderTerminalSessions, replaceTerminalPane, selectTerminalPane, visibleTerminalIds } from './state/terminalLayout';
 import type { TerminalLayout } from './state/terminalLayout';
+import { canSubmitTerminalCommand, resolveTerminalCommandTargets, submitTerminalCommandBatch } from './state/terminalBroadcast';
+import type { TerminalCommandMode } from './state/terminalBroadcast';
+import { TerminalCommandBar } from './components/TerminalCommandBar';
 import { copyText } from './state/clipboard';
 import { NotificationToast } from './components/NotificationToast';
 import type { Notice, NoticeType } from './components/NotificationToast';
@@ -63,7 +66,6 @@ import './components/TerminalLayout.css';
 const RemoteTerminalView = lazy(() => import('./components/RemoteTerminalView').then(module => ({ default: module.RemoteTerminalView })));
 
 type Dialog = 'command' | 'connection' | null;
-type CommandRequest = { sessionId: string; command: string };
 const STALE_TERMINAL_TAB_MS = 5 * 60 * 1000;
 const CONNECTION_SIDEBAR_COLLAPSED_KEY = 'ai-ssh-terminal:connection-sidebar-collapsed';
 
@@ -88,6 +90,19 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme }: {
   const [activeId, setActiveId] = useState(() => sessions[0]?.id ?? '');
   const [terminalLayout, setTerminalLayout] = useState<TerminalLayout>('single');
   const [terminalPanes, setTerminalPanes] = useState<string[]>([]);
+  const [commandMode, setCommandMode] = useState<TerminalCommandMode>('single');
+  const [commandTargetIds, setCommandTargetIds] = useState<string[]>([]);
+  const [broadcastDraft, setBroadcastDraft] = useState('');
+  const [broadcastBusy, setBroadcastBusy] = useState(false);
+  const [broadcastResult, setBroadcastResult] = useState('');
+  const broadcastInput = useRef<HTMLTextAreaElement>(null);
+  const broadcastSubmitting = useRef(false);
+  const terminalIdsKey = sessions.map(session => session.id).join(',');
+  useEffect(() => {
+    const ids = new Set(sessionsRef.current.map(session => session.id));
+    setCommandTargetIds(previous => previous.every(id => ids.has(id)) ? previous : previous.filter(id => ids.has(id)));
+  }, [terminalIdsKey]);
+  useEffect(() => { setCommandMode('single'); setCommandTargetIds([]); setBroadcastDraft(''); setBroadcastResult(''); }, [backendUrl]);
   const visibleIds = visibleTerminalIds(sessions.map(session => session.id), activeId, terminalLayout, terminalPanes);
   const visibleKey = visibleIds.join(',');
   useLayoutEffect(() => {
@@ -154,7 +169,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme }: {
   const chatAbort = useRef<AbortController | null>(null);
   const stopPending = useRef(false);
   const historySelection = useRef(0);
-  const running = useRef(new Set<string>());
+  const running = useRef(new Map<string, TerminalRuntime>());
   const terminalClients = useRef(new Map<string, TerminalRuntime>());
   const restoredClientsInitialized = useRef(false);
   const restoredSessionsVerified = useRef(false);
@@ -183,6 +198,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme }: {
   const canRun = !!active && isSessionConnected(active) && !active.busy
     && activeClient?.sessionId === active.terminalSessionId
     && !activeClient.closed && !activeClient.disconnected && activeClient.transportAvailable !== false;
+  const commandPlan = resolveTerminalCommandTargets(sessions, terminalClients.current, commandMode, activeId, commandTargetIds);
 
   useEffect(() => {
     try { saveTerminalSessions(backendUrl, sessions); }
@@ -858,6 +874,11 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme }: {
   }, [cleanupBeforeClose]);
   const fill = (command: string) => {
     setNavigation('命令');
+    if (commandMode !== 'single') {
+      setBroadcastDraft(command);
+      broadcastInput.current?.focus();
+      return;
+    }
     if (!active) { void openNewTerminal(); notify('正在为你打开本地 CMD。'); return; }
     const client = terminalClients.current.get(active.id);
     if (!isSessionConnected(active) || !client || client.sessionId !== active.terminalSessionId || client.closed || client.disconnected || client.transportAvailable === false) {
@@ -865,27 +886,31 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme }: {
     }
     void client.write(command).catch(error => notify(error instanceof Error ? error.message : '命令写入失败', 'error'));
   };
-  const execute = async (request: CommandRequest) => {
-    const session = sessions.find(item => item.id === request.sessionId);
-    if (!session || running.current.has(session.id)) return;
-    if (!isSessionConnected(session)) { notify(session.connectionStatus === 'unreachable' ? '后端服务暂不可达，请等待连接恢复或重试读取。' : session.kind === 'local' ? '本地 CMD 已退出，请新建终端。' : '当前终端连接不可用，请点击“重新连接”。', 'error'); return; }
-    running.current.add(session.id);
-    setSessions(previous => previous.map(item => item.id === session.id ? { ...item, busy: true } : item));
+  // Human command controls only. Agent keeps its captured single terminalSessionId below.
+  const requestRun = async (command: string): Promise<boolean> => {
+    if (!command.trim() || broadcastSubmitting.current) return false;
+    if (commandMode === 'single' && !active) { void openNewTerminal(); notify('正在为你打开本地 CMD。'); return false; }
+    const plan = resolveTerminalCommandTargets(sessionsRef.current, terminalClients.current, commandMode, activeId, commandTargetIds);
+    if (!plan.targets.length) { notify(commandMode === 'selected' && !commandTargetIds.length ? '请先勾选目标终端。' : '目标终端不可用或正在提交命令，请检查连接。', 'error'); return false; }
+    broadcastSubmitting.current = true; setBroadcastBusy(true); setBroadcastResult('');
     try {
-      const client = terminalClients.current.get(session.id);
-      if (!client || client.sessionId !== session.terminalSessionId) throw new Error(session.kind === 'local' ? '本地 CMD 已退出，请新建终端。' : '当前终端会话不可用，请点击“重新连接”。');
-      await client.exec(request.command);
-    } catch (error) { notify(`${error instanceof Error ? error.message : '命令提交失败'}；未自动重试，请先检查终端输出。`, 'error'); }
-    finally {
-      running.current.delete(session.id);
-      setSessions(previous => previous.map(item => item.id === session.id ? { ...item, busy: false } : item));
-    }
-  };
-  const requestRun = (command: string) => {
-    if (!command.trim()) return;
-    if (!active) { void openNewTerminal(); notify('正在为你打开本地 CMD。'); return; }
-    if (!canRun) { notify(active.busy ? '命令正在执行，请稍候。' : active.connectionStatus === 'unreachable' ? '后端服务暂不可达，请等待连接恢复或重试读取。' : active.kind === 'local' ? '本地 CMD 已退出，请新建终端。' : '当前终端连接不可用，请点击“重新连接”。'); return; }
-    void execute({ sessionId: active.id, command: command.trim() });
+      const results = await submitTerminalCommandBatch(plan.targets, command, running.current, target => {
+        const session = sessionsRef.current.find(item => item.id === target.id);
+        return !!session && isSessionConnected(session) && session.terminalSessionId === target.runtime.sessionId
+          && terminalClients.current.get(target.id) === target.runtime && !target.runtime.closed
+          && !target.runtime.disconnected && !target.runtime.manuallyClosed && target.runtime.transportAvailable !== false;
+      }, (target, busy) => {
+        if (terminalClients.current.get(target.id) !== target.runtime) return;
+        setSessions(previous => previous.map(item => item.id === target.id && item.terminalSessionId === target.runtime.sessionId ? { ...item, busy } : item));
+      });
+      const allResults = [...results, ...plan.skipped];
+      const submitted = results.filter(item => item.status === 'submitted').length;
+      const unsuccessful = allResults.filter(item => item.status !== 'submitted');
+      const message = `已提交 ${submitted} 个终端${unsuccessful.length ? `；${unsuccessful.map(item => `${item.title}：${item.detail}`).join('；')}。未自动重试，请检查各终端输出。` : '，请查看各终端输出。'}`;
+      setBroadcastResult(message);
+      if (unsuccessful.length) notify(message, 'error', 5_000);
+      return submitted > 0 && !unsuccessful.length;
+    } finally { broadcastSubmitting.current = false; setBroadcastBusy(false); }
   };
   const navigate = (name: Navigation) => {
     setNavigation('命令');
@@ -1242,6 +1267,17 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme }: {
     <ConnectionSidebar connections={{ ...connections, remove: removeHost }} sessions={sessions} connectingHostIds={connectingHostIds} activeHostId={active?.kind === 'ssh' ? active.connectionId : undefined} activeSessionId={activeId} terminal={selectHost} cancelConnection={cancelHostConnection} activate={activateTerminalFromSidebar} create={openNewConnection} collapsed={connectionSidebarCollapsed} toggleCollapsed={() => setConnectionSidebarCollapsed(value => !value)} />
     <main hidden={navigation !== '命令'} className={`central-workspace ${!active ? 'no-session' : ''} ${commandCollapsed ? 'command-collapsed' : ''}`}>
       <TerminalWorkspace
+        commandControls={<TerminalCommandBar mode={commandMode} changeMode={mode => {
+          setCommandMode(mode); setBroadcastResult('');
+          if (mode === 'selected' && commandMode === 'single' && activeId) setCommandTargetIds(previous => previous.length ? previous : [activeId]);
+        }} sessions={sessions.map(session => ({ id: session.id, title: session.title, address: session.kind === 'local' ? '本地 CMD' : session.host.address,
+          available: canSubmitTerminalCommand(session, terminalClients.current.get(session.id)) }))}
+          selectedIds={commandTargetIds} toggleTarget={id => setCommandTargetIds(previous => previous.includes(id) ? previous.filter(item => item !== id) : [...previous, id])}
+          targetCount={commandPlan.targets.length} draft={broadcastDraft} changeDraft={setBroadcastDraft} inputRef={broadcastInput}
+          busy={broadcastBusy} result={broadcastResult} submit={() => {
+            const draft = broadcastDraft;
+            void requestRun(draft).then(success => { if (success) setBroadcastDraft(current => current === draft ? '' : current); });
+          }} />}
         layout={terminalLayout}
         visibleIds={visibleIds}
         changeLayout={layout => {
@@ -1304,7 +1340,8 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme }: {
         agentCollapsed={agentCollapsed}
         toggleAgent={() => setAgentCollapsed(value => !value)}
       />
-      <CommandShelf commands={commands} category={category} setCategory={setCategory} fill={fill} run={requestRun} copy={copy} add={() => setDialog('command')} disabled={!canRun} collapsed={commandCollapsed}
+      <CommandShelf commands={commands} category={category} setCategory={setCategory} fill={fill} run={command => { void requestRun(command); }} copy={copy} add={() => setDialog('command')}
+        disabled={broadcastBusy || (commandMode === 'single' ? !canRun : !commandPlan.targets.length)} collapsed={commandCollapsed} broadcast={commandMode !== 'single'}
         resize={<PanelDivider value={commandWidth} change={setCommandWidth} unit="pixels" min={220} max={450} defaultValue={260}
           reservePixels={280} containerSelector=".central-workspace" className="command-panel-divider" label="调整常用命令宽度"
           controls="command-shelf-content" collapsed={commandCollapsed} collapse={() => setCommandCollapsed(true)} />} />

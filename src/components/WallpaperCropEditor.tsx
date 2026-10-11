@@ -4,7 +4,7 @@ import { chooseClientWallpaper, prepareClientWallpaper, prepareSavedClientWallpa
 import type { PreparedWallpaper, WallpaperFit } from '../state/clientAppearance';
 import { exportWallpaperCrop, INITIAL_CROP_VIEW, MAX_CROP_ZOOM, normalizeCropView, panCropView, wallpaperCropRect } from '../state/wallpaperCrop';
 import type { CropView } from '../state/wallpaperCrop';
-import { Icon } from './Ui';
+import { AccentIcon, Badge, Icon } from './Ui';
 import { WallpaperFitControl } from './WallpaperFitControl';
 import { WallpaperWorkspacePreview } from './WallpaperWorkspacePreview';
 import { WallpaperVideo } from './WallpaperVideo';
@@ -247,6 +247,7 @@ export function WallpaperCropEditor({ file, onClose, externalBusy = false, onSav
       </div>
     </header>
     <div className="wallpaper-crop-main">
+      <h3 className="wallpaper-preview-heading"><AccentIcon icon="monitor" tone="blue" size={15} />效果预览</h3>
       <div ref={frame} className="wallpaper-crop-frame" style={{
         '--crop-ratio': ratio,
         // 交互框与模拟窗口共用比例，避免外层被网格拉高后产生可聚焦/可拖动的空白区域。
@@ -263,7 +264,7 @@ export function WallpaperCropEditor({ file, onClose, externalBusy = false, onSav
     </div>
     <aside className="wallpaper-crop-controls" aria-label="壁纸调整">
       <div className="wallpaper-source-control">
-        <h3><Icon name="palette" size={17} />背景设置</h3>
+        <h3><AccentIcon icon="palette" tone="blue" size={15} />背景设置<Badge tone="cyan" icon="monitor">本地壁纸</Badge></h3>
         {/* 直接读取原图作铺满式缩略背景；入口自身的适配不改变左侧选区或保存数据。 */}
         <div className="wallpaper-source-thumbnail" data-empty={!source} aria-busy={loading}>
           {source ? source.kind === 'video'
@@ -274,11 +275,13 @@ export function WallpaperCropEditor({ file, onClose, externalBusy = false, onSav
           {resetAction && <div className="wallpaper-source-remove">{resetAction}</div>}
         </div>
       </div>
+      <p className="wallpaper-crop-help" role="note" title={source?.kind === 'video'
+        ? '视频静音循环，窗口最小化或不可见时暂停，失焦仍播放。推荐 H.264 编码 MP4。比例、缩放和位置仅调整显示区域。'
+        : '图片和动态图最大 10 MB；MP4 最大 100 MB，推荐 H.264 编码。GIF / 动态 WebP 保留动画。'}>
+        支持 PNG / JPG / GIF / WebP / MP4
+      </p>
       {!empty && <>
-      {source?.kind && source.kind !== 'image' && <p className="wallpaper-crop-help" role="note">
-        {source.kind === 'video' ? '视频静音循环，窗口最小化或不可见时暂停，失焦仍播放。推荐 H.264 编码 MP4。' : '保留原文件动画，不导出静态帧。'}比例、缩放和位置仅调整显示区域。
-      </p>}
-      <fieldset className="wallpaper-crop-ratios" disabled={disabled}><legend>画面比例</legend>
+      <fieldset className="wallpaper-crop-ratios" disabled={disabled}><legend><span className="appearance-control-label"><Icon name="aspectRatio" size={16} />画面比例</span></legend>
         <div>{ratios.map(option => <button key={option.key} type="button" aria-pressed={ratioKey === option.key}
           className={ratioKey === option.key ? 'selected' : ''} onClick={() => {
             if (disabled || savingRef.current) return;
@@ -288,9 +291,9 @@ export function WallpaperCropEditor({ file, onClose, externalBusy = false, onSav
             // 固定比例（例如 1:1）默认完整显示，避免刚裁好的选区又被 cover 裁成窗口比例。
             setFit(option.key === 'window' ? 'cover' : 'contain');
             if (source) setView(previous => normalizeCropView(source, option.value, previous));
-          }}>{option.label}</button>)}</div></fieldset>
+          }}>{option.label}{ratioKey === option.key && <Icon name="check" size={12} className="appearance-choice-check" />}</button>)}</div></fieldset>
       <div className="wallpaper-crop-zoom-control">
-      <div className="wallpaper-crop-zoom-heading"><label htmlFor="wallpaper-crop-zoom">图片缩放</label>
+      <div className="wallpaper-crop-zoom-heading"><label htmlFor="wallpaper-crop-zoom" className="appearance-control-label"><Icon name="search" size={14} />图片缩放</label>
         <output htmlFor="wallpaper-crop-zoom">{Math.round(view.zoom * 100)}%</output>
         <button type="button" className="wallpaper-crop-reset" disabled={disabled} onClick={() => {
           if (disabled || savingRef.current) return;
@@ -306,7 +309,7 @@ export function WallpaperCropEditor({ file, onClose, externalBusy = false, onSav
       </div>
       </>}
       {surfaceControls}
-      {!empty && <WallpaperFitControl id="crop-fit" value={fit} disabled={disabled} onChange={nextFit => {
+      {!empty && <WallpaperFitControl id="crop-fit" compact value={fit} disabled={disabled} onChange={nextFit => {
         if (!disabled && !savingRef.current) setFit(nextFit);
       }} />}
       {readabilityControl}

@@ -131,9 +131,11 @@ const sectionItems: SectionDefinition[] = [
 ];
 
 const generalFields: FieldDefinition[] = [
-  { key: 'serverPort', label: '后端运行端口', kind: 'port', placeholder: '8888', badge: 'TCP' },
+  { key: 'serverPort', label: '后端运行端口', kind: 'port', placeholder: '8888', badge: 'TCP' ,
+    help: '后端 TCP 服务监听端口，修改后重启服务生效。'
+  },
   { key: 'dataDirectory', label: '统一数据目录', placeholder: '/var/lib/ai-ssh-terminal',
-    help: 'SQLite、上传文件、运行日志都会派生在该目录下。切换前请先停止后端。' },
+    help: 'SQLite、上传文件、运行日志、ssl自签证书均生成在该目录下。' },
 ];
 
 const tlsStoreFields: FieldDefinition[] = [
@@ -194,14 +196,7 @@ const openAiPathPresets: Record<string, { label: string; english: string; path: 
   ],
 };
 
-/** 后端常用端口快选。 */
-const serverPortPresets = [
-  { port: 8888, note: '默认' },
-  { port: 8080, note: 'Spring' },
-  { port: 7777, note: '备用' },
-  { port: 9000, note: '开发' },
-  { port: 8880, note: '备选默认' },
-];
+
 
 /** 超时快选：4 档秒/分级。 */
 const timeoutPresets: Record<string, { value: string; label: string; english: string; description: string }[]> = {
@@ -481,31 +476,16 @@ function ReasoningEffortGrid({ value, change }: {
   </div>;
 }
 
-function PortPresetPicker({ value, change }: {
+function PortInput({ value, change }: {
   value: string;
   change: (next: string) => void;
 }) {
-  const numeric = Number(value);
-  const matched = serverPortPresets.some(item => item.port === numeric);
   return <div className="settings-port-picker">
     <div className="settings-input-wrap">
       <input id="backend-setting-serverPort" type="number" value={value} placeholder="8888"
         className="settings-control" min={1} max={65535}
         onChange={event => change(event.target.value)} />
       <span className="settings-input-suffix">TCP</span>
-    </div>
-    <div className="settings-path-preset-list" role="group" aria-label="常用端口预设">
-      {serverPortPresets.map(item => <button key={item.port} type="button"
-        aria-pressed={numeric === item.port}
-        className={numeric === item.port ? 'selected' : ''}
-        onClick={() => change(String(item.port))}>
-        <strong>{item.port}</strong>
-        <code>{item.note}</code>
-      </button>)}
-      {!matched && value && Number.isInteger(numeric) && numeric > 0 && numeric <= 65535 &&
-        <span className="settings-field-help">
-          <Icon name="bulb" size={11} />当前使用自定义端口 {numeric}
-        </span>}
     </div>
   </div>;
 }
@@ -813,7 +793,7 @@ function ConfigField({ definition, values, config, change }: {
   }
   if (definition.kind === 'port') {
     return <FieldShell definition={definition} meta={meta}>
-      <PortPresetPicker value={value} change={next => change(definition.key, next)} />
+      <PortInput value={value} change={next => change(definition.key, next)} />
       {definition.help && <p className="settings-field-help">{definition.help}</p>}
     </FieldShell>;
   }
@@ -1472,7 +1452,7 @@ export function BackendSettingsDialog({ currentUrl, required = false, onClose, o
       </aside>
 
       {/* 内容滚动区与保存底栏分别占用布局空间，底栏不覆盖字段。 */}
-      <div className="settings-content-panel">
+      <div className="settings-content-panel" data-section={activeSection}>
         <section className="settings-content" data-section={activeSection}>
           {activeSection === 'appearance' && <AppearanceSettings />}
           {loading && activeSection !== 'appearance' && <div className="settings-skeleton" aria-label="正在读取配置">
@@ -1483,61 +1463,73 @@ export function BackendSettingsDialog({ currentUrl, required = false, onClose, o
             <span style={{ width: '80%' }} />
           </div>}
 
-          {!loading && activeSection === 'general' && <>
-            {autoStartAvailable && <SettingsGroup title="启动方式"
-              description="关闭后，客户端不会自动启动内置服务，可在启动页或此处手动启动。"
-              badge="启动">
-              <div className="settings-toggle-row">
-                <span className="settings-toggle-state">{autoStartEnabled ? '自动启动' : '手动启动'}</span>
-                <Toggle
-                  label="自动启动内置后端"
-                  value={autoStartEnabled}
-                  onChange={() => void toggleAutoStart()}
-                />
-                <span className="settings-toggle-hint">
-                  {autoStartEnabled
-                    ? '每次打开客户端都会自动启动内置后端'
-                    : '可在此或启动页点击“启动内置服务”'}
-                </span>
-              </div>
-              {autoStartError && <div className="settings-error">{autoStartError}</div>}
-              {(() => {
-                // 按钮永远显示，文案/样式/handler 跟着当前后端状态走。
-                // running → "停止内置服务"（警告色，stop 命令）；
-                // 其他状态 → "启动内置服务"（主色，restart 命令，重置干净）。
-                const running = backendStatus?.status === 'running';
-                const busy = settingsStarting;
-                const onClick = running
-                  ? () => void stopManuallyFromSettings()
-                  : () => void startManuallyFromSettings();
-                const label = busy
-                  ? (running ? '正在停止…' : '正在启动…')
-                  : (running ? '停止内置服务' : '启动内置服务');
-                const hint = busy
-                  ? '等待本地服务状态变化'
-                  : (running
-                      ? (autoStartEnabled
-                          ? '下次打开客户端会重新拉起；现在先停掉释放资源'
-                          : '当前服务在跑，点击立即停止')
-                      : (autoStartEnabled
-                          ? '自动启动已开启，但内置服务未运行；点击立即拉起'
-                          : '点击手动启动内置服务'));
-                return (
-                  <div className="settings-toggle-row">
-                    <button
-                      type="button"
-                      className={running ? 'danger-button' : 'primary-button'}
-                      onClick={onClick}
-                      disabled={busy}
-                    >
-                      <Icon name={running ? 'stop' : 'play'} size={14} />
-                      {label}
-                    </button>
-                    <span className="settings-toggle-hint">{hint}</span>
-                  </div>
-                );
-              })()}
-            </SettingsGroup>}
+          {!loading && activeSection === 'general' && <div className="settings-columns settings-connections-layout">
+            <div className="settings-column" role="group" aria-label="启动、连接与数据设置">
+              {autoStartAvailable && <SettingsGroup title="启动方式"
+                description="关闭后，客户端不会自动启动内置服务，可在启动页或此处手动启动。"
+                badge="启动">
+                <div className="settings-toggle-row">
+                  <span className="settings-toggle-state">{autoStartEnabled ? '自动启动' : '手动启动'}</span>
+                  <Toggle
+                    label="自动启动内置后端"
+                    value={autoStartEnabled}
+                    onChange={() => void toggleAutoStart()}
+                  />
+                  <span className="settings-toggle-hint">
+                    {autoStartEnabled
+                      ? '每次打开客户端都会自动启动内置后端'
+                      : '可在此或启动页点击“启动内置服务”'}
+                  </span>
+                </div>
+                {autoStartError && <div className="settings-error">{autoStartError}</div>}
+                {(() => {
+                  // 按钮永远显示，文案/样式/handler 跟着当前后端状态走。
+                  // running → "停止内置服务"（警告色，stop 命令）；
+                  // 其他状态 → "启动内置服务"（主色，restart 命令，重置干净）。
+                  const running = backendStatus?.status === 'running';
+                  const busy = settingsStarting;
+                  const onClick = running
+                    ? () => void stopManuallyFromSettings()
+                    : () => void startManuallyFromSettings();
+                  const label = busy
+                    ? (running ? '正在停止…' : '正在启动…')
+                    : (running ? '停止内置服务' : '启动内置服务');
+                  const hint = busy
+                    ? '等待本地服务状态变化'
+                    : (running
+                        ? (autoStartEnabled
+                            ? '下次打开客户端会重新拉起；现在先停掉释放资源'
+                            : '当前服务在跑，点击立即停止')
+                        : (autoStartEnabled
+                            ? '自动启动已开启，但内置服务未运行；点击立即拉起'
+                            : '点击手动启动内置服务'));
+                  return (
+                    <div className="settings-toggle-row">
+                      <button
+                        type="button"
+                        className={running ? 'danger-button' : 'primary-button'}
+                        onClick={onClick}
+                        disabled={busy}
+                      >
+                        <Icon name={running ? 'stop' : 'play'} size={14} />
+                        {label}
+                      </button>
+                      <span className="settings-toggle-hint">{hint}</span>
+                    </div>
+                  );
+                })()}
+              </SettingsGroup>}
+              <SettingsGroup title="客户端连接" description="选择内置后端或保存多个远程连接，各自的证书信任配置互不覆盖。" badge="客户端">
+                <BackendConnectionSettings localUrl={bundledUrl} onUse={onSave} />
+              </SettingsGroup>
+              {config && <SettingsGroup title="基础设置"
+                description="仅配置内置服务，保存不切换当前连接；数据目录必须使用绝对路径。"
+                badge="运行时">
+                {renderFields(generalFields)}
+
+              </SettingsGroup>}
+            </div>
+            <div className="settings-column" role="group" aria-label="服务健康与安全设置">
             <SettingsGroup id="settings-health-check" title="服务健康检查"
               description="检查实际服务响应；当前后端（含远端）与内置服务共用下方刷新设置。"
               badge="健康检查">
@@ -1565,9 +1557,6 @@ export function BackendSettingsDialog({ currentUrl, required = false, onClose, o
                 {healthRefreshError && <div className="settings-error" role="alert">{healthRefreshError}</div>}
               </div>
             </SettingsGroup>
-            <SettingsGroup title="客户端连接" description="选择内置后端或保存多个远程连接，各自的证书信任配置互不覆盖。" badge="客户端">
-              <BackendConnectionSettings localUrl={bundledUrl} onUse={onSave} />
-            </SettingsGroup>
             {config && <SettingsGroup title="内置后端 HTTPS" description="Java 只接受 HTTPS；这里只配置本机证书，不修改远程服务器或 Nginx 的 SSL 配置。" badge="本机">
               <div className="settings-field">
                 <label htmlFor="builtin-tls-mode">证书模式</label>
@@ -1581,44 +1570,35 @@ export function BackendSettingsDialog({ currentUrl, required = false, onClose, o
                     { value: 'custom', label: 'HTTPS · 自定义证书库' }]} />
                 <p className="settings-field-help">自动模式缺失时生成、有效时复用、临近过期续期。保存后需重启内置后端。</p>
               </div>
-              <BooleanConfigField settingKey="serverHttp2Enabled" label="启用 HTTP/2" values={values} config={config} change={change} />
+              {/*<BooleanConfigField settingKey="serverHttp2Enabled" label="启用 HTTP/2" values={values} config={config} change={change} />*/}
               {values.serverSslAutoGenerate !== 'true' && renderFields(tlsStoreFields)}
-              {values.serverSslAutoGenerate === 'true' && <PathPreviewCard
-                label="默认证书目录" icon="folder" path={childPath(values.dataDirectory, 'tls')}
-                hint="证书和随机密码仅保留在本机，不与远程连接共用。" />}
+              {/*{values.serverSslAutoGenerate === 'true' && <PathPreviewCard*/}
+              {/*  label="默认证书目录" icon="folder" path={childPath(values.dataDirectory, 'tls')}*/}
+              {/*  hint="证书和随机密码仅保留在本机，不与远程连接共用。" />}*/}
             </SettingsGroup>}
-            {config && <SettingsGroup title="基础设置"
-              description="仅配置内置服务，保存不切换当前连接；数据目录必须使用绝对路径。"
-              badge="运行时">
-              {renderFields(generalFields)}
-              <div className="settings-derived-paths">
-                <PathPreviewCard label="SQLite 数据库" icon="disk" hint="存放对话、上传元数据等所有关系数据"
-                  path={childPath(values.dataDirectory, 'data', 'ai-ssh-terminal.db') || config.sqliteFile} />
-                <PathPreviewCard label="上传文件" icon="file"
-                  hint={config.values.localRootDirectory?.environmentOverride ? '由系统管理' : '随统一数据目录保存上传文件'}
-                  path={config.values.localRootDirectory?.environmentOverride
-                    ? values.localRootDirectory
-                    : childPath(values.dataDirectory, 'files') || config.uploadDirectory} />
-                <PathPreviewCard label="运行日志" icon="folder"
-                  hint="包含 backend-console.log，可在排查问题时提供上下文"
-                  path={childPath(values.dataDirectory, 'logs') || config.logDirectory} />
-              </div>
-            </SettingsGroup>}
-          </>}
+            </div>
+          </div>}
 
-          {!loading && activeSection === 'model' && config && <>
+          {!loading && activeSection === 'model' && config && <div className="settings-columns settings-model-layout">
+            <div className="settings-column" role="group" aria-label="模型服务与附件设置">
             <SettingsGroup title="模型渠道"
               description="配置后端调用的大模型服务。"
               badge="模型">
               <ProtocolCard />
-              {renderFields(modelFields)}
+              {renderFields(modelFields.filter(field => field.kind !== 'path-preset' && field.kind !== 'reasoning'))}
             </SettingsGroup>
             <SettingsGroup title="附件能力"
               description="控制 Agent 可以发送给模型的文件类型。"
               badge="附件">
               <MediaTypeEditor value={values.aiSupportedMediaTypes ?? ''} change={value => change('aiSupportedMediaTypes', value)} />
             </SettingsGroup>
-          </>}
+            </div>
+            <div className="settings-column" role="group" aria-label="模型接口与推理设置">
+              <SettingsGroup title="接口与推理" description="调整对话、向量接口路径和推理强度。" badge="模型">
+                {renderFields(modelFields.filter(field => field.kind === 'path-preset' || field.kind === 'reasoning'))}
+              </SettingsGroup>
+            </div>
+          </div>}
 
           {!loading && activeSection === 'proxy' && config && <>
             <SettingsGroup title="AI 接口代理"

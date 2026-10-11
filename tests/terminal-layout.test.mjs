@@ -74,7 +74,7 @@ function workspace() {
   const props = { sessions: sessions.slice(0, 3), activeId: 'a', remoteViews: null, layout: 'columns', visibleIds: ['a', 'b'],
     select: id => selected.push(id), reorder: (...args) => calls.push(args), changeLayout: layout => calls.push(layout), close() {}, add() {} };
   function all(node = tree) {
-    if (Array.isArray(node)) return node.flatMap(child => all(child));
+    if (Array.isArray(node)) return node.flatMap(child => all(child ?? null));
     if (!node?.props) return [];
     return [node, ...all(node.props.children ?? null)];
   }
@@ -172,6 +172,6 @@ test('更换壁纸入口使用轻蒙版与较小文字，不把原图盖成独�
   const css = source('components/WallpaperCropEditor.css');
   assert.match(source('components/AppearanceSettings.tsx'), /'更换壁纸'/);
   assert.doesNotMatch(source('components/AppearanceSettings.tsx'), /'更换图片'/);
-  assert.match(css, /rgb\(8 16 30 \/ 6%\).*rgb\(8 16 30 \/ 28%\)/);
+  assert.match(css, /rgb\(8 16 30 \/ 18%\).*rgb\(8 16 30 \/ 34%\)/);
   assert.match(css, /:is\(:hover, :focus-visible\) > :is\(svg, span\) \{ opacity: 1/);
 });

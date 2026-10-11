@@ -8,7 +8,7 @@ import { TerminalWelcome } from './TerminalWelcome';
 import { isSessionConnected } from '../state/terminalSessions';
 import { Select } from './Select';
 
-export function TerminalWorkspace({ remoteViews, sessions, activeId, host, select, close, add, filesOpen, toggleFiles, commandCollapsed, toggleCommands, agentCollapsed, toggleAgent, copy, connections, layout = 'single', visibleIds = [activeId], changeLayout, reorder }: { remoteViews: ReactNode; sessions: TerminalSession[]; activeId: string; host?: Host; select: (id: string) => void; close: (id: string) => void; add: () => void; filesOpen: boolean; toggleFiles: () => void; commandCollapsed: boolean; toggleCommands: () => void; agentCollapsed: boolean; toggleAgent: () => void; connections: () => void; copy: (text: string) => void; layout?: TerminalLayout; visibleIds?: string[]; changeLayout?: (layout: TerminalLayout) => void; reorder?: (draggedId: string, targetId: string, after: boolean) => void }) {
+export function TerminalWorkspace({ remoteViews, sessions, activeId, host, select, close, add, filesOpen, toggleFiles, commandCollapsed, toggleCommands, agentCollapsed, toggleAgent, copy, connections, layout = 'single', visibleIds = [activeId], changeLayout, reorder, commandControls }: { remoteViews: ReactNode; sessions: TerminalSession[]; activeId: string; host?: Host; select: (id: string) => void; close: (id: string) => void; add: () => void; filesOpen: boolean; toggleFiles: () => void; commandCollapsed: boolean; toggleCommands: () => void; agentCollapsed: boolean; toggleAgent: () => void; connections: () => void; copy: (text: string) => void; layout?: TerminalLayout; visibleIds?: string[]; changeLayout?: (layout: TerminalLayout) => void; reorder?: (draggedId: string, targetId: string, after: boolean) => void; commandControls?: ReactNode }) {
   const active = sessions.find(session => session.id === activeId);
   const dragging = useRef<{ id: string; pointerId: number; x: number; y: number; left: number; top: number; width: number; node: HTMLDivElement; moved: boolean; target: { id: string; after: boolean } | null } | null>(null);
   const suppressClick = useRef(false);
@@ -123,12 +123,13 @@ export function TerminalWorkspace({ remoteViews, sessions, activeId, host, selec
             <IconButton icon="bot" label={agentCollapsed ? '展开智能体对话' : '收起智能体对话'} className={!agentCollapsed ? 'selected' : ''} onClick={toggleAgent} aria-pressed={!agentCollapsed} aria-expanded={!agentCollapsed} aria-controls="agent-panel-content" />
           </div>
         </div>
+        {commandControls}
         <div className="terminal-view-grid" data-layout={layout} data-count={visibleIds.length}>{remoteViews}</div>
       </div>
     </div> : <TerminalWelcome add={add} connections={connections} />}
   </section>;
 }
-export function CommandShelf({ commands, category, setCategory, fill, run, copy, add, disabled, collapsed, resize }: { commands: SavedCommand[]; category: string; setCategory: (value: string) => void; fill: (command: string) => void; run: (command: string) => void; copy: (text: string) => void; add: () => void; disabled: boolean; collapsed: boolean; resize?: ReactNode }) {
+export function CommandShelf({ commands, category, setCategory, fill, run, copy, add, disabled, collapsed, resize, broadcast = false }: { commands: SavedCommand[]; category: string; setCategory: (value: string) => void; fill: (command: string) => void; run: (command: string) => void; copy: (text: string) => void; add: () => void; disabled: boolean; collapsed: boolean; resize?: ReactNode; broadcast?: boolean }) {
   const filtered = commands.filter(command => category === '全部' || command.category === category);
   const categoryCards = ['全部', ...new Set(commands.map(command => command.category))];
   return <section className={`command-shelf ${collapsed ? 'collapsed' : ''}`} id="commands" tabIndex={-1}>
@@ -143,8 +144,8 @@ export function CommandShelf({ commands, category, setCategory, fill, run, copy,
         </button>;
       })}</div>
       <div className="command-list-heading"><span>{category}</span><small>{filtered.length} 条命令</small></div>
-      <div className="command-list">{filtered.map(command => <div className="command-row" key={command.id}><button className="command-fill" onClick={() => fill(command.command)} title={`填入终端：${command.command}`}><AccentIcon icon={command.icon} size={16} className="command-row-icon" /><span className="command-name">{command.name}</span><code>{command.command}</code></button><button className="run-command labeled-run" aria-label={`运行 ${command.name}`} disabled={disabled} onClick={() => run(command.command)}><Icon name="play" size={14} />运行</button><IconButton icon="copy" label={`复制 ${command.name}`} onClick={() => copy(command.command)} /></div>)}{!filtered.length && <div className="empty-state">此分类暂无命令<button className="text-button mint" onClick={add}>添加第一条命令</button></div>}</div>
-      <p className="command-hint">点击命令写入终端，点击运行直接执行</p>
+      <div className="command-list">{filtered.map(command => <div className="command-row" key={command.id}><button className="command-fill" onClick={() => fill(command.command)} title={`填入${broadcast ? '广播输入条' : '终端'}：${command.command}`}><AccentIcon icon={command.icon} size={16} className="command-row-icon" /><span className="command-name">{command.name}</span><code>{command.command}</code></button><button className="run-command labeled-run" aria-label={`${broadcast ? '广播运行' : '运行'} ${command.name}`} disabled={disabled} onClick={() => run(command.command)}><Icon name="play" size={14} />运行</button><IconButton icon="copy" label={`复制 ${command.name}`} onClick={() => copy(command.command)} /></div>)}{!filtered.length && <div className="empty-state">此分类暂无命令<button className="text-button mint" onClick={add}>添加第一条命令</button></div>}</div>
+      <p className="command-hint">{broadcast ? '广播已启用：点击命令填入广播输入条，运行发送至目标终端' : '点击命令写入终端，点击运行直接执行'}</p>
     </div>
   </section>;
 }

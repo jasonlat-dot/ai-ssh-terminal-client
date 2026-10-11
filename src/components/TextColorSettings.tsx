@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { DEFAULT_TEXT_COLORS, normalizeTextColor, resetClientTextColors, setClientTextColor } from '../state/clientTextColors';
 import type { TextColorRole, TextColorTheme } from '../state/clientTextColors';
 import { useClientTextColors } from '../state/useClientTextColors';
+import { AccentIcon, Badge, Icon } from './Ui';
 
 function TextColorControl({ theme, role, color, custom }: { theme: TextColorTheme; role: TextColorRole; color: string; custom: boolean }) {
   const [hex, setHex] = useState(color.toUpperCase());
@@ -17,7 +18,7 @@ function TextColorControl({ theme, role, color, custom }: { theme: TextColorThem
     }
   };
   return <div className="appearance-text-color-row">
-    <label htmlFor={`text-${role}-hex`}>{label}<small>{custom ? '自定义' : '主题默认'}</small></label>
+    <label htmlFor={`text-${role}-hex`}><span className="appearance-control-label"><Icon name="type" size={14} />{label}</span><small>{custom ? '自定义' : '主题默认'}</small></label>
     <input type="color" className="appearance-color-swatch" aria-label={`选择${label}颜色`} value={color}
       onChange={event => commit(event.target.value)} />
     <input id={`text-${role}-hex`} className="settings-control appearance-color-hex" value={hex} maxLength={7}
@@ -45,13 +46,13 @@ export function TextColorSettings() {
     defaults.secondary = normalizeTextColor(styles.getPropertyValue('--theme-text-muted')) || defaults.secondary;
   }
   return <section className="appearance-text-colors" aria-labelledby="appearance-text-colors-title">
-    <div className="appearance-text-colors-heading"><strong id="appearance-text-colors-title">界面文字颜色</strong>
-      <span>{theme === 'dark' ? '深色主题' : '浅色主题'} · 自动保存</span></div>
+    <div className="appearance-text-colors-heading"><strong id="appearance-text-colors-title" className="appearance-section-title"><AccentIcon icon="palette" tone="blue" size={17} />界面文字颜色</strong>
+      <Badge tone="cyan" icon={theme === 'dark' ? 'moon' : 'sun'}>{theme === 'dark' ? '深色主题' : '浅色主题'} · 自动保存</Badge></div>
     {(['primary', 'secondary'] as const).map(role => <TextColorControl key={`${theme}-${role}`} theme={theme} role={role}
       color={palette[role] || defaults[role]} custom={!!palette[role]} />)}
     <p className="appearance-help">浅色、深色分别保存。终端输出、代码高亮、状态提示和实心按钮文字保持原配色。</p>
     <button type="button" className="ghost-button" disabled={!palette.primary && !palette.secondary}
-      onClick={() => resetClientTextColors(theme)}>恢复当前主题文字颜色</button>
+      onClick={() => resetClientTextColors(theme)}><Icon name="refresh" size={13} />恢复当前主题文字颜色</button>
     {error && <p className="appearance-color-error" role="alert">{error}</p>}
   </section>;
 }

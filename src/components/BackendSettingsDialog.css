@@ -1,6 +1,6 @@
 /* ============================================================================
  *  设置页公共参数全部提取自现有模型模块。
- *  模型渠道保留原有布局；其他分区复用控件，字段外层保持平面布局。
+ *  模型渠道沿用字段卡片；连接与模型按可用内容宽度分栏，其他分区复用控件。
  * ========================================================================== */
 
 .settings-page {
@@ -597,6 +597,8 @@
   min-height: 0;
   height: 100%;
   overflow: hidden;
+  container-type: inline-size;
+  container-name: settings-pane;
 }
 
 .settings-content-panel > .settings-content {
@@ -615,6 +617,40 @@
   border-radius: var(--settings-radius);
   background: var(--settings-panel-soft);
   box-shadow: var(--settings-shadow);
+}
+
+/* 必须高于 App.css 的 .settings-content > div，避免网格被旧 flex 规则覆盖。 */
+.settings-page .settings-content > .settings-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  justify-content: normal;
+  gap: 20px;
+  min-width: 0;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+}
+.settings-columns > .settings-column {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  gap: var(--settings-space-8);
+  min-width: 0;
+  width: 100%;
+  justify-self: stretch;
+  container-type: inline-size;
+  container-name: settings-column;
+}
+.settings-columns .settings-group { min-width: 0; width: 100%; max-width: none; margin: 0; }
+.settings-content-panel:is([data-section='general'], [data-section='model']) .settings-footer :is(.settings-tab-save, .settings-footer-feedback) {
+  width: 100%; max-width: none; margin-inline: 0;
+}
+.settings-content-panel:is([data-section='general'], [data-section='model']) .settings-banner { max-width: none; }
+
+/* 使用实际内容宽度而非屏幕宽度，侧栏占宽或缩小窗口时自动退回单列。 */
+@container settings-pane (min-width: 1100px) {
+  .settings-page .settings-content > .settings-columns { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 .settings-group > header {
@@ -704,7 +740,7 @@
 .settings-field.is-wide { grid-column: 1 / -1; }
 .settings-field.is-secret { background: color-mix(in srgb, var(--settings-panel) 92%, transparent); }
 
-/* 模型渠道原有字段布局保持不变，其他分区只保留控件本身的边框。 */
+/* 模型沿用原有字段卡片样式，其他分区只保留控件本身的边框。 */
 .settings-content:not([data-section='model']) .settings-field {
   padding: 0;
   border: 0;
@@ -1816,6 +1852,20 @@
 .settings-connection-fields { display: grid; gap: 1rem; margin: 0; padding: 0; border: 0; min-width: 0; }
 .settings-connection-fields textarea { width: 100%; font-family: var(--font-mono, monospace); resize: vertical; }
 .settings-connection-actions { display: flex; flex-wrap: wrap; gap: .65rem; align-items: center; }
+.settings-builtin-address-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: .65rem;
+  align-items: center;
+  min-width: 0;
+}
+.settings-builtin-address-row > .settings-control { min-width: 0; width: 100%; }
+.settings-builtin-address-row .settings-connection-actions { flex-wrap: nowrap; }
+.settings-builtin-address-row .settings-connection-actions button { white-space: nowrap; }
+@container settings-column (max-width: 520px) {
+  .settings-builtin-address-row { grid-template-columns: minmax(0, 1fr); }
+  .settings-builtin-address-row .settings-connection-actions { flex-wrap: wrap; }
+}
 .settings-connection-fields input[readonly] { opacity: .75; }
 
 /* 公共证书导入使用现有主题和图标，不显示平台原生文件选择器的默认外观。 */
@@ -1989,4 +2039,20 @@
   .settings-reasoning-grid { grid-template-columns: 1fr; }
   .settings-host-list-input { grid-template-columns: 1fr; }
   .settings-path-preset-list button { flex: 1 1 calc(50% - 4px); }
+}
+
+/* 分栏后按卡片实际宽度收缩内部网格，不能只依赖整窗断点。 */
+@container settings-column (max-width: 640px) {
+  .settings-column .settings-reasoning-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .settings-column .settings-derived-paths { grid-template-columns: minmax(0, 1fr); }
+  .settings-connections-layout .settings-fields-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@container settings-column (max-width: 520px) {
+  .settings-column .settings-fields-grid,
+  .settings-column .settings-protocol-options { grid-template-columns: minmax(0, 1fr); }
+  .settings-column .settings-field.is-wide { grid-column: auto; }
+}
+@container settings-column (max-width: 360px) {
+  .settings-column .settings-reasoning-grid { grid-template-columns: minmax(0, 1fr); }
+  .settings-column .settings-media-head { flex-wrap: wrap; }
 }

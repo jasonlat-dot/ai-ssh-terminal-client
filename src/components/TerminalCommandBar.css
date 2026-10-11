@@ -1,0 +1,19 @@
+.terminal-command-bar { flex-shrink: 0; padding: 6px 12px; border-bottom: 1px solid var(--line); font-size: var(--font-small); color: var(--theme-text-muted); }
+.terminal-command-scope { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.terminal-command-scope > span:first-child { display: inline-flex; align-items: center; gap: 5px; }
+.terminal-command-agent { margin-left: auto; }
+.terminal-command-scope .terminal-command-mode { width: 8rem; height: 28px; padding: 4px 8px; font-size: var(--font-small); background: transparent; }
+.terminal-command-targets { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.terminal-command-targets > label { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; padding: 4px 8px; border: 1px solid var(--line); border-radius: 5px; cursor: pointer; }
+.terminal-command-targets > label > span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.terminal-command-targets > label[data-selected='true'] { border-color: var(--ui-accent); color: var(--theme-accent-text); }
+.terminal-command-targets input { width: 13px; height: 13px; margin: 0; accent-color: var(--ui-accent); }
+.terminal-broadcast-form { display: flex; align-items: flex-start; gap: 8px; margin-top: 8px; }
+.terminal-broadcast-form > textarea { flex: 1; min-width: 0; min-height: 32px; max-height: min(160px, 25vh); padding: 5px 8px; border: 1px solid var(--line); border-radius: 5px; background: transparent; color: var(--theme-text-strong); font: var(--font-small)/1.6 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; overflow-x: hidden; overflow-y: auto; resize: none; }
+.terminal-broadcast-form > button { flex-shrink: 0; display: inline-flex; align-items: center; gap: 5px; height: 30px; padding: 5px 8px; border: 1px solid var(--ui-accent); border-radius: 5px; background: transparent; color: var(--theme-accent-text); font: inherit; cursor: pointer; }
+.terminal-broadcast-form > button:hover:not(:disabled), .terminal-command-targets > label:hover { background: var(--theme-hover); }
+.terminal-command-bar :is(input, textarea, button):focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
+.terminal-command-bar :is(input, textarea, button):disabled { cursor: not-allowed; opacity: .5; }
+.terminal-command-bar p { margin: 5px 0 0; font-size: var(--font-caption); line-height: 1.4; }
+.terminal-broadcast-result { color: var(--theme-text-strong); }
+@media (max-width: 600px) { .terminal-broadcast-form { flex-wrap: wrap; } .terminal-broadcast-form > textarea { flex-basis: 100%; } }

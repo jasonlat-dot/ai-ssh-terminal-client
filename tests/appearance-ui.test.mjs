@@ -6,6 +6,7 @@ import ts from 'typescript';
 import * as React from 'react';
 import * as jsxRuntime from 'react/jsx-runtime';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { createPortal } from 'react-dom';
 
 function loadModule(path, requireModule, globals = {}) {
   const source = readFileSync(new URL(`../src/${path}`, import.meta.url), 'utf8');
@@ -29,17 +30,12 @@ const windowSize = { innerWidth: 1920, innerHeight: 1080 };
 /** 使用真实 React 服务端渲染，确认已有壁纸的控件直接出现在页面，而非藏在按钮后。 */
 function renderAppearance(snapshot) {
   const cache = new Map();
-  const ui = {
-    Icon: () => React.createElement('svg', { 'aria-hidden': true }),
-    Badge: ({ children }) => React.createElement('span', null, children),
-    Toggle: ({ label, value, disabled }) => React.createElement('button', { 'aria-label': label, 'aria-pressed': value, disabled }),
-  };
   const api = { wallpaperReadability: () => ({ blur: 0 }) };
   function requireModule(name) {
     if (name === 'react') return React;
     if (name === 'react/jsx-runtime') return jsxRuntime;
+    if (name === 'react-dom') return { createPortal };
     if (name.endsWith('.css')) return {};
-    if (name === './Ui') return ui;
     if (name.endsWith('/clientAppearance')) return api;
     if (name.endsWith('/useClientAppearance')) return { useClientAppearance: () => snapshot };
     if (name.endsWith('/clientTextColors')) return textColors;
@@ -48,7 +44,7 @@ function renderAppearance(snapshot) {
     if (name.endsWith('/useClientTypography')) return { useClientTypography: typography.readClientTypography };
     if (name.endsWith('/wallpaperCrop')) return geometry;
     if (name.endsWith('/wallpaperPlayback')) return { bindWallpaperPlayback: () => () => {} };
-    if (name === './WallpaperCropEditor' || name === './WallpaperFitControl' || name === './WallpaperWorkspacePreview' || name === './TextColorSettings' || name === './TypographySettings' || name === './WallpaperVideo') {
+    if (['./Ui', './Select', './WallpaperCropEditor', './WallpaperFitControl', './WallpaperWorkspacePreview', './TextColorSettings', './TypographySettings', './WallpaperVideo'].includes(name)) {
       if (!cache.has(name)) cache.set(name, loadModule(`components/${name.slice(2)}.tsx`, requireModule, { window: windowSize }));
       return cache.get(name);
     }
@@ -60,7 +56,7 @@ function renderAppearance(snapshot) {
 
 test('已有壁纸打开外观页即可看到比例、缩放、显示方式，透明度与保护也在同页', () => {
   const html = renderAppearance(appearance);
-  assert.match(html, /<legend>画面比例<\/legend>/);
+  assert.match(html, /<legend>[\s\S]*?画面比例<\/span><\/legend>/);
   assert.match(html, /id="wallpaper-crop-zoom"/);
   assert.match(html, /保存画面/);
   assert.match(html, /还原已保存画面/);
@@ -73,7 +69,7 @@ test('已有壁纸打开外观页即可看到比例、缩放、显示方式，�
   assert.match(html, /界面字体/);
   assert.match(html, /正常字体粗细/);
   assert.match(html, /粗体字体粗细/);
-  assert.match(html, /自定义本机字体/);
+  assert.match(html, /id="ui-font-family"[^>]*role="combobox"/);
   const preview = html.match(/<figure class="appearance-preview"[\s\S]*?<\/figure>/)?.[0];
   assert.ok(preview);
   assert.doesNotMatch(preview, /<svg|<aside|<i\b|•••|appearance-preview-(?:bar|workspace|dots|terminal|agent)/);
@@ -81,7 +77,7 @@ test('已有壁纸打开外观页即可看到比例、缩放、显示方式，�
   assert.match(html, /<figcaption class="visually-hidden">/);
   assert.doesNotMatch(html, /wallpaper-crop-grid|wallpaper-crop-corners|appearance-picker-copy|cat-wallpaper\.webp/,
     '不能把裁剪框或重复的导出文件信息当作工作区效果预览');
-  assert.equal((html.match(/<legend>壁纸显示方式<\/legend>/g) ?? []).length, 1, '不能重复显示两套状态不同的显示方式控件');
+  assert.equal((html.match(/壁纸显示方式<\/span><\/legend>/g) ?? []).length, 1, '不能重复显示两套状态不同的显示方式控件');
   assert.doesNotMatch(html, />重新裁剪<|>取消更换</, '既有图片不需要进入或退出裁剪模式');
 });
 
@@ -107,11 +103,19 @@ test('外观页左侧为工作区效果，右侧原图入口和参数，不增�
   assert.match(styles, /\[data-section='appearance'\][^{]*\{[^}]*scrollbar-width: none/s);
   assert.match(styles, /\[data-section='appearance'\]::-webkit-scrollbar \{ display: none;/);
   assert.match(parentStyles, /\.settings-content-panel > \.settings-content \{[^}]*overflow: auto/s);
-  assert.match(editorStyles, /minmax\(min-content, 1fr\)/, '侧栏撑高时不能被固定轨道或保存栏遮挡');
+  assert.match(editorStyles, /\.wallpaper-crop-editor \{[^}]*grid-template-rows: auto auto/s, '侧栏自然撑高，不被固定轨道或保存栏遮挡');
   assert.match(editorStyles, /\.wallpaper-source-image \{[^}]*object-fit: cover/s, '原图作为铺满式缩略背景，不出现两侧主题留白');
   assert.match(editorStyles, /\.wallpaper-source-actions \{[^}]*inset: 0/s, '更换入口轻量叠在图片上，不使用独立的盒装按钮');
   assert.match(editorStyles, /@media \(max-width: 1050px\)/);
   assert.doesNotMatch(styles, /\.appearance-settings \{[^}]*overflow: hidden/s);
+});
+
+test('画面比例使用宽幅四角与对角箭头图标，不再使用单纯方框', () => {
+  const editor = readFileSync(new URL('../src/components/WallpaperCropEditor.tsx', import.meta.url), 'utf8');
+  const ui = readFileSync(new URL('../src/components/Ui.tsx', import.meta.url), 'utf8');
+  assert.match(editor, /<Icon name="aspectRatio" size=\{16\} \/>画面比例/);
+  assert.doesNotMatch(editor, /<Icon name="maximize"[^>]*\/>画面比例/);
+  assert.match(ui, /aspectRatio: 'M8 5H3v5 M16 5h5v5 M3 14v5h5 M21 14v5h-5 M8 15l8-6/);
 });
 
 test('还原和保存仅出现在顶部标题栏，不再显示底部文件栏或顶部保存状态', () => {
@@ -125,7 +129,7 @@ test('还原和保存仅出现在顶部标题栏，不再显示底部文件栏�
   assert.equal((html.match(/class="wallpaper-crop-actions"/g) ?? []).length, 1);
 });
 
-test('预览外框与背景设置区域从同一行顶部对齐，不补偿标题间距；键盘说明保留但不占版面', () => {
+test('左右等高标题使预览与更换入口上边缘对齐；键盘说明保留但不占版面', () => {
   const html = renderAppearance(appearance);
   const styles = readFileSync(new URL('../src/components/WallpaperCropEditor.css', import.meta.url), 'utf8');
   assert.match(html, /id="wallpaper-crop-keyboard" class="visually-hidden"/);
@@ -133,8 +137,85 @@ test('预览外框与背景设置区域从同一行顶部对齐，不补偿标�
   assert.match(styles, /\.wallpaper-crop-frame \{[^}]*place-items: start center/s);
   assert.match(styles, /\.wallpaper-crop-main \{[^}]*padding-top: 0[^}]*align-self: start/s);
   assert.match(styles, /\.wallpaper-crop-controls \{[^}]*align-self: start/s);
+  assert.match(html, /<h3 class="wallpaper-preview-heading">[\s\S]*?效果预览<\/h3>/);
+  assert.match(styles, /\.wallpaper-preview-heading, \.wallpaper-source-control h3 \{[^}]*min-height: 22px;[^}]*margin: 0 0 8px/s);
   assert.doesNotMatch(styles, /--wallpaper-source-heading-height/);
   assert.match(styles, /@media \(max-width: 1050px\)[\s\S]*\.wallpaper-crop-main \{[^}]*grid-template-rows: auto/);
+});
+
+test('外观页限宽居中，预览不超过 500px 高度，文字颜色与字体位于壁纸设置下方', () => {
+  const html = renderAppearance(appearance);
+  const sidebar = html.match(/<aside class="wallpaper-crop-controls"[\s\S]*?<\/aside>/)?.[0];
+  assert.ok(sidebar);
+  assert.match(sidebar, /背景设置|画面比例/);
+  assert.doesNotMatch(sidebar, /appearance-text-colors|appearance-typography|ui-font-family/);
+  const interfaceSettings = html.indexOf('class="appearance-interface-settings"');
+  assert.ok(interfaceSettings > html.indexOf('</aside>'));
+  assert.ok(html.indexOf('class="appearance-text-colors"') > interfaceSettings);
+  assert.ok(html.indexOf('class="appearance-typography"') > interfaceSettings);
+  assert.equal((html.match(/id="ui-font-family"/g) ?? []).length, 1);
+  const styles = readFileSync(new URL('../src/components/AppearanceSettings.css', import.meta.url), 'utf8');
+  const editorStyles = readFileSync(new URL('../src/components/WallpaperCropEditor.css', import.meta.url), 'utf8');
+  assert.match(styles, /\.appearance-settings \{[^}]*max-width: 1280px;[^}]*margin-inline: auto/s);
+  assert.doesNotMatch(styles, /\.appearance-settings \{[^}]*height: 100%/s);
+  assert.match(editorStyles, /\.wallpaper-crop-editor \{[^}]*flex: 0 0 auto;[^}]*grid-template-columns: minmax\(0, 1fr\) 380px/s);
+  assert.match(editorStyles, /\.wallpaper-crop-frame \{[^}]*max-width: min\(900px, calc\(500px \* var\(--appearance-preview-window-ratio/s);
+  assert.match(styles, /\.appearance-interface-settings \{[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/s);
+  assert.match(styles, /@media \(max-width: 700px\)[\s\S]*\.appearance-interface-settings \{[^}]*grid-template-columns: minmax\(0, 1fr\)/);
+  // 与 CSS 上限对应的几何：画面尺寸随真实窗口比例改变，绝不裁切或拉伸预览本身。
+  for (const ratio of [16 / 9, 16 / 10, 1, 0.75]) {
+    const width = Math.min(1280 - 380 - 24, 900, 500 * ratio);
+    assert.ok(width / ratio <= 500);
+  }
+});
+
+test('显示方式的短提示仍保留完整读屏说明', () => {
+  const html = renderAppearance(appearance);
+  assert.match(html, /title="填满整个窗口，保留比例；窗口与图片比例不同时会裁掉部分边缘。">填满窗口，超出边缘会裁切。/);
+  assert.match(html, /aria-describedby="crop-fit-help"/);
+  assert.match(html, /<span id="crop-fit-help" class="visually-hidden">填满整个窗口/);
+});
+
+test('外观标题与控件使用已有图标、语义徽标及选中勾选，不给壁纸预览重新叠加图标', () => {
+  const html = renderAppearance(appearance);
+  assert.match(html, /appearance-section-title[^>]*>[\s\S]*?ui-accent-icon/);
+  assert.match(html, /ui-badge[^>]*data-accent="cyan"/);
+  assert.match(html, /本地壁纸/);
+  assert.match(html, /appearance-choice-check/);
+  const preview = html.match(/<figure class="appearance-preview"[\s\S]*?<\/figure>/)?.[0];
+  assert.ok(preview);
+  assert.doesNotMatch(preview, /<svg|ui-badge/);
+  const styles = readFileSync(new URL('../src/components/AppearanceSettings.css', import.meta.url), 'utf8');
+  assert.match(styles, /button\.selected \{ background: var\(--settings-selection-bg\);/);
+  assert.match(styles, /button:disabled \{ cursor: not-allowed; opacity: .5;/);
+});
+
+test('字体使用主题下拉组件，替代白底原生选择框，并保留选中、浮层和键盘状态', () => {
+  const html = renderAppearance(appearance);
+  assert.match(html, /id="ui-font-family"[^>]*role="combobox"[^>]*class="ui-select-trigger settings-control"/);
+  assert.doesNotMatch(html, /<select\b|<option\b/);
+  const select = readFileSync(new URL('../src/components/Select.tsx', import.meta.url), 'utf8');
+  const css = readFileSync(new URL('../src/components/Select.css', import.meta.url), 'utf8');
+  assert.match(select, /createPortal/);
+  assert.match(select, /role="listbox"/);
+  assert.match(select, /aria-selected/);
+  assert.match(select, /ArrowDown/);
+  assert.match(select, /Escape/);
+  assert.match(css, /background: var\(--theme-panel\)/);
+  assert.match(css, /\.ui-select-option\.is-selected/);
+  assert.match(css, /\.ui-select-option\.is-active/);
+});
+
+test('字体选择在标题同行，缩略图有轻蒙版，格式提示替代可见的播放规则', () => {
+  const html = renderAppearance(appearance);
+  const heading = html.match(/class="appearance-text-colors-heading appearance-typography-heading"[\s\S]*?<\/div>/)?.[0];
+  assert.match(heading, /界面字体/);
+  assert.match(heading, /id="ui-font-family"/);
+  assert.doesNotMatch(html, /<label[^>]*for="ui-font-family"/);
+  assert.match(html, /支持 PNG \/ JPG \/ GIF \/ WebP \/ MP4/);
+  assert.doesNotMatch(html, />静音循环 · 仅最小化或不可见时暂停</);
+  const css = readFileSync(new URL('../src/components/WallpaperCropEditor.css', import.meta.url), 'utf8');
+  assert.match(css, /\.wallpaper-source-actions \{[^}]*18%[^}]*34%/s);
 });
 
 test('预览交互框按实际窗口比例收缩，不被网格拉高或用最小高度撑出底部空白', async () => {
@@ -221,7 +302,7 @@ function editorHarness({ file, initialCrop, hasWallpaper = true, initializing = 
     if (name === 'react') return fakeReact;
     if (name === 'react/jsx-runtime') return { jsx: createNode, jsxs: createNode };
     if (name.endsWith('.css')) return {};
-    if (name === './Ui') return { Icon: () => createNode('svg') };
+    if (name === './Ui') return { Icon: () => createNode('svg'), AccentIcon: () => createNode('svg'), Badge: ({ children }) => createNode('span', { children }) };
     if (name.endsWith('/clientAppearance')) return api;
     if (name.endsWith('/wallpaperCrop')) return { ...geometry, exportWallpaperCrop: exportCrop };
     if (name === './WallpaperVideo') return { WallpaperVideo: props => createNode('video', { ...props, muted: true, loop: true, playsInline: true }) };
@@ -246,7 +327,7 @@ function editorHarness({ file, initialCrop, hasWallpaper = true, initializing = 
     return [node, ...nodes(node.props.children)];
   }
   function text(node) {
-    if (node == null) return '';
+    if (node == null || typeof node === 'boolean') return '';
     if (typeof node !== 'object') return String(node);
     if (Array.isArray(node)) return node.map(item => text(item)).join('');
     return typeof node.type === 'function' ? text(node.type(node.props)) : text(node.props.children);
