@@ -26,6 +26,16 @@ struct LocalTerminalSession {
     closed: AtomicBool,
 }
 
+pub fn close_all(state: &LocalTerminalState) {
+    let sessions = match state.sessions.lock() {
+        Ok(mut sessions) => std::mem::take(&mut *sessions),
+        Err(_) => return,
+    };
+    for session in sessions.into_values() {
+        let _ = session.close();
+    }
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LocalTerminalOpen {

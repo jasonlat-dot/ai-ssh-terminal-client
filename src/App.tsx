@@ -60,6 +60,7 @@ import './client-text-colors.css';
 import './client-typography.css';
 import { useApplyClientTextColors } from './state/useClientTextColors';
 import { useApplyClientTypography } from './state/useClientTypography';
+import { useStartupUpdateCheck } from './state/useClientUpdater';
 import './panel-resize.css';
 import './components/TerminalLayout.css';
 
@@ -230,6 +231,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme }: {
   const notify = useCallback((message: string, type: NoticeType = 'info', durationMs?: number) => {
     setToast({ id: ++noticeSequence.current, message, type, ...(durationMs === undefined ? {} : { durationMs }) });
   }, []);
+  useStartupUpdateCheck(notify);
 
   useEffect(() => {
     const initialAttempts = openingConnections.current;
@@ -812,7 +814,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme }: {
    *
    * 调用方在 await 之后调 getCurrentWindow().destroy() 真正退出。
    */
-  const cleanupBeforeClose = useCallback(async () => {
+  const cleanupBeforeClose = useCallback(async (maximumWaitMs?: number) => {
     if (closingApp.current) return;
     closingApp.current = true;
     // 1) 取消尚未完成的 SSH 连接尝试（包括重连），释放对应 AbortController。
@@ -839,8 +841,13 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme }: {
     });
     sftpCleanups.current.clear();
 
-    // 4) 等待所有请求结束；再给一个 800ms 的兜底超时，避免后端卡住导致窗口关不掉。
-    await Promise.allSettled([...runtimeCloses, ...sftpCloses]);
+    // 4) 更新前有等待上限；正常关窗仍等待清理完成，再留 800ms 给状态收尾。
+    const closing = Promise.allSettled([...runtimeCloses, ...sftpCloses]);
+    if (maximumWaitMs) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try { await Promise.race([closing, new Promise(resolve => { timer = setTimeout(resolve, maximumWaitMs); })]); }
+      finally { clearTimeout(timer); }
+    } else await closing;
     await new Promise(resolve => setTimeout(resolve, 800));
 
     // 5) 清理持久化的页签恢复信息：markManuallyClosed() 已经让 sessions 状态变化，
@@ -849,6 +856,17 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme }: {
     try { localStorage.removeItem(`agent-ssh-terminal-sessions-v1:${backendUrl}`); }
     catch (error) { console.warn('清理终端页签持久化数据失败', error); }
   }, []);
+
+  const prepareForClientUpdate = async () => {
+    if (closingApp.current) throw new Error('应用正在关闭，请稍后重试。');
+    if (chatBusy || chatStopping || broadcastBusy) throw new Error('请先结束智能体回复或命令提交，再安装更新。');
+    if (clientHistoryDirty.current && messagesRef.current.length) {
+      if (!selectedAgent?.agentId || !activeChatSessionId) throw new Error('当前对话尚未保存，请先确认历史记录已保存。');
+      await persistClientSession(selectedAgent.agentId, activeChatSessionId);
+    }
+    try { await cleanupBeforeClose(5_000); }
+    finally { closingApp.current = false; }
+  };
 
   useEffect(() => {
     if (!isTauriRuntime()) return;
@@ -1263,6 +1281,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme }: {
     <ActivityBar active={navigation} onSelect={name => { setBackendSettingsOpen(false); navigate(name); }} onSettings={() => setBackendSettingsOpen(value => !value)} settingsOpen={backendSettingsOpen} collapsed={navCollapsed} toggleCollapsed={() => setNavCollapsed(value => !value)} />
     {backendSettingsOpen && <BackendSettingsDialog currentUrl={backendUrl}
       onClose={() => setBackendSettingsOpen(false)}
+      beforeClientUpdate={prepareForClientUpdate}
       onSave={onBackendChange} />}
     <ConnectionSidebar connections={{ ...connections, remove: removeHost }} sessions={sessions} connectingHostIds={connectingHostIds} activeHostId={active?.kind === 'ssh' ? active.connectionId : undefined} activeSessionId={activeId} terminal={selectHost} cancelConnection={cancelHostConnection} activate={activateTerminalFromSidebar} create={openNewConnection} collapsed={connectionSidebarCollapsed} toggleCollapsed={() => setConnectionSidebarCollapsed(value => !value)} />
     <main hidden={navigation !== '命令'} className={`central-workspace ${!active ? 'no-session' : ''} ${commandCollapsed ? 'command-collapsed' : ''}`}>

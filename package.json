@@ -1,7 +1,7 @@
 {
   "name": "ai-ssh-terminal-client",
   "private": true,
-  "version": "0.1.4",
+  "version": "0.1.5",
   "type": "module",
   "scripts": {
     "prepare:icons": "node scripts/prepare-app-icons.mjs",
@@ -14,6 +14,9 @@
     "bundle:nsis": "tauri build --bundles nsis",
     "bundle:msi": "tauri build --bundles msi",
     "bundle:windows": "tauri build --bundles nsis,msi",
+    "updater:configure": "node scripts/updater-release.mjs configure",
+    "release:windows": "node scripts/updater-release.mjs build",
+    "release:manifest": "node scripts/updater-release.mjs manifest",
     "preview": "vite preview",
     "tauri": "tauri",
     "test:files": "node --experimental-strip-types tests/files.test.ts",
@@ -22,8 +25,9 @@
     "test:sftp": "node --experimental-strip-types tests/sftp.test.ts"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2",
+    "@tauri-apps/api": "2.11.1",
     "@tauri-apps/plugin-opener": "^2",
+    "@tauri-apps/plugin-updater": "2.12.0",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
     "katex": "^0.16.47",

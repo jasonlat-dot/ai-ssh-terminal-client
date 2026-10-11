@@ -26,3 +26,9 @@ dist-ssr
 /src-tauri/.cache/
 /src-tauri/bundle/*
 !/src-tauri/bundle/.gitkeep
+
+# Updater signing secrets must never be committed (public .key.pub is safe).
+/.secrets/
+*.key
+/release/
+/docs/client-updates.md

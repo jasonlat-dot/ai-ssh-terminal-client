@@ -1,6 +1,7 @@
 mod cache;
 mod bundled_backend;
 mod backend_process;
+mod client_update;
 mod local_backend_tls;
 mod backend_connection_probe;
 mod chat_history;
@@ -28,6 +29,7 @@ pub fn run() {
         .manage(CommandStoreState::default())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             // 先注册本机证书固定信任，再开始后端启动，避免首次 HTTPS 请求早于事件安装。
             local_backend_tls::install(app.handle())?;
@@ -42,6 +44,8 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            client_update::client_update_status,
+            client_update::prepare_client_update,
             bundled_backend::bundled_backend_status,
             bundled_backend::prepare_local_backend_tls,
             local_backend_tls::configure_backend_connection_tls,

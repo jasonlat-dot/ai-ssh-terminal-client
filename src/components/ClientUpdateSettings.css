@@ -1,0 +1,19 @@
+.settings-page .settings-content > .client-update-settings { display: grid; align-items: stretch; justify-content: stretch; gap: 18px; width: 100%; min-width: 0; max-width: 1000px; margin-inline: auto; }
+.client-update-card { display: flex; flex-direction: column; gap: 12px; padding: 22px; border: 1px solid var(--settings-border); border-radius: var(--settings-radius); background: var(--settings-panel-soft); }
+.client-update-card header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
+.client-update-card :is(h2, h3), .client-update-confirm > strong { display: flex; align-items: center; gap: 8px; }
+.settings-page .client-update-card p:not(.settings-banner) { margin: 0; color: var(--settings-text-muted); }
+.client-update-card small { color: var(--settings-text-muted); }
+.client-update-version, .client-update-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.client-update-version { padding-block: 8px; font-size: 18px; }
+.settings-page .client-update-card .client-update-status { color: var(--settings-text); }
+.client-update-version, .client-update-progress { font-variant-numeric: tabular-nums; }
+.client-update-actions button:focus-visible { outline: 2px solid var(--settings-focus); outline-offset: 3px; }
+.client-update-card .client-update-actions button:disabled { cursor: not-allowed; opacity: .5; }
+.client-update-progress { display: flex; flex-direction: column; gap: 6px; }
+.client-update-progress progress { width: 100%; height: 9px; accent-color: var(--ui-accent); }
+.client-update-confirm { display: flex; flex-direction: column; gap: 10px; padding: 16px; border: 1px solid var(--ui-highlight-border); border-radius: 8px; background: var(--ui-highlight-bg); }
+.client-update-notes { white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--font-ui); line-height: 1.75; max-height: 320px; overflow: auto; }
+.client-update-release-link { display: inline-flex; align-items: center; gap: 6px; align-self: flex-start; color: var(--theme-accent-text); text-decoration: none; }
+.client-update-release-link:hover { text-decoration: underline; }
+.client-update-release-link:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 3px; }

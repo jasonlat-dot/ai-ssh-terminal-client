@@ -19,6 +19,7 @@ import { sftpApi, type LocalDirectory } from '../api/sftp';
 import { adoptBundledBackendUrl } from '../config/backend';
 import { BackendConnectionSettings } from './BackendConnectionSettings';
 import { AppearanceSettings } from './AppearanceSettings';
+import { ClientUpdateSettings } from './ClientUpdateSettings';
 import { HEALTH_NORMAL_INTERVALS, HEALTH_RETRY_INTERVALS, readHealthRefreshPreferences, saveHealthRefreshPreferences, type HealthRefreshPreferences } from '../config/health';
 import { isTauriRuntime } from '../state/runtime';
 import { useBackendHealth } from '../state/useBackendHealth';
@@ -37,9 +38,10 @@ type BackendSettingsDialogProps = {
   required?: boolean;
   onClose: () => void;
   onSave: (url: string) => void;
+  beforeClientUpdate?: () => Promise<void>;
 };
 
-type SettingsSection = 'general' | 'appearance' | 'model' | 'proxy' | 'storage';
+type SettingsSection = 'general' | 'appearance' | 'model' | 'proxy' | 'storage' | 'about';
 type ConfigValues = Record<string, string>;
 type FieldType = 'text' | 'password' | 'number' | 'textarea' | 'choice' | 'toggle';
 
@@ -128,6 +130,8 @@ const sectionItems: SectionDefinition[] = [
   { id: 'storage', label: '存储', caption: '本地与对象存储', icon: 'database',
     keys: STORAGE_KEYS,
     saveLabel: '保存存储配置', saveHint: '新上传会按新存储设置生效；已有上传不会迁移。' },
+  { id: 'about', label: '关于与更新', caption: '版本 · 更新日志 · 安装', icon: 'monitor',
+    keys: [], saveLabel: '', saveHint: '仅更新客户端，不修改远程后端。' },
 ];
 
 const generalFields: FieldDefinition[] = [
@@ -1082,7 +1086,7 @@ function PathPreviewCard({ label, icon, path, hint }: {
  * 主组件
  * ========================================================================== */
 
-export function BackendSettingsDialog({ currentUrl, required = false, onClose, onSave }: BackendSettingsDialogProps) {
+export function BackendSettingsDialog({ currentUrl, required = false, onClose, onSave, beforeClientUpdate }: BackendSettingsDialogProps) {
   const [activeSection, setActiveSection] = useState<SettingsSection>('general');
   const [config, setConfig] = useState<BundledBackendConfig | null>(null);
   const [values, setValues] = useState<ConfigValues>({});
@@ -1373,7 +1377,7 @@ export function BackendSettingsDialog({ currentUrl, required = false, onClose, o
     : !backendStatus ? '读取状态中…' : healthLabel(bundledHealthState, bundledHealth.snapshot);
   const activeStorageMode = values.fileStorageDefaultId === (values.minioStorageId || 'minio-main') ? 'minio' : 'local';
   const activeDefinition = sectionItems.find(item => item.id === activeSection) ?? sectionItems[0];
-  const showSaveBar = activeSection !== 'appearance' && !loading && (activeSection === 'general' || config !== null);
+  const showSaveBar = activeSection !== 'appearance' && activeSection !== 'about' && !loading && (activeSection === 'general' || config !== null);
 
   return <main className={`settings-page ${required ? 'is-standalone' : ''}`} aria-label="客户端设置">
     {/* ============================== 顶栏 ============================== */}
@@ -1385,6 +1389,7 @@ export function BackendSettingsDialog({ currentUrl, required = false, onClose, o
         <div className="settings-topbar-title">
           <h1>客户端与内置后端设置</h1>
           <p>{activeSection === 'appearance' ? '画面预览后保存，透明度实时生效；仅保存在客户端，无需重启。'
+            : activeSection === 'about' ? '检查和下载客户端更新，确认后安装并重启；远程后端不会随之更新。'
             : '修改后请保存对应配置；服务不会自动重启，下次启动或手动重启后生效。'}</p>
         </div>
       </div>
@@ -1455,7 +1460,12 @@ export function BackendSettingsDialog({ currentUrl, required = false, onClose, o
       <div className="settings-content-panel" data-section={activeSection}>
         <section className="settings-content" data-section={activeSection}>
           {activeSection === 'appearance' && <AppearanceSettings />}
-          {loading && activeSection !== 'appearance' && <div className="settings-skeleton" aria-label="正在读取配置">
+          {activeSection === 'about' && <ClientUpdateSettings beforeInstall={async () => {
+            if (saving) throw new Error('配置正在保存，请等待保存完成再安装更新。');
+            if (sectionItems.some(item => isTabDirty(item.id))) throw new Error('请先保存或还原设置中的未保存修改。');
+            await beforeClientUpdate?.();
+          }} />}
+          {loading && activeSection !== 'appearance' && activeSection !== 'about' && <div className="settings-skeleton" aria-label="正在读取配置">
             <span style={{ width: '92%' }} />
             <span style={{ width: '74%' }} />
             <span style={{ width: '88%' }} />
@@ -1641,7 +1651,7 @@ export function BackendSettingsDialog({ currentUrl, required = false, onClose, o
             </SettingsGroup>
           </>}
         </section>
-        {activeSection !== 'appearance' && (showSaveBar || error || result) && <footer className="settings-footer" aria-label={`${activeDefinition.label}配置操作`}>
+        {activeSection !== 'appearance' && activeSection !== 'about' && (showSaveBar || error || result) && <footer className="settings-footer" aria-label={`${activeDefinition.label}配置操作`}>
           {(error || result) && <div className="settings-footer-feedback">
             {error && <p className="settings-banner is-error" role="alert">
               <Icon name="alert" size={13} />{error}
