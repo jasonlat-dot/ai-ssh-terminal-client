@@ -144,8 +144,8 @@ test('视频预览复用取景平面，右侧缩略图不自动播放，无声�
     if (name === 'react/jsx-runtime') return runtime;
     if (name.endsWith('/clientAppearance')) return { wallpaperReadability: () => ({ blur: 0 }) };
     if (name.endsWith('/wallpaperPlayback')) return {};
-    if (name === './WallpaperVideo') {
-      if (!cache.has(name)) cache.set(name, load('components/WallpaperVideo.tsx', requireModule));
+    if (name === './WallpaperVideo' || name === './Ui') {
+      if (!cache.has(name)) cache.set(name, load(`components/${name.slice(2)}.tsx`, requireModule));
       return cache.get(name);
     }
     throw new Error(name);

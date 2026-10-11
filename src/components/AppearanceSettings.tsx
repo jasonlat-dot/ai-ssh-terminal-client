@@ -67,6 +67,7 @@ export function AppearanceSettings() {
           transparency={appearance.transparency} protection={appearance.readabilityProtection}
           fileAction={fileAction} surfaceControls={surfaceControls} resetAction={resetAction}
           readabilityControl={readabilityControl} heading={heading}
+          onSelectWallpaper={() => input.current?.click()}
           externalError={pendingWallpaper ? undefined : appearance.error}
           onClose={pendingWallpaper ? () => {
             restoreFocus.current = true;

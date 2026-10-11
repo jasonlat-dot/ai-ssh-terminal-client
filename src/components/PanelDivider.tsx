@@ -5,21 +5,27 @@ type Props = {
   value: number; change: (value: number) => void; collapse: () => void; collapsed: boolean;
   unit?: 'percent' | 'pixels'; min?: number; max?: number; defaultValue?: number; minPixels?: number;
   reservePixels?: number; reserveSelector?: string; containerSelector?: string; className?: string; label?: string; controls?: string; collapseLabel?: string;
+  side?: 'left' | 'right'; reserveWidthSelectors?: string;
 };
 type Drag = { id: number; x: number; width: number; bounds: PanelBounds; node: HTMLDivElement; pendingCollapse: boolean };
 
 export function PanelDivider({ value, change, collapse, collapsed, unit = 'percent', min = 18, max = 50,
   defaultValue = 22, minPixels = 0, reservePixels = 0, reserveSelector, containerSelector = '.app-shell',
-  className = '', label = '调整工作区与智能体宽度', controls, collapseLabel = '智能体对话' }: Props) {
+  className = '', label = '调整工作区与智能体宽度', controls, collapseLabel = '智能体对话', side = 'right', reserveWidthSelectors }: Props) {
   const [dragging, setDragging] = useState(false);
   const [collapsePending, setCollapsePending] = useState(false);
   const drag = useRef<Drag | null>(null);
+  const direction = side === 'left' ? 1 : -1;
+  const collapseDirection = side === 'left' ? '左' : '右';
+  const cancelDirection = side === 'left' ? '右' : '左';
   const boundsFor = (node: HTMLDivElement) => {
     const container = node.closest(containerSelector);
     if (!container) return null;
     const rect = container.getBoundingClientRect();
     const reserved = reserveSelector ? container.querySelector(reserveSelector)?.getBoundingClientRect() : null;
-    return panelBounds(rect.width, unit, min, max, minPixels, reservePixels + (reserved ? Math.max(0, reserved.left - rect.left) : 0));
+    const reservedWidths = reserveWidthSelectors ? Array.from(container.querySelectorAll(reserveWidthSelectors))
+      .reduce((sum, panel) => sum + panel.getBoundingClientRect().width, 0) : 0;
+    return panelBounds(rect.width, unit, min, max, minPixels, reservePixels + reservedWidths + (reserved ? Math.max(0, reserved.left - rect.left) : 0));
   };
   const release = () => {
     const active = drag.current; drag.current = null;
@@ -39,7 +45,7 @@ export function PanelDivider({ value, change, collapse, collapsed, unit = 'perce
     else change(result.value);
   };
   const preview = (active: Drag, x: number) => {
-    const result = resizePanel(active.width + (active.x - x) / active.bounds.factor, active.bounds);
+    const result = resizePanel(active.width + (x - active.x) * direction / active.bounds.factor, active.bounds);
     if (!result) return;
     // Keep the panel at its minimum width while the pointer is in the collapse zone.
     // Commit collapse only on pointer-up; moving back, Escape or cancellation discards it.
@@ -48,9 +54,10 @@ export function PanelDivider({ value, change, collapse, collapsed, unit = 'perce
     change(result.value);
   };
   return <div className={`panel-divider ${className} ${dragging ? 'dragging' : ''} ${collapsePending ? 'collapse-pending' : ''}`} role="separator" aria-label={label}
+    data-side={side}
     aria-controls={controls} aria-orientation="vertical" aria-valuemin={min} aria-valuemax={max} aria-valuenow={collapsed ? undefined : Math.round(value)}
-    aria-valuetext={collapsePending ? `松开鼠标收起${collapseLabel}，向左拖回可取消` : undefined}
-    aria-hidden={collapsed} tabIndex={collapsed ? -1 : 0} title="拖动调整宽度，向右缩至最小宽度以下后松开收起；双击恢复默认，方向键微调"
+    aria-valuetext={collapsePending ? `松开鼠标收起${collapseLabel}，向${cancelDirection}拖回可取消` : undefined}
+    aria-hidden={collapsed} tabIndex={collapsed ? -1 : 0} title={`拖动调整宽度，向${collapseDirection}缩至最小宽度以下后松开收起；双击恢复默认，方向键微调`}
     onPointerDown={event => {
       if (collapsed || event.button !== 0 || event.isPrimary === false || drag.current) return;
       const bounds = boundsFor(event.currentTarget); if (!bounds) return;
@@ -80,8 +87,8 @@ export function PanelDivider({ value, change, collapse, collapsed, unit = 'perce
       event.preventDefault();
       finish();
       const current = Math.max(bounds.min, Math.min(bounds.max, value)), step = unit === 'pixels' ? 10 : 1;
-      update(event.key === 'Home' ? bounds.min : event.key === 'End' ? bounds.max : current + (event.key === 'ArrowLeft' ? step : -step), bounds);
+      update(event.key === 'Home' ? bounds.min : event.key === 'End' ? bounds.max : current + (event.key === 'ArrowRight' ? step : -step) * direction, bounds);
     }}><span />{collapsePending && <div className="panel-collapse-hint" role="status">
-      <strong>松开鼠标收起{collapseLabel}</strong><small>向左拖回可取消 · Esc 取消</small>
+      <strong>松开鼠标收起{collapseLabel}</strong><small>向{cancelDirection}拖回可取消 · Esc 取消</small>
     </div>}</div>;
 }

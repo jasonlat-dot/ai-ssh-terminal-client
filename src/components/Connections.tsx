@@ -30,7 +30,7 @@ export function ConnectionSidebar({ connections, sessions, connectingHostIds, ac
     const detail = await connections.detail(host.id);
     if (detail) setDraft({ ...detail });
   };
-  return <aside className={`host-sidebar ${collapsed ? 'collapsed' : ''}`} aria-label="SSH 连接列表">
+  return <aside id="connection-sidebar-content" className={`host-sidebar ${collapsed ? 'collapsed' : ''}`} aria-label="SSH 连接列表">
     <header className="host-sidebar-heading">
       <div className="host-sidebar-title"><span>SSH</span><strong>服务器</strong><small>{connections.hosts.length}</small></div>
       <div className="host-sidebar-heading-actions">

@@ -45,12 +45,14 @@ type WallpaperCropEditorProps = {
   /** 外观页提供标题与自动保存开关，保持原有设置导航和主题不变。 */
   heading?: ReactNode;
   readabilityControl?: ReactNode;
+  /** 空预览的选择入口复用外观页文件输入，不另建上传或保存流程。 */
+  onSelectWallpaper?: () => void;
 };
 
 /** 原图画面控件常驻外观页；比例、缩放即时预览，确认保存才替换全局壁纸。 */
 export function WallpaperCropEditor({ file, onClose, externalBusy = false, onSavingChange,
   transparency = 25, protection = true, fileAction, surfaceControls, resetAction, externalError,
-  hasWallpaper = true, initializing = false, heading, readabilityControl }: WallpaperCropEditorProps) {
+  hasWallpaper = true, initializing = false, heading, readabilityControl, onSelectWallpaper }: WallpaperCropEditorProps) {
   const [source, setSource] = useState<PreparedWallpaper | null>(null);
   const [limitedSource, setLimitedSource] = useState(false);
   const [savedRatio, setSavedRatio] = useState<number | null>(null);
@@ -253,11 +255,12 @@ export function WallpaperCropEditor({ file, onClose, externalBusy = false, onSav
         // 交互框与模拟窗口共用比例，避免外层被网格拉高后产生可聚焦/可拖动的空白区域。
         '--appearance-preview-window-ratio': windowRatio,
       } as CSSProperties} aria-busy={loading}
-          tabIndex={disabled ? -1 : 0} role="group" aria-label="工作区壁纸预览，可拖动调整图片位置" aria-disabled={disabled} aria-describedby="wallpaper-crop-keyboard"
+          tabIndex={disabled ? -1 : 0} role="group" aria-label={empty ? '工作区壁纸预览，选择壁纸后可调整画面' : '工作区壁纸预览，可拖动调整图片位置'} aria-disabled={empty ? undefined : disabled} aria-describedby={empty ? undefined : 'wallpaper-crop-keyboard'}
           onPointerDown={startDrag} onPointerMove={moveDrag} onPointerUp={finishDrag} onPointerCancel={finishDrag}
           onLostPointerCapture={() => { drag.current = null; }} onKeyDown={adjustWithKeyboard}>
         <WallpaperWorkspacePreview source={source} rect={rect} fit={fit} transparency={transparency} protection={protection}
-          imagePlaneRef={imagePlane} windowRatio={windowRatio} caption={previewCaption} />
+          imagePlaneRef={imagePlane} windowRatio={windowRatio} caption={previewCaption}
+          emptyState={empty && !initializing ? { onSelect: onSelectWallpaper, disabled: externalBusy || saving } : undefined} />
       </div>
       {/* 删除可见的底部提示，但保留预览的读屏操作说明与键盘支持。 */}
       <p id="wallpaper-crop-keyboard" className="visually-hidden">可拖动预览调整位置；方向键移动，Shift 加速，+ / − 缩放，Home 重置。</p>

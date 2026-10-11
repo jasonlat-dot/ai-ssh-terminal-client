@@ -83,6 +83,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
   const { hosts } = connections;
   const [agentWidth, setAgentWidth] = useState(22);
   const [commandWidth, setCommandWidth] = useState(260);
+  const [connectionSidebarWidth, setConnectionSidebarWidth] = useState(() => window.innerWidth <= 1280 ? 194 : 224);
   const [navCollapsed, setNavCollapsed] = useState(true);
   const [connectionSidebarCollapsed, setConnectionSidebarCollapsed] = useState(
     () => localStorage.getItem(CONNECTION_SIDEBAR_COLLAPSED_KEY) === 'true',
@@ -1278,7 +1279,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     return () => window.removeEventListener('online', verifyAfterNetworkRestore);
   }, [sessions, verifyTerminalSession]);
 
-  return <div style={{ '--agent-width': `${agentWidth}%`, '--command-width': `${commandWidth}px` } as CSSProperties} className={`app-shell ${agentCollapsed ? 'agent-collapsed' : ''} ${navCollapsed ? 'nav-collapsed' : ''} ${connectionSidebarCollapsed ? 'host-sidebar-collapsed' : ''} ${navigation === '连接' ? 'connections-view' : 'terminal-view'} ${backendSettingsOpen ? 'settings-view' : ''}`}>
+  return <div style={{ '--agent-width': `${agentWidth}%`, '--command-width': `${commandWidth}px`, '--connection-sidebar-width': `${connectionSidebarWidth}px` } as CSSProperties} className={`app-shell ${agentCollapsed ? 'agent-collapsed' : ''} ${navCollapsed ? 'nav-collapsed' : ''} ${connectionSidebarCollapsed ? 'host-sidebar-collapsed' : ''} ${navigation === '连接' ? 'connections-view' : 'terminal-view'} ${backendSettingsOpen ? 'settings-view' : ''}`}>
     <AppHeader notify={notify} theme={theme} setTheme={setTheme} />
     <ActivityBar active={navigation} onSelect={name => { setBackendSettingsOpen(false); clearUpdateSettingsRequest(); navigate(name); }} onSettings={() => { clearUpdateSettingsRequest(); setBackendSettingsOpen(value => !value); }} settingsOpen={backendSettingsOpen} collapsed={navCollapsed} toggleCollapsed={() => setNavCollapsed(value => !value)} />
     {backendSettingsOpen && <BackendSettingsDialog currentUrl={backendUrl}
@@ -1287,6 +1288,11 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
       beforeClientUpdate={prepareForClientUpdate}
       onSave={onBackendChange} />}
     <ConnectionSidebar connections={{ ...connections, remove: removeHost }} sessions={sessions} connectingHostIds={connectingHostIds} activeHostId={active?.kind === 'ssh' ? active.connectionId : undefined} activeSessionId={activeId} terminal={selectHost} cancelConnection={cancelHostConnection} activate={activateTerminalFromSidebar} create={openNewConnection} collapsed={connectionSidebarCollapsed} toggleCollapsed={() => setConnectionSidebarCollapsed(value => !value)} />
+    <PanelDivider value={connectionSidebarWidth} change={setConnectionSidebarWidth} side="left" unit="pixels"
+      min={194} max={360} defaultValue={window.innerWidth <= 1280 ? 194 : 224} reservePixels={364}
+      reserveWidthSelectors=".activity-bar, .agent-panel" className="connection-panel-divider" label="调整连接管理宽度"
+      controls="connection-sidebar-content" collapseLabel="连接管理" collapsed={connectionSidebarCollapsed}
+      collapse={() => setConnectionSidebarCollapsed(true)} />
     <main hidden={navigation !== '命令'} className={`central-workspace ${!active ? 'no-session' : ''} ${commandCollapsed ? 'command-collapsed' : ''}`}>
       <TerminalWorkspace
         commandControls={<TerminalCommandBar mode={commandMode} changeMode={mode => {

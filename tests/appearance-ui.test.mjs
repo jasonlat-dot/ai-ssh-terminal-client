@@ -88,6 +88,32 @@ test('无壁纸时仍提供选择图片与默认预览，不读取不存在的�
   assert.doesNotMatch(html, /id="wallpaper-crop-zoom"/);
 });
 
+test('无壁纸预览显示轻装饰、居中上传入口与真实支持格式；初始化和已有图片不显示空状态', () => {
+  const html = renderAppearance({ ...appearance, wallpaperUrl: null, wallpaperName: '' });
+  const preview = html.match(/<figure class="appearance-preview"[\s\S]*?<\/figure>/)?.[0];
+  assert.match(preview, /class="wallpaper-preview-empty"/);
+  assert.match(preview, /添加工作区壁纸/);
+  assert.match(preview, /选择壁纸/);
+  assert.match(preview, /支持 PNG \/ JPG \/ GIF \/ WebP \/ MP4/);
+  assert.equal((preview.match(/class="wallpaper-empty-orbit(?: is-opposite)?"/g) ?? []).length, 2);
+  assert.match(preview, /class="wallpaper-empty-orbit"[^>]*aria-hidden="true"[^>]*focusable="false"/);
+  assert.doesNotMatch(preview, /拖拽|拖曳|拖放|http[s]?:\/\//, '不宣传未实现的拖放上传，也不加载外部装饰图片');
+  const pending = renderAppearance({ ...appearance, ready: false, wallpaperUrl: null });
+  assert.doesNotMatch(pending, /class="wallpaper-preview-empty"/);
+  assert.doesNotMatch(renderAppearance(appearance), /class="wallpaper-preview-empty"/);
+  const busy = renderAppearance({ ...appearance, busy: true, wallpaperUrl: null });
+  assert.match(busy, /class="primary-button wallpaper-empty-select"[^>]*disabled=""/);
+});
+
+test('空状态样式使用主题变量、紧凑窗口适配；上传按钮能接收鼠标且保留键盘焦点反馈', () => {
+  const styles = readFileSync(new URL('../src/components/AppearanceSettings.css', import.meta.url), 'utf8');
+  assert.match(styles, /\.wallpaper-preview-empty \{[^}]*pointer-events: auto/s);
+  assert.match(styles, /--empty-blue: color-mix\(in srgb, var\(--settings-blue\)/);
+  assert.match(styles, /\.wallpaper-preview-empty::before \{[^}]*border: 1px dashed/s);
+  assert.match(styles, /@container wallpaper-empty \(max-height: 240px\)/);
+  assert.match(styles, /\.appearance-settings :is\(button, input\):focus-visible \{[^}]*outline:/);
+});
+
 test('外观页左侧为工作区效果，右侧原图入口和参数，不增加额外导航或工作区列表', () => {
   const html = renderAppearance(appearance);
   assert.equal((html.match(/>更换壁纸</g) ?? []).length, 1);
@@ -252,7 +278,7 @@ test('壁纸仍在时外部操作错误只显示一次，不重复堆叠两份�
  * 轻量 hook 驱动器测试事件与生命周期；不模拟实际 DOM 布局、不访问用户 IndexedDB。
  * 几何计算使用生产实现，导出/存储端口可延迟或失败，以验证常驻编辑器不会提前退出。
  */
-function editorHarness({ file, initialCrop, hasWallpaper = true, initializing = false, saveResult = true, prepareWait, exportWait } = {}) {
+function editorHarness({ file, initialCrop, hasWallpaper = true, initializing = false, saveResult = true, prepareWait, exportWait, onSelectWallpaper, externalBusy = false } = {}) {
   const slots = [], pendingEffects = [], revoked = [], busy = [], saves = [], exports = [];
   const windowEvents = new Map();
   const editorWindow = { ...windowSize,
@@ -313,7 +339,7 @@ function editorHarness({ file, initialCrop, hasWallpaper = true, initializing = 
   const { WallpaperCropEditor } = loadModule('components/WallpaperCropEditor.tsx', requireModule, {
     window: editorWindow, URL: { revokeObjectURL: url => revoked.push(url) },
   });
-  const props = { file, hasWallpaper, initializing, onClose: () => closeCount++, onSavingChange: value => busy.push(value) };
+  const props = { file, hasWallpaper, initializing, onSelectWallpaper, externalBusy, onClose: () => closeCount++, onSavingChange: value => busy.push(value) };
   function render() {
     cursor = 0;
     tree = WallpaperCropEditor(props);
@@ -440,6 +466,26 @@ test('没有壁纸不触发读取，默认预览非加载状态，窗口变化�
   harness.resize(1280, 1024);
   assert.equal(harness.find(node => node.props.className === 'appearance-preview').props.style['--appearance-preview-window-ratio'], 1.25);
   assert.equal(harness.prepareCount, 0);
+});
+
+test('空预览选择按钮调用现有上传入口，不读取或保存壁纸；忙碌时禁用，已有图和上传草稿不显示', async () => {
+  let selections = 0;
+  const harness = editorHarness({ hasWallpaper: false, onSelectWallpaper: () => selections++ });
+  await harness.settle();
+  const select = harness.button('选择壁纸');
+  assert.equal(select.props.disabled, false);
+  assert.equal(harness.find(node => node.props.className === 'wallpaper-crop-frame').props['aria-disabled'], undefined);
+  select.props.onClick(); assert.equal(selections, 1);
+  assert.equal(harness.prepareCount, 0); assert.equal(harness.saves.length, 0); assert.equal(harness.exports.length, 0);
+  const busy = editorHarness({ hasWallpaper: false, externalBusy: true, onSelectWallpaper: () => selections++ });
+  assert.equal(busy.button('选择壁纸').props.disabled, true);
+  const missingEntry = editorHarness({ hasWallpaper: false }); assert.equal(missingEntry.button('选择壁纸').props.disabled, true);
+  const pending = editorHarness({ hasWallpaper: false, initializing: true, onSelectWallpaper: () => selections++ });
+  assert.equal(pending.button('选择壁纸'), undefined);
+  const saved = editorHarness(); await saved.settle(); assert.equal(saved.button('选择壁纸'), undefined);
+  const draft = editorHarness({ hasWallpaper: false, file: new File(['mock'], 'new.png') });
+  assert.equal(draft.button('选择壁纸'), undefined); await draft.settle(); assert.equal(draft.button('选择壁纸'), undefined);
+  for (const item of [harness, busy, missingEntry, pending, saved, draft]) item.unmount();
 });
 
 test('完整显示时按真实图像平面归一化拖动，不把左右留白算作图片宽度', async () => {

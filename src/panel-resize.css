@@ -6,6 +6,13 @@
   position: absolute; left: -4px; top: 0; bottom: 0; width: 8px; margin: 0; z-index: 2;
 }
 .command-panel-divider::before { inset: 0; }
+/* Overlay the existing host track edge rather than adding a new grid column. */
+.app-shell > .connection-panel-divider {
+  grid-column: 2; grid-row: 2; justify-self: end; align-self: stretch;
+  width: 8px; margin: 10px -4px 10px 0; z-index: 3;
+}
+.connection-panel-divider::before { inset: 0; }
+.app-shell.host-sidebar-collapsed > .connection-panel-divider { visibility: hidden; pointer-events: none; }
 .command-shelf.collapsed > .command-panel-divider { visibility: hidden; pointer-events: none; }
 .central-workspace:has(.command-panel-divider.dragging) { transition: none; }
 .panel-divider.collapse-pending { z-index: var(--ui-popover-layer); }
@@ -18,3 +25,4 @@
 }
 .panel-collapse-hint strong { font-size: var(--font-small); color: var(--theme-accent-text); }
 .panel-collapse-hint small { color: var(--theme-text-muted); }
+.panel-divider[data-side='left'] .panel-collapse-hint { left: calc(100% + 10px); right: auto; }
