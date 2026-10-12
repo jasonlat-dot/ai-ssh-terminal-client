@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
+import { createInstallerHeader } from './installer-header.mjs';
 
 const require = createRequire(import.meta.url);
 const projectRoot = fileURLToPath(new URL('../', import.meta.url));
@@ -30,10 +31,16 @@ try {
     stdio: 'pipe',
     windowsHide: true,
   });
+  execFileSync(process.execPath, [require.resolve('@tauri-apps/cli/tauri.js'), 'icon', sourceIcon, '--output', temporaryIcons, '--png', '52'], {
+    cwd: projectRoot,
+    stdio: 'pipe',
+    windowsHide: true,
+  });
+  const installerHeader = createInstallerHeader(readFileSync(join(temporaryIcons, '52x52.png')));
   mkdirSync(nativeIconDirectory, { recursive: true });
   let updated = 0;
-  for (const name of desktopIcons) {
-    const bytes = readFileSync(join(temporaryIcons, name));
+  for (const name of [...desktopIcons, 'installer-header.bmp']) {
+    const bytes = name === 'installer-header.bmp' ? installerHeader : readFileSync(join(temporaryIcons, name));
     const destination = join(nativeIconDirectory, name);
     // Preserve timestamps so unchanged icons do not trigger a native recompilation.
     if (existsSync(destination) && readFileSync(destination).equals(bytes)) continue;
