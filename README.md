@@ -10,6 +10,8 @@
 
 密钥生成、首个版本的手动安装、发布和真实升级验收步骤见 [客户端更新与发布](docs/client-updates.md)。旧版 0.1.4 没有更新功能，需手动覆盖安装一次新版本；开发模式与未配置公钥的构建不启用更新。
 
+让客户端正式 Release 自动触发 Cloudflare Pages 官网更新，见 [官网自动部署配置](docs/website-auto-deploy.md)。需要一次性配置 Deploy Hook 和 GitHub Secret，并将工作流推送到客户端仓库。
+
 ## 拉取更新后启动
 
 代码更新可能包含新的 npm 依赖，`git pull` 不会同步本地 `node_modules`。请先停止正在运行的 Vite/Tauri 开发进程，在项目目录执行：

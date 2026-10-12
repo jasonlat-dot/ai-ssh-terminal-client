@@ -1,0 +1,61 @@
+name: Update ShellPilot website
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  notify-pages:
+    if: ${{ github.event_name == 'workflow_dispatch' || !github.event.release.prerelease }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PAGES_DEPLOY_HOOK: ${{ secrets.SHELLPILOT_PAGES_DEPLOY_HOOK }}
+      PUBLISHED_TAG: ${{ github.event.release.tag_name }}
+    steps:
+      - name: Check release assets and trigger Pages
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$PAGES_DEPLOY_HOOK" ]]; then
+            echo '::error::请先配置客户端仓库 Secret：SHELLPILOT_PAGES_DEPLOY_HOOK。'
+            exit 1
+          fi
+
+          # Use environment variables instead of interpolating release data into shell code.
+          latest="$(curl --fail --silent --show-error --retry 2 --max-time 20 \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/releases/latest")"
+          tag="$(jq -er '.tag_name' <<< "$latest")"
+          if [[ "$GITHUB_EVENT_NAME" == 'release' && "$tag" != "$PUBLISHED_TAG" ]]; then
+            echo '::error::本次发布尚未设为 Latest；设为 Latest 后在 Actions 手动运行本工作流。'
+            exit 1
+          fi
+          if [[ ! "$tag" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo '::error::Latest 的版本标签格式无效。'
+            exit 1
+          fi
+          version="${tag#v}"
+          if ! jq -e --arg v "$version" '
+            [.assets[] | select(.state == "uploaded" and .size > 0) | .name] as $assets |
+            ("ShellPilot_" + $v + "_x64-setup.exe") as $current |
+            ("ai-ssh-terminal-client_" + $v + "_x64-setup.exe") as $legacy |
+            (.draft == false and .prerelease == false) and
+            (($assets | index("latest.json")) != null) and
+            (((($assets | index($current)) != null) and (($assets | index($current + ".sig")) != null)) or
+             ((($assets | index($legacy)) != null) and (($assets | index($legacy + ".sig")) != null)))
+          ' <<< "$latest" > /dev/null; then
+            echo '::error::Latest 缺少完整的 Windows 安装包、对应 .sig 或 latest.json；上传完成后手动重跑。'
+            exit 1
+          fi
+
+          curl --fail --silent --show-error --max-time 30 \
+            --request POST "$PAGES_DEPLOY_HOOK" > /dev/null
+          echo "已请求 Cloudflare Pages 重新构建官网（Latest：$tag）。部署结果请查看 Pages 控制台。"
