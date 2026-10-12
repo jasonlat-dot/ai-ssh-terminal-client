@@ -1,7 +1,8 @@
 {
   "name": "ai-ssh-terminal-client",
+  "displayName": "ShellPilot",
   "private": true,
-  "version": "0.1.9",
+  "version": "0.1.10",
   "type": "module",
   "scripts": {
     "prepare:icons": "node scripts/prepare-app-icons.mjs",
@@ -11,9 +12,9 @@
     "build": "tsc && vite build",
     "prepare:backend": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/prepare-backend-bundle.ps1",
     "prepare:bundle": "npm run prepare:backend && npm run build",
-    "bundle:nsis": "tauri build --bundles nsis",
-    "bundle:msi": "tauri build --bundles msi",
-    "bundle:windows": "tauri build --bundles nsis,msi",
+    "bundle:nsis": "node scripts/windows-bundle.mjs nsis",
+    "bundle:msi": "node scripts/windows-bundle.mjs msi",
+    "bundle:windows": "node scripts/windows-bundle.mjs nsis,msi",
     "updater:configure": "node scripts/updater-release.mjs configure",
     "release:windows": "node scripts/updater-release.mjs build",
     "release:manifest": "node scripts/updater-release.mjs manifest",

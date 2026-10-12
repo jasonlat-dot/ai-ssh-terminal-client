@@ -29,7 +29,7 @@ export function ClientUpdateSettings({ beforeInstall = async () => {} }: { befor
     <section className="client-update-card" aria-labelledby="client-update-title">
       <header><div><h2 id="client-update-title"><Icon name="refresh" size={19} />关于与更新</h2>
         <p>更新只在确认后安装，不会自动关闭终端。</p></div><Badge icon="monitor">Windows</Badge></header>
-      <div className="client-update-version"><strong>Agent SSH</strong><Badge tone="blue">v{state.config?.version ?? '…'}</Badge></div>
+      <div className="client-update-version"><strong>ShellPilot</strong><Badge tone="blue">v{state.config?.version ?? '…'}</Badge></div>
       <p className="client-update-status" role="status" aria-live="polite">{labels[state.phase]}</p>
       {state.error && <p className="settings-banner is-error" role="alert"><Icon name="alert" size={14} />{state.error}</p>}
       {state.checkedAt && <small>上次检查：{new Date(state.checkedAt).toLocaleString()}</small>}

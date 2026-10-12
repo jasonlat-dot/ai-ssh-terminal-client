@@ -186,6 +186,9 @@ test('release manifest pins tag and architecture and carries signature contents,
   assert.equal(manifest.platforms['windows-x86_64'].signature, sig);
   assert.equal(manifest.platforms['windows-x86_64'].url, 'https://github.com/jasonlat-dot/ai-ssh-terminal-client/releases/download/v0.1.6/ai-ssh-terminal-client_0.1.6_x64-setup.exe');
   assert.match(UPDATE_ENDPOINT, /ai-ssh-terminal-client\/releases\/latest\/download\/latest.json$/);
+  const renamed = makeManifest({ version: '0.1.10', installerName: 'ShellPilot_0.1.10_x64-setup.exe', signature: sig });
+  assert.equal(renamed.platforms['windows-x86_64'].url, 'https://github.com/jasonlat-dot/ai-ssh-terminal-client/releases/download/v0.1.10/ShellPilot_0.1.10_x64-setup.exe');
+  assert.equal(renamed.platforms['windows-x86_64'].signature, sig);
 });
 test('release validation rejects private/invalid keys, prereleases, paths and mismatched installers', () => {
   assert.equal(validatePublicKey(`${key}\n`), key);

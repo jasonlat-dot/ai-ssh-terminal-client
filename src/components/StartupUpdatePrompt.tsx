@@ -13,7 +13,7 @@ export function StartupUpdatePrompt({ onViewUpdate }: { onViewUpdate: () => void
   return <Modal title="发现客户端新版本" className="startup-update-prompt" onClose={dismiss}>
     <div className="startup-update-content">
       <div className="startup-update-version"><Icon name="refresh" size={22} />
-        <strong>Agent SSH</strong><Badge tone="blue">v{announcedVersion}</Badge></div>
+        <strong>ShellPilot</strong><Badge tone="blue">v{announcedVersion}</Badge></div>
       <p>当前版本 v{state.config?.version}，新版本已发布。</p>
       <pre className="startup-update-notes">{state.notes || '此版本未提供更新说明。'}</pre>
       <small>不会自动下载或安装，安装并重启前还需要你确认。</small>

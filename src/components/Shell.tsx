@@ -14,7 +14,7 @@ export function AppHeader({ notify, theme, setTheme }: {
   setTheme: (theme: ThemePreference) => void;
 }) {
   return <header className="app-header" onMouseDown={dragAppWindow}>
-    <div className="brand"><img className="brand-mark" src="/agent-ssh-header.svg" alt="" draggable={false} /><div><strong>Agent SSH</strong><small>智能远程开发助手</small></div></div>
+    <div className="brand"><img className="brand-mark" src="/agent-ssh-header.svg" alt="" draggable={false} /><div><strong>ShellPilot</strong><small>智能远程开发助手</small></div></div>
     <div className="profile">
       <div className="theme-switcher" role="group" aria-label="界面主题">
         {([

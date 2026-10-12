@@ -35,7 +35,7 @@ type StartupScreenProps = {
 function phaseCopy(phase: StartupPhase) {
   if (phase === 'failed') return { label: '启动失败', title: '内置服务未能启动' };
   if (phase === 'ready') return { label: '启动完成', title: '正在进入工作区' };
-  if (phase === 'stopped') return { label: '选择启动方式', title: '开始使用 Agent SSH' };
+  if (phase === 'stopped') return { label: '选择启动方式', title: '开始使用 ShellPilot' };
   if (phase === 'checking') return { label: '正在检查', title: '正在检查运行环境' };
   return { label: '正在启动', title: '正在启动内置服务' };
 }
@@ -78,7 +78,7 @@ export function StartupScreen({ phase, message, logDirectory, retrying, onRetry,
     <header className="startup-header" onMouseDown={dragAppWindow}>
       <div className="startup-brand">
         <img className="startup-brand-mark" src="/agent-ssh-header.svg" alt="" draggable={false} />
-        <span><strong>Agent SSH</strong><small>智能远程开发助手</small></span>
+        <span><strong>ShellPilot</strong><small>智能远程开发助手</small></span>
       </div>
       <div className="startup-header-actions">
         <label className="startup-motion-control" data-no-window-drag>
@@ -144,6 +144,6 @@ export function StartupScreen({ phase, message, logDirectory, retrying, onRetry,
           working={locked} motion={motion} terminalRef={terminalRef} />
       </div>
     </div>
-    <footer className="startup-footer"><span><i />本地客户端 · Agent SSH</span><span>{choosing ? '选择启动方式，即刻开始' : copy.label}</span></footer>
+    <footer className="startup-footer"><span><i />本地客户端 · ShellPilot</span><span>{choosing ? '选择启动方式，即刻开始' : copy.label}</span></footer>
   </main>;
 }

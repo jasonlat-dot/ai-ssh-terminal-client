@@ -3,6 +3,7 @@ import { resolve, dirname, basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { renameBundleArtifacts, validateDisplayName } from './bundle-names.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const RELEASE_REPOSITORY = 'jasonlat-dot/ai-ssh-terminal-client';
@@ -43,7 +44,9 @@ function json(path) { return JSON.parse(readFileSync(path, 'utf8').replace(/^\uF
 function configAndVersion() {
   const config = json(join(root, 'src-tauri/tauri.conf.json'));
   const version = validateVersion(config.version);
-  const packageVersion = json(join(root, 'package.json')).version;
+  const packageInfo = json(join(root, 'package.json'));
+  const packageVersion = packageInfo.version;
+  validateDisplayName(packageInfo.displayName);
   const cargoVersion = readFileSync(join(root, 'src-tauri/Cargo.toml'), 'utf8').match(/\[package\][\s\S]*?\nversion\s*=\s*"([^"]+)"/)?.[1];
   if (version !== packageVersion || version !== cargoVersion) throw new Error('package.json、Cargo.toml 和 tauri.conf.json 版本不一致，请先统一版本。');
   if (!config.plugins?.updater?.pubkey?.trim()) throw new Error('尚未配置更新公钥。请先生成密钥，再运行 npm run updater:configure -- --public-key <文件.key.pub>。');
@@ -66,6 +69,9 @@ function notesFile(args) {
 }
 function createReleaseFiles(version, notes) {
   const bundle = join(root, 'src-tauri/target/release/bundle/nsis');
+  const config = json(join(root, 'src-tauri/tauri.conf.json'));
+  const displayName = validateDisplayName(json(join(root, 'package.json')).displayName);
+  renameBundleArtifacts(bundle, { productName: config.productName, displayName, version });
   const candidates = readdirSync(bundle).filter(name => name.endsWith('-setup.exe') && name.includes(`_${version}_x64`));
   if (candidates.length !== 1) throw new Error(`未找到唯一的 v${version} x64 NSIS 包，请重新执行签名打包。`);
   const name = candidates[0], installer = join(bundle, name), sig = `${installer}.sig`;

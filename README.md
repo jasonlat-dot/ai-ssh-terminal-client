@@ -1,5 +1,6 @@
-# ai-ssh-terminal-client
-ai-ssh-terminal-client
+# ShellPilot · 终端领航
+
+智能终端管理与 AI 辅助客户端。
 
 ## 客户端版本更新
 
@@ -60,8 +61,8 @@ npm run bundle:windows
 该命令会依次构建后端 JAR、通过 `jlink` 生成内置 Java Runtime、构建前端，并同时生成 NSIS 与 MSI 安装程序。结果位于：
 
 ```text
-src-tauri/target/release/bundle/nsis/*-setup.exe
-src-tauri/target/release/bundle/msi/*.msi
+src-tauri/target/release/bundle/nsis/ShellPilot_<版本>_x64-setup.exe
+src-tauri/target/release/bundle/msi/ShellPilot_<版本>_x64_en-US.msi
 ```
 
 如果只需要其中一种格式，可以使用：
@@ -75,6 +76,8 @@ npm run bundle:msi
 ```
 
 打包生成的临时资源位于 `src-tauri/bundle`，已加入 `.gitignore`，不要手工提交 JAR 和 Java Runtime。
+
+界面和发布文件使用名称 **ShellPilot**（终端领航）。请使用以上 `npm run bundle:*` 或 `npm run release:windows` 命令打包，它们会在 Tauri 完成后自动统一安装包和 `.sig` 名称，更新清单及 SHA256 校验记录会引用同一个名字。直接执行 `tauri build` 会生成内部旧名称。`productName`、原生程序名、安装注册表标识、应用 identifier 和更新仓库保持不变，以兼容已安装版本；此处只改变对外显示及分发文件名称，不迁移或清理用户数据。
 
 应用图标统一来源于 `public/icon.svg`。开发启动和打包前会自动生成原生图标，以及 NSIS 安装/卸载程序的图标和页头图案；Windows 应用窗口、任务栏和快捷方式使用同一套图标。也可运行 `npm run prepare:icons` 单独同步。更换图标后需要重新构建安装包并安装；已固定到任务栏的旧快捷方式如果仍显示缓存图标，可取消固定后重新固定。
 
