@@ -10,8 +10,6 @@
     "dev": "vite",
     "prebuild": "npm run prepare:icons",
     "build": "tsc && vite build",
-    "dev:rust-server": "cargo run --manifest-path ../ai-ssh-terminal-server-rust/Cargo.toml",
-    "build:rust-server": "cargo build --release --manifest-path ../ai-ssh-terminal-server-rust/Cargo.toml",
     "prepare:backend": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/prepare-backend-bundle.ps1",
     "prepare:bundle": "npm run prepare:backend && npm run build",
     "bundle:nsis": "node scripts/windows-bundle.mjs nsis",
@@ -25,8 +23,7 @@
     "test:files": "tsx tests/files.test.ts",
     "test:chat-attachments": "tsx tests/chat-attachments.test.ts",
     "test:markdown": "tsx tests/markdown.test.ts",
-    "test:sftp": "tsx tests/sftp.test.ts",
-    "test:files:rust": "cargo build --manifest-path ../ai-ssh-terminal-server-rust/Cargo.toml && tsx tests/files-rust-live.test.ts"
+    "test:sftp": "tsx tests/sftp.test.ts"
   },
   "dependencies": {
     "@tauri-apps/api": "2.11.1",

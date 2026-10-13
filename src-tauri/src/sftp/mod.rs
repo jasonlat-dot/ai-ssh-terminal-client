@@ -3,7 +3,7 @@ mod path;
 mod transfer;
 
 use futures_util::StreamExt;
-use reqwest::{Client, Method};
+use axum::http::Method;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
@@ -41,7 +41,7 @@ impl Error {
     /// 后端重启后，原来的内存会话 ID 不会继续有效。
     fn session_expired() -> Self {
         Self {
-            message: "后端已重启或文件管理会话已失效，请重新连接".into(),
+            message: "工作区已重新初始化或文件管理会话已失效，请重新连接".into(),
             code: "SFTP_SESSION_EXPIRED".into(),
             status: 404,
         }
@@ -50,7 +50,7 @@ impl Error {
     /// 会话检查无法连接后端时，返回可被前端识别的错误。
     fn backend_unavailable(message: impl Into<String>) -> Self {
         Self {
-            message: format!("无法连接后端，文件管理会话需要重新连接：{}", message.into()),
+            message: format!("应用工作区不可用，文件管理会话需要重新连接：{}", message.into()),
             code: "SFTP_BACKEND_UNAVAILABLE".into(),
             status: 503,
         }
@@ -58,11 +58,6 @@ impl Error {
 }
 impl From<std::io::Error> for Error {
     fn from(e: std::io::Error) -> Self {
-        Self::local(e.to_string())
-    }
-}
-impl From<reqwest::Error> for Error {
-    fn from(e: reqwest::Error) -> Self {
         Self::local(e.to_string())
     }
 }
@@ -103,8 +98,7 @@ pub struct State {
 }
 pub struct Session {
     id: String,
-    base: String,
-    client: Client,
+    services: Arc<shellpilot_server::services::Services>,
     emit: Arc<dyn Fn(Value) + Send + Sync>,
     stop: CancellationToken,
     slots: Semaphore,
@@ -115,30 +109,31 @@ impl Session {
     fn event(&self, kind: &str, data: Value) {
         (self.emit)(json!({ "type": kind, "data": data }));
     }
-    fn url(&self, route: &str) -> String {
-        format!("{}/{}", self.base, route)
-    }
     async fn json(&self, method: Method, route: &str, body: Option<Value>) -> Result<Value> {
-        let url = self.url(route);
         tokio::select! {
             _ = self.stop.cancelled() => Err(Error::cancelled()),
-            result = request(&self.client, method, &url, body) => result,
+            result = self.request_raw(method, route, body) => result,
         }
     }
 
+    async fn request_raw(&self, method: Method, route: &str, body: Option<Value>) -> Result<Value> {
+        local_json(&self.services, method, route, body.unwrap_or(Value::Null)).await
+    }
     /// 在扫描本地文件、等待元数据操作锁之前，确认后端仍持有当前 SFTP 会话。
     ///
     /// 这项检查故意不获取 metadata 锁。后端重启时，旧目录请求可能仍在等待网络超时；
     /// 如果健康检查也排在该锁后面，新的上传操作就会表现为无请求、无错误地长时间等待。
     async fn ensure_server_session(&self) -> Result<()> {
-        let result = request_with_timeout(
-            &self.client,
-            Method::GET,
-            &self.url(&format!("sessions/{}", self.id)),
-            None,
+        let result = tokio::time::timeout(
             Duration::from_secs(8),
+            self.request_raw(
+                Method::GET,
+                &format!("sessions/{}", self.id),
+                None,
+            ),
         )
-        .await;
+        .await
+        .map_err(|_| Error::backend_unavailable("会话检查超时"))?;
 
         match result {
             Ok(_) => Ok(()),
@@ -160,36 +155,96 @@ impl Session {
     }
 }
 
-async fn response_json(response: reqwest::Response) -> Result<Value> {
-    let status = response.status();
-    let payload: Value = response.json().await.unwrap_or(Value::Null);
-    if !status.is_success() || payload["code"] != "SUCCESS_0000" {
-        return Err(Error {
-            message: payload["info"].as_str().unwrap_or("SFTP 响应异常").into(),
-            code: payload["code"].as_str().unwrap_or("SFTP_HTTP_ERROR").into(),
-            status: status.as_u16(),
-        });
+fn from_service(error: shellpilot_server::sftp::Error) -> Error {
+    Error {
+        message: error.message,
+        code: error.code.into(),
+        status: error.status.as_u16(),
     }
-    Ok(payload["data"].clone())
 }
-async fn request(client: &Client, method: Method, url: &str, body: Option<Value>) -> Result<Value> {
-    request_with_timeout(client, method, url, body, Duration::from_secs(300)).await
+async fn local_json(
+    services: &shellpilot_server::services::Services,
+    method: Method,
+    route: &str,
+    body: Value,
+) -> Result<Value> {
+    if services.stop.is_cancelled() {
+        return Err(Error::session_expired());
+    }
+    let parts = route.split('/').collect::<Vec<_>>();
+    let string = |name: &str| {
+        body[name]
+            .as_str()
+            .map(str::to_owned)
+            .ok_or_else(|| Error::local("SFTP 参数无效"))
+    };
+    let manager = &services.sftp;
+    macro_rules! data {
+        ($v:expr) => {
+            serde_json::to_value($v).map_err(Into::into)
+        };
+    }
+    match (method.as_str(), parts.as_slice()) {
+        ("GET", ["sessions", id]) => data!(manager.session_view(id).map_err(from_service)?),
+        ("DELETE", ["sessions", id]) => {
+            manager.close(id).map_err(from_service)?;
+            Ok(Value::Null)
+        }
+        ("GET", ["sessions", id, "entries"]) => data!(manager
+            .entries(id, body["path"].as_str())
+            .await
+            .map_err(from_service)?),
+        ("DELETE", ["sessions", id, "entries"]) => {
+            manager
+                .change_entry(
+                    id,
+                    &string("path")?,
+                    "delete",
+                )
+                .await
+                .map_err(from_service)?;
+            Ok(Value::Null)
+        }
+        ("POST", ["sessions", id, "directories"]) => {
+            manager
+                .change_entry(id, &string("path")?, "mkdir")
+                .await
+                .map_err(from_service)?;
+            Ok(Value::Null)
+        }
+        ("POST", ["sessions", id, "files"]) => {
+            manager
+                .change_entry(id, &string("path")?, "file")
+                .await
+                .map_err(from_service)?;
+            Ok(Value::Null)
+        }
+        ("GET", ["sessions", id, "transfers"]) => data!(manager.tasks(id).map_err(from_service)?),
+        ("POST", ["transfers"]) => data!(manager
+            .create_transfer(serde_json::from_value(body)?)
+            .await
+            .map_err(from_service)?),
+        ("GET", ["transfers", id]) => data!(manager.transfer_view(id).map_err(from_service)?),
+        ("POST", ["transfers", id, "cancel"]) => {
+            manager.cancel(id).map_err(from_service)?;
+            Ok(Value::Null)
+        }
+        ("POST", ["transfers", id, "items", item, "confirm"]) => {
+            manager
+                .confirm(
+                    id,
+                    item,
+                    body["saved"]
+                        .as_bool()
+                        .ok_or_else(|| Error::local("确认参数无效"))?,
+                )
+                .map_err(from_service)?;
+            Ok(Value::Null)
+        }
+        _ => Err(Error::local("不支持的本地 SFTP 操作")),
+    }
 }
 
-/// 执行带独立超时的 JSON 请求。普通传输接口允许长时间运行，会话健康检查则使用短超时。
-async fn request_with_timeout(
-    client: &Client,
-    method: Method,
-    url: &str,
-    body: Option<Value>,
-    timeout: Duration,
-) -> Result<Value> {
-    let mut request = client.request(method, url).timeout(timeout);
-    if let Some(body) = body {
-        request = request.json(&body);
-    }
-    response_json(request.send().await?).await
-}
 impl State {
     fn get(&self, id: &str) -> Result<Arc<Session>> {
         let session = self
@@ -204,94 +259,54 @@ impl State {
         }
         Ok(session)
     }
-    pub async fn open(
+    pub async fn open_local(
         &self,
-        backend: String,
+        services: Arc<shellpilot_server::services::Services>,
         connection: String,
         root: Option<String>,
-        local_certificate: Option<reqwest::Certificate>,
         emit: Arc<dyn Fn(Value) + Send + Sync>,
     ) -> Result<Value> {
-        let url = reqwest::Url::parse(&backend).map_err(|_| Error::local("后端地址无效"))?;
-        if !["http", "https"].contains(&url.scheme())
-            || !url.username().is_empty()
-            || url.password().is_some()
-            || url.query().is_some()
-            || url.fragment().is_some()
-        {
-            return Err(Error::local("后端地址必须为 HTTP(S) 服务地址"));
-        }
-        let base = backend.trim_end_matches('/');
-        let base = if base.ends_with("/api/v1") {
-            format!("{base}/sftp")
-        } else {
-            format!("{base}/api/v1/sftp")
-        };
-        // All JSON, SSE and content requests share this client and its authentication cookies.
-        // The existing server currently uses its configured anonymous Principal fallback.
-        let mut builder = Client::builder()
-            // 原有 SFTP 信任来源保持不变；系统根证书功能仅由独立连接测试显式启用。
-            .tls_built_in_native_certs(false)
-            .cookie_store(true)
-            .redirect(reqwest::redirect::Policy::none())
-            .connect_timeout(Duration::from_secs(30))
-            .read_timeout(Duration::from_secs(120));
-        // Embedded/local traffic must stay on loopback even when the machine has a proxy.
-        if url.host_str().is_some_and(|host| {
-            host.eq_ignore_ascii_case("localhost")
-                || host
-                    .trim_matches(['[', ']'])
-                    .parse::<std::net::IpAddr>()
-                    .is_ok_and(|ip| ip.is_loopback())
-        }) {
-            builder = builder.no_proxy();
-        }
-        // 只增加该连接显式选择的公开证书；仍校验主机名/有效期，禁止重定向绕过信任范围。
-        if let Some(certificate) = local_certificate {
-            builder = builder.add_root_certificate(certificate);
-        }
-        let client = builder.build()?;
-        let data = request(
-            &client,
-            Method::POST,
-            &format!("{base}/sessions"),
-            Some(json!({"connectionId":connection,"rootPath":root})),
-        )
-        .await?;
-        let id = data["sftpSessionId"]
-            .as_str()
-            .ok_or_else(|| Error::local("缺少会话 ID"))?
-            .to_owned();
+        let opened = services
+            .sftp
+            .open(shellpilot_server::sftp::model::OpenRequest {
+                connection_id: connection,
+                root_path: root,
+            })
+            .await
+            .map_err(from_service)?;
+        let data = serde_json::to_value(&opened)?;
         let session = Arc::new(Session {
-            id: id.clone(),
-            base,
-            client,
+            id: opened.sftp_session_id.clone(),
+            services,
             emit,
             stop: CancellationToken::new(),
             slots: Semaphore::new(2),
             metadata: tokio::sync::Mutex::new(()),
             jobs: Mutex::new(HashMap::new()),
         });
-        self.sessions.lock().unwrap().insert(id, session.clone());
+        self.sessions
+            .lock()
+            .unwrap()
+            .insert(opened.sftp_session_id, session.clone());
         tokio::spawn(events::subscribe(session));
         Ok(data)
     }
     pub async fn close(&self, id: &str) -> Result<()> {
-        // Expired SSE sessions must still be removable; close is idempotent.
+        // Expired sessions must still be removable; close is idempotent.
         let session = self.sessions.lock().unwrap().remove(id);
         let Some(session) = session else {
             return Ok(());
         };
         // Stop local writers immediately, even if the server is temporarily unreachable.
         session.stop.cancel();
-        let result = request(
-            &session.client,
-            Method::DELETE,
-            &session.url(&format!("sessions/{id}")),
-            None,
-        )
-        .await;
-        // 无论后端是否可达，都必须移除 Tauri 内存中的会话，避免旧 sessionId 和 SSE 重连任务残留。
+        let result = session
+            .request_raw(
+                Method::DELETE,
+                &format!("sessions/{id}"),
+                None,
+            )
+            .await;
+        // 无论后端是否可达，都必须移除 Tauri 内存中的会话，避免旧 sessionId 和进度订阅任务残留。
         match result {
             Ok(_) => Ok(()),
             Err(error) if error.status == 404 => Ok(()),
@@ -301,9 +316,7 @@ impl State {
     pub async fn entries(&self, id: &str, path: &str) -> Result<Value> {
         let session = self.get(id)?;
         let _guard = session.metadata.lock().await;
-        let mut url = reqwest::Url::parse(&session.url(&format!("sessions/{id}/entries"))).unwrap();
-        url.query_pairs_mut().append_pair("path", path);
-        tokio::select! { _ = session.stop.cancelled() => Err(Error::cancelled()), result = request(&session.client, Method::GET, url.as_str(), None) => result }
+        session.json(Method::GET, &format!("sessions/{id}/entries"), Some(json!({"path":path}))).await
     }
     pub async fn mkdir(&self, id: &str, path: &str) -> Result<()> {
         let session = self.get(id)?;
@@ -334,13 +347,7 @@ impl State {
     pub async fn delete_entry(&self, id: &str, path: &str) -> Result<()> {
         let session = self.get(id)?;
         let _guard = session.metadata.lock().await;
-        let mut url = reqwest::Url::parse(&session.url(&format!("sessions/{id}/entries")))
-            .map_err(|error| Error::local(error.to_string()))?;
-        url.query_pairs_mut().append_pair("path", path);
-        tokio::select! {
-            _ = session.stop.cancelled() => return Err(Error::cancelled()),
-            result = request(&session.client, Method::DELETE, url.as_str(), None) => result?,
-        };
+        session.json(Method::DELETE, &format!("sessions/{id}/entries"), Some(json!({"path":path}))).await?;
         Ok(())
     }
     pub async fn tasks(&self, id: &str) -> Result<Value> {
@@ -497,9 +504,6 @@ pub fn local_delete(path: String) -> Result<()> {
     }
     Ok(())
 }
-
-#[cfg(test)]
-mod tests;
 
 #[cfg(all(test, windows))]
 mod rust_preview_tests;

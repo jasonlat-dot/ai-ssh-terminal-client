@@ -22,7 +22,7 @@ import type { TerminalDisconnectEvent } from './state/remoteTerminal';
 import { LocalTerminal } from './state/localTerminal';
 import type { TerminalRuntime } from './state/terminalRuntime';
 import { isTauriRuntime } from './state/runtime';
-import { isSessionConnected, loadTerminalSessions, saveTerminalSessions } from './state/terminalSessions';
+import { isSessionConnected, loadTerminalSessions, saveTerminalSessions, terminalSessionsStorageKey } from './state/terminalSessions';
 import { reorderTerminalSessions, replaceTerminalPane, selectTerminalPane, visibleTerminalIds } from './state/terminalLayout';
 import type { TerminalLayout } from './state/terminalLayout';
 import { canSubmitTerminalCommand, resolveTerminalCommandTargets, submitTerminalCommandBatch } from './state/terminalBroadcast';
@@ -46,7 +46,7 @@ import { RustBackendSettingsDialog as BackendSettingsDialog } from './components
 import { usingRustBuiltinBackend } from './config/rustPreview';
 import { FileUploadDialog } from './components/FileUploadDialog';
 import { FileUploadQueue } from './state/fileUploads';
-import { activeBackendConnection, adoptBundledBackendUrl, readBackendUrl, saveBackendUrl } from './config/backend';
+import { adoptBundledBackendUrl, readBackendUrl, saveBackendUrl } from './config/backend';
 import { watchBundledBackendStatus, restartBundledBackend, type BundledBackendStatus } from './api/bundledBackend';
 import { probeBackendHealth } from './api/health';
 import { StartupScreen } from './components/StartupScreen';
@@ -253,7 +253,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
       retries.forEach(attempt => attempt.cancel());
       initialAttempts.clear();
       retries.clear();
-      // 切换后端会卸载当前工作区：停止旧地址上的终端轮询与文件传输，不带到新连接。
+      // 重新初始化会卸载旧工作区：停止旧实例的输出订阅与文件传输。
       clients.forEach(client => { void client.close().catch(() => undefined); });
       clients.clear();
       fileCleanups.forEach(cleanup => { void cleanup().catch(() => undefined); });
@@ -369,13 +369,13 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
       if (cancelled) return;
       controller.abort();
       setAgentLoading(false);
-      setAgentLoadError('加载智能体超时，请检查后端服务后重试。');
+      setAgentLoadError('加载智能体超时，请检查应用工作区后重试。');
     }, 15_000);
     void agentApi.list(controller.signal)
       .then(items => {
         if (cancelled || controller.signal.aborted) return;
         const agent = Array.isArray(items) ? items.find(item => typeof item?.agentId === 'string' && item.agentId.trim()) : undefined;
-        if (!agent) throw new Error('后端没有可用的智能体配置，请配置后重试。');
+        if (!agent) throw new Error('应用尚无可用的智能体配置。');
         setSelectedAgent(agent);
       })
       .catch(error => {
@@ -458,7 +458,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     try {
       if (attempt.signal.aborted || !stillWanted()) throw new DOMException('SSH 连接已取消', 'AbortError');
       opened = await attempt.open();
-      if (!opened?.sessionId) throw new Error('后端未返回终端会话 ID');
+      if (!opened?.sessionId) throw new Error('应用未返回终端会话 ID');
       if (attempt.signal.aborted || !stillWanted()) throw new DOMException('SSH 连接已取消', 'AbortError');
       const runtime = new RemoteTerminal(opened, false, attempt.backendUrl);
       if (runtime.disconnected) throw new Error('终端会话已断开，请重试。');
@@ -868,7 +868,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     // 5) 清理持久化的页签恢复信息：markManuallyClosed() 已经让 sessions 状态变化，
     //    但 useEffect 不一定在 destroy 之前 flush 完；这里直接清空 localStorage 兜底，
     //    避免下次启动时把已关闭的终端 tab 重新恢复出来。
-    try { localStorage.removeItem(`agent-ssh-terminal-sessions-v1:${backendUrl}`); }
+    try { localStorage.removeItem(terminalSessionsStorageKey(backendUrl)); }
     catch (error) { console.warn('清理终端页签持久化数据失败', error); }
   }, []);
 
@@ -915,7 +915,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     if (!active) { void openNewTerminal(); notify('正在为你打开本地 CMD。'); return; }
     const client = terminalClients.current.get(active.id);
     if (!isSessionConnected(active) || !client || client.sessionId !== active.terminalSessionId || client.closed || client.disconnected || client.transportAvailable === false) {
-      notify(active.connectionStatus === 'unreachable' ? '后端服务暂不可达，请等待连接恢复或重试读取。' : active.kind === 'local' ? '本地 CMD 已退出，请新建终端。' : '当前终端连接不可用，请点击“重新连接”。'); return;
+      notify(active.connectionStatus === 'unreachable' ? '本地工作区暂不可用，请重试读取或重新初始化。' : active.kind === 'local' ? '本地 CMD 已退出，请新建终端。' : '当前终端连接不可用，请点击“重新连接”。'); return;
     }
     void client.write(command).catch(error => notify(error instanceof Error ? error.message : '命令写入失败', 'error'));
   };
@@ -1130,7 +1130,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     try {
       if (!chatSessionId.current) {
         const created = await agentApi.createSession(selectedAgent.agentId, controller.signal);
-        if (!created?.sessionId) throw new Error('后端未返回 Agent 会话 ID');
+        if (!created?.sessionId) throw new Error('应用未返回 Agent 会话 ID');
         if (controller.signal.aborted || version !== chatVersion.current) return false;
         chatSessionId.current = created.sessionId;
         setActiveChatSessionId(created.sessionId);
@@ -1191,7 +1191,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
       void agentApi.stopChat(agentId, sessionId, controller.signal)
         .catch(error => {
           console.warn('服务端停止请求未确认', error);
-          notify('已停止显示，但后端停止未确认；请检查服务端执行状态。', 'error');
+          notify('已停止显示，但任务停止尚未确认；请检查执行状态。', 'error');
         })
         .finally(() => {
           clearTimeout(timeout);
@@ -1429,11 +1429,10 @@ export default function App() {
   const [backendUrl, setBackendUrl] = useState(readBackendUrl);
   const [connectionRevision, setConnectionRevision] = useState(0);
   const [updateSettingsRequested, setUpdateSettingsRequested] = useState(false);
-  // 活动连接为远程时不等待本机 Java：其自动启动偏好与远程连接可用性相互独立。
-  const [backendReady, setBackendReady] = useState(() => !desktop || activeBackendConnection().kind === 'remote');
+  const [backendReady, setBackendReady] = useState(() => !desktop);
   const [startupBypassed, setStartupBypassed] = useState(false);
   const [startupPhase, setStartupPhase] = useState<StartupPhase>(desktop ? 'checking' : 'ready');
-  const [startupMessage, setStartupMessage] = useState('正在读取内置服务状态…');
+  const [startupMessage, setStartupMessage] = useState('正在读取工作区状态…');
   const [startupLogDirectory, setStartupLogDirectory] = useState<string | null>(null);
   const [startupRetrying, setStartupRetrying] = useState(false);
   /** 初始查询、事件和重启命令可能交错返回，只处理本次运行中的较新状态。 */
@@ -1454,10 +1453,10 @@ export default function App() {
   const readyTimer = useRef<number | null>(null);
   const changeBackend = (url: string) => {
     setBackendUrl(saveBackendUrl(url));
-    // 两个档案即使 URL 相同也可能使用不同证书；显式切换始终重建工作区并取消旧请求。
+    // 重新初始化工作区时重建界面并取消旧实例请求。
     setConnectionRevision(previous => previous + 1);
   };
-  /** 主界面和所有 API 模块使用同一个真实后端地址，而不只是健康检查改成 HTTPS。 */
+  /** 主界面和所有 API 模块绑定同一个应用内工作区实例。 */
   const syncBundledBackendUrl = useCallback((actual: string | null | undefined) => {
     const selected = adoptBundledBackendUrl(actual);
     setBackendUrl(selected);
@@ -1477,7 +1476,7 @@ export default function App() {
 
   const revealMain = useCallback((message: string) => {
     setStartupPhase('ready');
-    setStartupMessage(message || '内置后端已启动');
+    setStartupMessage(message || '本地工作区已就绪');
     if (readyTimer.current !== null) window.clearTimeout(readyTimer.current);
     readyTimer.current = window.setTimeout(() => setBackendReady(true), 320);
   }, []);
@@ -1528,7 +1527,7 @@ export default function App() {
     }
     if (!status || status.status === 'running') {
       setStartupStarting(false);
-      // 进程状态与 HTTP 健康度分开判断，保持原来的 /api/health 二次确认行为。
+      // 工作区状态与业务就绪状态分别检查；本地健康检查通过 IPC。
       void runStartupHealthProbe(syncBundledBackendUrl(status?.backendUrl));
       revealMain(status?.message ?? '客户端界面已就绪');
       return;
@@ -1542,27 +1541,34 @@ export default function App() {
     if (status.status === 'failed' || status.status === 'stopped') {
       setStartupStarting(false);
       setStartupPhase(status.status);
-      setStartupMessage(status.message || (status.status === 'failed' ? '内置后端启动失败' : '本地服务尚未启动'));
+      setStartupMessage(status.message || (status.status === 'failed' ? '本地工作区初始化失败' : '本地工作区尚未初始化'));
       return;
     }
     setStartupPhase('starting');
-    setStartupMessage(status.message || '正在等待内置服务启动…');
+    setStartupMessage(status.message || '正在等待本地工作区初始化…');
   }, [revealMain, runStartupHealthProbe, syncBundledBackendUrl]);
 
   useEffect(() => {
-    if (!desktop || backendReady || startupBypassed) return;
+    if (!desktop) return;
     // 注册监听后只查一次快照；持续的 starting/running/failed/stopped 由 Rust 推送。
-    return watchBundledBackendStatus(applyStartupStatus, error => {
+    return watchBundledBackendStatus(status => {
+      if (backendReady || startupBypassed) {
+        if (status?.status === 'running') syncBundledBackendUrl(status.backendUrl);
+        return;
+      }
+      applyStartupStatus(status);
+    }, error => {
+      if (backendReady || startupBypassed) return;
       setStartupPhase('failed');
-      setStartupMessage(`无法订阅内置后端状态：${errorMessage(error)}`);
+      setStartupMessage(`无法读取本地工作区状态：${errorMessage(error)}`);
       setStartupLogDirectory(null);
     });
-  }, [backendReady, desktop, startupBypassed, applyStartupStatus]);
+  }, [backendReady, desktop, startupBypassed, applyStartupStatus, syncBundledBackendUrl]);
 
   const retryStartup = useCallback(async () => {
     setStartupRetrying(true);
     setStartupPhase('starting');
-    setStartupMessage('正在重新启动内置服务…');
+    setStartupMessage('正在重新初始化本地工作区…');
     setStartupLogDirectory(null);
     try {
       const status = await restartBundledBackend();
@@ -1583,7 +1589,7 @@ export default function App() {
   const startManually = useCallback(async () => {
     setStartupStarting(true);
     setStartupPhase('starting');
-    setStartupMessage('正在启动内置服务…');
+    setStartupMessage('正在初始化本地工作区…');
     setStartupLogDirectory(null);
     // 把健康检查状态也复位，避免“启动中”时还显示旧的 down 徽章。
     const targetUrl = readBackendUrl();

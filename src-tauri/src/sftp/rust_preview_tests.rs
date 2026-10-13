@@ -4,67 +4,40 @@ use super::*;
 mod protocol;
 struct LiveBackend {
     fixture: protocol::Fixture,
+    services: Arc<shellpilot_server::services::Services>,
     stop: CancellationToken,
     task: tokio::task::JoinHandle<std::io::Result<()>>,
-    url: String,
 }
 impl LiveBackend {
-    async fn new() -> Self {
+    async fn new() -> Self { Self::native().await }
+    async fn native() -> Self {
         let fixture = protocol::Fixture::new().await;
         let (store, _) = fixture.saved(false);
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let url = format!("http://{}", listener.local_addr().unwrap());
+        let services = shellpilot_server::services::Services::native(
+            store, shellpilot_server::files::Settings::default(), uuid::Uuid::new_v4(),
+        );
         let stop = CancellationToken::new();
         let stopping = stop.clone();
-        let task = tokio::spawn(shellpilot_server::serve(
-            listener,
-            store,
-            stopping.cancelled_owned(),
-        ));
-        Self {
-            fixture,
-            stop,
-            task,
-            url,
-        }
+        let stopping_services = services.clone();
+        let task = tokio::spawn(async move {
+            stopping.cancelled().await;
+            stopping_services.shutdown().await;
+            Ok(())
+        });
+        Self { fixture, services, stop, task }
     }
     async fn open(&self, state: &State, events: Arc<Mutex<Vec<Value>>>) -> String {
         let (store, connection) = self.fixture.saved(false);
-        // HTTP backend owns a different store. Obtain a saved connection through its public API.
-        let request: Value =
-            serde_json::to_value(store.get(&connection.connection_id).unwrap()).unwrap();
-        let mut request = request;
+        let mut request = serde_json::to_value(store.get(&connection.connection_id).unwrap()).unwrap();
         request["password"] = json!("test-password");
         request.as_object_mut().unwrap().remove("createdAt");
         request.as_object_mut().unwrap().remove("updatedAt");
         request.as_object_mut().unwrap().remove("encrypted");
-        let response = reqwest::Client::builder()
-            .no_proxy()
-            .build()
-            .unwrap()
-            .post(format!("{}/api/v1/ssh/create_connection", self.url))
-            .json(&request)
-            .send()
-            .await
-            .unwrap()
-            .json::<Value>()
-            .await
-            .unwrap();
-        assert_eq!(response["code"], "SUCCESS_0000");
-        let connection = response["data"]["connectionId"]
-            .as_str()
-            .unwrap()
-            .to_string();
-        let opened = state
-            .open(
-                self.url.clone(),
-                connection,
-                Some("/home".into()),
-                None,
-                Arc::new(move |event| events.lock().unwrap().push(event)),
-            )
-            .await
-            .unwrap();
+        let connection = self.services.store.save(serde_json::from_value(request).unwrap(), false).unwrap();
+        let opened = state.open_local(
+            self.services.clone(), connection.connection_id, Some("/home".into()),
+            Arc::new(move |event| events.lock().unwrap().push(event)),
+        ).await.unwrap();
         opened["sftpSessionId"].as_str().unwrap().into()
     }
     async fn shutdown(self) {
@@ -78,7 +51,13 @@ impl LiveBackend {
 }
 #[tokio::test]
 async fn native_bridge_round_trips_real_rust_sftp_nested_empty_and_unicode_files() {
-    let backend = LiveBackend::new().await;
+    round_trip(LiveBackend::new().await).await;
+}
+#[tokio::test]
+async fn native_direct_services_round_trip_without_an_http_listener() {
+    round_trip(LiveBackend::native().await).await;
+}
+async fn round_trip(backend: LiveBackend) {
     let state = State::default();
     let events = Arc::new(Mutex::new(vec![]));
     let id = backend.open(&state, events.clone()).await;
@@ -159,7 +138,13 @@ async fn native_bridge_round_trips_real_rust_sftp_nested_empty_and_unicode_files
 }
 #[tokio::test]
 async fn native_bridge_survives_expired_sessions_and_cancels_real_upload() {
-    let backend = LiveBackend::new().await;
+    cancel_and_expire(LiveBackend::new().await).await;
+}
+#[tokio::test]
+async fn native_direct_services_cancel_and_expire_without_http() {
+    cancel_and_expire(LiveBackend::native().await).await;
+}
+async fn cancel_and_expire(backend: LiveBackend) {
     let state = Arc::new(State::default());
     let id = backend.open(&state, Arc::new(Mutex::new(vec![]))).await;
     let local = tempfile::tempdir().unwrap();
@@ -195,16 +180,7 @@ async fn native_bridge_survives_expired_sessions_and_cancels_real_upload() {
     assert!(!backend.fixture.root.path().join("home/large").exists());
     *backend.fixture.delay.lock().unwrap() = Duration::ZERO;
     state.mkdir(&id, "/home/usable").await.unwrap();
-    reqwest::Client::builder()
-        .no_proxy()
-        .build()
-        .unwrap()
-        .delete(format!("{}/api/v1/sftp/sessions/{}", backend.url, id))
-        .send()
-        .await
-        .unwrap()
-        .error_for_status()
-        .unwrap();
+    backend.services.sftp.close(&id).unwrap();
     // Wait for session-closed to reach the native bridge before asserting expired-state behavior.
     protocol::eventually(|| state.get(&id).is_err()).await;
     assert_eq!(
@@ -220,7 +196,7 @@ async fn native_bridge_survives_expired_sessions_and_cancels_real_upload() {
 }
 
 #[tokio::test]
-async fn embedded_shutdown_closes_sse_and_interrupts_active_native_transfer() {
+async fn workspace_shutdown_interrupts_active_native_transfer() {
     let backend = LiveBackend::new().await;
     backend
         .fixture

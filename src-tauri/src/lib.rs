@@ -1,10 +1,9 @@
 mod cache;
+mod backend_ipc;
 #[path = "embedded_backend.rs"]
 mod bundled_backend;
 
 mod client_update;
-mod local_backend_tls;
-mod backend_connection_probe;
 mod chat_history;
 mod command_store;
 mod local_terminal;
@@ -22,9 +21,9 @@ use sftp_commands::*;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app = tauri::Builder::default()
+        .manage(backend_ipc::IpcState::default())
         .manage(ChatHistoryState::default())
         .manage(bundled_backend::BundledBackendState::default())
-        .manage(local_backend_tls::LocalBackendTlsState::default())
         .manage(LocalTerminalState::default())
         .manage(sftp::State::default())
         .manage(CommandStoreState::default())
@@ -32,25 +31,25 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
-            // 先注册本机证书固定信任，再开始后端启动，避免首次 HTTPS 请求早于事件安装。
-            local_backend_tls::install(app.handle())?;
             /*
-             * 后端健康检查最长需要 60 秒，不能阻塞 Tauri 主线程和 WebView 首次绘制。
-             * 后台任务保存真实状态并发送变更事件；启动页订阅后读取一次快照，同时允许重试。
-             *
-             * 是否在启动时自动拉起本地后端，由 settings 中"自动启动内置后端"开关决定；
-             * 关闭时停留在 stopped 状态，用户可以在启动页或设置页点"启动"按钮手动启。
+             * Initialize local services on their own runtime without an HTTP listener.
+             * SQLite and file initialization must not block the window thread.
+             * The startup screen consumes the status snapshot and subsequent events.
              */
             bundled_backend::start_in_background(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            backend_ipc::builtin_request,
+            backend_ipc::builtin_cancel,
+            backend_ipc::builtin_terminal_subscribe,
+            backend_ipc::builtin_terminal_unsubscribe,
+            backend_ipc::builtin_terminal_ack,
+            backend_ipc::builtin_pick_upload,
+            backend_ipc::builtin_save_attachment,
             client_update::client_update_status,
             client_update::prepare_client_update,
             bundled_backend::bundled_backend_status,
-            bundled_backend::prepare_local_backend_tls,
-            local_backend_tls::configure_backend_connection_tls,
-            backend_connection_probe::probe_backend_connection,
             bundled_backend::bundled_backend_restart,
             bundled_backend::bundled_backend_stop,
             bundled_backend::bundled_backend_config,

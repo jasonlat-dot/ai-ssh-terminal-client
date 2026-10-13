@@ -1,153 +1,67 @@
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
-import { apiRequest, apiUrl, ApiRequestError } from '../src/api/client.ts';
-import { downloadExpiresAt, downloadUnavailable, uploadFile, readUploadedFile, listUploadedFiles, readFileStorageStats, deleteUploadedFile } from '../src/api/files.ts';
+import { apiRequest, ApiRequestError } from '../src/api/client.ts';
+import { downloadUnavailable, uploadFile, readUploadedFile, listUploadedFiles, readFileStorageStats, deleteUploadedFile } from '../src/api/files.ts';
 import type { UploadedFile } from '../src/api/files.ts';
 import { fileUploadPolicy, validateUploadFile } from '../src/config/fileUpload.ts';
 import { FileUploadQueue } from '../src/state/fileUploads.ts';
-
-const realFetch = globalThis.fetch;
-const storageDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
-const realTimeout = fileUploadPolicy.timeoutMs;
-afterEach(() => {
-  globalThis.fetch = realFetch;
-  fileUploadPolicy.timeoutMs = realTimeout;
-  if (storageDescriptor) Object.defineProperty(globalThis, 'localStorage', storageDescriptor);
-  else Reflect.deleteProperty(globalThis, 'localStorage');
+import { adoptBundledBackendUrl, BUILTIN_ENDPOINT } from '../src/config/backend.ts';
+const realFetch=globalThis.fetch;
+const originalWindow=Object.getOwnPropertyDescriptor(globalThis,'window');
+afterEach(()=>{
+  globalThis.fetch=realFetch; adoptBundledBackendUrl(BUILTIN_ENDPOINT);
+  if(originalWindow) Object.defineProperty(globalThis,'window',originalWindow); else Reflect.deleteProperty(globalThis,'window');
 });
-function configureBackend(url = 'https://api.example.test/proxy/api/v1') {
-  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: { getItem: () => url } });
-}
-const result: UploadedFile = {
-  fileId: 'file-1', fileName: 'report.txt', contentType: 'text/plain', size: 5,
-  sha256: 'abc123', status: 'UPLOADED',
-  downloadUrl: 'https://storage.example.test/bucket/report.txt?X-Amz-Signature=a%2Fb%2Bz&filename=a+b',
-  urlExpiresAt: '2035-01-01T00:15:00Z',
-};
-const success = () => Response.json({ code: 'SUCCESS_0000', info: 'ok', data: result });
-const file = (name = 'report.txt') => new File(['hello'], name, { type: 'text/plain', lastModified: 123 });
-const flush = () => new Promise<void>(resolve => setImmediate(resolve));
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  let reject!: (error: unknown) => void;
-  const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
-  return { promise, resolve, reject };
+const endpoint='ipc://builtin/00000000-0000-4000-8000-000000000001';
+const result: UploadedFile={fileId:'file-1',fileName:'report.txt',contentType:'text/plain',size:5,
+  sha256:'abc123',status:'UPLOADED',downloadUrl:`${endpoint}/files/00000000-0000-4000-8000-000000000003`,urlExpiresAt:'2000-01-01T00:00:00Z'};
+const file=(name='report.txt')=>new File(['hello'],name,{type:'text/plain',lastModified:123});
+const flush=()=>new Promise<void>(resolve=>setImmediate(resolve));
+function deferred<T>() {let resolve!:(value:T)=>void;let reject!:(reason:unknown)=>void;
+  const promise=new Promise<T>((yes,no)=>{resolve=yes;reject=no;});return {promise,resolve,reject};}
+function harness(handler:(args:Record<string,any>)=>unknown) {
+  adoptBundledBackendUrl(endpoint);
+  Object.defineProperty(globalThis,'window',{configurable:true,value:{__TAURI_INTERNALS__:{
+    invoke:(command:string,args:any)=>{assert.equal(command,'builtin_request');return handler(args.request);}
+  }}});
+  globalThis.fetch=async()=>{throw new Error('File operations must never call HTTP');};
 }
 
-test('normal upload: shared base URL, one multipart file, no Content-Type/userId, preserves all response fields', async () => {
-  configureBackend();
-  let requests = 0;
-  globalThis.fetch = async (url, options) => {
-    requests += 1;
-    assert.equal(url, 'https://api.example.test/proxy/api/v1/files');
-    assert.equal(options?.method, 'POST');
-    assert.equal(options?.headers, undefined);
-    assert.ok(options?.body instanceof FormData);
-    assert.deepEqual(Array.from(options.body.keys()), ['file']);
-    assert.equal((options.body.get('file') as File).name, 'report.txt');
-    return success();
-  };
-  assert.deepEqual(await uploadFile(file()), result);
-  assert.equal(requests, 1);
-  for (const base of ['https://a.test', 'https://a.test/', 'https://a.test/api/v1', 'https://a.test/api/v1/']) {
-    assert.equal(apiUrl(base, 'files'), 'https://a.test/api/v1/files');
-  }
+test('attachments reject WebView byte uploads and keep native file validation rules',async()=>{
+  await assert.rejects(uploadFile(file()),error=>error instanceof ApiRequestError&&error.code==='FILE_NATIVE_PICKER_REQUIRED');
+  assert.ok(validateUploadFile(new File([],'empty.txt')));
+  assert.ok(validateUploadFile(file('bad.exe')));
+  assert.equal(validateUploadFile(file('REPORT.TXT')),null);
+  assert.ok(fileUploadPolicy.maxBytes>0);
 });
-
-test('empty, too large and unsupported files never issue requests; extension is case insensitive', async () => {
-  let requests = 0;
-  globalThis.fetch = async () => { requests += 1; return success(); };
-  await assert.rejects(uploadFile(new File([], 'empty.txt')), /空文件/);
-  await assert.rejects(uploadFile(new File([new Uint8Array(fileUploadPolicy.maxBytes + 1)], 'large.pdf')), /上限/);
-  await assert.rejects(uploadFile(file('script.exe')), /扩展名/);
-  assert.equal(requests, 0);
-  assert.equal(validateUploadFile({ name: 'IMAGE.PNG', size: 1 }), null);
-  assert.equal(validateUploadFile({ name: 'report.pdf', size: fileUploadPolicy.maxBytes }), null);
-  assert.match(validateUploadFile({ name: 'noextension', size: 1 })!, /扩展名/);
+test('native references are usable without signed-link expiry, HTTP links are not',()=>{
+  harness(()=>Promise.resolve());
+  assert.equal(downloadUnavailable(result),null);
+  assert.ok(downloadUnavailable({...result,downloadUrl:'https://retired.example.test/file'}));
+  assert.ok(downloadUnavailable({...result,downloadUrl:'javascript:alert(1)'}));
 });
-
-for (const [status, code, info] of [
-  [503, 'FILE_STORAGE_NOT_CONFIGURED', '文件存储未配置'],
-  [503, 'FILE_STORAGE_CONFIG_INVALID', '文件存储配置不完整'],
-  [503, 'FILE_STORAGE_UNAVAILABLE', '文件存储服务不可用'],
-  [400, 'FILE_INVALID', '文件内容无效'],
-  [400, 'FILE_TYPE_NOT_ALLOWED', '文件类型不允许'],
-  [413, 'FILE_TOO_LARGE', '文件超过后端上限'],
-  [429, 'FILE_UPLOAD_BUSY', '上传任务繁忙，请稍后重试'],
-  [500, 'FILE_UPLOAD_FAILED', '文件上传失败'],
-] as const) {
-  test(`${code}: preserve backend info, code and HTTP status`, async () => {
-    configureBackend();
-    globalThis.fetch = async () => Response.json({ code, info, data: null }, { status });
-    await assert.rejects(uploadFile(file()), error => {
-      assert.ok(error instanceof ApiRequestError);
-      assert.equal(error.message, info);
-      assert.equal(error.code, code);
-      assert.equal(error.httpStatus, status);
-      return true;
-    });
-  });
-}
-
-test('HTTP 200 alone is not success; malformed/non-JSON responses use general messages', async () => {
-  configureBackend();
-  globalThis.fetch = async () => Response.json({ code: 'FILE_UPLOAD_FAILED', info: '未完成保存' });
-  await assert.rejects(uploadFile(file()), /未完成保存/);
-  globalThis.fetch = async () => new Response('<html>unavailable</html>', { status: 503 });
-  await assert.rejects(uploadFile(file()), /HTTP 503/);
-  globalThis.fetch = async () => Response.json(null, { status: 500 });
-  await assert.rejects(uploadFile(file()), /HTTP 500/);
-  globalThis.fetch = async () => Response.json({ code: 'SUCCESS_0000', data: null });
-  await assert.rejects(uploadFile(file()), /上传响应不完整/);
-  globalThis.fetch = async () => Response.json({ code: 'SUCCESS_0000', data: { ...result, status: 'PROCESSING' } });
-  await assert.rejects(uploadFile(file()), /文件状态异常/);
+test('metadata, history and deletion use IPC and retain the same workspace identity',async()=>{
+  const calls:Record<string,any>[]=[];
+  harness(args=>{calls.push(args);assert.equal(args.backendUrl,endpoint);
+    if(args.endpoint==='files')return Promise.resolve({items:[result],offset:20,hasMore:false});
+    return Promise.resolve(args.method==='DELETE'?null:result);});
+  assert.deepEqual(await readUploadedFile(result.fileId),result);
+  assert.equal((await listUploadedFiles(20)).items[0].downloadUrl,result.downloadUrl);
+  await deleteUploadedFile(result.fileId);
+  assert.deepEqual(calls.map(args=>[args.endpoint,args.method]),[['files/file-1','GET'],['files','GET'],['files/file-1','DELETE']]);
 });
-
-test('shared client preserves JSON SSH requests while accepting FormData', async () => {
-  configureBackend('https://api.example.test');
-  globalThis.fetch = async (url, options) => {
-    assert.equal(url, 'https://api.example.test/api/v1/ssh/terminal/write?sessionId=tab-1');
-    assert.deepEqual(options?.headers, { 'Content-Type': 'application/json' });
-    assert.equal(options?.body, '{"input":"ls"}');
-    return Response.json({ code: 'SUCCESS_0000', data: null });
-  };
-  await apiRequest('ssh/terminal/write', { method: 'POST', body: { input: 'ls' }, params: { sessionId: 'tab-1' } });
+test('native storage errors remain business errors; malformed metadata is rejected',async()=>{
+  harness(()=>Promise.reject({message:'附件已清理',code:'FILE_DOWNLOAD_NOT_FOUND',status:404}));
+  await assert.rejects(readUploadedFile('missing'),error=>error instanceof ApiRequestError&&error.code==='FILE_DOWNLOAD_NOT_FOUND');
+  harness(()=>Promise.resolve({...result,fileId:'wrong'}));
+  await assert.rejects(readUploadedFile(result.fileId),error=>error instanceof ApiRequestError&&error.code==='FILE_RESPONSE_INVALID');
+  await assert.rejects(apiRequest('files',{baseUrl:'https://retired.example.test'}));
 });
-
-test('network failure and timeout are classified; failed files are retained and never automatically retried', async () => {
-  configureBackend();
-  let calls = 0;
-  globalThis.fetch = async () => { calls += 1; throw new TypeError('offline'); };
-  const queue = new FileUploadQueue();
-  const original = file();
-  queue.add([original]);
-  await flush();
-  const item = queue.getSnapshot()[0];
-  assert.equal(item.status, 'error');
-  assert.equal(item.file, original);
-  assert.equal(item.uncertain, true);
-  await flush();
-  assert.equal(calls, 1);
-  fileUploadPolicy.timeoutMs = 5;
-  globalThis.fetch = (_url, options) => new Promise((_resolve, reject) => {
-    options?.signal?.addEventListener('abort', () => reject(new DOMException('timeout', 'AbortError')));
-  });
-  await assert.rejects(uploadFile(file()), error => error instanceof ApiRequestError && error.kind === 'timeout');
-  queue.deactivate();
-});
-
-test('a network failure while reading the response body remains an uncertain upload outcome', async () => {
-  configureBackend();
-  globalThis.fetch = async () => Object.assign(success(), {
-    json: async () => { throw new TypeError('response stream interrupted'); },
-  });
-  const queue = new FileUploadQueue();
-  queue.add([file()]);
-  await flush();
-  assert.equal(queue.getSnapshot()[0].status, 'error');
-  assert.equal(queue.getSnapshot()[0].uncertain, true);
-  assert.match(queue.getSnapshot()[0].error!, /网络连接/);
-  queue.deactivate();
+test('capacity requires nonnegative safe integers and malformed history is rejected',async()=>{
+  const stats={enabled:true,usedBytes:5,reservedBytes:0,maxStorageBytes:1024,fileCount:1,maxFiles:10000,maxFileBytes:20,retentionDays:0,downloadLinkSeconds:900};
+  harness(()=>Promise.resolve(stats));assert.equal((await readFileStorageStats()).fileCount,1);
+  harness(()=>Promise.resolve({...stats,usedBytes:-1}));await assert.rejects(readFileStorageStats());
+  harness(()=>Promise.resolve({items:[{...result,size:0}],offset:0,hasMore:false}));await assert.rejects(listUploadedFiles());
 });
 
 test('at most two uploads, duplicate submissions blocked, success waits for backend, manual retry runs once', async () => {
@@ -210,53 +124,3 @@ test('invalid queue items can be removed locally; stale responses cannot overwri
   queue.deactivate();
 });
 
-test('signed URL expiration: exact boundary, timestamps, malformed time, unsafe URL', () => {
-  const expiry = Date.parse(String(result.urlExpiresAt));
-  assert.equal(downloadUnavailable(result, expiry - 1), null);
-  assert.equal(downloadUnavailable(result, expiry), '下载链接已过期');
-  assert.equal(downloadUnavailable(result, expiry + 1), '下载链接已过期');
-  assert.equal(downloadExpiresAt(expiry), expiry);
-  assert.equal(downloadExpiresAt(expiry / 1000), expiry);
-  assert.equal(downloadUnavailable({ ...result, urlExpiresAt: 'invalid' }), '无法确认下载链接有效期');
-  assert.equal(downloadUnavailable({ ...result, downloadUrl: 'javascript:alert(1)' }, expiry - 1), '下载链接不可用');
-  assert.equal(result.downloadUrl, 'https://storage.example.test/bucket/report.txt?X-Amz-Signature=a%2Fb%2Bz&filename=a+b');
-});
-
-test('Rust metadata refresh and history preserve signed URLs and use the configured API prefix', async () => {
-  configureBackend();
-  const calls: [string, string | undefined][] = [];
-  globalThis.fetch = (async (input, init) => {
-    calls.push([String(input), init?.method]);
-    if (String(input).includes('?offset=')) return Response.json({code:'SUCCESS_0000',data:{items:[result],offset:20,hasMore:false}});
-    return success();
-  }) as typeof fetch;
-  const refreshed = await readUploadedFile(result.fileId);
-  assert.equal(refreshed.downloadUrl,result.downloadUrl);
-  const page = await listUploadedFiles(20);
-  assert.equal(page.items[0].downloadUrl,result.downloadUrl);
-  assert.deepEqual(calls.map(([url])=>url), ['https://api.example.test/proxy/api/v1/files/file-1','https://api.example.test/proxy/api/v1/files?offset=20']);
-});
-test('Rust storage errors and malformed metadata are preserved instead of reporting success', async () => {
-  configureBackend();
-  globalThis.fetch = (async () => Response.json({code:'FILE_DOWNLOAD_NOT_FOUND',info:'附件已清理',data:null},{status:404})) as typeof fetch;
-  await assert.rejects(readUploadedFile('missing'), (error:unknown) => error instanceof ApiRequestError && error.code==='FILE_DOWNLOAD_NOT_FOUND');
-  globalThis.fetch = (async () => Response.json({code:'SUCCESS_0000',data:{...result,fileId:'wrong'}})) as typeof fetch;
-  await assert.rejects(readUploadedFile(result.fileId), (error:unknown) => error instanceof ApiRequestError && error.code==='FILE_RESPONSE_INVALID');
-});
-test('Rust storage deletion sends DELETE and only accepts a successful business response', async () => {
-  configureBackend();
-  globalThis.fetch = (async(input,init)=>{assert.equal(String(input),'https://api.example.test/proxy/api/v1/files/file-1');assert.equal(init?.method,'DELETE');return Response.json({code:'SUCCESS_0000',data:null});}) as typeof fetch;
-  await deleteUploadedFile('file-1');
-  globalThis.fetch = (async()=>Response.json({code:'FILE_STORAGE_BUSY',info:'存储已占用'},{status:503})) as typeof fetch;
-  await assert.rejects(deleteUploadedFile('file-1'));
-});
-test('Rust capacity requires nonnegative safe integers and malformed history is rejected', async () => {
-  configureBackend();
-  const stats = {enabled:true,usedBytes:5,reservedBytes:0,maxStorageBytes:1024,fileCount:1,maxFiles:10000,maxFileBytes:20,retentionDays:0,downloadLinkSeconds:900};
-  globalThis.fetch = (async()=>Response.json({code:'SUCCESS_0000',data:stats})) as typeof fetch;
-  assert.equal((await readFileStorageStats()).fileCount,1);
-  globalThis.fetch = (async()=>Response.json({code:'SUCCESS_0000',data:{...stats,usedBytes:-1}})) as typeof fetch;
-  await assert.rejects(readFileStorageStats());
-  globalThis.fetch = (async()=>Response.json({code:'SUCCESS_0000',data:{items:[{...result,size:0}],offset:0,hasMore:false}})) as typeof fetch;
-  await assert.rejects(listUploadedFiles());
-});

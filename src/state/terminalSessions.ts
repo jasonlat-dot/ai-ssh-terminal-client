@@ -1,4 +1,5 @@
 import type { Host, TerminalDisconnectReason, TerminalSession } from '../types';
+import { backendWorkspaceKey } from '../config/backend';
 
 const storagePrefix = 'agent-ssh-terminal-sessions-v1:';
 
@@ -16,13 +17,13 @@ type StoredTerminalSession = {
   disconnectReason: TerminalDisconnectReason | null;
 };
 
-function storageKey(backendUrl: string) {
-  return `${storagePrefix}${backendUrl}`;
+export function terminalSessionsStorageKey(backendUrl: string) {
+  return `${storagePrefix}${backendWorkspaceKey(backendUrl)}`;
 }
 
 export function loadTerminalSessions(backendUrl: string): TerminalSession[] {
   try {
-    const value: unknown = JSON.parse(localStorage.getItem(storageKey(backendUrl)) || '[]');
+    const value: unknown = JSON.parse(localStorage.getItem(terminalSessionsStorageKey(backendUrl)) || '[]');
     if (!Array.isArray(value)) return [];
     return value.flatMap(item => {
       const stored = item as Partial<StoredTerminalSession>;
@@ -64,5 +65,5 @@ export function saveTerminalSessions(backendUrl: string, sessions: TerminalSessi
       title: session.title,
       disconnectReason: session.disconnectReason,
     }));
-  localStorage.setItem(storageKey(backendUrl), JSON.stringify(stored));
+  localStorage.setItem(terminalSessionsStorageKey(backendUrl), JSON.stringify(stored));
 }

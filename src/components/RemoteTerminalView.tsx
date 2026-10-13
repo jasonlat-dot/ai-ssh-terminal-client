@@ -248,9 +248,10 @@ export function RemoteTerminalView({
         setSelectionAction(null);
       });
       const unsubscribe = runtime?.subscribe(
-        data => terminal.write(data, () => {
+        data => new Promise<void>(resolve => terminal.write(data, () => {
           if (visibleRef.current && !terminal.hasSelection()) terminal.scrollToBottom();
-        }),
+          resolve();
+        })),
         setError,
         event => { setError(''); disconnectHandler.current(event); },
         available => {

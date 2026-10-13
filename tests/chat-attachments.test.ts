@@ -218,67 +218,12 @@ test('preview remains live while a message references it; history strips blob UR
   } finally { URL.revokeObjectURL = realRevoke; pool.dispose(); }
 });
 
-test('upload accepts required attachment response fields without optional SHA/status', async () => {
-  backend();
-  const { status: _status, ...data } = result('uploaded');
-  globalThis.fetch = async () => Response.json({ code: 'SUCCESS_0000', data });
-  assert.equal((await uploadFile(file())).fileId, 'uploaded');
+test('WebView file uploads cannot fall back to a remote attachment server', async () => {
+  await assert.rejects(uploadFile(file()),error=>error instanceof ApiRequestError&&error.code==='FILE_NATIVE_PICKER_REQUIRED');
 });
-
-const requestBody = { agentId: 'agent', userId: 'user', sessionId: 'session', terminalSessionId: '', message: '', attachments: [{ fileId: 'ref' }] };
-for (const code of ['CHAT_CONTENT_REQUIRED', 'CHAT_ATTACHMENT_INVALID', 'CHAT_ATTACHMENT_FORBIDDEN', 'CHAT_ATTACHMENT_LIMIT', 'CHAT_ATTACHMENT_UNSUPPORTED', 'CHAT_ATTACHMENT_CONTENT_INVALID', 'CHAT_MODEL_MEDIA_UNSUPPORTED', 'CHAT_ATTACHMENT_BUSY', 'FILE_READ_FAILED', 'FILE_STORAGE_UNAVAILABLE']) {
-  test(`HTTP 200 streaming ${code} rejects immediately, preserves content/code, cancels reader and never retries`, async () => {
-    backend(); let calls = 0; let cancelled = false;
-    globalThis.fetch = async (_url, options) => {
-      calls++;
-      assert.deepEqual(JSON.parse(String(options?.body)), requestBody);
-      return new Response(new ReadableStream({ start(controller) {
-        controller.enqueue(new TextEncoder().encode(JSON.stringify({ event: 'error', content: '附件处理错误', code }) + '\n'));
-      }, cancel() { cancelled = true; } }));
-    };
-    const events: string[] = [];
-    await assert.rejects(agentApi.chatStream(requestBody, event => events.push(event.event)), error => error instanceof ChatRequestError && error.code === code && error.message === '附件处理错误');
-    assert.equal(calls, 1);
-    assert.equal(cancelled, true);
-    assert.ok(!events.includes('done'));
-    assert.ok(chatErrorGuidance(code));
-  });
-}
-
-test('JSON Lines still handles UTF-8 split across chunks and explicit done; EOF alone is not success', async () => {
-  backend();
-  const raw = new TextEncoder().encode('{"event":"text","content":"图片分析"}\n{"event":"done","content":"完成"}\n');
-  globalThis.fetch = async () => new Response(new ReadableStream({ start(controller) {
-    for (let offset = 0; offset < raw.length; offset += 2) controller.enqueue(raw.slice(offset, offset + 2));
-    controller.close();
-  } }));
-  const events: string[] = [];
-  await agentApi.chatStream({ ...requestBody, attachments: undefined, message: 'plain' }, event => events.push(event.event));
-  assert.deepEqual(events, ['text', 'done']);
-  globalThis.fetch = async () => new Response('{"event":"text","content":"partial"}\n');
-  await assert.rejects(agentApi.chatStream(requestBody, () => {}), error => error instanceof ChatRequestError && error.code === 'CHAT_STREAM_INTERRUPTED');
-});
-
-test('stream error after partial text prevents a later done; HTTP errors use backend info', async () => {
-  backend();
-  globalThis.fetch = async () => new Response('{"event":"text","content":"partial"}\n{"event":"error","content":"文本太长","code":"CHAT_ATTACHMENT_LIMIT"}\n{"event":"done","content":"false success"}\n');
-  const events: string[] = [];
-  await assert.rejects(agentApi.chatStream(requestBody, event => events.push(event.event)), /文本太长/);
-  assert.deepEqual(events, ['text']);
-  globalThis.fetch = async () => Response.json({ code: 'CHAT_ATTACHMENT_FORBIDDEN', info: '没有附件权限' }, { status: 403 });
-  await assert.rejects(agentApi.chatStream(requestBody, () => {}), error => error instanceof ChatRequestError && error.code === 'CHAT_ATTACHMENT_FORBIDDEN' && error.message === '没有附件权限');
-});
-
-test('legacy SSE data events remain supported', async () => {
-  backend();
-  globalThis.fetch = async () => new Response('data: {"event":"text","content":"hello"}\n\ndata: {"event":"done","content":"ok"}\n\n');
-  const events: string[] = [];
-  await agentApi.chatStream(requestBody, event => events.push(event.event));
-  assert.deepEqual(events, ['text', 'done']);
-});
-
-test('HTTP 200 business error envelope is not treated as text/success', async () => {
-  backend();
-  globalThis.fetch = async () => Response.json({ code: 'CHAT_ATTACHMENT_LIMIT', info: '文本正文总长度超限', data: null });
-  await assert.rejects(agentApi.chatStream(requestBody, () => {}), error => error instanceof ChatRequestError && error.code === 'CHAT_ATTACHMENT_LIMIT' && error.message === '文本正文总长度超限');
+test('Rust Agent is not enabled by a legacy server address',async()=>{
+  Object.defineProperty(globalThis,'localStorage',{configurable:true,value:{getItem:()=> 'https://retired.example.test'}});
+  globalThis.fetch=async()=>{throw new Error('Agent must not call a legacy HTTP backend');};
+  await assert.rejects(agentApi.chatStream({agentId:'agent',userId:'default',sessionId:'chat',terminalSessionId:'terminal',message:'hello'},()=>{}),
+    error=>error instanceof ChatRequestError&&error.code==='FEATURE_NOT_MIGRATED');
 });

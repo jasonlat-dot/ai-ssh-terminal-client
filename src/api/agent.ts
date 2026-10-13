@@ -1,7 +1,6 @@
 import { sshUserId } from './ssh.ts';
-import { requireBackendUrl } from '../config/backend.ts';
 import { ChatRequestError } from './chatErrors.ts';
-import { backendFetch } from './backendFetch';
+import { builtinRequest, NativeRequestError } from './builtin';
 
 export type AgentConfig = {
   agentId: string;
@@ -30,22 +29,12 @@ export type AgentChatRequest = {
   attachments?: { fileId: string }[];
 };
 
-type ApiResponse<T> = { code: string; info?: string; data?: T };
-
+/** Agent control operations also belong to the local Rust workspace. */
 async function request<T>(endpoint: string, method = 'GET', body?: object, signal?: AbortSignal): Promise<T> {
   try {
-    const response = await backendFetch(`${requireBackendUrl()}/agent/${endpoint}`, {
-      method,
-      signal,
-      headers: body ? { 'Content-Type': 'application/json' } : undefined,
-      body: body ? JSON.stringify(body) : undefined,
-    });
-    if (!response.ok) throw new Error(`Agent 服务请求失败（HTTP ${response.status}）`);
-    const result = await response.json() as ApiResponse<T>;
-    if (result.code !== 'SUCCESS_0000') throw new Error(result.info || 'Agent 操作失败');
-    return result.data as T;
+    return await builtinRequest<T>(`agent/${endpoint}`, method, body, {}, signal);
   } catch (error) {
-    if (error instanceof TypeError) throw new Error('无法访问 Agent 服务，请检查后端地址和网络连接。');
+    if (error instanceof NativeRequestError) throw new ChatRequestError(error.message, error.code);
     throw error;
   }
 }
@@ -100,7 +89,7 @@ function doneContent(value: unknown): string {
  * agentCallId 负责把子 Agent 文本/工具归到同一张卡片；toolCallId 负责把调用中状态
  * 更新为最终结果。缺少必要关联 ID 的嵌套事件会被丢弃，避免污染其他活动。
  */
-function parseStreamEvent(payload: string): AgentStreamEvent | null {
+export function parseStreamEvent(payload: string): AgentStreamEvent | null {
   const value = payload.trim();
   if (!payload || value === '[DONE]') return null;
   if (value.startsWith('错误:')) return { event: 'error', content: value.slice(3).trim() };
@@ -184,86 +173,14 @@ function parseStreamEvent(payload: string): AgentStreamEvent | null {
   return null;
 }
 
-/**
- * 使用 POST + Fetch ReadableStream 消费对话长连接。
- * 不能使用 EventSource，因为请求需要携带 JSON body；解析器同时兼容标准 SSE data 行和
- * 后端 Case 当前输出的一行一个 JSON（JSON Lines）格式。
- */
+/** Rust Agent streaming is not wired yet. Future output will use a Tauri Channel. */
 async function chatStream(
-  body: AgentChatRequest,
-  onEvent: (event: AgentStreamEvent) => void,
+  _body: AgentChatRequest,
+  _onEvent: (event: AgentStreamEvent) => void,
   signal?: AbortSignal,
 ) {
-  let response: Response;
-  try {
-    response = await backendFetch(`${requireBackendUrl()}/agent/chat_stream`, {
-      method: 'POST',
-      signal,
-      headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
-      body: JSON.stringify(body),
-    });
-  } catch (error) {
-    if (signal?.aborted) throw new DOMException('对话已取消', 'AbortError');
-    if (error instanceof TypeError) throw new Error('无法访问 Agent 服务，请检查后端地址和网络连接。');
-    throw error;
-  }
-
-  if (!response.ok) {
-    const result = await response.json().catch(() => null);
-    throw new ChatRequestError(typeof result?.info === 'string' ? result.info : `Agent 对话请求失败（HTTP ${response.status}）`, typeof result?.code === 'string' ? result.code : undefined);
-  }
-  if (!response.body) throw new Error('浏览器未收到 Agent 流式响应');
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  // 一个 JSON/SSE 事件可能被 TCP 分片拆开，buffer 保存最后一条尚未完整换行的数据。
-  let buffer = '';
-  // 标准 SSE 允许一个事件包含多条 data: 行，遇到空行后再合并派发。
-  let sseData: string[] = [];
-
-  let completed = false;
-  const dispatch = (payload: string) => {
-    const event = payload.trim() === '[DONE]' ? { event: 'done' as const, content: '' } : parseStreamEvent(payload);
-    if (!event) return;
-    if (event.event === 'error') throw new ChatRequestError(event.content || 'Agent 执行失败', event.code);
-    onEvent(event);
-    if (event.event === 'done') completed = true;
-  };
-
-  const processLine = (rawLine: string) => {
-    const line = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine;
-    if (!line) {
-      if (sseData.length) dispatch(sseData.join('\n'));
-      sseData = [];
-      return;
-    }
-    if (line.startsWith(':') || line.startsWith('event:') || line.startsWith('id:')) return;
-    if (line.startsWith('data:')) {
-      // SSE permits removing ONE optional separator space, not content indent.
-      const data = line.slice(5);
-      sseData.push(data.startsWith(' ') ? data.slice(1) : data);
-      return;
-    }
-    // 非 SSE 控制行按 JSON Lines 处理，兼容 Case 层 emitter.send(json + "\n")。
-    dispatch(line);
-  };
-
-  try {
-    while (true) {
-      const { value, done } = await reader.read();
-      buffer += decoder.decode(value, { stream: !done });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-      lines.forEach(processLine);
-      if (done || completed) break;
-    }
-    if (buffer) processLine(buffer);
-    if (sseData.length) dispatch(sseData.join('\n'));
-    if (!completed) throw new ChatRequestError('对话连接已结束，但未收到完成确认；请检查回复后重试。', 'CHAT_STREAM_INTERRUPTED');
-  } finally {
-    void reader.cancel().catch(() => {});
-    reader.releaseLock();
-  }
+  if (signal?.aborted) throw new DOMException('对话已取消', 'AbortError');
+  throw new ChatRequestError('Rust Agent 尚未接入，当前版本暂不支持 AI 对话。', 'FEATURE_NOT_MIGRATED');
 }
 
 export const agentApi = {

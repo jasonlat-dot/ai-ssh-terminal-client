@@ -244,12 +244,12 @@ test('startup prompt persists until dismissed; viewing uses the guarded settings
 test('startup prompt does not show stale versions or manual check failures', () => {
   const view = ui({}, 'StartupUpdatePrompt'); view.announce('0.1.6'); view.render({ version: '0.1.7' });
   assert.equal(view.nodes().length, 0); view.render({ version: '0.1.6', phase: 'error' }); assert.equal(view.nodes().length, 0);
-  const app = source('App.tsx'), dialog = source('components/BackendSettingsDialog.tsx');
+  const app = source('App.tsx'), dialog = source('components/RustBackendSettingsDialog.tsx');
   assert.ok(!app.includes('useStartupUpdateCheck(notify)'));
   assert.match(app, /return <>\{page\}<StartupUpdatePrompt/);
   assert.match(app, /waitingForBackend && !updateSettingsRequested/);
   assert.match(app, /beforeClientUpdate=\{prepareForClientUpdate\}/);
-  assert.match(dialog, /if \(showUpdates\) setActiveSection\('about'\)/);
+  assert.match(dialog, /if\(showUpdates\)setTab\('about'\)/);
 });
 test('UI blocks unavailable updates, allows configuration-error retry, and renders escaped notes', () => {
   const disabled = ui({ config: { ...config, configured: false }, phase: 'disabled' });
@@ -273,9 +273,9 @@ test('UI supports indeterminate/known progress and settings update path works wi
   assert.equal(view.nodes().find(x => x.type === 'progress').props.value, undefined);
   assert.equal(view.button('下载更新').props.disabled, true);
   view.render({ total: 100, downloaded: 50 }); assert.equal(view.nodes().find(x => x.type === 'progress').props.value, 50);
-  const dialog = source('components/BackendSettingsDialog.tsx'), app = source('App.tsx');
-  assert.match(dialog, /activeSection === 'about' && <ClientUpdateSettings/);
-  assert.match(dialog, /sectionItems.some\(item => isTabDirty\(item.id\)\)/);
-  assert.match(dialog, /loading && activeSection !== 'appearance' && activeSection !== 'about'/);
+  const dialog = source('components/RustBackendSettingsDialog.tsx'), app = source('App.tsx');
+  assert.match(dialog, /tab==='about'/);
+  assert.match(dialog, /自动更新已关闭/);
+  assert.doesNotMatch(dialog, /BackendConnectionSettings|connection-url/);
   assert.match(app, /await persistClientSession[\s\S]*await cleanupBeforeClose\(5_000\)/);
 });

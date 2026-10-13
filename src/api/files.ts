@@ -1,5 +1,8 @@
 import { apiRequest, ApiRequestError } from './client.ts';
-import { fileUploadPolicy, validateUploadFile } from '../config/fileUpload.ts';
+import { Channel, invoke } from '@tauri-apps/api/core';
+import { usesBuiltinIpc } from './builtin';
+import { requireBackendUrl } from '../config/backend';
+import { readBundledBackendStatus } from './bundledBackend';
 
 export interface UploadedFile {
   fileId: string;
@@ -12,22 +15,39 @@ export interface UploadedFile {
   urlExpiresAt: string | number;
 }
 
-export async function uploadFile(file: File, signal?: AbortSignal): Promise<UploadedFile> {
-  const invalid = validateUploadFile(file);
-  if (invalid) throw new Error(invalid);
-  const body = new FormData();
-  body.append('file', file);
-  const data = await apiRequest<UploadedFile>('files', {
-    method: 'POST', body, signal, service: '文件服务', timeoutMs: fileUploadPolicy.timeoutMs,
-  });
-  if (!data || typeof data.fileId !== 'string' || !data.fileId
-    || typeof data.fileName !== 'string' || typeof data.contentType !== 'string'
-    || typeof data.size !== 'number' || !Number.isFinite(data.size) || data.size <= 0
-    || (data.sha256 !== undefined && typeof data.sha256 !== 'string') || typeof data.downloadUrl !== 'string'
-    || !['string', 'number'].includes(typeof data.urlExpiresAt) || (data.status !== undefined && data.status !== 'UPLOADED')) {
-    throw new ApiRequestError('上传响应不完整或文件状态异常，无法确认上传结果。', 'application', 'FILE_RESPONSE_INVALID');
+/** Native chooser and file handles: attachment bytes never cross the WebView. */
+export async function pickNativeAttachments(uploaded: (file: UploadedFile) => void, failed: (message: string) => void): Promise<void> {
+  const backendUrl = requireBackendUrl();
+  if (!usesBuiltinIpc(backendUrl)) throw new Error('原生附件入口仅用于内置 Rust 服务。');
+  const onEvent = new Channel<{ type: 'uploaded' | 'error'; file?: UploadedFile; name?: string; message?: string }>();
+  onEvent.onmessage = event => {
+    if (event.type === 'uploaded' && event.file) uploaded(event.file);
+    else failed(`${event.name ?? '附件'}：${event.message ?? '上传失败'}`);
+  };
+  await invoke('builtin_pick_upload', { backendUrl, onEvent });
+}
+/** Native references pin both the file and the runtime that issued them. */
+export function nativeAttachmentReference(value: string): { backendUrl: string; fileId: string } | null {
+  const match = value.match(/^(ipc:\/\/builtin\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/files\/([0-9a-f-]{36})$/);
+  return match ? { backendUrl: match[1], fileId: match[2] } : null;
+}
+export async function saveNativeAttachment(fileId: string, backendUrl = requireBackendUrl()): Promise<boolean> {
+  if (!usesBuiltinIpc(backendUrl)) throw new Error('本地附件需要在桌面应用中保存。');
+  return invoke<boolean>('builtin_save_attachment', { backendUrl, fileId });
+}
+export async function refreshNativeAttachment(fileId: string): Promise<UploadedFile> {
+  const status = await readBundledBackendStatus();
+  if (status?.status !== 'running' || !status.backendUrl || !usesBuiltinIpc(status.backendUrl)) {
+    throw new Error('请先初始化本地工作区。');
   }
-  return { ...data, status: data.status ?? 'UPLOADED' };
+  // Refresh is an explicit operation on the current local instance, independent of the expired reference.
+  return readUploadedFile(fileId, undefined, status.backendUrl);
+}
+
+/** WebView file bytes are never uploaded; use the native picker instead. */
+export async function uploadFile(_file: File, signal?: AbortSignal): Promise<UploadedFile> {
+  if (signal?.aborted) throw signal.reason ?? new DOMException('上传已取消', 'AbortError');
+  throw new ApiRequestError('请使用系统文件选择器上传附件。', 'application', 'FILE_NATIVE_PICKER_REQUIRED');
 }
 
 export function downloadExpiresAt(value: UploadedFile['urlExpiresAt']): number | null {
@@ -37,25 +57,19 @@ export function downloadExpiresAt(value: UploadedFile['urlExpiresAt']): number |
   return Number.isFinite(time) ? time : null;
 }
 
-export function downloadUnavailable(file: Pick<UploadedFile, 'urlExpiresAt' | 'downloadUrl'>, now = Date.now()): string | null {
-  const expiry = downloadExpiresAt(file.urlExpiresAt);
-  if (expiry === null) return '无法确认下载链接有效期';
-  if (expiry <= now) return '下载链接已过期';
-  // Validate only. Never serialize or alter the returned signed URL.
-  try {
-    const url = new URL(file.downloadUrl);
-    if (url.protocol !== 'https:' && url.protocol !== 'http:') return '下载链接不可用';
-  } catch { return '下载链接不可用'; }
-  return null;
+export function downloadUnavailable(file: Pick<UploadedFile, 'urlExpiresAt' | 'downloadUrl'>, _now = Date.now()): string | null {
+  const reference = nativeAttachmentReference(file.downloadUrl);
+  if (reference) return usesBuiltinIpc(reference.backendUrl) ? null : '本地附件需要在桌面应用中保存';
+  return '附件引用不可用，请从已存储文件列表重新打开';
 }
 
 export interface FileStorageStats {
   enabled: boolean; usedBytes: number; reservedBytes: number; maxStorageBytes: number;
   fileCount: number; maxFiles: number; maxFileBytes: number; retentionDays: number; downloadLinkSeconds: number;
 }
-export async function readUploadedFile(fileId: string, signal?: AbortSignal): Promise<UploadedFile> {
+export async function readUploadedFile(fileId: string, signal?: AbortSignal, baseUrl?: string): Promise<UploadedFile> {
   if (!fileId.trim()) throw new Error('文件 ID 不能为空。');
-  const file = await apiRequest<UploadedFile>('files/' + encodeURIComponent(fileId), { signal, service: '文件服务' });
+  const file = await apiRequest<UploadedFile>('files/' + encodeURIComponent(fileId), { signal, baseUrl, service: '文件服务' });
   if (!file || file.fileId !== fileId || file.status !== 'UPLOADED'
       || typeof file.fileName !== 'string' || typeof file.contentType !== 'string'
       || typeof file.size !== 'number' || !Number.isFinite(file.size) || file.size <= 0

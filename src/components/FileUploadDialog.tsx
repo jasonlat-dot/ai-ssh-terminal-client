@@ -1,11 +1,9 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import type { MouseEvent } from 'react';
-import { openUrl } from '@tauri-apps/plugin-opener';
-import { downloadExpiresAt, downloadUnavailable, readUploadedFile, listUploadedFiles, deleteUploadedFile, readFileStorageStats } from '../api/files';
+import { downloadUnavailable, nativeAttachmentReference, refreshNativeAttachment, listUploadedFiles, deleteUploadedFile, readFileStorageStats, pickNativeAttachments, saveNativeAttachment } from '../api/files';
 import type { UploadedFile, FileStorageStats } from '../api/files';
 import { fileUploadPolicy, formatFileSize } from '../config/fileUpload';
 import type { FileUploadQueue, UploadItem } from '../state/fileUploads';
-import { isTauriRuntime } from '../state/runtime';
 import { usingRustBuiltinBackend } from '../config/rustPreview';
 import { AccentIcon, Badge, Icon, IconButton, Modal, fileTone } from './Ui';
 import './FileUploadDialog.css';
@@ -22,30 +20,34 @@ export function DownloadButton({ file, refreshable = false }: {
   const unavailable = downloadUnavailable(current, now);
   useEffect(() => {
     const update = () => setNow(Date.now());
-    const expiry = downloadExpiresAt(current.urlExpiresAt);
-    const timer = expiry === null || expiry <= now ? undefined : setTimeout(update, Math.min(Math.max(0, expiry - Date.now()), 2_147_483_647));
     window.addEventListener('focus', update); document.addEventListener('visibilitychange', update);
-    return () => { clearTimeout(timer); window.removeEventListener('focus', update); document.removeEventListener('visibilitychange', update); };
-  }, [current.urlExpiresAt, now]);
+    return () => { window.removeEventListener('focus', update); document.removeEventListener('visibilitychange', update); };
+  }, [current.downloadUrl, current.urlExpiresAt, now]);
   const refresh = async () => {
     if (!file.fileId) return;
     setBusy(true); setError('');
-    try { setFresh(await readUploadedFile(file.fileId)); setNow(Date.now()); }
+    try { setFresh(await (refreshNativeAttachment(file.fileId))); setNow(Date.now()); }
     catch (cause) { setError(cause instanceof Error ? cause.message : '刷新失败'); }
     finally { setBusy(false); }
   };
   const download = (event: MouseEvent<HTMLAnchorElement>) => {
     setError('');
-    if (downloadUnavailable(current)) { event.preventDefault(); setNow(Date.now()); return; }
-    if (isTauriRuntime()) {
+    const reference = nativeAttachmentReference(current.downloadUrl);
+    if (reference) {
       event.preventDefault();
-      void openUrl(current.downloadUrl).catch(() => setError('无法打开下载地址，请检查系统浏览器。'));
+      if (busy) return;
+      setBusy(true);
+      void saveNativeAttachment(reference.fileId, reference.backendUrl).catch(cause => setError(typeof cause?.message === 'string' ? cause.message : String(cause)))
+        .finally(() => setBusy(false));
+      return;
     }
+    if (downloadUnavailable(current)) { event.preventDefault(); setNow(Date.now()); return; }
+
   };
   return <span className="uploaded-download">
-    {unavailable ? <><small>{unavailable}</small>{refreshable && file.fileId && <button type="button" className="outlined-button" disabled={busy} onClick={() => void refresh()}><Icon name="refresh" size={13}/>{busy ? '刷新中' : '刷新链接'}</button>}</>
+    {unavailable ? <><small>{unavailable}</small>{refreshable && file.fileId && <button type="button" className="outlined-button" disabled={busy} onClick={() => void refresh()}><Icon name="refresh" size={13}/>{busy ? '刷新中' : '刷新附件'}</button>}</>
       : <a href={current.downloadUrl} target="_blank" rel="noopener noreferrer" onClick={download} className="file-download-button"><Icon name="down" size={14}/>下载</a>}
-    {error && <small role="alert">{error}</small>}
+    {error && <><small role="alert">{error}</small>{refreshable && file.fileId && <button type="button" className="outlined-button" disabled={busy} onClick={() => void refresh()}>刷新附件</button>}</>}
   </span>;
 }
 function UploadRow({ item, queue, rust }: { item: UploadItem; queue: FileUploadQueue; rust: boolean }) {
@@ -61,7 +63,8 @@ function UploadRow({ item, queue, rust }: { item: UploadItem; queue: FileUploadQ
     {item.uncertain && <p className="upload-uncertain">后端可能已保存文件，再次上传可能产生新文件。</p>}
     {item.result && <details className="upload-result-details"><summary>文件信息</summary><dl>
       <dt>文件 ID</dt><dd>{item.result.fileId}</dd><dt>类型</dt><dd>{item.result.contentType}</dd><dt>存储状态</dt><dd>UPLOADED · 已存储</dd>
-      <dt>SHA-256</dt><dd>{item.result.sha256 || '后端未提供'}</dd><dt>下载有效期至</dt><dd>{downloadExpiresAt(item.result.urlExpiresAt) === null ? String(item.result.urlExpiresAt) : new Date(downloadExpiresAt(item.result.urlExpiresAt)!).toLocaleString()}</dd>
+      <dt>SHA-256</dt><dd>{item.result.sha256 || '后端未提供'}</dd>
+      <dt>保存方式</dt><dd>应用内保存；重新初始化后可从已存文件列表打开。</dd>
     </dl><p>已存储不代表已完成内容解析。</p></details>}
     <div className="upload-item-actions">
       {item.status === 'error' && item.retryable && <button type="button" className="outlined-button" onClick={() => queue.retry(item.id)}><Icon name="refresh" size={13}/>{item.uncertain ? '重新上传（可能重复）' : '重试上传'}</button>}
@@ -71,9 +74,15 @@ function UploadRow({ item, queue, rust }: { item: UploadItem; queue: FileUploadQ
 }
 export function FileUploadDialog({ queue, close }: { queue: FileUploadQueue; close: () => void }) {
   const items = useSyncExternalStore(queue.subscribe, queue.getSnapshot);
-  const input = useRef<HTMLInputElement>(null);
   const rust = usingRustBuiltinBackend();
   const [notice, setNotice] = useState('');
+  const [nativePicking, setNativePicking] = useState(false);
+  const chooseFiles = async () => {
+    setNativePicking(true); setNotice('');
+    try { await pickNativeAttachments(file => queue.addUploaded(file), message => setNotice(message)); }
+    catch (cause) { setNotice(typeof (cause as {message?: string})?.message === 'string' ? (cause as {message: string}).message : String(cause)); }
+    finally { setNativePicking(false); }
+  };
   const [tab, setTab] = useState<'upload' | 'stored'>('upload');
   const [stored, setStored] = useState<UploadedFile[]>([]);
   const [stats, setStats] = useState<FileStorageStats | null>(null);
@@ -111,16 +120,12 @@ export function FileUploadDialog({ queue, close }: { queue: FileUploadQueue; clo
     <div className="file-upload-content">
       <p className="file-upload-intro">{rust ? '附件存到本机试用数据目录，不需要 SSH 连接。上传后可下载和管理，AI 对话将在下一阶段接入。' : '选择本地文件上传到文件服务，上传结果不会自动发送到对话。'}</p>
       {rust && <><div className="file-upload-tabs"><button type="button" className={tab === 'upload' ? 'selected' : ''} onClick={() => setTab('upload')}>上传记录</button><button type="button" className={tab === 'stored' ? 'selected' : ''} onClick={() => { setTab('stored'); setRefresh(value => value + 1); }}>已存储文件</button></div>
-        {stats && <p className="file-storage-summary">{stats.enabled ? '本地存储' : '附件存储已关闭'} · {formatFileSize(stats.usedBytes)} / {formatFileSize(stats.maxStorageBytes)} · {stats.fileCount} 个文件{stats.reservedBytes > 0 ? ' · 上传预留 ' + formatFileSize(stats.reservedBytes) : ''}<br/>{stats.retentionDays ? '保留 ' + stats.retentionDays + ' 天后自动清理' : '文件长期保留，可手动删除'} · 下载链接 {Math.round(stats.downloadLinkSeconds / 60)} 分钟有效</p>}</>}
+        {stats && <p className="file-storage-summary">{stats.enabled ? '本地存储' : '附件存储已关闭'} · {formatFileSize(stats.usedBytes)} / {formatFileSize(stats.maxStorageBytes)} · {stats.fileCount} 个文件{stats.reservedBytes > 0 ? ' · 上传预留 ' + formatFileSize(stats.reservedBytes) : ''}<br/>{stats.retentionDays ? '保留 ' + stats.retentionDays + ' 天后自动清理' : '文件长期保留，可手动删除'} · 应用内保存</p>}</>}
       {error && <p role="alert" className="upload-item-error">{error}</p>}
       {tab === 'upload' && <>
-        <button type="button" data-autofocus className="file-upload-picker" onClick={() => input.current?.click()} disabled={rust && stats?.enabled === false}>
-          <span className="file-upload-picker-icon"><Icon name="upload" size={22}/></span><strong>选择文件并上传</strong><span>支持多选 · 单文件上限 {formatFileSize(fileUploadPolicy.maxBytes)}</span>
+        <button type="button" data-autofocus className="file-upload-picker" onClick={() => void chooseFiles()} disabled={nativePicking || (rust && stats?.enabled === false)}>
+          <span className="file-upload-picker-icon"><Icon name="upload" size={22}/></span><strong>{nativePicking ? '正在选择或上传文件…' : '选择文件并上传'}</strong><span>支持多选 · 单文件上限 {formatFileSize(fileUploadPolicy.maxBytes)}</span>
         </button>
-        <input ref={input} type="file" multiple tabIndex={-1} className="visually-hidden" accept={fileUploadPolicy.extensions.map(extension => '.' + extension).join(',')} aria-label="选择上传文件" onChange={event => {
-          if (event.target.files?.length) { const duplicates = queue.add(Array.from(event.target.files)); setNotice(duplicates ? '已忽略 ' + duplicates + ' 个重复文件，失败记录可手动重试。' : ''); }
-          event.target.value = '';
-        }}/>
         <details className="upload-supported-types"><summary>支持的文件类型</summary><p>{fileUploadPolicy.extensions.join('、')}</p></details>
         {notice && <p role="status" className="upload-selection-notice">{notice}</p>}
         <div className="upload-list-heading"><strong>上传记录 <Badge tone="rose">{items.length}</Badge></strong><span>{items.filter(item => item.status === 'uploading').length} 个文件上传中</span></div>
@@ -135,9 +140,9 @@ export function FileUploadDialog({ queue, close }: { queue: FileUploadQueue; clo
         </li>)}</ul>
         {!busy && !stored.length && <p className="file-upload-intro">此页没有已存储附件。</p>}
         <div className="upload-item-actions"><button type="button" className="outlined-button" disabled={busy || offset === 0} onClick={() => setOffset(value => Math.max(0, value - 20))}>上一页</button><button type="button" className="outlined-button" disabled={busy || !hasMore} onClick={() => setOffset(value => value + 20)}>下一页</button></div>
-        {deleteTarget && <div className="file-delete-confirm" role="alert"><p>删除「{deleteTarget.fileName}」的存储文件？删除后下载链接将失效。</p><button type="button" className="outlined-button" disabled={busy} onClick={() => void removeStored()}>确认删除</button><button type="button" className="outlined-button" disabled={busy} onClick={() => setDeleteTarget(null)}>取消</button></div>}
+        {deleteTarget && <div className="file-delete-confirm" role="alert"><p>删除「{deleteTarget.fileName}」的存储文件？删除后将无法保存该附件。</p><button type="button" className="outlined-button" disabled={busy} onClick={() => void removeStored()}>确认删除</button><button type="button" className="outlined-button" disabled={busy} onClick={() => setDeleteTarget(null)}>取消</button></div>}
       </>}
     </div>
-    <footer><p>{rust ? '上传记录里的移除只清理列表；已存储文件可删除并释放容量。' : '下载链接临时有效，移除只清理此列表。'}</p><button type="button" className="outlined-button" onClick={close}>完成</button></footer>
+    <footer><p>{rust ? '上传记录里的移除只清理列表；已存储文件可删除并释放容量。' : '移除只清理此列表。'}</p><button type="button" className="outlined-button" onClick={close}>完成</button></footer>
   </Modal>;
 }

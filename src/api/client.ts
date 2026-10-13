@@ -1,5 +1,4 @@
-import { requireBackendUrl } from '../config/backend.ts';
-import { backendFetch } from './backendFetch';
+import { builtinRequest, NativeRequestError, usesBuiltinIpc } from './builtin';
 
 export type RequestFailureKind = 'timeout' | 'network' | 'http' | 'application';
 
@@ -17,13 +16,6 @@ export class ApiRequestError extends Error {
   }
 }
 
-/** Preserve any deployment prefix; an existing /api/v1 must not be appended twice. */
-export function apiUrl(baseUrl: string, endpoint: string): string {
-  const base = baseUrl.replace(/\/+$/, '');
-  const root = base.endsWith('/api/v1') ? base : `${base}/api/v1`;
-  return `${root}/${endpoint.replace(/^\/+/, '')}`;
-}
-
 type RequestOptions = {
   method?: string;
   body?: object | FormData;
@@ -34,7 +26,7 @@ type RequestOptions = {
   baseUrl?: string;
 };
 
-/** Shared JSON-envelope client. Fetch retains the existing same-origin cookie/auth behaviour. */
+/** Application requests always call local Rust services over IPC. */
 export async function apiRequest<T>(endpoint: string, {
   method = 'GET', body, params, signal, timeoutMs = 60_000, service = '服务', baseUrl,
 }: RequestOptions = {}): Promise<T> {
@@ -44,29 +36,16 @@ export async function apiRequest<T>(endpoint: string, {
   else signal?.addEventListener('abort', abort, { once: true });
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const form = body instanceof FormData;
-    const response = await backendFetch(`${apiUrl(baseUrl ?? requireBackendUrl(), endpoint)}${params ? `?${new URLSearchParams(params)}` : ''}`, {
-      method, signal: controller.signal,
-      // Never set Content-Type for FormData: fetch supplies the multipart boundary.
-      headers: body && !form ? { 'Content-Type': 'application/json' } : undefined,
-      body: body ? form ? body : JSON.stringify(body) : undefined,
-    });
-    const payload: unknown = await response.json().catch(error => {
-      // A truncated/aborted response is not evidence that the server rejected the upload.
-      if (controller.signal.aborted || error instanceof TypeError) throw error;
-      return null;
-    });
-    const result = payload && typeof payload === 'object' ? payload as Record<string, unknown> : {};
-    const info = typeof result.info === 'string' && result.info.trim() ? result.info : undefined;
-    const code = typeof result.code === 'string' ? result.code : undefined;
-    if (!response.ok) throw new ApiRequestError(info || `${service}请求失败（HTTP ${response.status}）`, 'http', code, response.status);
-    if (code !== 'SUCCESS_0000') throw new ApiRequestError(info || `${service}操作失败，响应格式异常。`, 'application', code, response.status);
-    return result.data as T;
+    if (!usesBuiltinIpc(baseUrl)) throw new ApiRequestError('请在桌面应用内使用此功能。', 'application', 'DESKTOP_REQUIRED');
+    if (body instanceof FormData) throw new ApiRequestError('附件请使用系统文件选择器上传。', 'application', 'FILE_NATIVE_PICKER_REQUIRED');
+    return await builtinRequest<T>(endpoint, method, body, params, controller.signal, baseUrl);
   } catch (error) {
     if (signal?.aborted) throw signal.reason ?? new DOMException('请求已取消', 'AbortError');
     if (error instanceof ApiRequestError) throw error;
     if (controller.signal.aborted) throw new ApiRequestError(`${service}请求超时，请检查网络后重试。`, 'timeout');
-    if (error instanceof TypeError) throw new ApiRequestError(`无法访问${service}，请检查后端地址和网络连接。`, 'network');
+    if (error instanceof NativeRequestError) throw new ApiRequestError(error.message,
+      error.status === 503 ? 'network' : 'application', error.code, error.status);
+    if (error instanceof TypeError) throw new ApiRequestError(`无法访问${service}，请检查应用工作区是否已初始化。`, 'network');
     throw error;
   } finally {
     clearTimeout(timeout);

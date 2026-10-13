@@ -5,12 +5,8 @@ use std::{
     collections::BTreeMap,
     fs::{self, OpenOptions},
     io::{self, Write},
-    net::{Ipv4Addr, TcpListener},
     path::{Path, PathBuf},
-    sync::{
-        atomic::{AtomicU64, Ordering},
-        Mutex,
-    },
+    sync::Mutex,
     thread::{self, JoinHandle},
 };
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -21,10 +17,10 @@ const EVENT: &str = "bundled-backend-status-changed";
 #[serde(rename_all = "camelCase")]
 pub struct BackendStatus {
     revision: u64,
-    status: String,
+    pub(crate) status: String,
     message: String,
     log_path: Option<String>,
-    backend_url: Option<String>,
+    pub(crate) backend_url: Option<String>,
     engine: &'static str,
 }
 impl Default for BackendStatus {
@@ -32,7 +28,7 @@ impl Default for BackendStatus {
         Self {
             revision: 0,
             status: "stopped".into(),
-            message: "Rust 内置服务尚未启动".into(),
+            message: "本地工作区尚未初始化".into(),
             log_path: None,
             backend_url: None,
             engine: "rust",
@@ -45,33 +41,29 @@ struct Running {
 }
 #[derive(Default)]
 pub struct BundledBackendState {
+    services: Mutex<Option<(String, std::sync::Arc<shellpilot_server::services::Services>)>>,
     running: Mutex<Option<Running>>,
     status: Mutex<BackendStatus>,
     lifecycle: Mutex<()>,
-    generation: AtomicU64,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 struct Settings {
-    server_port: u16,
     data_directory: Option<PathBuf>,
     auto_start: bool,
     file_storage_enabled: bool,
     max_storage_mib: u64,
     file_retention_days: u64,
-    download_link_minutes: u64,
 }
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            server_port: 0,
             data_directory: None,
             auto_start: true,
             file_storage_enabled: true,
             max_storage_mib: 1024,
             file_retention_days: 0,
-            download_link_minutes: 15,
         }
     }
 }
@@ -94,7 +86,6 @@ pub struct BackendConfigView {
     sqlite_file: String,
     upload_directory: String,
     log_directory: String,
-    ssl_enabled: bool,
     engine: &'static str,
 }
 #[derive(Deserialize)]
@@ -142,9 +133,6 @@ fn file_settings(settings: &Settings) -> shellpilot_server::files::Settings {
         retention: (settings.file_retention_days > 0).then(|| {
             std::time::Duration::from_secs(settings.file_retention_days.saturating_mul(86400))
         }),
-        download_ttl: std::time::Duration::from_secs(
-            settings.download_link_minutes.saturating_mul(60),
-        ),
         ..Default::default()
     }
 }
@@ -175,11 +163,11 @@ fn publish(
 }
 fn stop_inner(app: &AppHandle) {
     let state = app.state::<BundledBackendState>();
-    state.generation.fetch_add(1, Ordering::SeqCst);
     let running = state.running.lock().unwrap().take();
+    state.services.lock().unwrap().take();
     if let Some(running) = running {
         running.cancel.cancel();
-        // serve() closes terminal readers and transports before graceful HTTP shutdown.
+        // Stop all readers and transports before dropping the dedicated runtime.
         let _ = running.thread.join();
     }
 }
@@ -197,85 +185,55 @@ fn start_inner(app: &AppHandle) -> Result<BackendStatus, String> {
         shellpilot_server::store::Store::open(&data.join("shellpilot.sqlite3"))
             .map_err(|e| e.to_string())?,
     );
-    let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, settings.server_port))
-        .map_err(|e| format!("无法监听本机端口：{e}"))?;
-    listener.set_nonblocking(true).map_err(|e| e.to_string())?;
-    let url = format!(
-        "http://{}",
-        listener.local_addr().map_err(|e| e.to_string())?
-    );
+    let instance = uuid::Uuid::new_v4();
+    let url = format!("ipc://builtin/{instance}");
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
         .map_err(|e| e.to_string())?;
     let cancel = CancellationToken::new();
     let file_settings = file_settings(&settings);
-    let stopping = cancel.clone();
-    let app_handle = app.clone();
-    let state = app.state::<BundledBackendState>();
-    let generation = state.generation.fetch_add(1, Ordering::SeqCst) + 1;
-    append_log(&log, &format!("starting embedded Rust backend at {url}"));
-    let (ready_sender, ready_receiver) = std::sync::mpsc::channel();
-    let thread = thread::spawn(move || {
-        let result = runtime.block_on(async {
-            let listener = tokio::net::TcpListener::from_std(listener)?;
-            let _ = ready_sender.send(());
-            shellpilot_server::serve_with_file_settings(
-                listener,
-                store,
-                file_settings,
-                stopping.clone().cancelled_owned(),
-            )
-            .await
-        });
-        append_log(
-            &log,
-            if result.is_ok() {
-                "embedded Rust backend stopped"
-            } else {
-                "embedded Rust backend failed"
-            },
-        );
-        let state = app_handle.state::<BundledBackendState>();
-        if !stopping.is_cancelled() && state.generation.load(Ordering::SeqCst) == generation {
-            publish(
-                &app_handle,
-                "failed",
-                format!(
-                    "Rust 内置服务已退出：{}",
-                    result
-                        .err()
-                        .map(|e| e.to_string())
-                        .unwrap_or_else(|| "意外停止".into())
-                ),
-                None,
-            );
-        }
+    let services = runtime.block_on(async {
+        shellpilot_server::services::Services::native(store, file_settings, instance)
     });
-    if ready_receiver
-        .recv_timeout(std::time::Duration::from_secs(5))
-        .is_err()
-    {
-        cancel.cancel();
-        let _ = thread.join();
-        return Err("Rust 内置服务启动超时，请查看日志".into());
-    }
-    if thread.is_finished() {
-        let _ = thread.join();
-        return Err("Rust 内置服务启动后立即退出，请查看日志".into());
-    }
+    *app.state::<BundledBackendState>().services.lock().unwrap() =
+        Some((url.clone(), services.clone()));
+    let stopping = cancel.clone();
+    let state = app.state::<BundledBackendState>();
+    append_log(&log, "initializing local workspace (IPC, no HTTP listener)");
+    let thread = thread::spawn(move || {
+        runtime.block_on(async {
+            stopping.cancelled().await;
+            services.shutdown().await;
+        });
+        append_log(&log, "local workspace stopped");
+    });
     *state.running.lock().unwrap() = Some(Running { cancel, thread });
-    Ok(publish(app, "running", "Rust 内置服务已就绪", Some(url)))
+    Ok(publish(app, "running", "本地工作区已就绪", Some(url)))
+}
+/// IPC requests retain the exact running instance; restart cannot route old sessions to a new one.
+pub fn services(
+    app: &AppHandle,
+    endpoint: &str,
+) -> Result<std::sync::Arc<shellpilot_server::services::Services>, String> {
+    app.state::<BundledBackendState>()
+        .services
+        .lock()
+        .unwrap()
+        .clone()
+        .filter(|(identity, services)| identity.as_str() == endpoint && !services.stop.is_cancelled())
+        .map(|(_, services)| services)
+        .ok_or_else(|| "本地工作区尚未初始化或已停止".into())
 }
 fn start_locked(app: &AppHandle) -> BackendStatus {
-    publish(app, "starting", "正在启动 Rust 内置服务…", None);
+    publish(app, "starting", "正在初始化本地工作区…", None);
     match start_inner(app) {
         Ok(status) => status,
         Err(error) => publish(app, "failed", error, None),
     }
 }
 pub fn start_in_background(app: AppHandle) {
-    publish(&app, "starting", "正在启动 Rust 内置服务…", None);
+    publish(&app, "starting", "正在初始化本地工作区…", None);
     thread::spawn(move || {
         let state = app.state::<BundledBackendState>();
         let _guard = state.lifecycle.lock().unwrap();
@@ -288,7 +246,7 @@ pub fn start_in_background(app: AppHandle) {
                 publish(
                     &app,
                     "stopped",
-                    "自动启动已关闭，可手动启动 Rust 内置服务",
+                    "自动初始化已关闭，可手动打开本地工作区",
                     None,
                 );
             }
@@ -305,7 +263,7 @@ pub fn stop(app: &AppHandle) {
     let state = app.state::<BundledBackendState>();
     let _guard = state.lifecycle.lock().unwrap();
     stop_inner(app);
-    publish(app, "stopped", "Rust 内置服务已停止", None);
+    publish(app, "stopped", "本地工作区已停止", None);
 }
 #[tauri::command]
 pub fn bundled_backend_status(state: State<'_, BundledBackendState>) -> BackendStatus {
@@ -342,7 +300,6 @@ fn view(app: &AppHandle) -> io::Result<BackendConfigView> {
     let data = data_directory(app, &settings)?;
     let source = path.to_string_lossy().into_owned();
     let values = [
-        ("serverPort", settings.server_port.to_string()),
         ("dataDirectory", data.to_string_lossy().into_owned()),
         (
             "fileStorageEnabled",
@@ -352,10 +309,6 @@ fn view(app: &AppHandle) -> io::Result<BackendConfigView> {
         (
             "fileRetentionDays",
             settings.file_retention_days.to_string(),
-        ),
-        (
-            "downloadLinkMinutes",
-            settings.download_link_minutes.to_string(),
         ),
     ]
     .into_iter()
@@ -383,18 +336,12 @@ fn view(app: &AppHandle) -> io::Result<BackendConfigView> {
             .into_owned(),
         upload_directory: data.join("attachments").to_string_lossy().into_owned(),
         log_directory: home(app)?.join("logs").to_string_lossy().into_owned(),
-        ssl_enabled: false,
         engine: "rust",
     })
 }
 fn apply(settings: &mut Settings, values: BTreeMap<String, String>) -> io::Result<()> {
     for (key, value) in values {
         match key.as_str() {
-            "serverPort" => {
-                settings.server_port = value
-                    .parse()
-                    .map_err(|_| io::Error::other("端口必须为 0（自动）或 1 到 65535"))?
-            }
             "dataDirectory" => {
                 let path = PathBuf::from(value.trim());
                 if !path.is_absolute() || value.contains('\0') {
@@ -420,13 +367,6 @@ fn apply(settings: &mut Settings, values: BTreeMap<String, String>) -> io::Resul
                     .ok()
                     .filter(|v| *v <= 3650)
                     .ok_or_else(|| io::Error::other("保留天数必须为 0 到 3650"))?;
-            }
-            "downloadLinkMinutes" => {
-                settings.download_link_minutes = value
-                    .parse()
-                    .ok()
-                    .filter(|v| (1..=10080).contains(v))
-                    .ok_or_else(|| io::Error::other("链接有效期必须为 1 到 10080 分钟"))?;
             }
             _ => return Err(io::Error::other("Rust 试用版不支持此配置项")),
         }
@@ -481,19 +421,11 @@ pub async fn bundled_backend_set_auto_start(app: AppHandle, enabled: bool) -> Re
     .await
     .map_err(|e| e.to_string())?
 }
-#[tauri::command]
-pub async fn prepare_local_backend_tls(app: AppHandle, backend_url: String) -> Result<(), String> {
-    let _ = (app, backend_url);
-    // Embedded loopback backend uses HTTP. Remote TLS remains handled by
-    // configure_backend_connection_tls and the per-profile certificate store.
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     #[test]
-    fn validates_port_directory_and_supported_fields() {
+    fn validates_directory_and_supported_fields() {
         let mut settings = Settings::default();
         assert!(apply(
             &mut settings,
@@ -512,10 +444,9 @@ mod tests {
         .is_err());
         apply(
             &mut settings,
-            BTreeMap::from([("serverPort".into(), "0".into())]),
+            BTreeMap::from([("maxStorageMiB".into(), "1024".into())]),
         )
         .unwrap();
-        assert_eq!(settings.server_port, 0);
     }
     #[test]
     fn settings_persist_without_losing_startup_preference() {
@@ -530,12 +461,12 @@ mod tests {
         persist(&path, &settings).unwrap();
         apply(
             &mut settings,
-            BTreeMap::from([("serverPort".into(), "8991".into())]),
+            BTreeMap::from([("maxStorageMiB".into(), "2048".into())]),
         )
         .unwrap();
         persist(&path, &settings).unwrap();
         let loaded = load(&path).unwrap();
-        assert_eq!(loaded.server_port, 8991);
+        assert_eq!(loaded.max_storage_mib, 2048);
         assert!(!loaded.auto_start);
         let _ = fs::remove_file(&path);
         let _ = fs::remove_file(path.with_extension("json.bak"));
@@ -566,14 +497,12 @@ mod tests {
             BTreeMap::from([
                 ("maxStorageMiB".into(), "2048".into()),
                 ("fileRetentionDays".into(), "7".into()),
-                ("downloadLinkMinutes".into(), "30".into()),
             ]),
         )
         .unwrap();
         let files = file_settings(&settings);
         assert_eq!(files.max_storage_bytes, 2048 * 1024 * 1024);
         assert_eq!(files.retention.unwrap().as_secs(), 7 * 86400);
-        assert_eq!(files.download_ttl.as_secs(), 1800);
         files.validate().unwrap();
     }
 }

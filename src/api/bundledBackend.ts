@@ -9,8 +9,9 @@ export type BundledBackendStatus = {
   status: 'starting' | 'running' | 'failed' | 'stopped';
   message: string;
   logPath: string | null;
-  /** 本次启动实际监听的地址；旧版本桌面壳可能不提供。 */
+  /** Rust 模式为 ipc://builtin/<实例ID>，用于隔离重启前后的请求，不是监听地址。 */
   backendUrl?: string | null;
+  engine?: string;
 };
 
 export type BundledBackendConfigValue = {
@@ -21,7 +22,7 @@ export type BundledBackendConfigValue = {
   sensitive: boolean;
 };
 
-/** 内置后端设置页使用的真实 YAML 配置快照。 */
+/** 应用数据设置使用的真实 JSON 配置快照。 */
 export type BundledBackendConfig = {
   configDirectory: string;
   applicationFile: string;
@@ -30,22 +31,13 @@ export type BundledBackendConfig = {
   sqliteFile: string;
   uploadDirectory: string;
   logDirectory: string;
-  /** 后端有效 TLS 配置；旧壳未提供时保留 HTTP 回退行为。 */
-  sslEnabled?: boolean;
+  engine?: string;
 };
 
 export type BundledBackendConfigUpdate = {
   /** 只接受 Rust 侧白名单中的逻辑字段名；敏感字段空值表示保留原配置。 */
   values: Record<string, string>;
 };
-
-/** 优先使用运行中的真实地址；旧壳或启动期间回退到已保存配置中的端口。 */
-export function resolveBundledBackendUrl(status: BundledBackendStatus | null, config: BundledBackendConfig | null): string | null {
-  if (status?.backendUrl) return status.backendUrl;
-  const port = Number(config?.values.serverPort?.value);
-  const scheme = config?.sslEnabled ? 'https' : 'http';
-  return Number.isInteger(port) && port > 0 && port <= 65535 ? `${scheme}://127.0.0.1:${port}` : null;
-}
 
 /** 查询 Tauri 启动阶段保存的后端结果，避免只能从接口网络错误间接判断。 */
 export async function readBundledBackendStatus(): Promise<BundledBackendStatus | null> {
@@ -56,7 +48,7 @@ export async function readBundledBackendStatus(): Promise<BundledBackendStatus |
 /**
  * 订阅内置服务状态，替代前端的固定间隔轮询。
  *
- * @param onStatus 首次快照或新版本事件的接收函数；业务健康检查仍由 /api/health 完成。
+ * @param onStatus 首次快照或新版本事件的接收函数；工作区就绪检查通过 IPC 完成。
  * @param onError 订阅失败或未收到任何状态时的首次查询错误。
  * @returns 同步的取消函数，供 React effect 清理使用，包括“监听尚未注册完成就卸载”。
  *
@@ -123,7 +115,7 @@ export async function readBundledBackendConfig(): Promise<BundledBackendConfig |
   return invoke<BundledBackendConfig>('bundled_backend_config');
 }
 
-/** 精确更新字段对应的 application*.yml，不覆盖整份配置文件。 */
+/** 按字段更新 rust-backend.json 中的应用数据设置。 */
 export async function saveBundledBackendConfig(update: BundledBackendConfigUpdate): Promise<BundledBackendConfig | null> {
   if (!isTauriRuntime()) return null;
   return invoke<BundledBackendConfig>('bundled_backend_save_config', { update });
@@ -132,7 +124,7 @@ export async function saveBundledBackendConfig(update: BundledBackendConfigUpdat
 /**
  * “自动启动内置后端”开关状态。
  *
- * - true（默认）：Tauri 启动时自动拉起本地 Java，无需用户介入。
+ * - true（默认）：Tauri 启动时自动初始化本地 Rust 功能，无需用户介入。
  * - false：Tauri 启动时停在 stopped 状态，前端在启动页和设置页给出“启动”按钮。
  */
 export async function readBundledBackendAutoStart(): Promise<boolean | null> {

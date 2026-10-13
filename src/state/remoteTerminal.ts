@@ -1,5 +1,5 @@
 import { terminalApi } from '../api/terminal';
-import type { TerminalConnectionState, TerminalOpen } from '../api/terminal';
+import type { TerminalConnectionState, TerminalOpen, TerminalReadResult } from '../api/terminal';
 import { SshRequestError } from '../api/ssh';
 import type { TerminalDisconnectReason } from '../types';
 import type { TerminalRuntime } from './terminalRuntime';
@@ -24,11 +24,11 @@ export function terminalDisconnectMessage(reason: TerminalDisconnectReason | nul
   }
 }
 
-// HTTP read failures only retry this backend session. They never open a new SSH shell.
+// IPC output retries only resubscribe to the existing SSH shell.
 export class RemoteTerminal implements TerminalRuntime {
   readonly sessionId: string;
   readonly connectionId: string;
-  /** 终端归属的后端地址固定不变，切换连接后绝不能把旧 sessionId 发给新服务器。 */
+  /** 终端绑定创建时的工作区实例，重新初始化后旧 sessionId 不能操作新实例。 */
   private readonly backendUrl: string;
   closed = false;
   disconnected = false;
@@ -40,17 +40,16 @@ export class RemoteTerminal implements TerminalRuntime {
   private paused: boolean;
   private writeQueue: Promise<unknown> = Promise.resolve();
   private timer?: ReturnType<typeof setTimeout>;
-  private output?: (data: string) => void;
+  private output?: (data: string) => void | Promise<void>;
   private report?: (error: string) => void;
   private reportDisconnect?: (event: TerminalDisconnectEvent) => void;
   private reportTransport?: (available: boolean) => void;
   private backlog: string;
-  private pollingGeneration = 0;
   private generation = 0;
   private lifecycleVersion = 0;
   private lastSize = '';
   private readFailureCount = 0;
-  private readController?: AbortController;
+  private nativeStop?: () => void;
 
   constructor(opened: TerminalOpen, startPaused = false, backendUrl = requireBackendUrl()) {
     this.sessionId = opened.sessionId;
@@ -83,7 +82,8 @@ export class RemoteTerminal implements TerminalRuntime {
     this.generation += 1;
     this.lifecycleVersion += 1;
     clearTimeout(this.timer);
-    this.readController?.abort();
+    this.nativeStop?.();
+    this.nativeStop = undefined;
   }
 
   private markDisconnected(reason: TerminalDisconnectReason | null, reconnectAllowed: boolean, message = terminalDisconnectMessage(reason, reconnectAllowed)) {
@@ -99,9 +99,11 @@ export class RemoteTerminal implements TerminalRuntime {
 
   private emit(data: string) {
     if (!data) return;
-    if (this.output) this.output(data); else this.backlog += data;
+    const rendered = this.output ? this.output(data) : undefined;
+    if (!this.output) this.backlog += data;
     // Compatibility guard for older backends; it never opts into automatic reconnect.
     if (this.isDisconnectOutput(data)) this.markDisconnected('CHANNEL_DISCONNECTED', false);
+    return rendered;
   }
 
   private setTransportAvailable(available: boolean) {
@@ -131,7 +133,7 @@ export class RemoteTerminal implements TerminalRuntime {
     }
   }
 
-  subscribe(output: (data: string) => void, report: (error: string) => void, reportDisconnect?: (event: TerminalDisconnectEvent) => void, reportTransport?: (available: boolean) => void) {
+  subscribe(output: (data: string) => void | Promise<void>, report: (error: string) => void, reportDisconnect?: (event: TerminalDisconnectEvent) => void, reportTransport?: (available: boolean) => void) {
     this.output = output;
     this.report = report;
     this.reportDisconnect = reportDisconnect;
@@ -159,73 +161,53 @@ export class RemoteTerminal implements TerminalRuntime {
 
   private schedule(delay = 0, generation = this.generation) {
     clearTimeout(this.timer);
-    if (!this.isActive(generation) || this.pollingGeneration === generation) return;
-    this.timer = setTimeout(() => { void this.poll(generation); }, delay);
+    if (!this.isActive(generation)) return;
+    this.timer = setTimeout(() => {
+      this.startNativeStream(generation);
+    }, delay);
   }
 
-  private async poll(generation: number) {
-    if (!this.isActive(generation) || this.pollingGeneration === generation) return;
-    this.pollingGeneration = generation;
-    const controller = new AbortController();
-    this.readController = controller;
-    let nextDelay = 0;
-    try {
-      // 每个终端独立发起长轮询，不等待其他终端释放全局读取名额。
-      // 上方 pollingGeneration 防止同一代读取循环重复进入；关闭/切换时仍由
-      // AbortController 取消请求，并由 generation 检查阻止旧响应更新新终端。
-      const result = await terminalApi.read(this.sessionId, controller.signal, this.backendUrl);
-      if (!this.isActive(generation)) return;
-      if (this.readFailureCount > 0) {
-        console.info(`Terminal Long Poll 网络已恢复 sessionId=${this.sessionId} failures=${this.readFailureCount}`);
-        this.readFailureCount = 0;
-        this.report?.('');
-      }
-      const data = result.output || '';
-      switch (result.status) {
-        case 'DATA':
-          if (result.hasData || data) this.emit(data);
-          if (result.bufferOverflow) console.warn('Terminal 输出过快，部分旧数据已丢弃');
-          break;
-        case 'TIMEOUT':
-          break;
-        case 'REPLACED':
-          console.info(`忽略被替换的 Terminal Long Poll sessionId=${this.sessionId} generation=${generation}`);
-          break;
-        case 'DISCONNECTED':
-          this.markDisconnected(result.disconnectReason, result.reconnectAllowed === true);
-          break;
-        case 'READER_ERROR':
-          this.markDisconnected(result.disconnectReason ?? 'READER_ERROR', result.reconnectAllowed === true);
-          break;
-        default:
-          throw new Error(`未知的终端读取状态：${String(result.status)}`);
-      }
-      this.setTransportAvailable(true);
-    } catch (error) {
-      if (!this.isActive(generation)) return;
-      this.reportRequestFailure(error);
-      const message = error instanceof Error ? error.message : '读取终端失败';
-      if (error instanceof SshRequestError && error.code === 'S0003') {
-        console.info(`Terminal read 返回 S0003，先校验原会话 sessionId=${this.sessionId}`);
-        try {
-          await this.verifyConnected();
-          if (!this.isActive(generation)) return;
-        } catch (verificationError) {
-          if (!this.isActive(generation)) return;
-          console.info(`Terminal 会话校验请求失败，继续保留原会话 sessionId=${this.sessionId} reason=${verificationError instanceof Error ? verificationError.message : '未知错误'}`);
-        }
-      }
-      if (this.isActive(generation)) {
-        this.readFailureCount += 1;
-        nextDelay = READ_RETRY_DELAYS[Math.min(this.readFailureCount - 1, READ_RETRY_DELAYS.length - 1)];
-        console.info(`Terminal Long Poll 请求失败，重试原会话 sessionId=${this.sessionId} failure=${this.readFailureCount} retryDelayMs=${nextDelay} reason=${message}`);
-        this.report?.(`${message.replace(/[。；\s]+$/, '')}；将保留当前会话并在 ${Math.ceil(nextDelay / 1000)} 秒后重试读取。`);
-      }
-    } finally {
-      if (this.readController === controller) this.readController = undefined;
-      if (this.pollingGeneration === generation) this.pollingGeneration = 0;
-      if (this.isActive(generation)) this.schedule(nextDelay, generation);
+  private receiveResult(result: TerminalReadResult) {
+    const data = result.output || '';
+    let rendered: void | Promise<void> = undefined;
+    switch (result.status) {
+      case 'DATA':
+        if (result.hasData || data) rendered = this.emit(data);
+        if (result.bufferOverflow) console.warn('Terminal 输出过快，部分旧数据已丢弃');
+        break;
+      case 'TIMEOUT':
+        break;
+      case 'REPLACED':
+        console.info(`忽略被替换的 Terminal Long Poll sessionId=${this.sessionId} generation=${this.generation}`);
+        break;
+      case 'DISCONNECTED':
+        this.markDisconnected(result.disconnectReason, result.reconnectAllowed === true);
+        break;
+      case 'READER_ERROR':
+        this.markDisconnected(result.disconnectReason ?? 'READER_ERROR', result.reconnectAllowed === true);
+        break;
+      default:
+        throw new Error(`未知的终端读取状态：${String(result.status)}`);
     }
+    return rendered;
+  }
+  private startNativeStream(generation: number) {
+    if (!this.isActive(generation) || this.nativeStop) return;
+    this.nativeStop = terminalApi.subscribe(this.sessionId, this.backendUrl, result => {
+      if (!this.isActive(generation)) return;
+      this.readFailureCount = 0;
+      const rendered = this.receiveResult(result);
+      this.setTransportAvailable(true);
+      return rendered;
+    }, error => {
+      if (!this.isActive(generation)) return;
+      this.nativeStop?.(); this.nativeStop = undefined;
+      this.setTransportAvailable(false);
+      this.readFailureCount += 1;
+      const delay = READ_RETRY_DELAYS[Math.min(this.readFailureCount - 1, READ_RETRY_DELAYS.length - 1)];
+      this.report?.(`${error.message}；保留当前会话，稍后重试输出订阅。`);
+      this.schedule(delay,generation);
+    });
   }
 
   resume() {
@@ -286,7 +268,7 @@ export class RemoteTerminal implements TerminalRuntime {
   private assertWritable() {
     if (this.closed || this.closing || this.manuallyClosed) throw new Error('终端会话已关闭，请点击“重新连接”恢复会话。');
     if (this.disconnected) throw new Error('终端连接已断开，请先重新连接。');
-    if (!this.transportAvailable) throw new Error('后端服务暂不可达，请等待连接恢复或重试读取。');
+    if (!this.transportAvailable) throw new Error('本地工作区暂不可用，请重试读取或重新初始化。');
     if (this.paused) throw new Error('终端读取已暂停，请先重试读取。');
   }
 

@@ -19,6 +19,9 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 shellpilot-server = { path = "../../ai-ssh-terminal-server-rust" }
+axum = "0.8"
+rfd = "0.15"
+uuid = { version = "1", features = ["v4"] }
 chrono = "0.4"
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
@@ -26,7 +29,7 @@ tauri-plugin-clipboard-manager = "2"
 tauri-plugin-updater = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-# 独立连接测试读取操作系统根证书；不能复用 WebView 的证书错误允许缓存。
+# HTTP client retained for application updates; future model requests belong to the Rust Agent layer.
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "cookies", "rustls-tls", "rustls-tls-native-roots"] }
 tokio = { version = "1", features = ["fs", "io-util", "sync", "time", "macros", "rt-multi-thread"] }
 tokio-util = { version = "0.7", features = ["io", "rt"] }
@@ -35,9 +38,8 @@ portable-pty = "0.9"
 # Safely simplify canonical Windows paths before passing them to Java.
 dunce = "1.0.5"
 
-# 与 Tauri 当前使用的 WebView2/windows 绑定保持一致，用于限定本机证书的信任范围。
+# Windows APIs used by local terminal/process handling.
 [target.'cfg(target_os = "windows")'.dependencies]
-webview2-com = "0.38.2"
 windows = { version = "0.61.3", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading"] }
 
 [dev-dependencies]

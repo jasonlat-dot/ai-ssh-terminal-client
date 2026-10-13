@@ -1,3 +1,3 @@
-import { activeBackendConnection } from './backend';
 export const RUST_PREVIEW_VERSION = '0.4.0';
-export function usingRustBuiltinBackend(): boolean { return activeBackendConnection().kind === 'builtin'; }
+/** Every workspace is owned by the embedded Rust application. */
+export function usingRustBuiltinBackend(): boolean { return true; }

@@ -12,7 +12,11 @@ function load(path, requireModule = () => { throw new Error('Unexpected import')
   const context = vm.createContext({ exports: {}, require: requireModule, Error, ...globals });
   vm.runInContext(compiled, context); return context.exports;
 }
-const sessionModel = load('state/terminalSessions.ts');
+const backend = load('config/backend.ts');
+const sessionModel = load('state/terminalSessions.ts', name => {
+  if (name === '../config/backend') return backend;
+  throw new Error(name);
+});
 const model = load('state/terminalBroadcast.ts', name => {
   if (name === './terminalSessions') return sessionModel;
   throw new Error(name);

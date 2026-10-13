@@ -263,19 +263,11 @@ async fn upload(session: &Session, job: &Job, task: &Task, item: &Item) -> Resul
     if !meta.is_file() || meta.len() != item.size {
         return Err(Error::local("本地源文件大小已变化，请重新创建任务"));
     }
-    let route = format!(
-        "transfers/{}/items/{}/content",
-        task.transfer_id, item.item_id
-    );
-    let response = session
-        .client
-        .put(session.url(&route))
-        .header("Content-Type", "application/octet-stream")
-        .header("Content-Length", item.size)
-        .body(reqwest::Body::wrap_stream(ReaderStream::new(file)))
-        .send()
-        .await?;
-    response_json(response).await?;
+    if session.services.stop.is_cancelled() { return Err(Error::session_expired()); }
+    session.services.sftp.upload(
+        &task.transfer_id, &item.item_id,
+        axum::body::Body::from_stream(ReaderStream::new(file)), Some(item.size),
+    ).await.map_err(from_service)?;
     let latest = session.task(&task.transfer_id).await?;
     if !latest
         .items
@@ -313,16 +305,12 @@ async fn download(session: &Session, job: &Job, task: &Task, item: &Item) -> Res
         .open(&temp.0)
         .await?;
     let result = async {
-        let route = format!(
-            "transfers/{}/items/{}/content",
-            task.transfer_id, item.item_id
-        );
-        let response = session.client.get(session.url(&route)).send().await?;
-        if !response.status().is_success() {
-            response_json(response).await?;
-            return Err(Error::local("下载响应无效"));
-        }
-        let mut stream = response.bytes_stream();
+        if session.services.stop.is_cancelled() { return Err(Error::session_expired()); }
+        let response = session.services.sftp.download(&task.transfer_id, &item.item_id)
+            .await.map_err(from_service)?;
+        let stream = response.into_body().into_data_stream()
+            .map(|chunk| chunk.map_err(|_| Error::local("文件流中断")));
+        futures_util::pin_mut!(stream);
         let mut bytes = 0u64;
         let mut last_event = std::time::Instant::now();
         while let Some(chunk) = stream.next().await {
