@@ -1,6 +1,9 @@
 import { sshUserId } from './ssh.ts';
 import { ChatRequestError } from './chatErrors.ts';
 import { builtinRequest, NativeRequestError } from './builtin';
+import { Channel, invoke } from '@tauri-apps/api/core';
+import { requireBackendUrl, isBuiltinEndpoint } from '../config/backend';
+import { isTauriRuntime } from '../state/runtime';
 
 export type AgentConfig = {
   agentId: string;
@@ -30,9 +33,9 @@ export type AgentChatRequest = {
 };
 
 /** Agent control operations also belong to the local Rust workspace. */
-async function request<T>(endpoint: string, method = 'GET', body?: object, signal?: AbortSignal): Promise<T> {
+async function request<T>(endpoint: string, method = 'GET', body?: object, signal?: AbortSignal, params: Record<string, string> = {}): Promise<T> {
   try {
-    return await builtinRequest<T>(`agent/${endpoint}`, method, body, {}, signal);
+    return await builtinRequest<T>(`agent/${endpoint}`, method, body, params, signal);
   } catch (error) {
     if (error instanceof NativeRequestError) throw new ChatRequestError(error.message, error.code);
     throw error;
@@ -173,19 +176,54 @@ export function parseStreamEvent(payload: string): AgentStreamEvent | null {
   return null;
 }
 
-/** Rust Agent streaming is not wired yet. Future output will use a Tauri Channel. */
+/** Local Rust Agent streaming. The UI remains gated until model settings and B3/B4 are ready. */
 async function chatStream(
-  _body: AgentChatRequest,
-  _onEvent: (event: AgentStreamEvent) => void,
+  body: AgentChatRequest,
+  onEvent: (event: AgentStreamEvent) => void,
   signal?: AbortSignal,
 ) {
   if (signal?.aborted) throw new DOMException('对话已取消', 'AbortError');
-  throw new ChatRequestError('Rust Agent 尚未接入，当前版本暂不支持 AI 对话。', 'FEATURE_NOT_MIGRATED');
+  const backendUrl=requireBackendUrl();
+  if (!isTauriRuntime() || !isBuiltinEndpoint(backendUrl)) throw new ChatRequestError('请在桌面应用内使用此功能。','DESKTOP_REQUIRED');
+  const streamId=crypto.randomUUID();
+  let done=false;
+  let failure:Error|undefined;
+  const cancel=()=>{void invoke('builtin_cancel',{requestId:streamId}).catch(()=>undefined);};
+  const channel=new Channel<{sequence:number;payload:unknown}>();
+  channel.onmessage=frame=> {
+    try {
+      if (signal?.aborted || failure || done) return;
+      const event=parseStreamEvent(typeof frame.payload==='string' ? frame.payload : JSON.stringify(frame.payload));
+      if (!event) return;
+      if (event.event==='error') {
+        failure=new ChatRequestError(event.content||'Agent 对话失败',event.code); onEvent(event); cancel(); return;
+      }
+      onEvent(event);
+      if (event.event==='done') done=true;
+    } catch (error) {
+      failure=error instanceof Error ? error : new Error(String(error)); cancel();
+    } finally {
+      if (frame.sequence>0) void invoke('builtin_agent_ack',{streamId,sequence:frame.sequence}).catch(()=>cancel());
+    }
+  };
+  signal?.addEventListener('abort',cancel,{once:true});
+  try {
+    await invoke('builtin_agent_subscribe',{backendUrl,streamId,request:body,onEvent:channel});
+    if (signal?.aborted) throw new DOMException('对话已取消','AbortError');
+    if (failure) throw failure;
+    if (!done) throw new ChatRequestError('模型流未完整结束，请核实后重试。','MODEL_INCOMPLETE');
+  } catch (error) {
+    if (signal?.aborted) throw new DOMException('对话已取消','AbortError');
+    if (failure) throw failure;
+    if (error instanceof ChatRequestError) throw error;
+    const native=new NativeRequestError(error);
+    throw new ChatRequestError(native.message,native.code);
+  } finally {signal?.removeEventListener('abort',cancel);}
 }
 
 export const agentApi = {
   userId: sshUserId,
-  list: (signal?: AbortSignal) => request<AgentConfig[]>('query_ai_agent_config_list', 'GET', undefined, signal),
+  list: (signal?: AbortSignal) => request<AgentConfig[]>('query_ai_agent_config_list', 'GET', undefined, signal, { userId: sshUserId }),
   createSession: (agentId: string, signal?: AbortSignal) => request<{ sessionId: string }>(
     'create_session', 'POST', { agentId, userId: sshUserId }, signal,
   ),

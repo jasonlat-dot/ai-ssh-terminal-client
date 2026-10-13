@@ -1,10 +1,10 @@
-mod cache;
 mod backend_ipc;
 #[path = "embedded_backend.rs"]
 mod bundled_backend;
+mod cache;
 
-mod client_update;
 mod chat_history;
+mod client_update;
 mod command_store;
 mod local_terminal;
 mod sftp;
@@ -43,6 +43,8 @@ pub fn run() {
             backend_ipc::builtin_request,
             backend_ipc::builtin_cancel,
             backend_ipc::builtin_terminal_subscribe,
+            backend_ipc::builtin_agent_subscribe,
+            backend_ipc::builtin_agent_ack,
             backend_ipc::builtin_terminal_unsubscribe,
             backend_ipc::builtin_terminal_ack,
             backend_ipc::builtin_pick_upload,

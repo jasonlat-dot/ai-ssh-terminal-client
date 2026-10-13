@@ -50,6 +50,13 @@ pub async fn service_error(error: impl IntoResponse) -> Error {
 fn value<T: Serialize>(data: T) -> Result<Value> {
     serde_json::to_value(data).map_err(|_| Error::invalid("响应序列化失败"))
 }
+fn agent_error(error: shellpilot_server::agent::chat::Error) -> Error {
+    Error {
+        message: error.to_string(),
+        code: error.code().into(),
+        status: error.status(),
+    }
+}
 fn text<'a>(params: &'a Value, name: &str) -> Result<&'a str> {
     params[name]
         .as_str()
@@ -93,6 +100,40 @@ pub async fn dispatch(
         };
     }
     match (method, endpoint) {
+        ("GET", "agent/query_ai_agent_config_list") => value(
+            services
+                .agent
+                .list(params["userId"].as_str().unwrap_or("default").to_owned())
+                .await
+                .map_err(agent_error)?,
+        ),
+        ("POST", "agent/create_session") => {
+            let session_id = services
+                .agent
+                .create_session(
+                    text(&body, "agentId")?.into(),
+                    text(&body, "userId")?.into(),
+                )
+                .await
+                .map_err(agent_error)?;
+            Ok(json!({"sessionId":session_id}))
+        }
+        ("POST", "agent/stop_chat") => value(
+            services
+                .agent
+                .stop_chat(
+                    text(&body, "agentId")?.into(),
+                    text(&body, "userId")?.into(),
+                    text(&body, "sessionId")?.into(),
+                )
+                .await
+                .map_err(agent_error)?,
+        ),
+        ("POST", "agent/chat_stream") => Err(Error {
+            message: "流式聊天请使用应用内部 Channel".into(),
+            code: "AGENT_CHANNEL_REQUIRED".into(),
+            status: 400,
+        }),
         ("GET", "health") => Ok(json!({"status":"UP","checkedAt":chrono::Utc::now()})),
         ("GET", "ssh/connection_list") => {
             let user = params["userId"].as_str().unwrap_or("default").to_owned();
@@ -247,7 +288,8 @@ pub fn services_for_url(app: &AppHandle, backend_url: &str) -> Result<Arc<Servic
     {
         return Err(Error::unavailable("工作区已重新初始化，请重新连接"));
     }
-    crate::bundled_backend::services(app, backend_url.trim_end_matches('/')).map_err(Error::unavailable)
+    crate::bundled_backend::services(app, backend_url.trim_end_matches('/'))
+        .map_err(Error::unavailable)
 }
 #[tauri::command]
 pub fn builtin_cancel(state: State<'_, IpcState>, request_id: String) {
@@ -273,6 +315,123 @@ pub fn builtin_terminal_ack(state: State<'_, IpcState>, stream_id: String, seque
             stream.ack.notify_one();
         }
     }
+}
+#[tauri::command]
+pub fn builtin_agent_ack(state: State<'_, IpcState>, stream_id: String, sequence: u64) {
+    builtin_terminal_ack(state, stream_id, sequence);
+}
+
+#[tauri::command]
+pub async fn builtin_agent_subscribe(
+    app: AppHandle,
+    state: State<'_, IpcState>,
+    backend_url: String,
+    stream_id: String,
+    request: shellpilot_server::agent::chat::Request,
+    on_event: Channel<Value>,
+) -> Result<()> {
+    let services = services_for_url(&app, &backend_url)?;
+    if stream_id.is_empty() || stream_id.len() > 128 {
+        return Err(Error::invalid("流 ID 无效"));
+    }
+    let stop = {
+        let mut ops = state.operations.lock().unwrap();
+        ops.retain(|_, (_, time)| time.elapsed() < Duration::from_secs(300));
+        if ops.len() >= 512 {
+            return Err(Error::unavailable("本地请求过多"));
+        }
+        ops.entry(stream_id.clone())
+            .or_insert_with(|| (CancellationToken::new(), Instant::now()))
+            .0
+            .clone()
+    };
+    let subscription = Arc::new(Subscription {
+        stop,
+        ack: tokio::sync::Notify::new(),
+        sequence: std::sync::atomic::AtomicU64::new(0),
+        acknowledged: std::sync::atomic::AtomicU64::new(0),
+    });
+    {
+        let mut streams = state.streams.lock().unwrap();
+        if streams.len() >= 256 || streams.contains_key(&stream_id) {
+            return Err(Error::invalid("输出订阅重复或达到上限"));
+        }
+        streams.insert(stream_id.clone(), subscription.clone());
+    }
+    let result = agent_stream(services, request, subscription, move |event| {
+        on_event.send(event).map_err(|_| ())
+    })
+    .await;
+    state.streams.lock().unwrap().remove(&stream_id);
+    state.operations.lock().unwrap().remove(&stream_id);
+    result
+}
+
+async fn agent_stream(
+    services: Arc<Services>,
+    request: shellpilot_server::agent::chat::Request,
+    subscription: Arc<Subscription>,
+    send: impl Fn(Value) -> std::result::Result<(), ()> + Send + Sync,
+) -> Result<()> {
+    use shellpilot_server::agent::{chat, provider::ModelError, Target};
+    use std::sync::atomic::Ordering;
+    if services.stop.is_cancelled() {
+        return Err(Error::unavailable("工作区已停止"));
+    }
+    let target = if request.terminal_session_id.is_empty() {
+        None
+    } else {
+        let terminal = services.terminals.connected(&request.terminal_session_id);
+        if !terminal.connected {
+            return Err(Error::invalid("所选 SSH 终端已断开"));
+        }
+        let connection = terminal
+            .connection_id
+            .ok_or_else(|| Error::invalid("终端目标不存在"))?;
+        let id = connection.clone();
+        let user = request.user_id.clone();
+        let owner = db(&services, move |store| Ok(store.get(&id)?.user_id == user)).await?;
+        if !owner {
+            return Err(Error::invalid("终端不属于当前用户"));
+        }
+        Some(Target {
+            connection_id: connection,
+            terminal_session_id: request.terminal_session_id.clone(),
+        })
+    };
+    let result = services
+        .agent
+        .chat(request, target, &subscription.stop, |event| {
+            let send = &send;
+            let subscription = subscription.clone();
+            let services = services.clone();
+            async move {
+                let seq = subscription.sequence.fetch_add(1, Ordering::SeqCst) + 1;
+                send(json!({"sequence":seq,"payload":event}))
+                    .map_err(|_| chat::Error::Model(ModelError::Cancelled))?;
+                let acknowledged = async {
+                    while subscription.acknowledged.load(Ordering::SeqCst) < seq {
+                        subscription.ack.notified().await;
+                    }
+                };
+                tokio::select! {biased;
+                    _=subscription.stop.cancelled()=>Err(chat::Error::Model(ModelError::Cancelled)),
+                    _=services.stop.cancelled()=>Err(chat::Error::Stopped),
+                    result=tokio::time::timeout(Duration::from_secs(15),acknowledged)=>
+                        result.map_err(|_|chat::Error::Model(ModelError::Timeout)),
+                }
+            }
+        })
+        .await;
+    if let Err(error) = result {
+        let failure = agent_error(error);
+        // Final errors have no acknowledgement wait; a cancelled consumer must not stall cleanup.
+        let _ = send(
+            json!({"sequence":0,"payload":{"event":"error","content":failure.message,"code":failure.code}}),
+        );
+        return Err(failure);
+    }
+    Ok(())
 }
 #[tauri::command]
 pub fn builtin_terminal_unsubscribe(state: State<'_, IpcState>, stream_id: String) {

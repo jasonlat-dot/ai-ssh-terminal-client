@@ -23,6 +23,224 @@ async fn services() -> (tempfile::TempDir, Arc<Services>) {
     let services = Services::native(store, Default::default(), uuid::Uuid::new_v4());
     (dir, services)
 }
+
+fn save_test_model(services: &Services, base_url: String) {
+    use shellpilot_server::agent::provider::*;
+    let config = ModelConfig {
+        provider: ProviderKind::OpenAiCompatible,
+        base_url,
+        completions_path: "chat/completions".into(),
+        model: "mock-model".into(),
+        context_window: 8192,
+        output_reserve: 512,
+        safety_reserve: 256,
+        compact_percent: 75,
+        output_token_parameter: OutputTokenParameter::MaxCompletionTokens,
+        capabilities: ModelCapabilities::default(),
+        temperature: None,
+        reasoning_effort: None,
+        timeout_seconds: 3,
+        max_response_bytes: 65536,
+        require_api_key: false,
+    };
+    ModelRepository::new(services.store.clone())
+        .save(
+            "model",
+            "default",
+            0,
+            ModelConfigUpdate {
+                config,
+                api_key: KeyChange::Keep,
+            },
+        )
+        .unwrap();
+}
+async fn model_server(stall: bool) -> (String, tokio::task::JoinHandle<()>) {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}/v1/", listener.local_addr().unwrap());
+    let router = axum::Router::new().route(
+        "/v1/chat/completions",
+        axum::routing::post(move |axum::Json(request): axum::Json<Value>| async move {
+            assert_eq!(request["stream"], true);
+            let text = format!(
+                "data: {}\n\n",
+                json!({"choices":[{"index":0,"delta":{"content":"汉🙂"},"finish_reason":null}]})
+            );
+            let finish = format!(
+                "data: {}\n\ndata: [DONE]\n\n",
+                json!({"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]})
+            );
+            let body = axum::body::Body::from_stream(async_stream_for_ipc(text, finish, stall));
+            axum::response::Response::builder()
+                .header("content-type", "text/event-stream")
+                .body(body)
+                .unwrap()
+        }),
+    );
+    (
+        base,
+        tokio::spawn(async move {
+            axum::serve(listener, router).await.unwrap();
+        }),
+    )
+}
+fn async_stream_for_ipc(
+    text: String,
+    finish: String,
+    stall: bool,
+) -> impl futures_util::Stream<Item = std::io::Result<axum::body::Bytes>> {
+    futures_util::stream::unfold((0, text, finish), move |(step, text, finish)| async move {
+        match step {
+            0 => Some((Ok(axum::body::Bytes::from(text.clone())), (1, text, finish))),
+            1 => {
+                if stall {
+                    tokio::time::sleep(Duration::from_secs(30)).await;
+                }
+                Some((
+                    Ok(axum::body::Bytes::from(finish)),
+                    (2, String::new(), String::new()),
+                ))
+            }
+            _ => None,
+        }
+    })
+}
+#[tokio::test]
+async fn agent_control_dispatch_lists_owner_scoped_models_and_creates_native_session() {
+    let (_dir, services) = services().await;
+    save_test_model(&services, "http://127.0.0.1:1/v1/".into());
+    let configs = dispatch(
+        services.clone(),
+        "agent/query_ai_agent_config_list",
+        "GET",
+        Value::Null,
+        json!({"userId":"default"}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(configs[0]["agentId"], "model");
+    assert!(configs[0].get("apiKey").is_none());
+    let other = dispatch(
+        services.clone(),
+        "agent/query_ai_agent_config_list",
+        "GET",
+        Value::Null,
+        json!({"userId":"other"}),
+    )
+    .await
+    .unwrap();
+    assert!(other.as_array().unwrap().is_empty());
+    let created = dispatch(
+        services.clone(),
+        "agent/create_session",
+        "POST",
+        json!({"agentId":"model","userId":"default"}),
+        Value::Null,
+    )
+    .await
+    .unwrap();
+    let stopped = dispatch(
+        services.clone(),
+        "agent/stop_chat",
+        "POST",
+        json!({"agentId":"model","userId":"default","sessionId":created["sessionId"]}),
+        Value::Null,
+    )
+    .await
+    .unwrap();
+    assert_eq!(stopped, false);
+    let error = dispatch(
+        services.clone(),
+        "agent/create_session",
+        "POST",
+        json!({"agentId":"model","userId":"other"}),
+        Value::Null,
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(error.code, "AGENT_NOT_FOUND");
+    assert_eq!(error.status, 404);
+}
+#[tokio::test]
+async fn agent_channel_waits_for_each_frame_ack_and_finishes_without_backend_http_listener() {
+    let (_dir, services) = services().await;
+    let (base, server) = model_server(false).await;
+    save_test_model(&services, base);
+    let session = services
+        .agent
+        .create_session("model".into(), "default".into())
+        .await
+        .unwrap();
+    let request=serde_json::from_value(json!({"agentId":"model","userId":"default","sessionId":session,"terminalSessionId":"","message":"hello"})).unwrap();
+    let sub = subscription();
+    let (token, mut frames) = tokio::sync::mpsc::channel(1);
+    let stream = sub.clone();
+    let operation = tokio::spawn(agent_stream(services, request, stream, move |e| {
+        token.try_send(e).map_err(|_| ())
+    }));
+    let first = tokio::time::timeout(Duration::from_secs(2), frames.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(first["payload"], json!({"event":"text","content":"汉🙂"}));
+    assert!(
+        tokio::time::timeout(Duration::from_millis(25), frames.recv())
+            .await
+            .is_err()
+    );
+    acknowledge(&sub, first["sequence"].as_u64().unwrap());
+    let done = frames.recv().await.unwrap();
+    assert_eq!(done["payload"]["event"], "done");
+    acknowledge(&sub, done["sequence"].as_u64().unwrap());
+    operation.await.unwrap().unwrap();
+    server.abort();
+}
+#[tokio::test]
+async fn agent_stop_control_cancels_model_stream_and_emits_compatible_error() {
+    let (_dir, services) = services().await;
+    let (base, server) = model_server(true).await;
+    save_test_model(&services, base);
+    let session = services
+        .agent
+        .create_session("model".into(), "default".into())
+        .await
+        .unwrap();
+    let request=serde_json::from_value(json!({"agentId":"model","userId":"default","sessionId":session,"terminalSessionId":"","message":"hello"})).unwrap();
+    let sub = subscription();
+    let (token, mut frames) = tokio::sync::mpsc::channel(1);
+    let stream = sub.clone();
+    let operation = tokio::spawn(agent_stream(services.clone(), request, stream, move |e| {
+        token.try_send(e).map_err(|_| ())
+    }));
+    let first = tokio::time::timeout(Duration::from_secs(2), frames.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    acknowledge(&sub, first["sequence"].as_u64().unwrap());
+    assert_eq!(
+        dispatch(
+            services,
+            "agent/stop_chat",
+            "POST",
+            json!({"agentId":"model","userId":"default","sessionId":session}),
+            Value::Null
+        )
+        .await
+        .unwrap(),
+        true
+    );
+    let error = tokio::time::timeout(Duration::from_secs(2), frames.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(error["payload"]["event"], "error");
+    assert_eq!(error["payload"]["code"], "AGENT_CANCELLED");
+    assert_eq!(
+        operation.await.unwrap().unwrap_err().code,
+        "AGENT_CANCELLED"
+    );
+    server.abort();
+}
 #[tokio::test]
 async fn direct_dispatch_crud_errors_and_stop_do_not_need_an_http_listener() {
     let (_dir, services) = services().await;
@@ -88,7 +306,7 @@ async fn direct_dispatch_crud_errors_and_stop_do_not_need_an_http_listener() {
         .await
         .unwrap_err()
         .status,
-        501
+        400
     );
     dispatch(
         services.clone(),

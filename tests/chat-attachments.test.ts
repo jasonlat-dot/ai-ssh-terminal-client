@@ -225,5 +225,5 @@ test('Rust Agent is not enabled by a legacy server address',async()=>{
   Object.defineProperty(globalThis,'localStorage',{configurable:true,value:{getItem:()=> 'https://retired.example.test'}});
   globalThis.fetch=async()=>{throw new Error('Agent must not call a legacy HTTP backend');};
   await assert.rejects(agentApi.chatStream({agentId:'agent',userId:'default',sessionId:'chat',terminalSessionId:'terminal',message:'hello'},()=>{}),
-    error=>error instanceof ChatRequestError&&error.code==='FEATURE_NOT_MIGRATED');
+    error=>error instanceof ChatRequestError&&error.code==='DESKTOP_REQUIRED');
 });
