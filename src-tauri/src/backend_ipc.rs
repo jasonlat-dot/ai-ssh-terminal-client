@@ -151,7 +151,17 @@ pub async fn dispatch(
                 .ok_or_else(|| Error::invalid("模型版本无效"))?;
             let update = serde_json::from_value(body["update"].clone())
                 .map_err(|_| Error::invalid("模型配置参数无效"))?;
-            value(models(&services, move |r| r.save(&id, &user, revision, update)).await?)
+            let name = match &body["displayName"] {
+                Value::Null => None,
+                Value::String(name) => Some(name.clone()),
+                _ => return Err(Error::invalid("配置名称无效")),
+            };
+            value(
+                models(&services, move |r| {
+                    r.save_named(&id, &user, revision, update, name.as_deref())
+                })
+                .await?,
+            )
         }
         ("DELETE", "agent/models") => {
             let user = text(&body, "userId")?.to_owned();

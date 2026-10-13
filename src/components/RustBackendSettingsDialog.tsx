@@ -79,18 +79,18 @@ export function RustBackendSettingsDialog({required=false,onClose,onSave,showUpd
     <header className="settings-topbar" onMouseDown={required?dragAppWindow:undefined}>
       <div className="settings-topbar-left">
         {!required&&<button className="settings-back-button" onClick={onClose}><Icon name="left" size={16}/>返回终端</button>}
-        <div className="settings-topbar-title"><h1>ShellPilot · Rust 试用版</h1><p>SSH 终端、SFTP 文件管理与本地命令可用。</p></div>
+        <div className="settings-topbar-title"><h1>ShellPilot 设置</h1><p>管理本地工作区、模型连接与外观。</p></div>
       </div>
       <div className="settings-topbar-right"><Badge tone="success">应用内运行</Badge>{required&&<WindowControls/>}</div>
     </header>
     <div className="settings-body">
       <aside className="settings-nav" aria-label="设置分类">
         <div className="settings-nav-list">
-          {([['general','本地工作区','settings'],['models','模型设置','bot'],['appearance','外观','monitor'],['about','关于试用版','terminal']] as const).map(([id,label,icon])=><button key={id} className={'settings-nav-item '+(tab===id?'selected':'')} aria-current={tab===id?'page':undefined} onClick={()=>setTab(id)}><Icon name={icon} size={17}/><span className="settings-nav-text"><strong>{label}</strong></span></button>)}
+          {([['general','本地工作区','settings','运行状态与数据存储'],['models','模型设置','bot','连接与生成参数'],['appearance','外观','monitor','主题、字体与配色'],['about','关于试用版','terminal','版本与功能进度']] as const).map(([id,label,icon,caption])=><button key={id} className={'settings-nav-item '+(tab===id?'selected':'')} aria-current={tab===id?'page':undefined} onClick={()=>setTab(id)}><span className="settings-nav-icon"><Icon name={icon} size={17}/></span><span className="settings-nav-text"><strong>{label}</strong><small>{caption}</small></span><Icon name="right" size={12} className="settings-nav-arrow"/></button>)}
         </div>
         <div className="settings-nav-footer"><strong>v{RUST_PREVIEW_VERSION}</strong><small>独立安装 · 独立数据</small></div>
       </aside>
-      <div className="settings-content-panel"><section className="settings-content">
+      <div className="settings-content-panel" data-section={tab==='models'?'model':tab}><section className={`settings-content ${tab==='models'?'rust-model-content':''}`} data-section={tab==='models'?'model':tab}>
         {error&&<p className="settings-error" role="alert">{error}</p>}
         {message&&<p className="rust-settings-notice" role="status">{message}</p>}
         {tab==='appearance'&&<AppearanceSettings/>}

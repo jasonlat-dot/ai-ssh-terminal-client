@@ -9,7 +9,7 @@ export type ModelConfig = {
   temperature: number | null; reasoningEffort: 'none'|'minimal'|'low'|'medium'|'high'|'xhigh'|null;
   timeoutSeconds: number; maxResponseBytes: number; requireApiKey: boolean;
 };
-export type ModelProfile = { id: string; revision: number; config: ModelConfig; apiKeyConfigured: boolean; ready: boolean };
+export type ModelProfile = { id: string; displayName?: string; revision: number; config: ModelConfig; apiKeyConfigured: boolean; ready: boolean };
 export type KeyChange = { action: 'keep'|'clear' } | { action: 'set'; value: string };
 export const newModelConfig = (): ModelConfig => ({
   provider: 'openAiCompatible', baseUrl: '', completionsPath: 'chat/completions', model: '',
@@ -20,8 +20,8 @@ export const newModelConfig = (): ModelConfig => ({
 });
 export const modelApi = {
   list: () => builtinRequest<ModelProfile[]>('agent/models', 'GET', undefined, { userId: sshUserId }),
-  save: (id: string, revision: number, config: ModelConfig, apiKey: KeyChange) =>
-    builtinRequest<ModelProfile>('agent/models', 'POST', { id, revision, userId: sshUserId, update: { config, apiKey } }, {}),
+  save: (id: string, revision: number, config: ModelConfig, apiKey: KeyChange, displayName?: string) =>
+    builtinRequest<ModelProfile>('agent/models', 'POST', { id, revision, userId: sshUserId, update: { config, apiKey }, ...(displayName === undefined ? {} : { displayName }) }, {}),
   delete: (id: string, revision: number) =>
     builtinRequest<boolean>('agent/models', 'DELETE', { id, revision, userId: sshUserId }, {}),
 };

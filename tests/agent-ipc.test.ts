@@ -27,13 +27,16 @@ test('Model settings use native owner-scoped CRUD and explicit key replacement w
   await modelApi.save('daily',0,{...newModelConfig(),baseUrl:'https://example.test/v1/',model:'text'}, {action:'set',value:'fake-test-key'});
   await modelApi.save('daily',1,newModelConfig(),{action:'keep'});
   await modelApi.save('daily',2,newModelConfig(),{action:'clear'});
+  await modelApi.save('daily',3,newModelConfig(),{action:'keep'},'新的显示名称');
   await modelApi.delete('daily',3);
-  assert.deepEqual(requests.map(r=>r.method),['GET','POST','POST','POST','DELETE']);
+  assert.deepEqual(requests.map(r=>r.method),['GET','POST','POST','POST','POST','DELETE']);
   assert.ok(requests.every(r=>r.endpoint==='agent/models' && (r.body?.userId ?? r.params.userId)==='default'));
   assert.deepEqual(requests[1].body.update.apiKey,{action:'set',value:'fake-test-key'});
   assert.deepEqual(requests[2].body.update.apiKey,{action:'keep'});
   assert.deepEqual(requests[3].body.update.apiKey,{action:'clear'});
-  assert.equal(requests[4].body.revision,3);
+  assert.equal(requests[4].body.id,'daily');
+  assert.equal(requests[4].body.displayName,'新的显示名称');
+  assert.equal(requests[5].body.revision,3);
 });
 function pending() {let resolve!:()=>void;const promise=new Promise<void>(r=>{resolve=r;});return {promise,resolve};}
 

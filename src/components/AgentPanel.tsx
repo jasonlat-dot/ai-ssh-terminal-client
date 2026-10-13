@@ -8,6 +8,7 @@ import type { ChatAttachment, ChatAgentActivity, ChatMessage, ChatToolActivity, 
 import { AccentIcon, Badge, Icon } from './Ui';
 import { CopyMarkdownButton } from './CopyMarkdownButton';
 import { CopyTextButton } from './CopyTextButton';
+import { Select } from './Select';
 import { ChatAttachmentDraft, chatAttachmentPolicy, isLongChatText, pastedFiles, insertPastedText, validateChatContent } from '../state/chatAttachments';
 import { DraftAttachments, MessageAttachments } from './ChatAttachments';
 import { chatErrorGuidance } from '../api/chatErrors';
@@ -262,12 +263,12 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
         </button>
       </header>
 
-      {models && <div className="agent-model-controls">
-        <select aria-label="对话模型" value={selectedModel ?? ''} disabled={busy || stopping || disabled} onChange={e => selectModel?.(e.target.value)}><option value="" disabled>请先添加模型</option>{models.map(model => <option key={model.agentId} value={model.agentId}>{model.agentId} · {model.agentName}</option>)}</select>
-        <button type="button" onClick={openModelSettings}>模型设置</button>
-        <small>基础文本对话 · 工具执行和附件尚未接入</small>
-        {recoveredRunning && <><button type="button" onClick={refreshCurrent}>刷新回复</button><button type="button" onClick={stopRecovered}>停止此请求</button></>}
-      </div>}
+      {models && <>
+        <div className="agent-model-controls"><div className="agent-model-picker"><Select label="对话模型" value={selectedModel ?? ''} disabled={busy || stopping || disabled || !models.length} options={models.length ? models.map(model => ({value:model.agentId,label:`${model.agentName}${model.modelName ? ` · ${model.modelName}` : ''}`})) : [{value:'',label:'请先添加模型'}]} onChange={value => selectModel?.(value)}/></div>
+          <button className="agent-model-settings-button" type="button" aria-label="模型设置" title="模型设置" onClick={openModelSettings}><Icon name="settings" size={16}/></button></div>
+        <div className="agent-mode-note"><i/>文本对话<span>·</span>工具和附件将在后续接入</div>
+        {recoveredRunning && <div className="agent-recovery-controls"><span>此请求仍在生成</span><button type="button" onClick={refreshCurrent}>刷新</button><button type="button" onClick={stopRecovered}>停止</button></div>}
+      </>}
 
       {history.open && <section id="agent-history-list" className="agent-history-popover" aria-label="历史会话列表">
         <div className="agent-history-heading"><strong>历史会话</strong><button type="button" onClick={history.refresh} disabled={history.loading} aria-label="刷新历史会话"><Icon name="refresh" size={15} /></button></div>
@@ -283,7 +284,7 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
             <span className="agent-history-meta">{history.loadingSessionId === session.sessionId ? '正在加载…' : models ? '本地持久会话' : `${session.messageCount ?? 0} 条消息`}{sessionTime(session.updatedAt) && ` · ${sessionTime(session.updatedAt)}`}</span>
           </button>)}
         </div>
-        {history.more && <button type="button" disabled={history.loading} onClick={history.more}>加载更多会话</button>}
+        {history.more && <button type="button" className="agent-history-more" disabled={history.loading} onClick={history.more}>加载更多会话</button>}
       </section>}
 
       <div className="chat-messages" ref={scrollRef} aria-label="聊天记录" aria-live="polite"

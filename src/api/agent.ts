@@ -8,6 +8,7 @@ import { isTauriRuntime } from '../state/runtime';
 export type AgentConfig = {
   agentId: string;
   agentName: string;
+  modelName?: string;
   agentDesc: string;
 };
 

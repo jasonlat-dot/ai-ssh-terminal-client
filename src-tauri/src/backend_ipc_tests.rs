@@ -127,6 +127,33 @@ async fn model_configuration_ipc_scopes_revisions_and_validation() {
     );
 }
 
+#[tokio::test]
+async fn model_name_edit_uses_stable_id_and_keeps_session_binding() {
+    let (_dir, services) = services().await;
+    save_test_model(&services, "http://127.0.0.1:1/v1/".into());
+    let session = services
+        .agent
+        .create_session("model".into(), "default".into())
+        .await
+        .unwrap();
+    let profile = shellpilot_server::agent::provider::ModelRepository::new(services.store.clone())
+        .get("model", "default")
+        .unwrap();
+    let saved = dispatch(services.clone(), "agent/models", "POST", json!({"id":"model","displayName":"重命名后的配置","userId":"default","revision":1,"update":{"config":profile.config,"apiKey":{"action":"keep"}}}), Value::Null).await.unwrap();
+    assert_eq!(saved["id"], "model");
+    assert_eq!(saved["displayName"], "重命名后的配置");
+    let agents = services.agent.list("default".into()).await.unwrap();
+    assert_eq!(agents[0].agent_id, "model");
+    assert_eq!(agents[0].agent_name, "重命名后的配置");
+    assert_eq!(agents[0].model_name, "mock-model");
+    let history = services
+        .agent
+        .history("model".into(), "default".into(), session, 0, 20)
+        .await
+        .unwrap();
+    assert_eq!(history.session.agent_id, "model");
+}
+
 #[cfg(windows)]
 #[tokio::test]
 async fn model_configuration_ipc_never_returns_saved_key() {
