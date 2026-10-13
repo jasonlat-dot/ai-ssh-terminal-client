@@ -3,6 +3,7 @@ import type { Ref } from 'react';
 import { MarkdownMessage } from './MarkdownMessage';
 import agentRobotAvatar from '../assets/agent-robot-avatar.png';
 import type { ClientChatSession } from '../state/clientChatHistory';
+import type { AgentConfig } from '../api/agent';
 import type { ChatAttachment, ChatAgentActivity, ChatMessage, ChatToolActivity, ChatTextExcerpt, Host } from '../types';
 import { AccentIcon, Badge, Icon } from './Ui';
 import { CopyMarkdownButton } from './CopyMarkdownButton';
@@ -118,6 +119,7 @@ type HistoryControls = {
   toggle: () => void;
   refresh: () => void;
   select: (sessionId: string) => void;
+  more?: () => void;
 };
 
 function sessionTime(value: ClientChatSession['updatedAt']): string {
@@ -129,7 +131,7 @@ function sessionTime(value: ClientChatSession['updatedAt']): string {
 }
 
 export type AgentComposerHandle = { addText: (text: string, source: ChatTextExcerpt['source']) => boolean };
-export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localTerminal, messages, busy, stopping, send, stop, clear, disabled, agentAvailability, history, collapsed }: {
+export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localTerminal, messages, busy, stopping, send, stop, clear, disabled, agentAvailability, history, collapsed, models, selectedModel, selectModel, openModelSettings, recoveredRunning, stopRecovered, refreshCurrent }: {
   ref?: Ref<AgentComposerHandle>;
   chatDraft: ChatAttachmentDraft;
   draftScope: number;
@@ -146,6 +148,8 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
   agentAvailability: { ready: boolean; loading: boolean; error: string; retry: () => void };
   history: HistoryControls;
   collapsed: boolean;
+  models?: AgentConfig[]; selectedModel?: string; selectModel?: (id: string) => void; openModelSettings?: () => void;
+  recoveredRunning?: boolean; stopRecovered?: () => void; refreshCurrent?: () => void;
 }) {
   const [draft, setDraft] = useState('');
   const [attachmentError, setAttachmentError] = useState('');
@@ -172,6 +176,7 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
   useImperativeHandle(ref, () => ({ addText(text, source) {
     if (locked || !text.trim()) return false;
     try {
+      if (models) { setDraft(previous => previous + (previous ? '\n' : '') + text); return true; }
       const inline = chatDraft.addText(text, source);
       if (inline) setDraft(previous => previous + (previous && !previous.endsWith('\n') ? '\n' : '') + inline);
       setAttachmentError('');
@@ -257,6 +262,13 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
         </button>
       </header>
 
+      {models && <div className="agent-model-controls">
+        <select aria-label="对话模型" value={selectedModel ?? ''} disabled={busy || stopping || disabled} onChange={e => selectModel?.(e.target.value)}><option value="" disabled>请先添加模型</option>{models.map(model => <option key={model.agentId} value={model.agentId}>{model.agentId} · {model.agentName}</option>)}</select>
+        <button type="button" onClick={openModelSettings}>模型设置</button>
+        <small>基础文本对话 · 工具执行和附件尚未接入</small>
+        {recoveredRunning && <><button type="button" onClick={refreshCurrent}>刷新回复</button><button type="button" onClick={stopRecovered}>停止此请求</button></>}
+      </div>}
+
       {history.open && <section id="agent-history-list" className="agent-history-popover" aria-label="历史会话列表">
         <div className="agent-history-heading"><strong>历史会话</strong><button type="button" onClick={history.refresh} disabled={history.loading} aria-label="刷新历史会话"><Icon name="refresh" size={15} /></button></div>
         {history.error && <p className="agent-history-note error">{history.error}</p>}
@@ -268,9 +280,10 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
             aria-current={session.sessionId === history.activeSessionId ? 'page' : undefined}
             disabled={Boolean(history.loadingSessionId)} onClick={() => history.select(session.sessionId)}>
             <span className="agent-history-title">{session.title?.trim() || '新会话'}</span>
-            <span className="agent-history-meta">{history.loadingSessionId === session.sessionId ? '正在加载…' : `${session.messageCount ?? 0} 条消息`}{sessionTime(session.updatedAt) && ` · ${sessionTime(session.updatedAt)}`}</span>
+            <span className="agent-history-meta">{history.loadingSessionId === session.sessionId ? '正在加载…' : models ? '本地持久会话' : `${session.messageCount ?? 0} 条消息`}{sessionTime(session.updatedAt) && ` · ${sessionTime(session.updatedAt)}`}</span>
           </button>)}
         </div>
+        {history.more && <button type="button" disabled={history.loading} onClick={history.more}>加载更多会话</button>}
       </section>}
 
       <div className="chat-messages" ref={scrollRef} aria-label="聊天记录" aria-live="polite"
@@ -278,7 +291,7 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
         {messages.length === 0 && !busy && <div className="agent-chat-empty">
           <img className="empty-agent-avatar" src={agentRobotAvatar} alt="Agent 机器人" />
           <h3>有什么需要我协助？</h3>
-          <p>{agentAvailability.ready
+          <p>{models ? (agentAvailability.ready ? '可以提问或粘贴文本；当前仅提供文字回复，不会执行服务器命令。' : '先在模型设置中添加 API 地址、模型与密钥，再开始对话。') : agentAvailability.ready
             ? connected ? '可以让我执行命令、检查服务状态或分析日志。' : localTerminal ? '当前是本地 CMD，Agent 无法连接或代为执行本地命令，但仍可进行普通对话。' : '可以直接与 Agent 对话；当前页签连接服务器后还可以执行 SSH 命令。'
             : '可以先输入问题或添加附件，智能体就绪后再发送。'}</p>
         </div>}
@@ -330,10 +343,11 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
         {!agentAvailability.loading && <button type="button" onClick={agentAvailability.retry}><Icon name="refresh" size={13} />重试加载</button>}
       </div>}
       {!!attachments.length && <DraftAttachments items={attachments} draft={chatDraft} locked={locked} report={setAttachmentError} />}
-      <div className="composer-input-row"><textarea ref={textareaRef} rows={1} aria-label="智能体任务输入" placeholder="输入问题，或粘贴文本、截图与文件" value={draft} disabled={locked} onChange={event => setDraft(event.target.value)}
+      <div className="composer-input-row"><textarea ref={textareaRef} rows={1} aria-label="智能体任务输入" placeholder={models ? '输入问题，或粘贴纯文本' : '输入问题，或粘贴文本、截图与文件'} value={draft} disabled={locked} onChange={event => setDraft(event.target.value)}
         onPaste={event => {
           const files = pastedFiles(event.clipboardData);
           const text = event.clipboardData.getData('text/plain');
+          if (models) { if (files.length) { event.preventDefault(); setAttachmentError('聊天附件尚未接入，请直接粘贴纯文本。'); } return; }
           if (!files.length && !isLongChatText(text)) return;
           event.preventDefault();
           if (locked) return;
@@ -350,12 +364,12 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
         }}
         onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void submit(); } }} /></div>
       <div className="composer-bottom-bar">
-        <button type="button" className="composer-attach-button" disabled={locked} onClick={() => attachmentInput.current?.click()} title="选择图片、PDF 或文本文件"><Icon name="attach" size={16} />附件</button>
+        <button type="button" className="composer-attach-button" disabled={locked || !!models} onClick={() => attachmentInput.current?.click()} title={models ? '聊天附件尚未接入' : '选择图片、PDF 或文本文件'}><Icon name="attach" size={16} />附件</button>
         <input ref={attachmentInput} type="file" multiple tabIndex={-1} className="visually-hidden" aria-label="选择聊天附件" accept={chatAttachmentPolicy.extensions.map(ext => `.${ext}`).join(',')} onChange={event => {
           if (!locked && event.target.files?.length) addFiles(Array.from(event.target.files));
           event.target.value = '';
         }} />
-        <span className="composer-attachment-note" title="粘贴或添加的文本少于 100 字符时直接显示，100 字符及以上转为文本附件；发送完整内容。">{attachments.length}/4 · 合计 ≤ 20 MB</span>
+        <span className="composer-attachment-note">{models ? '仅支持文本' : `${attachments.length}/4 · 合计 ≤ 20 MB`}</span>
         {busy || stopping
           ? <button type="button" className="send-button stop-button" aria-label={stopping ? '正在停止' : '停止生成'} title={stopping ? '正在停止' : '停止生成'} onClick={stop} disabled={stopping}><Icon name="stop" size={16} /></button>
           : <button type="submit" className="send-button" aria-label="发送消息" title={agentAvailability.ready ? '发送消息' : '智能体就绪后即可发送，草稿会保留'} disabled={(!draft.trim() && !attachments.length) || locked || notReady || !agentAvailability.ready}><Icon name="send" size={20} /></button>}

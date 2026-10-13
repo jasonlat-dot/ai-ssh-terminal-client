@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { afterEach,test } from 'node:test';
 import { agentApi,type AgentStreamEvent } from '../src/api/agent.ts';
 import { ChatRequestError } from '../src/api/chatErrors.ts';
+import { modelApi, newModelConfig } from '../src/api/models.ts';
 import { adoptBundledBackendUrl,BUILTIN_ENDPOINT } from '../src/config/backend.ts';
 
 const originalWindow=Object.getOwnPropertyDescriptor(globalThis,'window');
@@ -19,6 +20,21 @@ function harness(handler:(command:string,args:any)=>unknown) {
   globalThis.fetch=async()=>{throw new Error('Agent must use IPC');};
 }
 const body={requestId:'turn-1',agentId:'model',userId:'default',sessionId:'chat',terminalSessionId:'',message:'hello'};
+test('Model settings use native owner-scoped CRUD and explicit key replacement without browser storage', async () => {
+  const requests: any[] = [];
+  harness((command,args) => { assert.equal(command,'builtin_request'); requests.push(args.request); return Promise.resolve(args.request.method==='GET'?[]:true); });
+  await modelApi.list();
+  await modelApi.save('daily',0,{...newModelConfig(),baseUrl:'https://example.test/v1/',model:'text'}, {action:'set',value:'fake-test-key'});
+  await modelApi.save('daily',1,newModelConfig(),{action:'keep'});
+  await modelApi.save('daily',2,newModelConfig(),{action:'clear'});
+  await modelApi.delete('daily',3);
+  assert.deepEqual(requests.map(r=>r.method),['GET','POST','POST','POST','DELETE']);
+  assert.ok(requests.every(r=>r.endpoint==='agent/models' && (r.body?.userId ?? r.params.userId)==='default'));
+  assert.deepEqual(requests[1].body.update.apiKey,{action:'set',value:'fake-test-key'});
+  assert.deepEqual(requests[2].body.update.apiKey,{action:'keep'});
+  assert.deepEqual(requests[3].body.update.apiKey,{action:'clear'});
+  assert.equal(requests[4].body.revision,3);
+});
 function pending() {let resolve!:()=>void;const promise=new Promise<void>(r=>{resolve=r;});return {promise,resolve};}
 
 test('Agent list create and stop keep native control shapes and user scope',async()=>{

@@ -1,0 +1,9 @@
+.model-settings fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.model-list { display: flex; flex-wrap: wrap; gap: 8px; margin: 18px 0; }
+.model-list button[aria-pressed="true"] { outline: 2px solid var(--accent, #3879ef); }
+.model-settings select { width: 100%; padding: 10px; border: 1px solid var(--line); border-radius: 8px; color: var(--text); background: var(--raised); }
+.model-settings details { margin: 18px 0; }
+.model-settings summary { cursor: pointer; margin-bottom: 12px; }
+.agent-model-controls { padding: 10px 16px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; border-bottom: 1px solid var(--line); }
+.agent-model-controls select { flex: 1; min-width: 100px; max-width: 100%; color: var(--text); background: var(--bg); }
+.agent-model-controls small { flex-basis: 100%; color: var(--muted); }

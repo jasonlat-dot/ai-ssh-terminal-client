@@ -4,6 +4,16 @@ export class ChatRequestError extends Error {
 }
 export function chatErrorGuidance(code?: string): string {
   switch (code) {
+    case 'MODEL_CREDENTIALS': return '请打开模型设置，配置或重新保存 API Key。';
+    case 'MODEL_CONTEXT_LIMIT':
+    case 'AGENT_HISTORY_LIMIT': return '上下文超过当前限制，请新建会话或检查模型窗口设置；自动压缩尚未接入。';
+    case 'AGENT_TARGET_MISMATCH':
+    case 'SSH_SESSION_NOT_FOUND': return '原会话绑定的终端已不可用，请连接目标服务器后新建会话。';
+    case 'AGENT_CANCELLED': return '本次生成已停止，部分回复已保留。';
+    case 'AGENT_INTERRUPTED': return '上次生成已中断；可查看部分回复，重新发送会创建新的请求。';
+    case 'MODEL_TIMEOUT': return '模型请求超时，请检查网络或模型超时设置后手动重试。';
+    case 'MODEL_INCOMPLETE':
+    case 'MODEL_PROTOCOL_FAILED': return '模型未返回完整回复，已有文本已保留；请检查兼容接口后手动重试。';
     case 'CHAT_CONTENT_REQUIRED': return '请输入文字或附加文件后重新发送。';
     case 'CHAT_ATTACHMENT_INVALID': return '请移除无效或重复附件，重新选择文件或再次附加。';
     case 'CHAT_ATTACHMENT_FORBIDDEN': return '当前账户无权使用此附件，请移除并上传自己的文件。';

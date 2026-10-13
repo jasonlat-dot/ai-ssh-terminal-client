@@ -5,7 +5,8 @@ import { useTheme } from './state/useTheme';
 import { useApplyClientAppearance } from './state/useClientAppearance';
 import type { ThemePreference } from './state/useTheme';
 import { agentApi } from './api/agent';
-import type { AgentConfig, AgentStreamEvent } from './api/agent';
+import type { AgentConfig, AgentStreamEvent, AgentHistory } from './api/agent';
+import { readAgentHistory, turnMessages } from './state/agentHistory';
 import {
   listClientChatSessions,
   loadClientChatSession,
@@ -124,6 +125,12 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
   const [chatBusy, setChatBusy] = useState(false);
   const [chatStopping, setChatStopping] = useState(false);
   const [selectedAgent, setSelectedAgent] = useState<AgentConfig | null>(null);
+  const [agentModels, setAgentModels] = useState<AgentConfig[]>([]);
+  const [modelSettingsRequested, setModelSettingsRequested] = useState(false);
+  const [historyMore, setHistoryMore] = useState('');
+  const [canonicalHistory, setCanonicalHistory] = useState<AgentHistory | null>(null);
+  const chatTarget = useRef<{connectionId:string;terminalSessionId:string}|null>(null);
+  const recoveredRunning = canonicalHistory?.turns.some(turn => turn.state === 'running') ?? false;
   const [agentLoading, setAgentLoading] = useState(true);
   const [agentLoadError, setAgentLoadError] = useState('');
   const [agentLoadAttempt, setAgentLoadAttempt] = useState(0);
@@ -321,6 +328,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     sessionId: string,
     snapshot: ChatMessage[] = messagesRef.current,
   ) => {
+    if (rustBuiltin) { clientHistoryDirty.current = false; return; }
     if (!sessionId || !snapshot.length) return;
     const firstUserMessage = snapshot.find(message => message.role === 'user')?.text.trim();
     const title = firstUserMessage ? firstUserMessage.slice(0, 80) : '新会话';
@@ -332,18 +340,22 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     }, title, snapshot);
     // 保存期间如果又收到了流式内容，messagesRef 已指向新数组，下一轮仍需继续保存。
     if (messagesRef.current === snapshot) clientHistoryDirty.current = false;
-  }, [backendUrl]);
-  const refreshChatSessions = useCallback(async (agentId: string) => {
+  }, [backendUrl, rustBuiltin]);
+  const refreshChatSessions = useCallback(async (agentId: string, after = '') => {
     const version = ++historyRefreshVersion.current;
     setHistoryLoading(true);
     try {
-      const sessions = await listClientChatSessions({
+      const nativeSessions = rustBuiltin ? await agentApi.sessions(agentId, after) : null;
+      const sessions = nativeSessions ? nativeSessions.map(session => ({
+        sessionId: session.id, title: session.task?.goal.slice(0,80) || '新会话', messageCount: 0, createdAt: 0, updatedAt: 0,
+      })) : await listClientChatSessions({
         backendUrl,
         userId: agentApi.userId,
         agentId,
       });
       if (version === historyRefreshVersion.current) {
-        setChatSessions(sessions);
+        setChatSessions(previous => after ? [...previous, ...sessions.filter(s => !previous.some(p => p.sessionId === s.sessionId))] : sessions);
+        setHistoryMore(nativeSessions?.length === 20 ? nativeSessions[19].id : '');
         setHistoryError('');
       }
     } catch (error) {
@@ -353,15 +365,10 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     } finally {
       if (version === historyRefreshVersion.current) setHistoryLoading(false);
     }
-  }, [backendUrl]);
+  }, [backendUrl, rustBuiltin]);
   const dismissNotice = useCallback(() => setToast(null), []);
   useEffect(() => { if (connections.error) notify(connections.error, 'error'); }, [connections.error, notify]);
   useEffect(() => {
-    if (rustBuiltin) {
-      setAgentLoading(false);
-      setAgentLoadError('Rust 试用版暂未迁移 AI 功能。');
-      return;
-    }
     let cancelled = false;
     const controller = new AbortController();
     setAgentLoading(true);
@@ -375,9 +382,10 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     void agentApi.list(controller.signal)
       .then(items => {
         if (cancelled || controller.signal.aborted) return;
-        const agent = Array.isArray(items) ? items.find(item => typeof item?.agentId === 'string' && item.agentId.trim()) : undefined;
-        if (!agent) throw new Error('应用尚无可用的智能体配置。');
-        setSelectedAgent(agent);
+        const available = Array.isArray(items) ? items.filter(item => typeof item?.agentId === 'string' && item.agentId.trim()) : [];
+        setAgentModels(available);
+        setSelectedAgent(previous => available.find(item => item.agentId === previous?.agentId) ?? available[0] ?? null);
+        if (!available.length) setAgentLoadError('请在模型设置中添加可用配置。');
       })
       .catch(error => {
         if (!cancelled && !controller.signal.aborted) setAgentLoadError(error instanceof Error ? error.message : '加载智能体失败，请重试。');
@@ -388,6 +396,12 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
       });
     return () => { cancelled = true; clearTimeout(timeout); controller.abort(); };
   }, [agentLoadAttempt, rustBuiltin]);
+  useEffect(() => {
+    chatVersion.current += 1; historySelection.current += 1; historyRefreshVersion.current += 1;
+    chatSessionId.current = ''; chatTarget.current = null; setCanonicalHistory(null);
+    setActiveChatSessionId(''); setChatSessions([]); setHistoryMore(''); setHistoryLoadingId('');
+    chatDraft.clear(); replaceMessages([]);
+  }, [selectedAgent?.agentId, chatDraft, replaceMessages]);
   useEffect(() => () => chatAbort.current?.abort(), []);
   useEffect(() => {
     if (selectedAgent?.agentId) void refreshChatSessions(selectedAgent.agentId);
@@ -951,14 +965,15 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     if (name === '命令') setConnectionSidebarCollapsed(false);
   };
   const sendMessage = async (text: string, selectedAttachments: ChatAttachment[] = []): Promise<boolean> => {
-    if (chatting.current || stopPending.current || historyLoadingId) return false;
+    if (chatting.current || stopPending.current || historyLoadingId || recoveredRunning || agentLoading || agentLoadError) return false;
     // Fix this turn's references before any session creation or network await.
     const attachments = selectedAttachments.map(file => ({ ...file }));
+    if (rustBuiltin && attachments.length) { notify('聊天附件尚未接入，请发送纯文本。', 'error'); return false; }
     const invalid = validateChatContent(text, attachments);
     if (invalid) { notify(invalid, 'error'); return false; }
     const currentSession = active;
     const client = currentSession ? terminalClients.current.get(currentSession.id) : undefined;
-    const terminalSessionId = currentSession?.kind === 'ssh' && isSessionConnected(currentSession)
+    const terminalSessionId = chatSessionId.current && rustBuiltin ? chatTarget.current?.terminalSessionId ?? '' : currentSession?.kind === 'ssh' && isSessionConnected(currentSession)
       && client?.sessionId === currentSession.terminalSessionId
       && !client.closed && !client.disconnected && client.transportAvailable !== false
       ? currentSession.terminalSessionId
@@ -969,6 +984,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     }
 
     chatting.current = true;
+    if (!chatSessionId.current) chatTarget.current = terminalSessionId && currentSession ? {connectionId:currentSession.connectionId,terminalSessionId} : null;
     const version = chatVersion.current;
     const assistantId = crypto.randomUUID();
     chatRequestId.current=assistantId;
@@ -1147,7 +1163,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
         ...(attachments.length ? { attachments: attachmentReferences(attachments) } : {}),
       }, receive, controller.signal);
       if (controller.signal.aborted || stopPending.current || version !== chatVersion.current) return false;
-      updateAssistant(message => message.text ? message : appendText(message, '任务已完成。'));
+      updateAssistant(message => message.text ? message : appendText(message, '回复已完成。'));
       return true;
     } catch (error) {
       if (controller.signal.aborted || stopPending.current
@@ -1165,10 +1181,6 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
       if (chatAbort.current === controller) chatAbort.current = null;
       if(chatRequestId.current===assistantId)chatRequestId.current='';
       if (version === chatVersion.current) {
-        chatting.current = false;
-        setChatBusy(false);
-      }
-      if (version === chatVersion.current) {
         const sessionId = chatSessionId.current;
         try {
           await persistClientSession(selectedAgent.agentId, sessionId);
@@ -1176,7 +1188,19 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
           console.warn('客户端对话历史最终保存失败', persistError);
           if (version === chatVersion.current) notify('客户端历史保存失败，当前消息仍保留在页面中。', 'error');
         }
-        if (version === chatVersion.current) await refreshChatSessions(selectedAgent.agentId);
+        if (version === chatVersion.current) {
+          if (rustBuiltin && sessionId) {
+            try {
+              const history = await readAgentHistory(after => agentApi.history(selectedAgent.agentId, sessionId, after));
+              if (version === chatVersion.current) { setCanonicalHistory(history); chatTarget.current = history.session.task?.target ?? null; replaceMessages(turnMessages(history.turns)); }
+            } catch (e) { if (version === chatVersion.current) notify(e instanceof Error ? e.message : '重读持久历史失败', 'error'); }
+          }
+          if (version === chatVersion.current) await refreshChatSessions(selectedAgent.agentId);
+        }
+      }
+      if (version === chatVersion.current) {
+        chatting.current = false;
+        setChatBusy(false);
       }
     }
   };
@@ -1225,6 +1249,8 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     chatAbort.current?.abort();
     chatAbort.current = null;
     chatSessionId.current = '';
+    chatTarget.current = null;
+    setCanonicalHistory(null);
     setActiveChatSessionId('');
     setHistoryOpen(false);
     setHistoryLoadingId('');
@@ -1238,7 +1264,8 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     const selection = ++historySelection.current;
     setHistoryLoadingId(sessionId);
     try {
-      const history = await loadClientChatSession({
+      const nativeHistory = rustBuiltin ? await readAgentHistory(after => agentApi.history(selectedAgent.agentId, sessionId, after)) : null;
+      const history = nativeHistory ? turnMessages(nativeHistory.turns) : await loadClientChatSession({
         backendUrl,
         userId: agentApi.userId,
         agentId: selectedAgent.agentId,
@@ -1249,6 +1276,8 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
       chatVersion.current += 1;
       chatDraft.clear();
       chatSessionId.current = sessionId;
+      setCanonicalHistory(nativeHistory);
+      chatTarget.current = nativeHistory?.session.task?.target ?? null;
       setActiveChatSessionId(sessionId);
       replaceMessages(history);
       setHistoryOpen(false);
@@ -1260,6 +1289,18 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
       if (selection === historySelection.current) setHistoryLoadingId('');
     }
   };
+
+  useEffect(() => {
+    if (!rustBuiltin || !recoveredRunning || !selectedAgent || !activeChatSessionId || chatBusy) return;
+    let cancelled = false;
+    const version = chatVersion.current;
+    const timer = setTimeout(() => {
+      void readAgentHistory(after => agentApi.history(selectedAgent.agentId, activeChatSessionId, after))
+        .then(history => { if (!cancelled && version === chatVersion.current) { setCanonicalHistory(history); replaceMessages(turnMessages(history.turns)); } })
+        .catch(() => { /* Manual refresh remains available after a transient failure. */ });
+    }, 1500);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [rustBuiltin, recoveredRunning, canonicalHistory, selectedAgent, activeChatSessionId, chatBusy, replaceMessages]);
 
   useEffect(() => {
     setSessions(previous => previous.map(session => {
@@ -1298,9 +1339,11 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
 
   return <div style={{ '--agent-width': `${agentWidth}%`, '--command-width': `${commandWidth}px`, '--connection-sidebar-width': `${connectionSidebarWidth}px` } as CSSProperties} className={`app-shell ${agentCollapsed ? 'agent-collapsed' : ''} ${navCollapsed ? 'nav-collapsed' : ''} ${connectionSidebarCollapsed ? 'host-sidebar-collapsed' : ''} ${navigation === '连接' ? 'connections-view' : 'terminal-view'} ${backendSettingsOpen ? 'settings-view' : ''}`}>
     <AppHeader notify={notify} theme={theme} setTheme={setTheme} onUpload={() => setUploadOpen(true)} />
-    <ActivityBar active={navigation} onSelect={name => { setBackendSettingsOpen(false); clearUpdateSettingsRequest(); navigate(name); }} onSettings={() => { clearUpdateSettingsRequest(); setBackendSettingsOpen(value => !value); }} settingsOpen={backendSettingsOpen} collapsed={navCollapsed} toggleCollapsed={() => setNavCollapsed(value => !value)} />
+    <ActivityBar active={navigation} onSelect={name => { setBackendSettingsOpen(false); clearUpdateSettingsRequest(); navigate(name); }} onSettings={() => { setModelSettingsRequested(false); clearUpdateSettingsRequest(); setBackendSettingsOpen(value => !value); }} settingsOpen={backendSettingsOpen} collapsed={navCollapsed} toggleCollapsed={() => setNavCollapsed(value => !value)} />
     {backendSettingsOpen && <BackendSettingsDialog currentUrl={backendUrl}
-      onClose={() => { setBackendSettingsOpen(false); clearUpdateSettingsRequest(); }}
+      modelsChanged={() => setAgentLoadAttempt(value => value + 1)} modelSettingsRequested={modelSettingsRequested}
+      modelSettingsLocked={chatBusy || chatStopping || recoveredRunning}
+      onClose={() => { setModelSettingsRequested(false); setBackendSettingsOpen(false); clearUpdateSettingsRequest(); }}
       showUpdates={updateSettingsRequested}
       beforeClientUpdate={prepareForClientUpdate}
       onSave={onBackendChange} />}
@@ -1348,7 +1391,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
             <Suspense fallback={visible ? <p>正在加载终端…</p> : null}>
             <RemoteTerminalView key={runtime?.sessionId ?? `${session.id}:disconnected`} runtime={runtime} visible={visible && navigation === '命令'} focused={session.id === activeId}
               local={session.kind === 'local'}
-              canAddToAgent={!rustBuiltin && !chatBusy && !chatStopping && !historyLoadingId}
+              canAddToAgent={!chatBusy && !chatStopping && !historyLoadingId && !recoveredRunning}
               addToAgent={text => {
                 const added = agentComposer.current?.addText(text, 'terminal') ?? false;
                 setAgentCollapsed(false);
@@ -1378,13 +1421,13 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
         close={closeSession}
         add={openNewTerminal}
         copy={copy}
-        filesAvailable agentAvailable={!rustBuiltin}
+        filesAvailable agentAvailable
         filesOpen={active?.kind === 'ssh' && visibleFiles === active.connectionId}
         toggleFiles={() => { if (active?.kind === 'ssh') { if (visibleFiles === active.connectionId) setVisibleFiles(''); else openFiles(active.connectionId, active.title); } }}
         commandCollapsed={commandCollapsed}
         toggleCommands={() => setCommandCollapsed(value => !value)}
         agentCollapsed={agentCollapsed}
-        toggleAgent={() => { if (!rustBuiltin) setAgentCollapsed(value => !value); }}
+        toggleAgent={() => setAgentCollapsed(value => !value)}
       />
       <CommandShelf commands={commands} category={category} setCategory={setCategory} fill={fill} run={command => { void requestRun(command); }} copy={copy} add={() => setDialog('command')}
         disabled={broadcastBusy || (commandMode === 'single' ? !canRun : !commandPlan.targets.length)} collapsed={commandCollapsed} broadcast={commandMode !== 'single'}
@@ -1392,12 +1435,17 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
           reservePixels={280} containerSelector=".central-workspace" className="command-panel-divider" label="调整常用命令宽度"
           controls="command-shelf-content" collapseLabel="常用命令" collapsed={commandCollapsed} collapse={() => setCommandCollapsed(true)} />} />
     </main>
-    {!rustBuiltin && <>
+    <>
     <PanelDivider value={agentWidth} change={setAgentWidth} minPixels={300} reservePixels={360} reserveSelector=".central-workspace"
       controls="agent-panel-content" collapsed={agentCollapsed} collapse={() => setAgentCollapsed(true)} />
-    <AgentPanel ref={agentComposer} chatDraft={chatDraft} draftScope={chatVersion.current} host={host} connected={active?.kind === 'ssh' && isSessionConnected(active)} localTerminal={active?.kind === 'local'} messages={messages} busy={chatBusy} stopping={chatStopping} send={sendMessage} stop={stopChat} collapsed={agentCollapsed}
-      clear={clearChat} disabled={Boolean(historyLoadingId) || chatStopping}
-      agentAvailability={{ ready: !!selectedAgent, loading: agentLoading, error: agentLoadError, retry: () => setAgentLoadAttempt(attempt => attempt + 1) }}
+    <AgentPanel ref={agentComposer} chatDraft={chatDraft} draftScope={chatVersion.current} host={activeChatSessionId ? hosts.find(h => h.id === chatTarget.current?.connectionId) : host} connected={active?.kind === 'ssh' && isSessionConnected(active)} localTerminal={!activeChatSessionId && active?.kind === 'local'} messages={messages} busy={chatBusy} stopping={chatStopping} send={sendMessage} stop={stopChat} collapsed={agentCollapsed}
+      clear={clearChat} disabled={Boolean(historyLoadingId) || chatStopping || recoveredRunning}
+      models={rustBuiltin ? agentModels : undefined} selectedModel={selectedAgent?.agentId}
+      selectModel={id => { if (!chatting.current && !stopPending.current) setSelectedAgent(agentModels.find(model => model.agentId === id) ?? null); }}
+      openModelSettings={() => { setModelSettingsRequested(true); setBackendSettingsOpen(true); }}
+      recoveredRunning={recoveredRunning} refreshCurrent={() => { if (activeChatSessionId) void selectChatSession(activeChatSessionId); }}
+      stopRecovered={() => { const turn = canonicalHistory?.turns.find(t => t.state === 'running'); const sessionId = activeChatSessionId; const version = chatVersion.current; if (turn && selectedAgent) void agentApi.stopChat(selectedAgent.agentId, sessionId, undefined, turn.requestId).then(() => { if (version === chatVersion.current) return selectChatSession(sessionId); }).catch(e => { if (version === chatVersion.current) notify(e.message, 'error'); }); }}
+      agentAvailability={{ ready: !!selectedAgent && !agentLoading && !agentLoadError, loading: agentLoading, error: agentLoadError, retry: () => setAgentLoadAttempt(attempt => attempt + 1) }}
       history={{
         sessions: chatSessions, activeSessionId: activeChatSessionId, open: historyOpen,
         loading: historyLoading, loadingSessionId: historyLoadingId, error: historyError,
@@ -1407,8 +1455,9 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
         },
         refresh: () => { if (selectedAgent) void refreshChatSessions(selectedAgent.agentId); },
         select: sessionId => { void selectChatSession(sessionId); },
+        more: historyMore ? () => { if (selectedAgent) void refreshChatSessions(selectedAgent.agentId, historyMore); } : undefined,
       }} />
-    </>}
+    </>
     {fileWindows.map(item => <SessionFiles key={item.connectionId} connectionId={item.connectionId} title={item.title} visible={!backendSettingsOpen && visibleFiles === item.connectionId} minimize={() => setVisibleFiles('')} remove={() => { setFileWindows(previous => previous.filter(window => window.connectionId !== item.connectionId)); setVisibleFiles(current => current === item.connectionId ? '' : current); }} copy={copy} notify={notify} registerAppCloseCleanup={registerAppCloseCleanup} />)}
     {toast && <NotificationToast key={toast.id} notice={toast} close={dismissNotice} />}
     {uploadOpen && <FileUploadDialog queue={uploadQueue} close={() => setUploadOpen(false)} />}

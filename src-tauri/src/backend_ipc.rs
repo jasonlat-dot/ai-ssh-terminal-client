@@ -90,6 +90,36 @@ async fn db<T: Send + 'static>(
     }
 }
 
+async fn models<T: Send + 'static>(
+    services: &Services,
+    action: impl FnOnce(
+            shellpilot_server::agent::provider::ModelRepository,
+        ) -> shellpilot_server::agent::provider::Result<T>
+        + Send
+        + 'static,
+) -> Result<T> {
+    let repository =
+        shellpilot_server::agent::provider::ModelRepository::new(services.store.clone());
+    tokio::task::spawn_blocking(move || action(repository))
+        .await
+        .map_err(|_| Error::unavailable("模型配置线程不可用"))?
+        .map_err(|e| {
+            use shellpilot_server::agent::provider::ModelError;
+            let (status, code) = match e {
+                ModelError::Invalid(_) => (400, "MODEL_CONFIG_INVALID"),
+                ModelError::Stale => (409, "MODEL_CONFIG_CHANGED"),
+                ModelError::NotFound => (404, "MODEL_CONFIG_NOT_FOUND"),
+                ModelError::Credentials => (500, "MODEL_CREDENTIALS"),
+                _ => (500, "MODEL_CONFIG_FAILED"),
+            };
+            Error {
+                message: e.to_string(),
+                code: code.into(),
+                status,
+            }
+        })
+}
+
 pub async fn dispatch(
     services: Arc<Services>,
     endpoint: &str,
@@ -109,6 +139,29 @@ pub async fn dispatch(
         };
     }
     match (method, endpoint) {
+        ("GET", "agent/models") => {
+            let user = text(&params, "userId")?.to_owned();
+            value(models(&services, move |r| r.list(&user)).await?)
+        }
+        ("POST", "agent/models") => {
+            let user = text(&body, "userId")?.to_owned();
+            let id = text(&body, "id")?.to_owned();
+            let revision = body["revision"]
+                .as_u64()
+                .ok_or_else(|| Error::invalid("模型版本无效"))?;
+            let update = serde_json::from_value(body["update"].clone())
+                .map_err(|_| Error::invalid("模型配置参数无效"))?;
+            value(models(&services, move |r| r.save(&id, &user, revision, update)).await?)
+        }
+        ("DELETE", "agent/models") => {
+            let user = text(&body, "userId")?.to_owned();
+            let id = text(&body, "id")?.to_owned();
+            let revision = body["revision"]
+                .as_u64()
+                .ok_or_else(|| Error::invalid("模型版本无效"))?;
+            models(&services, move |r| r.delete(&id, &user, revision)).await?;
+            Ok(json!(true))
+        }
         ("GET", "agent/query_ai_agent_config_list") => value(
             services
                 .agent

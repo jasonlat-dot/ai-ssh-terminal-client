@@ -24,6 +24,160 @@ async fn services() -> (tempfile::TempDir, Arc<Services>) {
     (dir, services)
 }
 
+#[tokio::test]
+async fn model_configuration_ipc_scopes_revisions_and_validation() {
+    let (_dir, services) = services().await;
+    save_test_model(&services, "http://127.0.0.1:1/v1/".into());
+    let list = dispatch(
+        services.clone(),
+        "agent/models",
+        "GET",
+        Value::Null,
+        json!({"userId":"default"}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(list[0]["id"], "model");
+    assert_eq!(list[0]["ready"], true);
+    let mut request = json!({"id":"model","userId":"default","revision":1,"update":{"config":list[0]["config"],"apiKey":{"action":"keep"}}});
+    request["update"]["config"]["model"] = json!("edited");
+    let edited = dispatch(
+        services.clone(),
+        "agent/models",
+        "POST",
+        request.clone(),
+        Value::Null,
+    )
+    .await
+    .unwrap();
+    assert_eq!(edited["revision"], 2);
+    let stale = dispatch(
+        services.clone(),
+        "agent/models",
+        "POST",
+        request.clone(),
+        Value::Null,
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(
+        (stale.status, stale.code.as_str()),
+        (409, "MODEL_CONFIG_CHANGED")
+    );
+    request["revision"] = json!(2);
+    request["update"]["config"]["outputReserve"] = json!(9999999);
+    assert_eq!(
+        dispatch(
+            services.clone(),
+            "agent/models",
+            "POST",
+            request,
+            Value::Null
+        )
+        .await
+        .unwrap_err()
+        .status,
+        400
+    );
+    assert_eq!(
+        dispatch(
+            services.clone(),
+            "agent/models",
+            "GET",
+            Value::Null,
+            json!({"userId":"other"})
+        )
+        .await
+        .unwrap(),
+        json!([])
+    );
+    assert_eq!(
+        dispatch(
+            services.clone(),
+            "agent/models",
+            "DELETE",
+            json!({"id":"model","userId":"other","revision":2}),
+            Value::Null
+        )
+        .await
+        .unwrap_err()
+        .status,
+        404
+    );
+    dispatch(
+        services.clone(),
+        "agent/models",
+        "DELETE",
+        json!({"id":"model","userId":"default","revision":2}),
+        Value::Null,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        dispatch(
+            services,
+            "agent/models",
+            "GET",
+            Value::Null,
+            json!({"userId":"default"})
+        )
+        .await
+        .unwrap(),
+        json!([])
+    );
+}
+
+#[cfg(windows)]
+#[tokio::test]
+async fn model_configuration_ipc_never_returns_saved_key() {
+    let (_dir, services) = services().await;
+    save_test_model(&services, "http://127.0.0.1:1/v1/".into());
+    let list = dispatch(
+        services.clone(),
+        "agent/models",
+        "GET",
+        Value::Null,
+        json!({"userId":"default"}),
+    )
+    .await
+    .unwrap();
+    let mut request = json!({"id":"model","userId":"default","revision":1,"update":{"config":list[0]["config"],"apiKey":{"action":"set","value":"fake-test-key"}}});
+    request["update"]["config"]["requireApiKey"] = json!(true);
+    let saved = dispatch(
+        services.clone(),
+        "agent/models",
+        "POST",
+        request.clone(),
+        Value::Null,
+    )
+    .await
+    .unwrap();
+    assert_eq!(saved["apiKeyConfigured"], true);
+    assert!(!saved.to_string().contains("fake-test-key"));
+    request["revision"] = json!(2);
+    request["update"]["apiKey"] = json!({"action":"keep"});
+    request["update"]["config"]["baseUrl"] = json!("http://127.0.0.1:2/v1/");
+    assert_eq!(
+        dispatch(
+            services.clone(),
+            "agent/models",
+            "POST",
+            request.clone(),
+            Value::Null
+        )
+        .await
+        .unwrap_err()
+        .status,
+        400
+    );
+    request["update"]["apiKey"] = json!({"action":"clear"});
+    let cleared = dispatch(services, "agent/models", "POST", request, Value::Null)
+        .await
+        .unwrap();
+    assert_eq!(cleared["ready"], false);
+    assert_eq!(cleared["apiKeyConfigured"], false);
+}
+
 fn save_test_model(services: &Services, base_url: String) {
     use shellpilot_server::agent::provider::*;
     let config = ModelConfig {

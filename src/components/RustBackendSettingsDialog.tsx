@@ -9,6 +9,7 @@ import {
 import { RUST_PREVIEW_VERSION } from '../config/rustPreview';
 import { isTauriRuntime } from '../state/runtime';
 import { AppearanceSettings } from './AppearanceSettings';
+import { ModelSettings } from './ModelSettings';
 import { Icon, Badge } from './Ui';
 import { WindowControls } from './WindowControls';
 import { dragAppWindow } from '../state/appWindow';
@@ -18,10 +19,11 @@ import './RustPreview.css';
 type Props = {
   currentUrl: string; required?: boolean; onClose: () => void; onSave: (url: string) => void;
   beforeClientUpdate?: () => Promise<void>; showUpdates?: boolean;
+  modelsChanged?: () => void; modelSettingsRequested?: boolean; modelSettingsLocked?: boolean;
 };
-export function RustBackendSettingsDialog({required=false,onClose,onSave,showUpdates=false}:Props) {
+export function RustBackendSettingsDialog({required=false,onClose,onSave,showUpdates=false,modelsChanged,modelSettingsRequested=false,modelSettingsLocked=false}:Props) {
   const desktop=isTauriRuntime();
-  const [tab,setTab]=useState<'general'|'appearance'|'about'>(showUpdates?'about':'general');
+  const [tab,setTab]=useState<'general'|'models'|'appearance'|'about'>(showUpdates?'about':modelSettingsRequested?'models':'general');
   const [config,setConfig]=useState<BundledBackendConfig|null>(null);
   const [status,setStatus]=useState<BundledBackendStatus|null>(null);
   const [directory,setDirectory]=useState('');
@@ -33,6 +35,7 @@ export function RustBackendSettingsDialog({required=false,onClose,onSave,showUpd
   const [error,setError]=useState('');
   const [message,setMessage]=useState('');
   useEffect(()=>{if(showUpdates)setTab('about');},[showUpdates]);
+  useEffect(()=>{if(modelSettingsRequested)setTab('models');},[modelSettingsRequested]);
   useEffect(()=>{
     let active=true;
     void Promise.all([readBundledBackendConfig(),readBundledBackendAutoStart()])
@@ -83,7 +86,7 @@ export function RustBackendSettingsDialog({required=false,onClose,onSave,showUpd
     <div className="settings-body">
       <aside className="settings-nav" aria-label="设置分类">
         <div className="settings-nav-list">
-          {([['general','本地工作区','settings'],['appearance','外观','monitor'],['about','关于试用版','terminal']] as const).map(([id,label,icon])=><button key={id} className={'settings-nav-item '+(tab===id?'selected':'')} aria-current={tab===id?'page':undefined} onClick={()=>setTab(id)}><Icon name={icon} size={17}/><span className="settings-nav-text"><strong>{label}</strong></span></button>)}
+          {([['general','本地工作区','settings'],['models','模型设置','bot'],['appearance','外观','monitor'],['about','关于试用版','terminal']] as const).map(([id,label,icon])=><button key={id} className={'settings-nav-item '+(tab===id?'selected':'')} aria-current={tab===id?'page':undefined} onClick={()=>setTab(id)}><Icon name={icon} size={17}/><span className="settings-nav-text"><strong>{label}</strong></span></button>)}
         </div>
         <div className="settings-nav-footer"><strong>v{RUST_PREVIEW_VERSION}</strong><small>独立安装 · 独立数据</small></div>
       </aside>
@@ -91,10 +94,11 @@ export function RustBackendSettingsDialog({required=false,onClose,onSave,showUpd
         {error&&<p className="settings-error" role="alert">{error}</p>}
         {message&&<p className="rust-settings-notice" role="status">{message}</p>}
         {tab==='appearance'&&<AppearanceSettings/>}
+        {tab==='models'&&<ModelSettings changed={modelsChanged} locked={modelSettingsLocked}/>}
         {tab==='about'&&<div className="rust-about">
           <Badge tone="success">Rust Preview</Badge><h2>轻量的桌面 SSH 终端</h2>
           <p>SSH、文件管理与本地数据直接运行在应用内，无需本地服务器端口、Java 或独立数据库。</p>
-          <div className="rust-feature-grid"><article><Icon name="terminal"/><h3>现在可用</h3><p>连接管理、密码与私钥认证、SSH 终端、多窗口与分屏、常用命令、本地 CMD、SFTP 文件管理、独立附件上传下载和存储管理。</p></article><article><Icon name="folder"/><h3>后续迁移</h3><p>AI 对话、聊天附件发送与自动执行任务。</p></article></div>
+          <div className="rust-feature-grid"><article><Icon name="terminal"/><h3>现在可用</h3><p>连接管理、SSH 终端、SFTP 文件管理、本地 CMD、独立附件存储，以及模型设置、基础文本 AI 对话和会话历史。</p></article><article><Icon name="folder"/><h3>后续迁移</h3><p>上下文自动压缩、聊天附件发送与工具执行审批。</p></article></div>
           <p>试用版与原版本使用不同的数据目录。自动更新已关闭，后续使用新的试用安装包更新。</p>
         </div>}
         {tab==='general'&&<>
@@ -105,7 +109,7 @@ export function RustBackendSettingsDialog({required=false,onClose,onSave,showUpd
               <button className="ghost-button" disabled={busy||status?.status!=='running'} onClick={()=>void operate('stop')}>停止</button>
             </div>}
           </section>
-          <p className="rust-preview-hint">支持 SSH、SFTP 和独立附件存储；AI 聊天将在后续阶段接入。</p>
+          <p className="rust-preview-hint">在“模型设置”中添加配置后，可以打开 AI 面板进行基础文本对话。</p>
           {desktop&&config&&<section className="rust-config-card">
             <h2>本地数据设置</h2><p>保存后重新初始化工作区生效。重新初始化或停止会断开当前 SSH 终端。</p>
             <label className="rust-checkbox"><input type="checkbox" checked={autoStart} disabled={busy} onChange={()=>void toggleAutoStart()}/>打开应用时自动初始化本地工作区</label>
