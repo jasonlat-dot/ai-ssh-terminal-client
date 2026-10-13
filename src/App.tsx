@@ -42,7 +42,10 @@ import { SessionFiles } from './components/Sidebar';
 import { AttachmentPreviews, ChatAttachmentDraft, attachmentReferences, validateChatContent } from './state/chatAttachments';
 import { ChatRequestError } from './api/chatErrors';
 import { ActivityBar, AppHeader } from './components/Shell';
-import { BackendSettingsDialog } from './components/BackendSettingsDialog';
+import { RustBackendSettingsDialog as BackendSettingsDialog } from './components/RustBackendSettingsDialog';
+import { usingRustBuiltinBackend } from './config/rustPreview';
+import { FileUploadDialog } from './components/FileUploadDialog';
+import { FileUploadQueue } from './state/fileUploads';
 import { activeBackendConnection, adoptBundledBackendUrl, readBackendUrl, saveBackendUrl } from './config/backend';
 import { watchBundledBackendStatus, restartBundledBackend, type BundledBackendStatus } from './api/bundledBackend';
 import { probeBackendHealth } from './api/health';
@@ -78,6 +81,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
   updateSettingsRequested: boolean;
   clearUpdateSettingsRequest: () => void;
 }) {
+  const rustBuiltin = usingRustBuiltinBackend();
   const [navigation, setNavigation] = useState<Navigation>('命令');
   const connections = useSshConnections();
   const { hosts } = connections;
@@ -133,6 +137,9 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
   const [disconnectTarget, setDisconnectTarget] = useState<{ tabId: string; host: Host } | null>(null);
   const [dialog, setDialog] = useState<Dialog>(null);
   const [backendSettingsOpen, setBackendSettingsOpen] = useState(false);
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [uploadQueue] = useState(() => new FileUploadQueue());
+  useEffect(() => { uploadQueue.activate(); return () => uploadQueue.deactivate(); }, [uploadQueue]);
   useEffect(() => { if (updateSettingsRequested) setBackendSettingsOpen(true); }, [updateSettingsRequested]);
   const [attachmentPreviews] = useState(() => new AttachmentPreviews());
   const [chatDraft] = useState(() => new ChatAttachmentDraft(attachmentPreviews));
@@ -157,7 +164,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
   const [toast, setToast] = useState<Notice | null>(null);
   const noticeSequence = useRef(0);
   const [commandCollapsed, setCommandCollapsed] = useState(false);
-  const [agentCollapsed, setAgentCollapsed] = useState(false);
+  const [agentCollapsed, setAgentCollapsed] = useState(rustBuiltin);
   // 应用关闭流程的全局标志位：避免 Tauri onCloseRequested 与 in-page 关闭按钮、
   // 终端页签关闭等其他路径在快速关窗时重复触发清理。
   const closingApp = useRef(false);
@@ -349,6 +356,11 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
   const dismissNotice = useCallback(() => setToast(null), []);
   useEffect(() => { if (connections.error) notify(connections.error, 'error'); }, [connections.error, notify]);
   useEffect(() => {
+    if (rustBuiltin) {
+      setAgentLoading(false);
+      setAgentLoadError('Rust 试用版暂未迁移 AI 功能。');
+      return;
+    }
     let cancelled = false;
     const controller = new AbortController();
     setAgentLoading(true);
@@ -374,7 +386,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
         if (!cancelled) setAgentLoading(false);
       });
     return () => { cancelled = true; clearTimeout(timeout); controller.abort(); };
-  }, [agentLoadAttempt]);
+  }, [agentLoadAttempt, rustBuiltin]);
   useEffect(() => () => chatAbort.current?.abort(), []);
   useEffect(() => {
     if (selectedAgent?.agentId) void refreshChatSessions(selectedAgent.agentId);
@@ -1280,7 +1292,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
   }, [sessions, verifyTerminalSession]);
 
   return <div style={{ '--agent-width': `${agentWidth}%`, '--command-width': `${commandWidth}px`, '--connection-sidebar-width': `${connectionSidebarWidth}px` } as CSSProperties} className={`app-shell ${agentCollapsed ? 'agent-collapsed' : ''} ${navCollapsed ? 'nav-collapsed' : ''} ${connectionSidebarCollapsed ? 'host-sidebar-collapsed' : ''} ${navigation === '连接' ? 'connections-view' : 'terminal-view'} ${backendSettingsOpen ? 'settings-view' : ''}`}>
-    <AppHeader notify={notify} theme={theme} setTheme={setTheme} />
+    <AppHeader notify={notify} theme={theme} setTheme={setTheme} onUpload={() => setUploadOpen(true)} />
     <ActivityBar active={navigation} onSelect={name => { setBackendSettingsOpen(false); clearUpdateSettingsRequest(); navigate(name); }} onSettings={() => { clearUpdateSettingsRequest(); setBackendSettingsOpen(value => !value); }} settingsOpen={backendSettingsOpen} collapsed={navCollapsed} toggleCollapsed={() => setNavCollapsed(value => !value)} />
     {backendSettingsOpen && <BackendSettingsDialog currentUrl={backendUrl}
       onClose={() => { setBackendSettingsOpen(false); clearUpdateSettingsRequest(); }}
@@ -1331,7 +1343,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
             <Suspense fallback={visible ? <p>正在加载终端…</p> : null}>
             <RemoteTerminalView key={runtime?.sessionId ?? `${session.id}:disconnected`} runtime={runtime} visible={visible && navigation === '命令'} focused={session.id === activeId}
               local={session.kind === 'local'}
-              canAddToAgent={!chatBusy && !chatStopping && !historyLoadingId}
+              canAddToAgent={!rustBuiltin && !chatBusy && !chatStopping && !historyLoadingId}
               addToAgent={text => {
                 const added = agentComposer.current?.addText(text, 'terminal') ?? false;
                 setAgentCollapsed(false);
@@ -1361,12 +1373,13 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
         close={closeSession}
         add={openNewTerminal}
         copy={copy}
+        filesAvailable agentAvailable={!rustBuiltin}
         filesOpen={active?.kind === 'ssh' && visibleFiles === active.connectionId}
         toggleFiles={() => { if (active?.kind === 'ssh') { if (visibleFiles === active.connectionId) setVisibleFiles(''); else openFiles(active.connectionId, active.title); } }}
         commandCollapsed={commandCollapsed}
         toggleCommands={() => setCommandCollapsed(value => !value)}
         agentCollapsed={agentCollapsed}
-        toggleAgent={() => setAgentCollapsed(value => !value)}
+        toggleAgent={() => { if (!rustBuiltin) setAgentCollapsed(value => !value); }}
       />
       <CommandShelf commands={commands} category={category} setCategory={setCategory} fill={fill} run={command => { void requestRun(command); }} copy={copy} add={() => setDialog('command')}
         disabled={broadcastBusy || (commandMode === 'single' ? !canRun : !commandPlan.targets.length)} collapsed={commandCollapsed} broadcast={commandMode !== 'single'}
@@ -1374,6 +1387,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
           reservePixels={280} containerSelector=".central-workspace" className="command-panel-divider" label="调整常用命令宽度"
           controls="command-shelf-content" collapseLabel="常用命令" collapsed={commandCollapsed} collapse={() => setCommandCollapsed(true)} />} />
     </main>
+    {!rustBuiltin && <>
     <PanelDivider value={agentWidth} change={setAgentWidth} minPixels={300} reservePixels={360} reserveSelector=".central-workspace"
       controls="agent-panel-content" collapsed={agentCollapsed} collapse={() => setAgentCollapsed(true)} />
     <AgentPanel ref={agentComposer} chatDraft={chatDraft} draftScope={chatVersion.current} host={host} connected={active?.kind === 'ssh' && isSessionConnected(active)} localTerminal={active?.kind === 'local'} messages={messages} busy={chatBusy} stopping={chatStopping} send={sendMessage} stop={stopChat} collapsed={agentCollapsed}
@@ -1389,8 +1403,10 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
         refresh: () => { if (selectedAgent) void refreshChatSessions(selectedAgent.agentId); },
         select: sessionId => { void selectChatSession(sessionId); },
       }} />
+    </>}
     {fileWindows.map(item => <SessionFiles key={item.connectionId} connectionId={item.connectionId} title={item.title} visible={!backendSettingsOpen && visibleFiles === item.connectionId} minimize={() => setVisibleFiles('')} remove={() => { setFileWindows(previous => previous.filter(window => window.connectionId !== item.connectionId)); setVisibleFiles(current => current === item.connectionId ? '' : current); }} copy={copy} notify={notify} registerAppCloseCleanup={registerAppCloseCleanup} />)}
     {toast && <NotificationToast key={toast.id} notice={toast} close={dismissNotice} />}
+    {uploadOpen && <FileUploadDialog queue={uploadQueue} close={() => setUploadOpen(false)} />}
     {dialog === 'command' && <AddCommandDialog close={closeDialog} categories={[...new Set(commands.map(command => command.category))]} save={async command => {
       const next = [...commands, command];
       await saveClientCommands(next);

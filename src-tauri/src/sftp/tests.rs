@@ -67,7 +67,8 @@ fn handle(mut stream: TcpStream, backend: Arc<Backend>) {
         .unwrap_or(0);
     let mut body = vec![0; size];
     stream.read_exact(&mut body).unwrap();
-    if route == "sessions" {
+    if (method == "POST" && route == "sessions") || (method == "GET" && route == "sessions/session")
+    {
         success(
             &mut stream,
             json!({"sftpSessionId":"session","connectionId":"connection","rootPath":"/","createdAt":"2026-09-27T00:00:00Z"}),

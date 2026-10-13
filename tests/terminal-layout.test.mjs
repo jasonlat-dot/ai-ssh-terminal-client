@@ -103,6 +103,51 @@ function workspace() {
     flushTimers() { timers.splice(0).forEach(callback => callback()); } };
 }
 
+test('多个 SSH 页签按下后由外层捕获指针，未拖动松手也能切换且后续 click 不重复激活', () => {
+  const ui = workspace();
+  ui.props.sessions = sessions.slice(0, 3).map(session => ({ ...session, kind: 'ssh', connectionId: 'host-' + session.id }));
+  ui.props.layout = 'single'; ui.props.visibleIds = ['a'];
+  ui.props.select = id => { ui.selected.push(id); ui.props.activeId = id; ui.props.visibleIds = [id]; };
+  ui.render();
+  // A captured pointer-up belongs to the outer tab; Chromium need not click
+  // the inner role=tab button. Deliberately do not synthesize that button click.
+  for (const index of [1, 2, 0]) {
+    const id = ui.props.sessions[index].id;
+    ui.event(index, 'onPointerDown', { target: { closest: () => ({ getAttribute: () => 'tab' }) } });
+    assert.equal(ui.captures.size, 1);
+    ui.event(index, 'onPointerMove', { clientX: 14, clientY: 12 });
+    ui.event(index, 'onPointerUp');
+    assert.equal(ui.props.activeId, id);
+    assert.equal(ui.all().find(node => node.props.role === 'tab' && node.props['aria-selected']).props.children[1].props.children, id);
+    assert.equal(ui.captures.size, 0);
+    const count = ui.selected.length;
+    ui.event(index, 'onClick');
+    assert.equal(ui.selected.length, count, 'a trailing button click must not select twice');
+    ui.flushTimers();
+  }
+  assert.deepEqual(ui.selected, ['b', 'c', 'a']);
+  // Native keyboard activation still uses the button's click handler.
+  ui.event(1, 'onClick', { detail: 0 });
+  assert.equal(ui.props.activeId, 'b');
+  assert.deepEqual(ui.selected, ['b', 'c', 'a', 'b']);
+});
+
+test('关闭按钮、非主按钮、其他指针松手及取消不激活 SSH 页签，随后普通点击可恢复', () => {
+  const ui = workspace();
+  ui.event(1, 'onPointerDown', { target: { closest: () => ({ getAttribute: () => null }) } });
+  ui.event(1, 'onPointerUp');
+  ui.event(1, 'onPointerDown', { button: 2 }); ui.event(1, 'onPointerUp');
+  ui.event(1, 'onPointerDown', { isPrimary: false }); ui.event(1, 'onPointerUp');
+  assert.equal(ui.captures.size, 0); assert.deepEqual(ui.selected, []);
+  ui.event(1, 'onPointerDown');
+  ui.event(1, 'onPointerUp', { pointerId: 2 });
+  assert.equal(ui.captures.size, 1); assert.deepEqual(ui.selected, []);
+  ui.event(1, 'onPointerCancel'); ui.event(1, 'onPointerUp');
+  assert.equal(ui.captures.size, 0); assert.deepEqual(ui.selected, []);
+  ui.event(1, 'onPointerDown'); ui.event(1, 'onPointerUp');
+  assert.deepEqual(ui.selected, ['b']);
+  assert.deepEqual(ui.calls, []);
+});
 test('真实页签指针拖动超过阈值才启动，松手落点决定前后排序，不误选中；取消/丢失捕获/其他指针不修改', () => {
   const ui = workspace(); ui.point('c');
   ui.event(0, 'onPointerDown'); ui.event(0, 'onPointerMove', { clientX: 14 });

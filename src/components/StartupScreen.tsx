@@ -35,9 +35,9 @@ type StartupScreenProps = {
 function phaseCopy(phase: StartupPhase) {
   if (phase === 'failed') return { label: '启动失败', title: '内置服务未能启动' };
   if (phase === 'ready') return { label: '启动完成', title: '正在进入工作区' };
-  if (phase === 'stopped') return { label: '选择启动方式', title: '开始使用 ShellPilot' };
+  if (phase === 'stopped') return { label: '选择启动方式', title: '开始使用 ShellPilot Rust' };
   if (phase === 'checking') return { label: '正在检查', title: '正在检查运行环境' };
-  return { label: '正在启动', title: '正在启动内置服务' };
+  return { label: '正在启动', title: '正在启动 Rust 内置服务' };
 }
 
 function healthLabel(health: StartupHealth | undefined) {

@@ -8,7 +8,7 @@ import { TerminalWelcome } from './TerminalWelcome';
 import { isSessionConnected } from '../state/terminalSessions';
 import { Select } from './Select';
 
-export function TerminalWorkspace({ remoteViews, sessions, activeId, host, select, close, add, filesOpen, toggleFiles, commandCollapsed, toggleCommands, agentCollapsed, toggleAgent, copy, connections, layout = 'single', visibleIds = [activeId], changeLayout, reorder, commandControls }: { remoteViews: ReactNode; sessions: TerminalSession[]; activeId: string; host?: Host; select: (id: string) => void; close: (id: string) => void; add: () => void; filesOpen: boolean; toggleFiles: () => void; commandCollapsed: boolean; toggleCommands: () => void; agentCollapsed: boolean; toggleAgent: () => void; connections: () => void; copy: (text: string) => void; layout?: TerminalLayout; visibleIds?: string[]; changeLayout?: (layout: TerminalLayout) => void; reorder?: (draggedId: string, targetId: string, after: boolean) => void; commandControls?: ReactNode }) {
+export function TerminalWorkspace({ remoteViews, sessions, activeId, host, select, close, add, filesOpen, toggleFiles, commandCollapsed, toggleCommands, agentCollapsed, toggleAgent, filesAvailable = true, agentAvailable = true, copy, connections, layout = 'single', visibleIds = [activeId], changeLayout, reorder, commandControls }: { remoteViews: ReactNode; sessions: TerminalSession[]; activeId: string; host?: Host; select: (id: string) => void; close: (id: string) => void; add: () => void; filesOpen: boolean; toggleFiles: () => void; commandCollapsed: boolean; toggleCommands: () => void; agentCollapsed: boolean; toggleAgent: () => void; filesAvailable?: boolean; agentAvailable?: boolean; connections: () => void; copy: (text: string) => void; layout?: TerminalLayout; visibleIds?: string[]; changeLayout?: (layout: TerminalLayout) => void; reorder?: (draggedId: string, targetId: string, after: boolean) => void; commandControls?: ReactNode }) {
   const active = sessions.find(session => session.id === activeId);
   const dragging = useRef<{ id: string; pointerId: number; x: number; y: number; left: number; top: number; width: number; node: HTMLDivElement; moved: boolean; target: { id: string; after: boolean } | null } | null>(null);
   const suppressClick = useRef(false);
@@ -72,13 +72,18 @@ export function TerminalWorkspace({ remoteViews, sessions, activeId, host, selec
           onPointerUp={event => {
             const drag = dragging.current;
             if (!drag || drag.pointerId !== event.pointerId) return;
+            // Capture retargets pointer-up/click to the outer tab, so an ordinary
+            // press must activate here instead of relying on the inner button.
+            // Suppress any trailing click; keyboard activation still uses onClick.
+            suppressClick.current = true;
+            setTimeout(() => { suppressClick.current = false; }, 0);
             if (drag.moved) {
-              suppressClick.current = true;
-              setTimeout(() => { suppressClick.current = false; }, 0);
               if (drag.target && drag.id !== drag.target.id) {
                 reorder?.(drag.id, drag.target.id, drag.target.after);
                 setAnnouncement('终端页签顺序已调整');
               }
+            } else {
+              select(drag.id);
             }
             finishDrag();
           }}
@@ -118,9 +123,9 @@ export function TerminalWorkspace({ remoteViews, sessions, activeId, host, selec
           {active.connectionStatus === 'unreachable' && <Badge tone="amber" icon="alert">服务不可达</Badge>}
           {active.kind === 'ssh' && <IconButton icon="copy" label="复制主机地址" onClick={() => copy(host?.address ?? '')} />}
           <div className="inline-actions workspace-panel-controls" aria-label="工作区面板">
-            {active.kind === 'ssh' && <IconButton icon="folder" label="打开文件管理" className={filesOpen ? 'selected' : ''} onClick={toggleFiles} aria-pressed={filesOpen} aria-expanded={filesOpen} />}
+            {active.kind === 'ssh' && <IconButton icon="folder" disabled={!filesAvailable} label={filesAvailable ? "打开文件管理" : "文件管理（后续版本）"} className={filesOpen ? 'selected' : ''} onClick={toggleFiles} aria-pressed={filesOpen} aria-expanded={filesOpen} />}
             <IconButton icon="terminal" label={commandCollapsed ? '展开常用命令' : '收起常用命令'} className={!commandCollapsed ? 'selected' : ''} onClick={toggleCommands} aria-pressed={!commandCollapsed} aria-expanded={!commandCollapsed} aria-controls="command-shelf-content" />
-            <IconButton icon="bot" label={agentCollapsed ? '展开智能体对话' : '收起智能体对话'} className={!agentCollapsed ? 'selected' : ''} onClick={toggleAgent} aria-pressed={!agentCollapsed} aria-expanded={!agentCollapsed} aria-controls="agent-panel-content" />
+            <IconButton icon="bot" disabled={!agentAvailable} label={!agentAvailable ? "AI 功能（后续版本）" : agentCollapsed ? '展开智能体对话' : '收起智能体对话'} className={!agentCollapsed ? 'selected' : ''} onClick={toggleAgent} aria-pressed={!agentCollapsed} aria-expanded={!agentCollapsed} aria-controls="agent-panel-content" />
           </div>
         </div>
         {commandControls}

@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "ai-ssh-terminal-client",
-  "version": "0.1.11",
-  "identifier": "com.jasonlat.ai-ssh-client",
+  "productName": "ShellPilot-Rust-Preview",
+  "version": "0.4.0",
+  "identifier": "com.jasonlat.shellpilot.rust-preview",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "ShellPilot",
+        "title": "ShellPilot · Rust 试用版",
         "decorations": false,
         "width": 1440,
         "height": 900,
@@ -29,9 +29,12 @@
   "bundle": {
     "active": true,
     "createUpdaterArtifacts": false,
-    "targets": "all",
+    "targets": [
+      "nsis"
+    ],
     "resources": {
-      "bundle/": ""
+      "bundle/rust-preview.txt": "rust-preview.txt",
+      "bundle/backend-LICENSE.txt": "backend-LICENSE.txt"
     },
     "icon": [
       "icons/32x32.png",
@@ -46,16 +49,19 @@
         "installerIcon": "icons/icon.ico",
         "uninstallerIcon": "icons/icon.ico",
         "headerImage": "icons/installer-header.bmp",
-        "uninstallerHeaderImage": "icons/installer-header.bmp"
+        "uninstallerHeaderImage": "icons/installer-header.bmp",
+        "languages": [
+          "SimpChinese",
+          "English"
+        ],
+        "installMode": "currentUser"
       }
     }
   },
   "plugins": {
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDFFOTFFNTIyQzlDOUVEClJXVHR5Y2tpNVpFZUFNajZSd21acnNsaDlkcDlSYndpZ3BNd2tOa256QzBlNTJKVTJOVVRmR0k1Cg==",
-      "endpoints": [
-        "https://github.com/jasonlat-dot/ai-ssh-terminal-client/releases/latest/download/latest.json"
-      ],
+      "endpoints": [],
       "windows": {
         "installMode": "passive"
       }

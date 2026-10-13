@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
 import { apiRequest, apiUrl, ApiRequestError } from '../src/api/client.ts';
-import { downloadExpiresAt, downloadUnavailable, uploadFile } from '../src/api/files.ts';
+import { downloadExpiresAt, downloadUnavailable, uploadFile, readUploadedFile, listUploadedFiles, readFileStorageStats, deleteUploadedFile } from '../src/api/files.ts';
 import type { UploadedFile } from '../src/api/files.ts';
 import { fileUploadPolicy, validateUploadFile } from '../src/config/fileUpload.ts';
 import { FileUploadQueue } from '../src/state/fileUploads.ts';
@@ -220,4 +220,43 @@ test('signed URL expiration: exact boundary, timestamps, malformed time, unsafe 
   assert.equal(downloadUnavailable({ ...result, urlExpiresAt: 'invalid' }), '无法确认下载链接有效期');
   assert.equal(downloadUnavailable({ ...result, downloadUrl: 'javascript:alert(1)' }, expiry - 1), '下载链接不可用');
   assert.equal(result.downloadUrl, 'https://storage.example.test/bucket/report.txt?X-Amz-Signature=a%2Fb%2Bz&filename=a+b');
+});
+
+test('Rust metadata refresh and history preserve signed URLs and use the configured API prefix', async () => {
+  configureBackend();
+  const calls: [string, string | undefined][] = [];
+  globalThis.fetch = (async (input, init) => {
+    calls.push([String(input), init?.method]);
+    if (String(input).includes('?offset=')) return Response.json({code:'SUCCESS_0000',data:{items:[result],offset:20,hasMore:false}});
+    return success();
+  }) as typeof fetch;
+  const refreshed = await readUploadedFile(result.fileId);
+  assert.equal(refreshed.downloadUrl,result.downloadUrl);
+  const page = await listUploadedFiles(20);
+  assert.equal(page.items[0].downloadUrl,result.downloadUrl);
+  assert.deepEqual(calls.map(([url])=>url), ['https://api.example.test/proxy/api/v1/files/file-1','https://api.example.test/proxy/api/v1/files?offset=20']);
+});
+test('Rust storage errors and malformed metadata are preserved instead of reporting success', async () => {
+  configureBackend();
+  globalThis.fetch = (async () => Response.json({code:'FILE_DOWNLOAD_NOT_FOUND',info:'附件已清理',data:null},{status:404})) as typeof fetch;
+  await assert.rejects(readUploadedFile('missing'), (error:unknown) => error instanceof ApiRequestError && error.code==='FILE_DOWNLOAD_NOT_FOUND');
+  globalThis.fetch = (async () => Response.json({code:'SUCCESS_0000',data:{...result,fileId:'wrong'}})) as typeof fetch;
+  await assert.rejects(readUploadedFile(result.fileId), (error:unknown) => error instanceof ApiRequestError && error.code==='FILE_RESPONSE_INVALID');
+});
+test('Rust storage deletion sends DELETE and only accepts a successful business response', async () => {
+  configureBackend();
+  globalThis.fetch = (async(input,init)=>{assert.equal(String(input),'https://api.example.test/proxy/api/v1/files/file-1');assert.equal(init?.method,'DELETE');return Response.json({code:'SUCCESS_0000',data:null});}) as typeof fetch;
+  await deleteUploadedFile('file-1');
+  globalThis.fetch = (async()=>Response.json({code:'FILE_STORAGE_BUSY',info:'存储已占用'},{status:503})) as typeof fetch;
+  await assert.rejects(deleteUploadedFile('file-1'));
+});
+test('Rust capacity requires nonnegative safe integers and malformed history is rejected', async () => {
+  configureBackend();
+  const stats = {enabled:true,usedBytes:5,reservedBytes:0,maxStorageBytes:1024,fileCount:1,maxFiles:10000,maxFileBytes:20,retentionDays:0,downloadLinkSeconds:900};
+  globalThis.fetch = (async()=>Response.json({code:'SUCCESS_0000',data:stats})) as typeof fetch;
+  assert.equal((await readFileStorageStats()).fileCount,1);
+  globalThis.fetch = (async()=>Response.json({code:'SUCCESS_0000',data:{...stats,usedBytes:-1}})) as typeof fetch;
+  await assert.rejects(readFileStorageStats());
+  globalThis.fetch = (async()=>Response.json({code:'SUCCESS_0000',data:{items:[{...result,size:0}],offset:0,hasMore:false}})) as typeof fetch;
+  await assert.rejects(listUploadedFiles());
 });

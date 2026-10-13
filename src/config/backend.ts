@@ -1,5 +1,5 @@
 const STORAGE_KEY = 'agent-ssh-backend-url-v1';
-const DEVELOPMENT_BACKEND = 'https://localhost:8888';
+const DEVELOPMENT_BACKEND = 'http://127.0.0.1:8889';
 const CONNECTIONS_KEY = 'agent-ssh-backend-connections-v2';
 export const BUILTIN_BACKEND_ID = 'builtin';
 

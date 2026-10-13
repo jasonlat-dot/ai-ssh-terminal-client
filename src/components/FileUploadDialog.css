@@ -53,3 +53,12 @@
 @keyframes upload-item-enter { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
 @media (prefers-reduced-motion: reduce) { .file-upload-spinner, .file-upload-item { animation: none; } }
 @media (max-width: 520px) { .file-upload-content { padding-right: 14px; padding-left: 14px; } .upload-item-heading { gap: 6px; } .upload-file-icon { display: none; } }
+
+.file-upload-tabs { display:flex; gap:8px; margin:14px 0; }
+.file-upload-tabs button { border:1px solid var(--line); background:var(--theme-panel-soft); color:var(--theme-text-strong); padding:8px 14px; border-radius:8px; }
+.file-upload-tabs button.selected { color:var(--theme-accent-text); background:var(--theme-selected); border-color:var(--blue); }
+.file-storage-summary { font-size:12px; color:var(--theme-text-muted); line-height:1.8; }
+.file-delete-confirm { margin-top:16px; padding:12px; border:1px solid var(--line); border-radius:8px; font-size:12px; }
+.file-delete-confirm button { margin-right:8px; }
+.file-upload-picker:disabled { opacity:.5; cursor:not-allowed; }
+.upload-item-actions { gap:8px; flex-wrap:wrap; }

@@ -192,16 +192,17 @@ async fn request_with_timeout(
 }
 impl State {
     fn get(&self, id: &str) -> Result<Arc<Session>> {
-        self.sessions
+        let session = self
+            .sessions
             .lock()
             .unwrap()
             .get(id)
             .cloned()
-            .ok_or_else(|| Error {
-                message: "文件管理会话已结束".into(),
-                code: "SFTP_NOT_FOUND".into(),
-                status: 404,
-            })
+            .ok_or_else(Error::session_expired)?;
+        if session.stop.is_cancelled() {
+            return Err(Error::session_expired());
+        }
+        Ok(session)
     }
     pub async fn open(
         &self,
@@ -235,6 +236,16 @@ impl State {
             .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(Duration::from_secs(30))
             .read_timeout(Duration::from_secs(120));
+        // Embedded/local traffic must stay on loopback even when the machine has a proxy.
+        if url.host_str().is_some_and(|host| {
+            host.eq_ignore_ascii_case("localhost")
+                || host
+                    .trim_matches(['[', ']'])
+                    .parse::<std::net::IpAddr>()
+                    .is_ok_and(|ip| ip.is_loopback())
+        }) {
+            builder = builder.no_proxy();
+        }
         // 只增加该连接显式选择的公开证书；仍校验主机名/有效期，禁止重定向绕过信任范围。
         if let Some(certificate) = local_certificate {
             builder = builder.add_root_certificate(certificate);
@@ -266,7 +277,11 @@ impl State {
         Ok(data)
     }
     pub async fn close(&self, id: &str) -> Result<()> {
-        let session = self.get(id)?;
+        // Expired SSE sessions must still be removable; close is idempotent.
+        let session = self.sessions.lock().unwrap().remove(id);
+        let Some(session) = session else {
+            return Ok(());
+        };
         // Stop local writers immediately, even if the server is temporarily unreachable.
         session.stop.cancel();
         let result = request(
@@ -277,7 +292,6 @@ impl State {
         )
         .await;
         // 无论后端是否可达，都必须移除 Tauri 内存中的会话，避免旧 sessionId 和 SSE 重连任务残留。
-        self.sessions.lock().unwrap().remove(id);
         match result {
             Ok(_) => Ok(()),
             Err(error) if error.status == 404 => Ok(()),
@@ -422,9 +436,7 @@ pub fn local_entries(path: Option<String>) -> Result<Value> {
 }
 
 fn local_display_path(path: &Path) -> Result<String> {
-    let value = path
-        .to_str()
-        .ok_or_else(|| Error::local("路径编码无效"))?;
+    let value = path.to_str().ok_or_else(|| Error::local("路径编码无效"))?;
     #[cfg(windows)]
     {
         if let Some(unc) = value.strip_prefix(r"\\?\UNC\") {
@@ -476,11 +488,10 @@ pub fn local_delete(path: String) -> Result<()> {
     if metadata.is_file() {
         std::fs::remove_file(target)?;
     } else if metadata.is_dir() {
-        std::fs::remove_dir(target)
-            .map_err(|error| match error.kind() {
-                std::io::ErrorKind::DirectoryNotEmpty => Error::local("目录不为空，仅支持删除空目录"),
-                _ => error.into(),
-            })?;
+        std::fs::remove_dir(target).map_err(|error| match error.kind() {
+            std::io::ErrorKind::DirectoryNotEmpty => Error::local("目录不为空，仅支持删除空目录"),
+            _ => error.into(),
+        })?;
     } else {
         return Err(Error::local("只支持删除普通文件或空目录"));
     }
@@ -489,3 +500,6 @@ pub fn local_delete(path: String) -> Result<()> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(all(test, windows))]
+mod rust_preview_tests;

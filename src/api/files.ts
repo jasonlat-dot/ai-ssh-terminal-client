@@ -48,3 +48,43 @@ export function downloadUnavailable(file: Pick<UploadedFile, 'urlExpiresAt' | 'd
   } catch { return '下载链接不可用'; }
   return null;
 }
+
+export interface FileStorageStats {
+  enabled: boolean; usedBytes: number; reservedBytes: number; maxStorageBytes: number;
+  fileCount: number; maxFiles: number; maxFileBytes: number; retentionDays: number; downloadLinkSeconds: number;
+}
+export async function readUploadedFile(fileId: string, signal?: AbortSignal): Promise<UploadedFile> {
+  if (!fileId.trim()) throw new Error('文件 ID 不能为空。');
+  const file = await apiRequest<UploadedFile>('files/' + encodeURIComponent(fileId), { signal, service: '文件服务' });
+  if (!file || file.fileId !== fileId || file.status !== 'UPLOADED'
+      || typeof file.fileName !== 'string' || typeof file.contentType !== 'string'
+      || typeof file.size !== 'number' || !Number.isFinite(file.size) || file.size <= 0
+      || typeof file.sha256 !== 'string' || downloadExpiresAt(file.urlExpiresAt) === null
+      || typeof file.downloadUrl !== 'string' || downloadUnavailable({ downloadUrl: file.downloadUrl, urlExpiresAt: Date.now() + 1000 }) !== null) {
+    throw new ApiRequestError('附件元数据响应异常。', 'application', 'FILE_RESPONSE_INVALID');
+  }
+  return file;
+}
+export async function listUploadedFiles(offset = 0, signal?: AbortSignal): Promise<{ items: UploadedFile[]; offset: number; hasMore: boolean }> {
+  if (!Number.isInteger(offset) || offset < 0) throw new Error('文件列表偏移无效。');
+  const page = await apiRequest<{ items: UploadedFile[]; offset: number; hasMore: boolean }>('files', { params: { offset: String(offset) }, signal, service: '文件服务' });
+  if (!page || !Array.isArray(page.items) || page.items.length > 20 || page.offset !== offset || typeof page.hasMore !== 'boolean'
+      || page.items.some(file => !file || !file.fileId || typeof file.fileName !== 'string' || file.status !== 'UPLOADED'
+        || typeof file.size !== 'number' || !Number.isFinite(file.size) || file.size <= 0
+        || typeof file.downloadUrl !== 'string' || downloadExpiresAt(file.urlExpiresAt) === null)) {
+    throw new ApiRequestError('文件列表响应异常。', 'application', 'FILE_RESPONSE_INVALID');
+  }
+  return page;
+}
+export async function deleteUploadedFile(fileId: string): Promise<void> {
+  if (!fileId.trim()) throw new Error('文件 ID 不能为空。');
+  await apiRequest<void>('files/' + encodeURIComponent(fileId), { method: 'DELETE', service: '文件服务' });
+}
+export async function readFileStorageStats(): Promise<FileStorageStats> {
+  const stats = await apiRequest<FileStorageStats>('files/storage', { service: '文件服务' });
+  const numbers = ['usedBytes', 'reservedBytes', 'maxStorageBytes', 'fileCount', 'maxFiles', 'maxFileBytes', 'retentionDays', 'downloadLinkSeconds'] as const;
+  if (!stats || typeof stats.enabled !== 'boolean' || numbers.some(key => typeof stats[key] !== 'number' || !Number.isSafeInteger(stats[key]) || stats[key] < 0)) {
+    throw new ApiRequestError('存储容量响应异常。', 'application', 'FILE_RESPONSE_INVALID');
+  }
+  return stats;
+}

@@ -1,6 +1,7 @@
 mod cache;
+#[path = "embedded_backend.rs"]
 mod bundled_backend;
-mod backend_process;
+
 mod client_update;
 mod local_backend_tls;
 mod backend_connection_probe;

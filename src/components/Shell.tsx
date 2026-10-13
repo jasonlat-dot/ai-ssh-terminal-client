@@ -8,14 +8,17 @@ import { openUrl } from '@tauri-apps/plugin-opener';
 import { isTauriRuntime } from '../state/runtime';
 
 const PROJECT_GITHUB_URL = 'https://github.com/jasonlat-dot/ai-ssh-terminal-server';
-export function AppHeader({ notify, theme, setTheme }: {
+export function AppHeader({ notify, theme, setTheme, onUpload }: {
   notify: (text: string) => void;
+  onUpload: () => void;
   theme: ThemePreference;
   setTheme: (theme: ThemePreference) => void;
 }) {
   return <header className="app-header" onMouseDown={dragAppWindow}>
-    <div className="brand"><img className="brand-mark" src="/agent-ssh-header.svg" alt="" draggable={false} /><div><strong>ShellPilot</strong><small>智能远程开发助手</small></div></div>
+    <div className="brand"><img className="brand-mark" src="/agent-ssh-header.svg" alt="" draggable={false} /><div><strong>ShellPilot</strong><small>轻量 SSH 终端试用版</small></div></div>
+    <span className="rust-preview-badge">Rust Preview · 0.4.0</span>
     <div className="profile">
+      <button type="button" className="outlined-button" onClick={onUpload}><Icon name="upload" size={15} />文件与附件</button>
       <div className="theme-switcher" role="group" aria-label="界面主题">
         {([
           ['system', 'monitor', '跟随系统'],

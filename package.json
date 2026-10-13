@@ -1,8 +1,8 @@
 {
   "name": "ai-ssh-terminal-client",
-  "displayName": "ShellPilot",
+  "displayName": "ShellPilot-Rust-Preview",
   "private": true,
-  "version": "0.1.11",
+  "version": "0.4.0",
   "type": "module",
   "scripts": {
     "prepare:icons": "node scripts/prepare-app-icons.mjs",
@@ -10,6 +10,8 @@
     "dev": "vite",
     "prebuild": "npm run prepare:icons",
     "build": "tsc && vite build",
+    "dev:rust-server": "cargo run --manifest-path ../ai-ssh-terminal-server-rust/Cargo.toml",
+    "build:rust-server": "cargo build --release --manifest-path ../ai-ssh-terminal-server-rust/Cargo.toml",
     "prepare:backend": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/prepare-backend-bundle.ps1",
     "prepare:bundle": "npm run prepare:backend && npm run build",
     "bundle:nsis": "node scripts/windows-bundle.mjs nsis",
@@ -20,10 +22,11 @@
     "release:manifest": "node scripts/updater-release.mjs manifest",
     "preview": "vite preview",
     "tauri": "tauri",
-    "test:files": "node --experimental-strip-types tests/files.test.ts",
-    "test:chat-attachments": "node --experimental-strip-types tests/chat-attachments.test.ts",
-    "test:markdown": "node --experimental-strip-types tests/markdown.test.ts",
-    "test:sftp": "node --experimental-strip-types tests/sftp.test.ts"
+    "test:files": "tsx tests/files.test.ts",
+    "test:chat-attachments": "tsx tests/chat-attachments.test.ts",
+    "test:markdown": "tsx tests/markdown.test.ts",
+    "test:sftp": "tsx tests/sftp.test.ts",
+    "test:files:rust": "cargo build --manifest-path ../ai-ssh-terminal-server-rust/Cargo.toml && tsx tests/files-rust-live.test.ts"
   },
   "dependencies": {
     "@tauri-apps/api": "2.11.1",
@@ -46,6 +49,7 @@
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^6.0.2",
+    "tsx": "^4.23.15",
     "typescript": "~6.0.3",
     "vite": "^8.0.16"
   }
