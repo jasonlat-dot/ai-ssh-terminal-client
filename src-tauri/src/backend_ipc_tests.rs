@@ -241,6 +241,122 @@ async fn agent_stop_control_cancels_model_stream_and_emits_compatible_error() {
     );
     server.abort();
 }
+
+#[test]
+fn dropped_agent_subscription_cleans_only_its_own_registration_and_cancellation_receipt() {
+    let state = IpcState::default();
+    let sub = subscription();
+    let other = subscription();
+    state
+        .streams
+        .lock()
+        .unwrap()
+        .insert("agent-stream".into(), sub.clone());
+    state
+        .streams
+        .lock()
+        .unwrap()
+        .insert("other".into(), other.clone());
+    state
+        .operations
+        .lock()
+        .unwrap()
+        .insert("agent-stream".into(), (sub.stop.clone(), Instant::now()));
+    {
+        let _guard = AgentSubscriptionGuard {
+            state: &state,
+            id: "agent-stream".into(),
+            subscription: sub.clone(),
+        };
+    }
+    assert!(sub.stop.is_cancelled());
+    assert!(!other.stop.is_cancelled());
+    assert_eq!(state.streams.lock().unwrap().len(), 1);
+    assert!(state.operations.lock().unwrap().is_empty());
+}
+#[tokio::test]
+async fn agent_history_scope_and_replay_work_through_native_dispatch_without_a_second_model_request(
+) {
+    let (_dir, services) = services().await;
+    let (base, server) = model_server(false).await;
+    save_test_model(&services, base);
+    let session = services
+        .agent
+        .create_session("model".into(), "default".into())
+        .await
+        .unwrap();
+    let request:shellpilot_server::agent::chat::Request=serde_json::from_value(json!({"requestId":"stable-native-turn","agentId":"model","userId":"default","sessionId":session,"terminalSessionId":"","message":"hello"})).unwrap();
+    services
+        .agent
+        .chat(
+            request.clone(),
+            None,
+            &CancellationToken::new(),
+            |_| async { Ok(()) },
+        )
+        .await
+        .unwrap();
+    server.abort(); // Cached replay must work without the original model server.
+    let sub = subscription();
+    let stream = sub.clone();
+    let (token, mut events) = tokio::sync::mpsc::channel(1);
+    let copy = services.clone();
+    let run = tokio::spawn(agent_stream(copy, request, stream, move |e| {
+        token.try_send(e).map_err(|_| ())
+    }));
+    let done = events.recv().await.unwrap();
+    assert_eq!(done["payload"]["event"], "done");
+    assert_eq!(done["requestId"], "stable-native-turn");
+    acknowledge(&sub, done["sequence"].as_u64().unwrap());
+    run.await.unwrap().unwrap();
+    let params =
+        json!({"agentId":"model","userId":"default","sessionId":session,"after":"0","limit":"1"});
+    let history = dispatch(
+        services.clone(),
+        "agent/chat_history",
+        "GET",
+        Value::Null,
+        params.clone(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(history["turns"][0]["state"], "completed");
+    assert_eq!(history["turns"][0]["requestId"], "stable-native-turn");
+    let mut other = params.clone();
+    other["userId"] = "other".into();
+    assert_eq!(
+        dispatch(
+            services.clone(),
+            "agent/chat_history",
+            "GET",
+            Value::Null,
+            other
+        )
+        .await
+        .unwrap_err()
+        .status,
+        404
+    );
+    let events = dispatch(
+        services.clone(),
+        "agent/events",
+        "GET",
+        Value::Null,
+        params.clone(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(events.as_array().unwrap().len(), 1);
+    let mut bad = params;
+    bad["limit"] = "500".into();
+    assert_eq!(
+        dispatch(services, "agent/chat_history", "GET", Value::Null, bad)
+            .await
+            .unwrap_err()
+            .status,
+        400
+    );
+}
 #[tokio::test]
 async fn direct_dispatch_crud_errors_and_stop_do_not_need_an_http_listener() {
     let (_dir, services) = services().await;

@@ -24,6 +24,7 @@ export type AgentStreamEvent =
   | { event: 'error'; content: string; code?: string };
 
 export type AgentChatRequest = {
+  requestId?: string;
   agentId: string;
   userId: string;
   sessionId: string;
@@ -31,6 +32,16 @@ export type AgentChatRequest = {
   message: string;
   attachments?: { fileId: string }[];
 };
+export type AgentTurnState = 'running'|'completed'|'cancelled'|'failed'|'interrupted';
+export type AgentSession = { id:string;agentId:string;userId:string;revision:number;task?:{
+  id:string;goal:string;constraints:string[];target:{connectionId:string;terminalSessionId:string}|null;status:string;
+}|null;checkpointId?:string|null };
+export type AgentTurn = {
+  requestId:string;message:string;target:{connectionId:string;terminalSessionId:string}|null;state:AgentTurnState;
+  partialText:string;resultText:string|null;errorCode:string|null;usage:{prompt_tokens:number;completion_tokens:number;total_tokens:number}|null;
+  cursor:number;createdAt:number;updatedAt:number;
+};
+export type AgentHistory = {session:AgentSession;turns:AgentTurn[];hasMore:boolean;nextAfter:number};
 
 /** Agent control operations also belong to the local Rust workspace. */
 async function request<T>(endpoint: string, method = 'GET', body?: object, signal?: AbortSignal, params: Record<string, string> = {}): Promise<T> {
@@ -176,7 +187,7 @@ export function parseStreamEvent(payload: string): AgentStreamEvent | null {
   return null;
 }
 
-/** Local Rust Agent streaming. The UI remains gated until model settings and B3/B4 are ready. */
+/** Local Rust Agent streaming. Model settings and the visible AI panel are gated until B4. */
 async function chatStream(
   body: AgentChatRequest,
   onEvent: (event: AgentStreamEvent) => void,
@@ -186,15 +197,37 @@ async function chatStream(
   const backendUrl=requireBackendUrl();
   if (!isTauriRuntime() || !isBuiltinEndpoint(backendUrl)) throw new ChatRequestError('请在桌面应用内使用此功能。','DESKTOP_REQUIRED');
   const streamId=crypto.randomUUID();
+  const turnRequest={...body,requestId:body.requestId||crypto.randomUUID()};
   let done=false;
+  let ended=false;
+  let sequence=0;
   let failure:Error|undefined;
   const cancel=()=>{void invoke('builtin_cancel',{requestId:streamId}).catch(()=>undefined);};
-  const channel=new Channel<{sequence:number;payload:unknown}>();
+  const channel=new Channel<{sequence:number;requestId?:string;payload:unknown}>();
   channel.onmessage=frame=> {
     try {
-      if (signal?.aborted || failure || done) return;
-      const event=parseStreamEvent(typeof frame.payload==='string' ? frame.payload : JSON.stringify(frame.payload));
+      if (ended || signal?.aborted || failure || done) return;
+      if(frame.requestId!==undefined&&frame.requestId!==turnRequest.requestId) throw new ChatRequestError('对话输出关联不一致。','MODEL_PROTOCOL_FAILED');
+      if(!Number.isSafeInteger(frame.sequence)||frame.sequence<0) throw new ChatRequestError('对话输出顺序无效。','MODEL_PROTOCOL_FAILED');
+      if(frame.sequence>0) {
+        if(frame.sequence<=sequence) return;
+        if(frame.sequence!==sequence+1) throw new ChatRequestError('对话输出缺失，请查看历史后重试。','MODEL_PROTOCOL_FAILED');
+        sequence=frame.sequence;
+      }
+      let event:AgentStreamEvent|null;
+      const native=frame.payload&&typeof frame.payload==='object' ? frame.payload as Record<string,unknown> : undefined;
+      if(native&&(native.event==='text'||native.event==='done'||native.event==='error')) {
+        if(typeof native.content!=='string'||(native.code!==undefined&&typeof native.code!=='string')) {
+          throw new ChatRequestError('对话输出格式无效。','MODEL_PROTOCOL_FAILED');
+        }
+        // Rust events already contain raw model text. Do not decode JSON-looking replies again.
+        event=native.event==='error' ? {event:'error',content:native.content,code:native.code as string|undefined}
+          : {event:native.event,content:native.content};
+      } else {
+        event=parseStreamEvent(typeof frame.payload==='string' ? frame.payload : JSON.stringify(frame.payload));
+      }
       if (!event) return;
+      if(frame.sequence===0&&event.event!=='error') throw new ChatRequestError('对话结束事件无效。','MODEL_PROTOCOL_FAILED');
       if (event.event==='error') {
         failure=new ChatRequestError(event.content||'Agent 对话失败',event.code); onEvent(event); cancel(); return;
       }
@@ -208,7 +241,7 @@ async function chatStream(
   };
   signal?.addEventListener('abort',cancel,{once:true});
   try {
-    await invoke('builtin_agent_subscribe',{backendUrl,streamId,request:body,onEvent:channel});
+    await invoke('builtin_agent_subscribe',{backendUrl,streamId,request:turnRequest,onEvent:channel});
     if (signal?.aborted) throw new DOMException('对话已取消','AbortError');
     if (failure) throw failure;
     if (!done) throw new ChatRequestError('模型流未完整结束，请核实后重试。','MODEL_INCOMPLETE');
@@ -218,7 +251,7 @@ async function chatStream(
     if (error instanceof ChatRequestError) throw error;
     const native=new NativeRequestError(error);
     throw new ChatRequestError(native.message,native.code);
-  } finally {signal?.removeEventListener('abort',cancel);}
+  } finally {ended=true;signal?.removeEventListener('abort',cancel);}
 }
 
 export const agentApi = {
@@ -227,8 +260,14 @@ export const agentApi = {
   createSession: (agentId: string, signal?: AbortSignal) => request<{ sessionId: string }>(
     'create_session', 'POST', { agentId, userId: sshUserId }, signal,
   ),
-  stopChat: (agentId: string, sessionId: string, signal?: AbortSignal) => request<boolean>(
-    'stop_chat', 'POST', { agentId, userId: sshUserId, sessionId }, signal,
+  stopChat: (agentId: string, sessionId: string, signal?: AbortSignal, requestId?:string) => request<boolean>(
+    'stop_chat', 'POST', { agentId, userId: sshUserId, sessionId,...(requestId?{requestId}:{}) }, signal,
   ),
+  history: (agentId:string,sessionId:string,after=0,signal?:AbortSignal) => request<AgentHistory>(
+    'chat_history','GET',undefined,signal,{agentId,userId:sshUserId,sessionId,after:String(after)}),
+  sessions: (agentId:string,after='',signal?:AbortSignal) => request<AgentSession[]>(
+    'session_list','GET',undefined,signal,{agentId,userId:sshUserId,after}),
+  events: (agentId:string,sessionId:string,after=0,signal?:AbortSignal) => request<unknown[]>(
+    'events','GET',undefined,signal,{agentId,userId:sshUserId,sessionId,after:String(after)}),
   chatStream,
 };

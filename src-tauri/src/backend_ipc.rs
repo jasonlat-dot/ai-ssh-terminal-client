@@ -63,6 +63,15 @@ fn text<'a>(params: &'a Value, name: &str) -> Result<&'a str> {
         .filter(|v| !v.is_empty() && v.len() <= 256 * 1024)
         .ok_or_else(|| Error::invalid(format!("缺少或无效的 {name}")))
 }
+fn number(params: &Value, name: &str, default: u64) -> Result<u64> {
+    if params[name].is_null() {
+        return Ok(default);
+    }
+    params[name]
+        .as_u64()
+        .or_else(|| params[name].as_str().and_then(|v| v.parse().ok()))
+        .ok_or_else(|| Error::invalid("历史分页参数无效"))
+}
 async fn db<T: Send + 'static>(
     services: &Services,
     action: impl FnOnce(
@@ -121,10 +130,55 @@ pub async fn dispatch(
         ("POST", "agent/stop_chat") => value(
             services
                 .agent
-                .stop_chat(
+                .stop_request(
                     text(&body, "agentId")?.into(),
                     text(&body, "userId")?.into(),
                     text(&body, "sessionId")?.into(),
+                    body["requestId"].as_str().map(str::to_owned),
+                )
+                .await
+                .map_err(agent_error)?,
+        ),
+        ("GET", "agent/chat_history") => value(
+            services
+                .agent
+                .history(
+                    text(&params, "agentId")?.into(),
+                    text(&params, "userId")?.into(),
+                    text(&params, "sessionId")?.into(),
+                    number(&params, "after", 0)?,
+                    number(&params, "limit", 20)?
+                        .try_into()
+                        .map_err(|_| Error::invalid("历史分页参数无效"))?,
+                )
+                .await
+                .map_err(agent_error)?,
+        ),
+        ("GET", "agent/session_list") => value(
+            services
+                .agent
+                .sessions(
+                    text(&params, "agentId")?.into(),
+                    text(&params, "userId")?.into(),
+                    params["after"].as_str().unwrap_or("").into(),
+                    number(&params, "limit", 20)?
+                        .try_into()
+                        .map_err(|_| Error::invalid("历史分页参数无效"))?,
+                )
+                .await
+                .map_err(agent_error)?,
+        ),
+        ("GET", "agent/events") => value(
+            services
+                .agent
+                .events(
+                    text(&params, "agentId")?.into(),
+                    text(&params, "userId")?.into(),
+                    text(&params, "sessionId")?.into(),
+                    number(&params, "after", 0)?,
+                    number(&params, "limit", 50)?
+                        .try_into()
+                        .map_err(|_| Error::invalid("历史分页参数无效"))?,
                 )
                 .await
                 .map_err(agent_error)?,
@@ -237,6 +291,24 @@ struct Subscription {
 pub struct IpcState {
     operations: Mutex<HashMap<String, (CancellationToken, Instant)>>,
     streams: Mutex<HashMap<String, Arc<Subscription>>>,
+}
+struct AgentSubscriptionGuard<'a> {
+    state: &'a IpcState,
+    id: String,
+    subscription: Arc<Subscription>,
+}
+impl Drop for AgentSubscriptionGuard<'_> {
+    fn drop(&mut self) {
+        self.subscription.stop.cancel();
+        let mut streams = self.state.streams.lock().unwrap();
+        if streams
+            .get(&self.id)
+            .is_some_and(|stream| Arc::ptr_eq(stream, &self.subscription))
+        {
+            streams.remove(&self.id);
+            self.state.operations.lock().unwrap().remove(&self.id);
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -358,13 +430,15 @@ pub async fn builtin_agent_subscribe(
         }
         streams.insert(stream_id.clone(), subscription.clone());
     }
-    let result = agent_stream(services, request, subscription, move |event| {
+    let _guard = AgentSubscriptionGuard {
+        state: &state,
+        id: stream_id,
+        subscription: subscription.clone(),
+    };
+    agent_stream(services, request, subscription, move |event| {
         on_event.send(event).map_err(|_| ())
     })
-    .await;
-    state.streams.lock().unwrap().remove(&stream_id);
-    state.operations.lock().unwrap().remove(&stream_id);
-    result
+    .await
 }
 
 async fn agent_stream(
@@ -378,7 +452,14 @@ async fn agent_stream(
     if services.stop.is_cancelled() {
         return Err(Error::unavailable("工作区已停止"));
     }
-    let target = if request.terminal_session_id.is_empty() {
+    let receipt = services
+        .agent
+        .receipt(request.clone())
+        .await
+        .map_err(agent_error)?;
+    let target = if let Some(turn) = receipt {
+        turn.target
+    } else if request.terminal_session_id.is_empty() {
         None
     } else {
         let terminal = services.terminals.connected(&request.terminal_session_id);
@@ -399,15 +480,17 @@ async fn agent_stream(
             terminal_session_id: request.terminal_session_id.clone(),
         })
     };
+    let request_id = request.request_id.clone();
     let result = services
         .agent
         .chat(request, target, &subscription.stop, |event| {
             let send = &send;
             let subscription = subscription.clone();
             let services = services.clone();
+            let request_id = request_id.clone();
             async move {
                 let seq = subscription.sequence.fetch_add(1, Ordering::SeqCst) + 1;
-                send(json!({"sequence":seq,"payload":event}))
+                send(json!({"sequence":seq,"requestId":request_id,"payload":event}))
                     .map_err(|_| chat::Error::Model(ModelError::Cancelled))?;
                 let acknowledged = async {
                     while subscription.acknowledged.load(Ordering::SeqCst) < seq {
@@ -427,7 +510,7 @@ async fn agent_stream(
         let failure = agent_error(error);
         // Final errors have no acknowledgement wait; a cancelled consumer must not stall cleanup.
         let _ = send(
-            json!({"sequence":0,"payload":{"event":"error","content":failure.message,"code":failure.code}}),
+            json!({"sequence":0,"requestId":request_id,"payload":{"event":"error","content":failure.message,"code":failure.code}}),
         );
         return Err(failure);
     }

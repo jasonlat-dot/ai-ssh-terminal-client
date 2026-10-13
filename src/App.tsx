@@ -178,6 +178,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
   const chatVersion = useRef(0);
   const chatting = useRef(false);
   const chatSessionId = useRef('');
+  const chatRequestId = useRef('');
   const chatAbort = useRef<AbortController | null>(null);
   const stopPending = useRef(false);
   const historySelection = useRef(0);
@@ -970,6 +971,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     chatting.current = true;
     const version = chatVersion.current;
     const assistantId = crypto.randomUUID();
+    chatRequestId.current=assistantId;
     const controller = new AbortController();
     chatAbort.current = controller;
     updateMessages(previous => [
@@ -1136,6 +1138,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
         setActiveChatSessionId(created.sessionId);
       }
       await agentApi.chatStream({
+        requestId:assistantId,
         agentId: selectedAgent.agentId,
         userId: agentApi.userId,
         sessionId: chatSessionId.current,
@@ -1160,6 +1163,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
       return false;
     } finally {
       if (chatAbort.current === controller) chatAbort.current = null;
+      if(chatRequestId.current===assistantId)chatRequestId.current='';
       if (version === chatVersion.current) {
         chatting.current = false;
         setChatBusy(false);
@@ -1183,12 +1187,13 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     const agentId = selectedAgent?.agentId;
     const sessionId = chatSessionId.current;
     const activeController = chatAbort.current;
+    const requestId=chatRequestId.current;
     if (agentId && sessionId) {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 5_000);
       // 请求服务端先取消正在执行的任务；等待确认期间忽略后续流事件，
       // 最终再断开本地流。断连回调同时作为服务端取消的兜底。
-      void agentApi.stopChat(agentId, sessionId, controller.signal)
+      void agentApi.stopChat(agentId, sessionId, controller.signal, requestId||undefined)
         .catch(error => {
           console.warn('服务端停止请求未确认', error);
           notify('已停止显示，但任务停止尚未确认；请检查执行状态。', 'error');
