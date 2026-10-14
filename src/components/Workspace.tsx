@@ -8,7 +8,7 @@ import { TerminalWelcome } from './TerminalWelcome';
 import { isSessionConnected } from '../state/terminalSessions';
 import { Select } from './Select';
 
-export function TerminalWorkspace({ remoteViews, sessions, activeId, host, select, close, add, filesOpen, toggleFiles, commandCollapsed, toggleCommands, agentCollapsed, toggleAgent, filesAvailable = true, agentAvailable = true, copy, connections, layout = 'single', visibleIds = [activeId], changeLayout, reorder, commandControls }: { remoteViews: ReactNode; sessions: TerminalSession[]; activeId: string; host?: Host; select: (id: string) => void; close: (id: string) => void; add: () => void; filesOpen: boolean; toggleFiles: () => void; commandCollapsed: boolean; toggleCommands: () => void; agentCollapsed: boolean; toggleAgent: () => void; filesAvailable?: boolean; agentAvailable?: boolean; connections: () => void; copy: (text: string) => void; layout?: TerminalLayout; visibleIds?: string[]; changeLayout?: (layout: TerminalLayout) => void; reorder?: (draggedId: string, targetId: string, after: boolean) => void; commandControls?: ReactNode }) {
+export function TerminalWorkspace({ remoteViews, sessions, activeId, host, select, close, add, filesOpen, toggleFiles, commandCollapsed, toggleCommands, agentCollapsed, toggleAgent, filesAvailable = true, agentAvailable = true, copy, connections, layout = 'single', visibleIds = [activeId], changeLayout, reorder, commandControls, dockControls }: { remoteViews: ReactNode; sessions: TerminalSession[]; activeId: string; host?: Host; select: (id: string) => void; close: (id: string) => void; add: () => void; filesOpen: boolean; toggleFiles: () => void; commandCollapsed: boolean; toggleCommands: () => void; agentCollapsed: boolean; toggleAgent: () => void; filesAvailable?: boolean; agentAvailable?: boolean; connections: () => void; copy: (text: string) => void; layout?: TerminalLayout; visibleIds?: string[]; changeLayout?: (layout: TerminalLayout) => void; reorder?: (draggedId: string, targetId: string, after: boolean) => void; commandControls?: ReactNode; dockControls?: ReactNode }) {
   const active = sessions.find(session => session.id === activeId);
   const dragging = useRef<{ id: string; pointerId: number; x: number; y: number; left: number; top: number; width: number; node: HTMLDivElement; moved: boolean; target: { id: string; after: boolean } | null } | null>(null);
   const suppressClick = useRef(false);
@@ -27,6 +27,7 @@ export function TerminalWorkspace({ remoteViews, sessions, activeId, host, selec
     return () => { window.removeEventListener('blur', cancel); releaseDrag(); };
   }, []);
   return <section className="terminal-workspace" aria-label="终端工作区">
+    {dockControls && <header className="terminal-dock-heading">{dockControls}</header>}
     {dragPreview && createPortal(<div className="terminal-tab-drag-preview" aria-hidden="true"
       style={{ width: dragPreview.width, transform: `translate3d(${dragPreview.left}px, ${dragPreview.top}px, 0)` }}>
       <Icon name="terminal" size={14} /><span>{dragPreview.title}</span></div>, document.body)}

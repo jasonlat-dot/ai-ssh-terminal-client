@@ -268,7 +268,10 @@ test('广播仅接入手工/常用命令入口；Agent 与原始终端交互保�
   }
   findAgent(parsed);
   assert.match(agent, /const currentSession = active;/);
-  assert.match(agent, /const terminalSessionId = currentSession\?\.kind === 'ssh'/);
+  // Rust scopes were introduced before the layout change: keep that single target,
+  // rather than requiring the historical pre-scope implementation string.
+  assert.match(agent, /const terminalSessionId = rustBuiltin[\s\S]*canonicalHistory\?\.session.scope\?\.kind === 'server' \? scopeRuntime\?\.terminalSessionId/);
+  assert.match(agent, /: currentSession\?\.kind === 'ssh' && isSessionConnected\(currentSession\)/);
   assert.doesNotMatch(agent, /submitTerminalCommandBatch|resolveTerminalCommandTargets|commandTargetIds|commandMode/);
   const terminal = source('components/RemoteTerminalView.tsx');
   assert.doesNotMatch(terminal, /terminalBroadcast|submitTerminalCommandBatch/);

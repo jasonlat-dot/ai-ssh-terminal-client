@@ -111,6 +111,7 @@ function ReplyLoading({ message, stopping }: { message: ChatMessage; stopping: b
 }
 
 type HistoryControls = {
+  external?: boolean;
   content?:ReactNode;
   sessions: ClientChatSession[];
   activeSessionId: string;
@@ -257,8 +258,8 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
           <AgentAvatar compact />
           <span><h3>智能体对话</h3><small title={targetLabel}><i className={`status-dot ${scopeControls?.general ? 'general' : connected ? '' : 'offline'}`} />{targetLabel ?? (localTerminal ? '本地 CMD · 未绑定' : host?.name ?? '尚未选择服务器')}</small></span>
         </div>
-        <button type="button" className="agent-history-button" aria-label="历史会话" aria-expanded={history.open}
-          aria-controls="agent-history-list" onClick={history.toggle} disabled={disabled || busy || !agentAvailability.ready}>
+        <button type="button" className="agent-history-button" aria-label={history.external ? '切换会话侧栏' : '历史会话'} aria-expanded={history.external ? undefined : history.open}
+          aria-controls={history.external ? 'workspace-sidebar-content' : 'agent-history-list'} onClick={history.toggle} disabled={!history.external && (disabled || busy || !agentAvailability.ready)}>
           <Icon name="history" size={16} /><span>历史</span>
         </button>
         <button type="button" className="new-agent-session" onClick={() => { clear(); setDraft(''); }} aria-label="新建智能体会话">
@@ -281,7 +282,7 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
         {recoveredRunning && <div className="agent-recovery-controls"><span role="status">{stopping ? '正在确认停止…' : '此请求仍在生成'}</span><button type="button" onClick={refreshCurrent} disabled={stopping || Boolean(history.loadingSessionId)}><Icon name="refresh" size={13} />刷新</button><button type="button" onClick={stopRecovered} disabled={stopping || Boolean(history.loadingSessionId)}><Icon name="stop" size={13} />{stopping ? '正在停止…' : '停止'}</button></div>}
       </>}
 
-      {history.open && <section id="agent-history-list" className="agent-history-popover" aria-label="历史会话列表">
+      {!history.external && history.open && <section id="agent-history-list" className="agent-history-popover" aria-label="历史会话列表">
         <div className="agent-history-heading"><strong>历史会话</strong><button type="button" onClick={history.refresh} disabled={history.loading} aria-label="刷新历史会话"><Icon name="refresh" size={15} /></button></div>
         {history.content ?? <>
         {history.error && <p className="agent-history-note error">{history.error}</p>}

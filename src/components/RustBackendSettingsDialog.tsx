@@ -16,14 +16,16 @@ import { dragAppWindow } from '../state/appWindow';
 import './BackendSettingsDialog.css';
 import './RustPreview.css';
 
+export type RustSettingsSection = 'general' | 'models' | 'appearance' | 'about';
 type Props = {
   currentUrl: string; required?: boolean; onClose: () => void; onSave: (url: string) => void;
   beforeClientUpdate?: () => Promise<void>; showUpdates?: boolean;
   modelsChanged?: () => void; modelSettingsRequested?: boolean; modelSettingsLocked?: boolean;
+  section?: RustSettingsSection;
 };
-export function RustBackendSettingsDialog({required=false,onClose,onSave,showUpdates=false,modelsChanged,modelSettingsRequested=false,modelSettingsLocked=false}:Props) {
+export function RustBackendSettingsDialog({required=false,onClose,onSave,showUpdates=false,modelsChanged,modelSettingsRequested=false,modelSettingsLocked=false,section}:Props) {
   const desktop=isTauriRuntime();
-  const [tab,setTab]=useState<'general'|'models'|'appearance'|'about'>(showUpdates?'about':modelSettingsRequested?'models':'general');
+  const [tab,setTab]=useState<RustSettingsSection>(section??(showUpdates?'about':modelSettingsRequested?'models':'general'));
   const [config,setConfig]=useState<BundledBackendConfig|null>(null);
   const [status,setStatus]=useState<BundledBackendStatus|null>(null);
   const [directory,setDirectory]=useState('');
@@ -34,6 +36,7 @@ export function RustBackendSettingsDialog({required=false,onClose,onSave,showUpd
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState('');
   const [message,setMessage]=useState('');
+  useEffect(()=>{if(section)setTab(section);},[section]);
   useEffect(()=>{if(showUpdates)setTab('about');},[showUpdates]);
   useEffect(()=>{if(modelSettingsRequested)setTab('models');},[modelSettingsRequested]);
   useEffect(()=>{
@@ -75,7 +78,7 @@ export function RustBackendSettingsDialog({required=false,onClose,onSave,showUpd
     try {const result=await setBundledBackendAutoStart(!autoStart);if(result!==null)setAutoStart(result);}
     catch(cause){setError(String(cause));}finally{setBusy(false);}
   };
-  return <main className={'settings-page rust-settings '+(required?'is-standalone':'')} aria-label="Rust 试用版设置">
+  return <main className={'settings-page rust-settings '+(required?'is-standalone ':'')+(section?'main-navigation-settings':'')} aria-label="Rust 试用版设置">
     <header className="settings-topbar" onMouseDown={required?dragAppWindow:undefined}>
       <div className="settings-topbar-left">
         {!required&&<button className="settings-back-button" onClick={onClose}><Icon name="left" size={16}/>返回终端</button>}
@@ -84,12 +87,12 @@ export function RustBackendSettingsDialog({required=false,onClose,onSave,showUpd
       <div className="settings-topbar-right"><Badge tone="success">应用内运行</Badge>{required&&<WindowControls/>}</div>
     </header>
     <div className="settings-body">
-      <aside className="settings-nav" aria-label="设置分类">
+      {section===undefined&&<aside className="settings-nav" aria-label="设置分类">
         <div className="settings-nav-list">
-          {([['general','本地工作区','settings','运行状态与数据存储'],['models','模型设置','bot','连接与生成参数'],['appearance','外观','monitor','主题、字体与配色'],['about','关于试用版','terminal','版本与功能进度']] as const).map(([id,label,icon,caption])=><button key={id} className={'settings-nav-item '+(tab===id?'selected':'')} aria-current={tab===id?'page':undefined} onClick={()=>setTab(id)}><span className="settings-nav-icon"><Icon name={icon} size={17}/></span><span className="settings-nav-text"><strong>{label}</strong><small>{caption}</small></span><Icon name="right" size={12} className="settings-nav-arrow"/></button>)}
+          {([['general','本地工作区','settings','运行状态与数据存储'],['models','模型设置','bot','连接与生成参数'],['appearance','外观','monitor','主题、字体与配色'],['about','关于试用版','terminal','版本与功能进度']] as const).map(([id,label,icon,caption])=><button key={id} aria-label={label} title={label+' · '+caption} className={'settings-nav-item '+(tab===id?'selected':'')} aria-current={tab===id?'page':undefined} onClick={()=>setTab(id)}><span className="settings-nav-icon"><Icon name={icon} size={17}/></span><span className="settings-nav-text"><strong>{label}</strong><small>{caption}</small></span><Icon name="right" size={12} className="settings-nav-arrow"/></button>)}
         </div>
-        <div className="settings-nav-footer"><strong>v{RUST_PREVIEW_VERSION}</strong><small>独立安装 · 独立数据</small></div>
-      </aside>
+        <div className="settings-nav-footer">{!required&&<button type="button" className="settings-rail-back" aria-label="返回终端" title="返回终端" onClick={onClose}><Icon name="left" size={19}/></button>}<strong>v{RUST_PREVIEW_VERSION}</strong><small>独立安装 · 独立数据</small></div>
+      </aside>}
       <div className="settings-content-panel" data-section={tab==='models'?'model':tab}><section className={`settings-content ${tab==='models'?'rust-model-content':''}`} data-section={tab==='models'?'model':tab}>
         {error&&<p className="settings-error" role="alert">{error}</p>}
         {message&&<p className="rust-settings-notice" role="status">{message}</p>}

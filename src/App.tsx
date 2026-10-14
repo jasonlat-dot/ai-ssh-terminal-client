@@ -48,6 +48,7 @@ import { AttachmentPreviews, ChatAttachmentDraft, attachmentReferences, validate
 import { ChatRequestError } from './api/chatErrors';
 import { ActivityBar, AppHeader } from './components/Shell';
 import { RustBackendSettingsDialog as BackendSettingsDialog } from './components/RustBackendSettingsDialog';
+import type { RustSettingsSection } from './components/RustBackendSettingsDialog';
 import { usingRustBuiltinBackend } from './config/rustPreview';
 import { FileUploadDialog } from './components/FileUploadDialog';
 import { FileUploadQueue } from './state/fileUploads';
@@ -71,6 +72,8 @@ import { useApplyClientTypography } from './state/useClientTypography';
 import { StartupUpdatePrompt } from './components/StartupUpdatePrompt';
 import './panel-resize.css';
 import './components/TerminalLayout.css';
+import './components/AgentDesktopLayout.css';
+import { Icon } from './components/Ui';
 
 const RemoteTerminalView = lazy(() => import('./components/RemoteTerminalView').then(module => ({ default: module.RemoteTerminalView })));
 
@@ -90,9 +93,11 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
   const [navigation, setNavigation] = useState<Navigation>('命令');
   const connections = useSshConnections();
   const { hosts } = connections;
-  const [agentWidth, setAgentWidth] = useState(22);
+  const [terminalWidth, setTerminalWidth] = useState(34);
   const [commandWidth, setCommandWidth] = useState(260);
-  const [connectionSidebarWidth, setConnectionSidebarWidth] = useState(() => window.innerWidth <= 1280 ? 194 : 224);
+  const [connectionSidebarWidth, setConnectionSidebarWidth] = useState(() => window.innerWidth <= 1280 ? 240 : 280);
+  const [sshSectionCollapsed, setSshSectionCollapsed] = useState(false);
+  const [terminalDockCollapsed, setTerminalDockCollapsed] = useState(false);
   const [navCollapsed, setNavCollapsed] = useState(true);
   const [connectionSidebarCollapsed, setConnectionSidebarCollapsed] = useState(
     () => localStorage.getItem(CONNECTION_SIDEBAR_COLLAPSED_KEY) === 'true',
@@ -156,10 +161,11 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
   const [disconnectTarget, setDisconnectTarget] = useState<{ tabId: string; host: Host } | null>(null);
   const [dialog, setDialog] = useState<Dialog>(null);
   const [backendSettingsOpen, setBackendSettingsOpen] = useState(false);
+  const [settingsSection, setSettingsSection] = useState<RustSettingsSection>('general');
   const [uploadOpen, setUploadOpen] = useState(false);
   const [uploadQueue] = useState(() => new FileUploadQueue());
   useEffect(() => { uploadQueue.activate(); return () => uploadQueue.deactivate(); }, [uploadQueue]);
-  useEffect(() => { if (updateSettingsRequested) setBackendSettingsOpen(true); }, [updateSettingsRequested]);
+  useEffect(() => { if (updateSettingsRequested) {setSettingsSection('about');setBackendSettingsOpen(true);} }, [updateSettingsRequested]);
   const [attachmentPreviews] = useState(() => new AttachmentPreviews());
   const [chatDraft] = useState(() => new ChatAttachmentDraft(attachmentPreviews));
   const agentComposer = useRef<AgentComposerHandle>(null);
@@ -182,8 +188,8 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
   };
   const [toast, setToast] = useState<Notice | null>(null);
   const noticeSequence = useRef(0);
-  const [commandCollapsed, setCommandCollapsed] = useState(false);
-  const [agentCollapsed, setAgentCollapsed] = useState(rustBuiltin);
+  const [commandCollapsed, setCommandCollapsed] = useState(true);
+  const [agentCollapsed, setAgentCollapsed] = useState(false);
   // 应用关闭流程的全局标志位：避免 Tauri onCloseRequested 与 in-page 关闭按钮、
   // 终端页签关闭等其他路径在快速关窗时重复触发清理。
   const closingApp = useRef(false);
@@ -1445,24 +1451,36 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     }catch(error){notify(error instanceof Error?error.message:'新建项目对话失败','error');}
     finally{scopeSwitchRef.current=false;setScopeSwitching(false);}
   };
-  return <div style={{ '--agent-width': `${agentWidth}%`, '--command-width': `${commandWidth}px`, '--connection-sidebar-width': `${connectionSidebarWidth}px` } as CSSProperties} className={`app-shell ${agentCollapsed ? 'agent-collapsed' : ''} ${navCollapsed ? 'nav-collapsed' : ''} ${connectionSidebarCollapsed ? 'host-sidebar-collapsed' : ''} ${navigation === '连接' ? 'connections-view' : 'terminal-view'} ${backendSettingsOpen ? 'settings-view' : ''}`}>
+  return <div style={{ '--terminal-dock-width': `${terminalWidth}%`, '--command-width': `${commandWidth}px`, '--connection-sidebar-width': `${connectionSidebarWidth}px` } as CSSProperties} className={`app-shell agent-desktop ${terminalDockCollapsed && !agentCollapsed ? 'terminal-dock-collapsed' : ''} ${agentCollapsed ? 'agent-collapsed' : ''} ${navCollapsed ? 'nav-collapsed' : ''} ${connectionSidebarCollapsed ? 'host-sidebar-collapsed' : ''} ${navigation === '连接' ? 'connections-view' : 'terminal-view'} ${backendSettingsOpen ? 'settings-view' : ''}`}>
     <AppHeader notify={notify} theme={theme} setTheme={setTheme} onUpload={() => setUploadOpen(true)} />
-    <ActivityBar active={navigation} onSelect={name => { setBackendSettingsOpen(false); clearUpdateSettingsRequest(); navigate(name); }} onSettings={() => { setModelSettingsRequested(false); clearUpdateSettingsRequest(); setBackendSettingsOpen(value => !value); }} settingsOpen={backendSettingsOpen} collapsed={navCollapsed} toggleCollapsed={() => setNavCollapsed(value => !value)} />
+    <ActivityBar active={navigation} onSelect={name => { setBackendSettingsOpen(false); clearUpdateSettingsRequest(); navigate(name); }} onSettings={() => { setModelSettingsRequested(false); clearUpdateSettingsRequest(); setBackendSettingsOpen(value => !value); }} settingsOpen={backendSettingsOpen} collapsed={navCollapsed} toggleCollapsed={() => setNavCollapsed(value => !value)} settingsSection={settingsSection} onSettingsSection={section=>{setSettingsSection(section);setModelSettingsRequested(false);clearUpdateSettingsRequest();setBackendSettingsOpen(true);}} />
     {backendSettingsOpen && <BackendSettingsDialog currentUrl={backendUrl}
+      section={settingsSection}
       modelsChanged={() => setAgentLoadAttempt(value => value + 1)} modelSettingsRequested={modelSettingsRequested}
       modelSettingsLocked={chatBusy || chatStopping || recoveredRunning}
       onClose={() => { setModelSettingsRequested(false); setBackendSettingsOpen(false); clearUpdateSettingsRequest(); }}
       showUpdates={updateSettingsRequested}
       beforeClientUpdate={prepareForClientUpdate}
       onSave={onBackendChange} />}
-    <ConnectionSidebar connections={{ ...connections, remove: removeHost }} sessions={sessions} connectingHostIds={connectingHostIds} activeHostId={active?.kind === 'ssh' ? active.connectionId : undefined} activeSessionId={activeId} terminal={selectHost} cancelConnection={cancelHostConnection} activate={activateTerminalFromSidebar} create={openNewConnection} collapsed={connectionSidebarCollapsed} toggleCollapsed={() => setConnectionSidebarCollapsed(value => !value)} />
+    <aside className="workspace-sidebar" id="workspace-sidebar-content" aria-label="会话与 SSH 工作区">
+      <header className="workspace-sidebar-heading"><span><Icon name="sidebar" size={16}/><strong>工作区</strong></span><button type="button" className="workspace-sidebar-toggle" aria-label={connectionSidebarCollapsed ? '展开工作区侧栏' : '收起工作区侧栏'} aria-expanded={!connectionSidebarCollapsed} onClick={() => setConnectionSidebarCollapsed(value => !value)}><Icon name={connectionSidebarCollapsed ? 'right' : 'left'} size={16}/></button></header>
+      <section className="workspace-conversations" aria-label="Agent 会话">
+        <header className="workspace-section-heading"><Icon name="history" size={16}/><h2>Agent 会话</h2></header>
+        <ProjectChatHistory hosts={hosts} project={activeProject} sessionId={activeChatSessionId}
+          locked={projectLocked} revision={String(projectRevision)+':'+activeChatSessionId+':'+String(chatBusy)}
+          newChat={p=>void newProjectChat(p)} openChat={(chat,p)=>void openProjectChat(chat,p)}
+          servers={()=>{setSshSectionCollapsed(false);setConnectionSidebarCollapsed(false);setBackendSettingsOpen(false);}}/>
+      </section>
+      <ConnectionSidebar connections={{ ...connections, remove: removeHost }} sessions={sessions} connectingHostIds={connectingHostIds} activeHostId={active?.kind === 'ssh' ? active.connectionId : undefined} activeSessionId={activeId} terminal={id => {setTerminalDockCollapsed(false);selectHost(id);}} cancelConnection={cancelHostConnection} activate={id => {setTerminalDockCollapsed(false);activateTerminalFromSidebar(id);}} create={openNewConnection} collapsed={sshSectionCollapsed} toggleCollapsed={() => setSshSectionCollapsed(value => !value)} embedded />
+    </aside>
     <PanelDivider value={connectionSidebarWidth} change={setConnectionSidebarWidth} side="left" unit="pixels"
-      min={194} max={360} defaultValue={window.innerWidth <= 1280 ? 194 : 224} reservePixels={364}
-      reserveWidthSelectors=".activity-bar, .agent-panel" className="connection-panel-divider" label="调整连接管理宽度"
-      controls="connection-sidebar-content" collapseLabel="连接管理" collapsed={connectionSidebarCollapsed}
+      min={220} max={360} defaultValue={window.innerWidth <= 1280 ? 240 : 280} reservePixels={704}
+      reserveWidthSelectors=".activity-bar" className="connection-panel-divider" label="调整工作区侧栏宽度"
+      controls="workspace-sidebar-content" collapseLabel="工作区侧栏" collapsed={connectionSidebarCollapsed}
       collapse={() => setConnectionSidebarCollapsed(true)} />
-    <main hidden={navigation !== '命令'} className={`central-workspace ${!active ? 'no-session' : ''} ${commandCollapsed ? 'command-collapsed' : ''}`}>
+    <main id="terminal-dock-content" hidden={navigation !== '命令'} className={`central-workspace ${!active ? 'no-session' : ''} ${commandCollapsed ? 'command-collapsed' : ''}`}>
       <TerminalWorkspace
+        dockControls={<><span><Icon name="terminal" size={16}/>SSH 终端</span><div><button type="button" className="terminal-return-chat" aria-label="展开智能体对话" onClick={() => setAgentCollapsed(false)}><Icon name="bot" size={15}/></button><button type="button" aria-label={terminalDockCollapsed ? '展开终端面板' : '收起终端面板'} aria-expanded={!terminalDockCollapsed} onClick={() => {setTerminalDockCollapsed(value => !value);setAgentCollapsed(false);}}><Icon name={terminalDockCollapsed ? 'left' : 'right'} size={16}/></button></div></>}
         commandControls={<TerminalCommandBar mode={commandMode} changeMode={mode => {
           setCommandMode(mode); setBroadcastResult('');
           if (mode === 'selected' && commandMode === 'single' && activeId) setCommandTargetIds(previous => previous.length ? previous : [activeId]);
@@ -1554,8 +1572,8 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
           controls="command-shelf-content" collapseLabel="常用命令" collapsed={commandCollapsed} collapse={() => setCommandCollapsed(true)} />} />
     </main>
     <>
-    <PanelDivider value={agentWidth} change={setAgentWidth} minPixels={300} reservePixels={360} reserveSelector=".central-workspace"
-      controls="agent-panel-content" collapsed={agentCollapsed} collapse={() => setAgentCollapsed(true)} />
+    <PanelDivider value={terminalWidth} change={setTerminalWidth} min={24} max={55} defaultValue={34} minPixels={320} reservePixels={400} reserveWidthSelectors=".activity-bar, .workspace-sidebar"
+      controls="terminal-dock-content" label="调整对话与终端宽度" collapseLabel="终端面板" collapsed={agentCollapsed || terminalDockCollapsed} collapse={() => setTerminalDockCollapsed(true)} />
     <AgentPanel ref={agentComposer} chatDraft={chatDraft} draftScope={chatVersion.current}
       host={chatTargetState.host} connected={activeProject ? projectConnected : chatTargetState.connected}
       localTerminal={chatTargetState.localTerminal} targetLabel={rustBuiltin ? activeProject ? activeProject.name+(projectConnected?' · 服务器任务':' · 离线讨论') : chatTargetState.label : undefined}
@@ -1564,19 +1582,17 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
       disabled={Boolean(activeProject && !activeChatSessionId) || Boolean(historyLoadingId) || chatStopping || recoveredRunning || scopeSwitching}
       models={rustBuiltin ? agentModels : undefined} selectedModel={selectedAgent?.agentId}
       selectModel={id => {if(!chatting.current&&!stopPending.current){const model=agentModels.find(item=>item.agentId===id)??null;if(activeProject&&model)void newProjectChat(activeProject,model);else setSelectedAgent(model);}}}
-      openModelSettings={() => { setModelSettingsRequested(true); setBackendSettingsOpen(true); }}
+      openModelSettings={() => { setSettingsSection('models');setModelSettingsRequested(true); setBackendSettingsOpen(true); }}
       recoveredRunning={recoveredRunning} refreshCurrent={() => { if (activeChatSessionId) void selectChatSession(activeChatSessionId); }}
       stopRecovered={stopRecoveredChat}
       agentAvailability={{ ready: !!selectedAgent && agentModels.some(item=>item.agentId===selectedAgent.agentId) && !agentLoading && !agentLoadError, loading: agentLoading, error: agentLoadError, retry: () => setAgentLoadAttempt(attempt => attempt + 1) }}
       history={{
-        content:rustBuiltin ? <ProjectChatHistory hosts={hosts} project={activeProject} sessionId={activeChatSessionId}
-          locked={projectLocked} revision={String(projectRevision)+':'+activeChatSessionId+':'+String(chatBusy)}
-          newChat={p=>void newProjectChat(p)} openChat={(chat,p)=>void openProjectChat(chat,p)}
-          servers={()=>{setConnectionSidebarCollapsed(false);setBackendSettingsOpen(false);}}/> : undefined,
+        external: rustBuiltin,
 
         sessions: chatSessions, activeSessionId: activeChatSessionId, open: historyOpen,
         loading: historyLoading, loadingSessionId: historyLoadingId, error: historyError,
         toggle: () => {
+          if (rustBuiltin) {setConnectionSidebarCollapsed(value => !value);return;}
           if (!historyOpen && selectedAgent) void refreshChatSessions(selectedAgent.agentId);
           setHistoryOpen(value => !value);
         },

@@ -8,7 +8,7 @@ import { isSessionConnected } from '../state/terminalSessions';
 
 type Props = { connections: ReturnType<typeof useSshConnections>; terminal: (id: string) => void; create: () => void; copy: (value: string) => void };
 
-export function ConnectionSidebar({ connections, sessions, connectingHostIds, activeHostId, activeSessionId, terminal, cancelConnection, activate, create, collapsed, toggleCollapsed }: {
+export function ConnectionSidebar({ connections, sessions, connectingHostIds, activeHostId, activeSessionId, terminal, cancelConnection, activate, create, collapsed, toggleCollapsed, embedded = false }: {
   connections: ReturnType<typeof useSshConnections>;
   sessions: TerminalSession[];
   connectingHostIds: ReadonlySet<string>;
@@ -20,6 +20,7 @@ export function ConnectionSidebar({ connections, sessions, connectingHostIds, ac
   create: () => void;
   collapsed: boolean;
   toggleCollapsed: () => void;
+  embedded?: boolean;
 }) {
   const [query, setQuery] = useState('');
   const [draft, setDraft] = useState<ConnectionDraft | null>(null);
@@ -36,7 +37,7 @@ export function ConnectionSidebar({ connections, sessions, connectingHostIds, ac
       <div className="host-sidebar-heading-actions">
         <IconButton icon="plus" className="host-sidebar-add" label="添加 SSH 连接" disabled={connections.busy} onClick={create} />
         <IconButton icon="refresh" className="host-sidebar-refresh" label="刷新连接列表" disabled={connections.busy} onClick={() => connections.refresh()} />
-        <IconButton icon={collapsed ? 'right' : 'left'} className="host-sidebar-collapse" label={collapsed ? '展开连接列表' : '收起连接列表'} aria-expanded={!collapsed} onClick={toggleCollapsed} />
+        <IconButton icon={embedded ? collapsed ? 'down' : 'up' : collapsed ? 'right' : 'left'} className="host-sidebar-collapse" label={collapsed ? '展开连接列表' : '收起连接列表'} aria-expanded={!collapsed} onClick={toggleCollapsed} />
       </div>
     </header>
     <label className="sidebar-host-search"><Icon name="search" size={14} /><input value={query} onChange={event => setQuery(event.target.value)} placeholder="搜索连接" aria-label="搜索 SSH 连接" /></label>

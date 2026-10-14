@@ -241,3 +241,21 @@ test('范围选择与服务器按钮只触发显式切换，忙碌/离线时锁�
   assert.equal(ui.find(node=>node.props.label==='对话范围').props.disabled,true);
   assert.equal(ui.input().props.value,'');
 });
+
+test('外置会话侧栏在生成时仍可收起，切换不清空草稿、不重复渲染历史弹层', () => {
+  const ui = composer(); let toggles = 0, clears = 0;
+  ui.props.history.external = true;
+  ui.props.history.open = true;
+  ui.props.history.toggle = () => { toggles++; };
+  ui.props.clear = () => { clears++; };
+  ui.change('保留尚未发送的草稿');
+  ui.props.busy = true; ui.render();
+  const toggle = ui.find(node => node.type === 'button' && node.props['aria-label'] === '切换会话侧栏');
+  assert.equal(toggle.props.disabled, false);
+  assert.equal(toggle.props['aria-controls'], 'workspace-sidebar-content');
+  toggle.props.onClick(); ui.render();
+  assert.equal(toggles, 1);
+  assert.equal(clears, 0);
+  assert.equal(ui.input().props.value, '保留尚未发送的草稿');
+  assert.equal(ui.find(node => node.props.id === 'agent-history-list'), undefined);
+});

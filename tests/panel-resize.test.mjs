@@ -177,7 +177,7 @@ test('连接管理边界预留真实导航和 Agent 宽度，左右键方向、�
 test('连接管理拖动复用原侧栏收起状态，不新增网格列，不因 Agent 收起而失效', () => {
   const app = source('App.tsx'), css = source('reference.css'), resize = source('panel-resize.css');
   assert.match(app, /value=\{connectionSidebarWidth\} change=\{setConnectionSidebarWidth\} side="left"/);
-  assert.match(app, /controls="connection-sidebar-content"[\s\S]*collapse=\{\(\) => setConnectionSidebarCollapsed\(true\)\}/);
+  assert.match(app, /controls="workspace-sidebar-content"[\s\S]*collapse=\{\(\) => setConnectionSidebarCollapsed\(true\)\}/);
   assert.match(css, /--host-sidebar-width: var\(--connection-sidebar-width, 224px\)/);
   assert.match(css, /--host-sidebar-width: var\(--connection-sidebar-width, 194px\)/);
   assert.match(css, /\.app-shell\.agent-collapsed > \.panel-divider:not\(\.connection-panel-divider\)/);
@@ -216,13 +216,14 @@ test('双击默认、键盘调整与吸附收起；取消拖动不残留捕获�
   ui.state.collapsed = false; ui.render(); ui.event('onPointerDown'); ui.unmount(); assert.equal(ui.captures.size, 0);
 });
 
-test('折叠智能体不会禁用命令侧栏拖动；只改变面板布局，不卸载会话或对话', () => {
+test('终端面板与会话侧栏只改变布局，不卸载终端、对话或命令组件', () => {
   const app = source('App.tsx'), css = source('reference.css'), resize = source('panel-resize.css');
   assert.match(app, /className="command-panel-divider"[\s\S]*collapse=\{\(\) => setCommandCollapsed\(true\)\}/);
-  assert.match(app, /controls="agent-panel-content"[\s\S]*collapse=\{\(\) => setAgentCollapsed\(true\)\}/);
+  assert.match(app, /controls="terminal-dock-content"[\s\S]*collapse=\{\(\) => setTerminalDockCollapsed\(true\)\}/);
   assert.match(css, /\.app-shell\.agent-collapsed > \.panel-divider/);
   assert.doesNotMatch(css, /\.app-shell\.agent-collapsed \.panel-divider/);
   assert.match(resize, /var\(--command-width, 260px\)/);
   assert.match(resize, /\.command-shelf\.collapsed > \.command-panel-divider/);
   assert.doesNotMatch(app, /!agentCollapsed && <AgentPanel|!commandCollapsed && <CommandShelf/);
+  assert.doesNotMatch(app, /!terminalDockCollapsed && <TerminalWorkspace|!connectionSidebarCollapsed && <ProjectChatHistory/);
 });
