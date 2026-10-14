@@ -4,6 +4,8 @@ export class ChatRequestError extends Error {
 }
 export function chatErrorGuidance(code?: string): string {
   switch (code) {
+    case 'MODEL_CONTEXT_BINDING_CHANGED': return '此会话保存的模型上下文与当前接口、模型或密钥不一致，请使用原配置或新建会话。';
+    case 'MODEL_RESPONSES_UNSUPPORTED': return '供应商不支持所需的 Responses 输入计数或远端整理接口，请检查协议和供应商能力。';
     case 'MODEL_CREDENTIALS': return '请打开模型设置，配置或重新保存 API Key。';
     case 'MODEL_CONTEXT_LIMIT':
     case 'AGENT_HISTORY_LIMIT': return '当前输入与保留上下文超过模型容量，请缩短输入、新建会话或检查模型窗口设置。';

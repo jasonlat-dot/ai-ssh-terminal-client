@@ -2,7 +2,7 @@ import { builtinRequest } from './builtin';
 import { sshUserId } from './ssh';
 
 export type ModelConfig = {
-  provider: 'openAiCompatible'; baseUrl: string; completionsPath: string; model: string;
+  provider: 'openAiCompatible'|'openAiResponses'; remoteCompaction?: boolean; baseUrl: string; completionsPath: string; model: string;
   contextWindow: number; outputReserve: number; safetyReserve: number; compactPercent: number;
   outputTokenParameter: 'maxCompletionTokens' | 'maxTokens';
   capabilities: { toolCalls: boolean; developerRole: boolean; temperature: boolean; reasoningEffort: boolean; vision: boolean };
@@ -12,7 +12,7 @@ export type ModelConfig = {
 export type ModelProfile = { id: string; displayName?: string; revision: number; config: ModelConfig; apiKeyConfigured: boolean; ready: boolean };
 export type KeyChange = { action: 'keep'|'clear' } | { action: 'set'; value: string };
 export const newModelConfig = (): ModelConfig => ({
-  provider: 'openAiCompatible', baseUrl: '', completionsPath: 'chat/completions', model: '',
+  provider: 'openAiCompatible', remoteCompaction: false, baseUrl: '', completionsPath: 'chat/completions', model: '',
   contextWindow: 8192, outputReserve: 1024, safetyReserve: 512, compactPercent: 75,
   outputTokenParameter: 'maxCompletionTokens',
   capabilities: { toolCalls: false, developerRole: false, temperature: false, reasoningEffort: false, vision: false },

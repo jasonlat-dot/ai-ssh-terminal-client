@@ -209,6 +209,7 @@ fn save_test_model(services: &Services, base_url: String) {
     use shellpilot_server::agent::provider::*;
     let config = ModelConfig {
         provider: ProviderKind::OpenAiCompatible,
+        remote_compaction: false,
         base_url,
         completions_path: "chat/completions".into(),
         model: "mock-model".into(),
@@ -1214,6 +1215,230 @@ async fn c2_native_stop_during_summary_works_before_any_text_frame_or_turn_admis
         .await
         .unwrap();
     assert_eq!(b5_stop(services.clone(), &session, "c2-stop").await, true);
+    let error = b5_frame(&mut frames).await;
+    assert_eq!(error["sequence"], 0);
+    assert_eq!(error["payload"]["code"], "AGENT_CANCELLED");
+    assert_eq!(run.await.unwrap().unwrap_err().code, "AGENT_CANCELLED");
+    let history = b5_history(services.clone(), &session).await;
+    assert!(history["session"]["checkpointId"].is_null());
+    assert_eq!(history["turns"].as_array().unwrap().len(), 8);
+    assert_eq!(model.summaries.load(Ordering::SeqCst), 1);
+    assert_eq!(model.streams.load(Ordering::SeqCst), 8);
+    model.release.notify_one();
+    services.shutdown().await;
+    server.abort();
+}
+
+// C3 keeps provider windows inside Rust; Channel only carries visible text and final state.
+async fn c3_model_server() -> (String, Arc<C2Model>, tokio::task::JoinHandle<()>) {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}/v1/", listener.local_addr().unwrap());
+    let state = Arc::new(C2Model {
+        summaries: AtomicU64::new(0),
+        streams: AtomicU64::new(0),
+        hold: std::sync::atomic::AtomicBool::new(false),
+        arrived: tokio::sync::Notify::new(),
+        release: tokio::sync::Notify::new(),
+    });
+    let handle = |axum::extract::State(state): axum::extract::State<Arc<C2Model>>,
+                  uri: axum::http::Uri,
+                  axum::Json(body): axum::Json<Value>| async move {
+        assert!(body.get("tools").is_none());
+        let value = if uri.path().ends_with("input_tokens") {
+            let cost = body["input"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|item| {
+                    if item["type"] == "compaction" {
+                        return 100;
+                    }
+                    let n = if let Some(s) = item["content"].as_str() {
+                        s.len()
+                    } else {
+                        item["content"].as_array().map_or(0, |parts| {
+                            parts
+                                .iter()
+                                .map(|p| p["text"].as_str().map_or(0, str::len))
+                                .sum()
+                        })
+                    };
+                    n.div_ceil(3) as u64 + 12
+                })
+                .sum::<u64>()
+                + body["instructions"]
+                    .as_str()
+                    .map_or(0, |s| s.len().div_ceil(3)) as u64;
+            json!({"object":"response.input_tokens","input_tokens":cost})
+        } else if uri.path().ends_with("compact") {
+            state.summaries.fetch_add(1, Ordering::SeqCst);
+            state.arrived.notify_one();
+            if state.hold.load(Ordering::SeqCst) {
+                state.release.notified().await;
+            }
+            json!({"object":"response.compaction","output":[
+                {"id":"retained-user","type":"message","role":"user","content":[{"type":"input_text","text":"保留的原问题"}]},
+                {"id":"native-compact","type":"compaction","encrypted_content":"native-opaque-do-not-display"}]})
+        } else {
+            assert_eq!(body["store"], false);
+            assert_eq!(body["truncation"], "disabled");
+            state.streams.fetch_add(1, Ordering::SeqCst);
+            let item = json!({"id":"native-message","type":"message","role":"assistant","status":"completed",
+                "content":[{"type":"output_text","text":"a".repeat(1000),"annotations":[]}]});
+            let events = vec![
+                json!({"type":"response.created","response":{"id":"native-response","status":"in_progress"}}),
+                json!({"type":"response.output_item.added","output_index":0,
+                    "item":{"id":"native-message","type":"message","role":"assistant","status":"in_progress","content":[]}}),
+                json!({"type":"response.output_text.delta","output_index":0,"content_index":0,"item_id":"native-message","delta":"a".repeat(1000)}),
+                json!({"type":"response.output_item.done","output_index":0,"item":item}),
+                json!({"type":"response.completed","response":{"id":"native-response","object":"response","status":"completed","output":[item],
+                    "usage":{"input_tokens":100,"output_tokens":25,"total_tokens":125}}}),
+            ];
+            let data: String = events
+                .into_iter()
+                .enumerate()
+                .map(|(i, mut event)| {
+                    event["sequence_number"] = json!(i);
+                    format!("data: {event}\n\n")
+                })
+                .collect();
+            return axum::response::Response::builder()
+                .header("content-type", "text/event-stream")
+                .body(axum::body::Body::from(data))
+                .unwrap();
+        };
+        axum::response::Response::builder()
+            .header("content-type", "application/json")
+            .body(axum::body::Body::from(value.to_string()))
+            .unwrap()
+    };
+    let router = axum::Router::new()
+        .route("/v1/responses", axum::routing::post(handle))
+        .route("/v1/responses/compact", axum::routing::post(handle))
+        .route("/v1/responses/input_tokens", axum::routing::post(handle))
+        .with_state(state.clone());
+    let server = tokio::spawn(async move {
+        axum::serve(listener, router).await.unwrap();
+    });
+    (base, state, server)
+}
+async fn c3_seed(services: Arc<Services>, base: String) -> String {
+    save_test_model(&services, base);
+    let profile = dispatch(
+        services.clone(),
+        "agent/models",
+        "GET",
+        Value::Null,
+        json!({"userId":"default"}),
+    )
+    .await
+    .unwrap();
+    let mut config = profile[0]["config"].clone();
+    config["contextWindow"] = json!(32768);
+    config["provider"] = json!("openAiResponses");
+    config["completionsPath"] = json!("responses");
+    config["remoteCompaction"] = json!(true);
+    dispatch(
+        services.clone(),
+        "agent/models",
+        "POST",
+        json!({"id":"model","userId":"default","revision":profile[0]["revision"],
+        "update":{"config":config,"apiKey":{"action":"keep"}}}),
+        Value::Null,
+    )
+    .await
+    .unwrap();
+    let session = services
+        .agent
+        .create_session("model".into(), "default".into())
+        .await
+        .unwrap();
+    for i in 0..8 {
+        let message = if i == 0 {
+            "只读解释日志".into()
+        } else {
+            "u".repeat(1000)
+        };
+        services
+            .agent
+            .chat(
+                b5_request(&session, &format!("c3-seed-{i}"), &message),
+                None,
+                &CancellationToken::new(),
+                |_| async { Ok(()) },
+            )
+            .await
+            .unwrap();
+    }
+    let profile = dispatch(
+        services.clone(),
+        "agent/models",
+        "GET",
+        Value::Null,
+        json!({"userId":"default"}),
+    )
+    .await
+    .unwrap();
+    let mut config = profile[0]["config"].clone();
+    config["contextWindow"] = json!(8192);
+    config["compactPercent"] = json!(60);
+    dispatch(
+        services.clone(),
+        "agent/models",
+        "POST",
+        json!({"id":"model","userId":"default","revision":profile[0]["revision"],
+        "update":{"config":config,"apiKey":{"action":"keep"}}}),
+        Value::Null,
+    )
+    .await
+    .unwrap();
+    session
+}
+#[tokio::test]
+async fn c3_compaction_flows_through_native_channel_and_preserves_visible_history() {
+    let (_dir, services) = services().await;
+    let (base, model, server) = c3_model_server().await;
+    let session = c3_seed(services.clone(), base).await;
+    let request = b5_request(&session, "c3-native", "最新问题");
+    let (sub, mut frames, run) = b5_start(services.clone(), request);
+    let text = b5_frame(&mut frames).await;
+    assert_eq!(text["requestId"], "c3-native");
+    assert_eq!(text["payload"]["event"], "text");
+    assert_eq!(text["payload"]["content"], "a".repeat(1000));
+    acknowledge(&sub, text["sequence"].as_u64().unwrap());
+    let done = b5_frame(&mut frames).await;
+    assert_eq!(done["payload"]["event"], "done");
+    acknowledge(&sub, done["sequence"].as_u64().unwrap());
+    run.await.unwrap().unwrap();
+    assert_eq!(model.summaries.load(Ordering::SeqCst), 1);
+    assert_eq!(model.streams.load(Ordering::SeqCst), 9);
+    let history = b5_history(services.clone(), &session).await;
+    assert!(history["session"]["checkpointId"].is_string());
+    assert_eq!(history["turns"].as_array().unwrap().len(), 9);
+    assert!(history["turns"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|turn| turn["state"] == "completed"));
+    assert_eq!(history["turns"][8]["requestId"], "c3-native");
+    assert!(!history.to_string().contains("native-opaque-do-not-display"));
+    services.shutdown().await;
+    server.abort();
+}
+#[tokio::test]
+async fn c3_native_stop_during_summary_works_before_any_text_frame_or_turn_admission() {
+    let (_dir, services) = services().await;
+    let (base, model, server) = c3_model_server().await;
+    let session = c3_seed(services.clone(), base).await;
+    model.hold.store(true, Ordering::SeqCst);
+    let (_, mut frames, run) = b5_start(
+        services.clone(),
+        b5_request(&session, "c3-stop", "最新问题"),
+    );
+    tokio::time::timeout(Duration::from_secs(3), model.arrived.notified())
+        .await
+        .unwrap();
+    assert_eq!(b5_stop(services.clone(), &session, "c3-stop").await, true);
     let error = b5_frame(&mut frames).await;
     assert_eq!(error["sequence"], 0);
     assert_eq!(error["payload"]["code"], "AGENT_CANCELLED");

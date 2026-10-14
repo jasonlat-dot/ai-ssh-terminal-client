@@ -72,3 +72,8 @@
 
 .agent-recovery-controls button { display: inline-flex; align-items: center; justify-content: center; gap: 4px; color: var(--text); }
 .agent-recovery-controls button:disabled { opacity: .55; cursor: not-allowed; }
+
+.model-protocol-card > .settings-control { margin-top: 12px; width: 100%; border-color: var(--settings-blue); color: var(--settings-blue-text); background: var(--settings-tag-bg); }
+.model-auth-toggle.settings-field { margin-bottom: 0; align-items: flex-start; flex-direction: row; }
+.model-auth-toggle.settings-field > div { min-width: 0; overflow-wrap: anywhere; }
+.model-auth-toggle.settings-field p { line-height: 1.6; }
