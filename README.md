@@ -23,6 +23,8 @@ npm run dev
 
 使用桌面开发模式时，将最后一行替换为 `npm run tauri dev`。
 
+开发工具需要 Node 20.19+ 或 22.12+（包括 Node 24）。dev、tauri、build 和 preview 命令会先检查当前 Node；版本不足时，自动查找 PATH 或本机已有的 Codex Node 运行时，仅为本次命令调整子进程 PATH，不改系统 Node。找不到兼容版本会提前给出明确提示。也可通过环境变量 SHELLPILOT_NODE 指定兼容 node.exe 的完整路径；无须修改项目中的绝对路径。
+
 若出现 `Failed to resolve import "rehype-highlight"` 或 `"remend"`，说明本地没有安装到新增的 Markdown 依赖。它们已经记录在 `package.json` 和 `package-lock.json` 中，执行上面的安装命令即可，不需要修改 import。安装后可用 `npm ls rehype-highlight remend --depth=0` 确认；若 Vite 仍保留旧的依赖缓存，可用 `npm run dev -- --force` 重新启动。
 
 代码块右上角的“复制文本”在生成中也可使用，复制点击时已显示的代码正文，不含语言标签、Markdown 围栏或高亮标签；后续生成不会修改已复制的内容。工具结果展开后可分别“复制命令”“复制输出”，整条回复仍在完成后提供 Markdown 复制。
