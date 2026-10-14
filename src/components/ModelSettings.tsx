@@ -5,6 +5,7 @@ import type { KeyChange, ModelConfig, ModelProfile } from '../api/models';
 import { AccentIcon, Badge, Icon, Toggle } from './Ui';
 import type { AccentTone, IconName } from './Ui';
 import { Select } from './Select';
+import { TokenBudgetInput } from './TokenBudgetInput';
 import './ModelSettings.css';
 
 function ModelField({ id, label, hint, children, wide = false, badge, icon, tone = 'blue' }: { id:string; label:string; hint?:string; children:ReactNode; wide?:boolean; badge?:string; icon?:IconName; tone?:AccentTone }) {
@@ -110,8 +111,8 @@ export function ModelSettings({ changed, locked = false }: { changed?: () => voi
             <section className="model-form-section"><div className="model-section-title"><AccentIcon icon="signal" tone="violet" size={17}/><h4>接口与生成</h4><Badge tone="violet" icon="settings">参数</Badge></div><div className="settings-fields-grid">
               <ModelField id="model-path" label="接口相对路径" hint="与基础地址拼接，避免重复 /v1。"><input id="model-path" className="settings-control settings-control-mono" value={config.completionsPath} onChange={e => field('completionsPath', e.target.value)} /></ModelField>
               <ModelField id="model-token-param" label="输出参数">{config.provider === 'openAiResponses' ? <input id="model-token-param" className="settings-control settings-control-mono" value="max_output_tokens" readOnly /> : <Select id="model-token-param" label="输出参数" className="settings-control" value={config.outputTokenParameter} disabled={disabled} options={[{value:'maxCompletionTokens',label:'max_completion_tokens'},{value:'maxTokens',label:'max_tokens'}]} onChange={value => field('outputTokenParameter', value)}/>}</ModelField>
-              <ModelField id="model-window" label="上下文窗口" badge="TOKENS" tone="blue" hint="按供应商说明填写"><input id="model-window" className="settings-control" type="number" min={256} max={16777216} value={config.contextWindow} onChange={e => field('contextWindow', Number(e.target.value))} /></ModelField>
-              <ModelField id="model-output" label="最大输出" badge="TOKENS" tone="blue" hint="为本次回复预留"><input id="model-output" className="settings-control" type="number" min={1} value={config.outputReserve} onChange={e => field('outputReserve', Number(e.target.value))} /></ModelField>
+              <ModelField id="model-window" label="上下文窗口" badge="TOKENS" tone="blue" hint="选择常用档位或直接输入，以供应商上限为准。"><TokenBudgetInput id="model-window" label="上下文窗口" kind="context" value={config.contextWindow} disabled={disabled} onChange={value => field('contextWindow', value)} /></ModelField>
+              <ModelField id="model-output" label="最大输出" badge="TOKENS" tone="blue" hint="为本次回复预留，不超过模型的输出上限。"><TokenBudgetInput id="model-output" label="最大输出" kind="output" value={config.outputReserve} disabled={disabled} onChange={value => field('outputReserve', value)} /></ModelField>
               <ModelField id="model-timeout" label="请求超时（秒）"><input id="model-timeout" className="settings-control" type="number" min={1} max={600} value={config.timeoutSeconds} onChange={e => field('timeoutSeconds', Number(e.target.value))} /></ModelField>
               <ModelField id="model-response" label="最大响应（bytes）"><input id="model-response" className="settings-control" type="number" min={1024} max={8388608} value={config.maxResponseBytes} onChange={e => field('maxResponseBytes', Number(e.target.value))} /></ModelField>
             </div></section>
