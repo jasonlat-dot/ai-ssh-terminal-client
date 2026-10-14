@@ -165,3 +165,71 @@ test('Cached native done preserves JSON replies and native text preserves code t
   await agentApi.chatStream(body,e=>events.push(e));
   assert.deepEqual(events,[{event:'text',content:code},{event:'done',content:jsonReply}]);
 });
+
+test('Stopping one subscription leaves a sibling session active and ignores old late callbacks',async()=>{
+  const runs=new Map<string,ReturnType<typeof pending>>();
+  const subscriptions=new Map<string,any>();const cancellations:string[]=[];
+  const firstEvents:AgentStreamEvent[]=[];const secondEvents:AgentStreamEvent[]=[];
+  harness((command,args)=>{
+    if(command==='builtin_agent_subscribe'){
+      const run=pending();runs.set(args.request.requestId,run);subscriptions.set(args.request.requestId,args);
+      return run.promise;
+    }
+    if(command==='builtin_cancel')cancellations.push(args.requestId);
+    return Promise.resolve();
+  });
+  const abort=new AbortController();
+  const first=agentApi.chatStream({...body,requestId:'first'},e=>firstEvents.push(e),abort.signal);
+  const firstSettled=assert.rejects(first,{name:'AbortError'});
+  const second=agentApi.chatStream({...body,requestId:'second',sessionId:'sibling'},e=>secondEvents.push(e));
+  abort.abort();
+  subscriptions.get('first').onEvent.onmessage({sequence:1,requestId:'first',payload:{event:'done',content:'late old reply'}});
+  const sibling=subscriptions.get('second');
+  sibling.onEvent.onmessage({sequence:1,requestId:'second',payload:{event:'text',content:'sibling reply'}});
+  sibling.onEvent.onmessage({sequence:2,requestId:'second',payload:{event:'done',content:'sibling reply'}});
+  runs.get('first')!.resolve();runs.get('second')!.resolve();
+  await firstSettled;await second;
+  assert.deepEqual(firstEvents,[]);
+  assert.deepEqual(secondEvents,[{event:'text',content:'sibling reply'},{event:'done',content:'sibling reply'}]);
+  assert.deepEqual(cancellations,[subscriptions.get('first').streamId]);
+});
+
+test('A completion that wins a targeted stop stays completed and the next request has its own ID',async()=>{
+  const requests:string[]=[];const received:AgentStreamEvent[]=[];
+  harness((command,args)=>{
+    if(command==='builtin_agent_subscribe'){
+      requests.push(args.request.requestId);
+      args.onEvent.onmessage({sequence:1,requestId:args.request.requestId,payload:{event:'done',content:'committed reply'}});
+    }
+    if(command==='builtin_request'){
+      assert.equal(args.request.endpoint,'agent/stop_chat');
+      assert.equal(args.request.body.requestId,'completed');
+      return Promise.resolve(false);
+    }
+    return Promise.resolve();
+  });
+  const completed=agentApi.chatStream({...body,requestId:'completed'},e=>received.push(e));
+  assert.equal(await agentApi.stopChat('model','chat',undefined,'completed'),false);
+  await completed;
+  await agentApi.chatStream({...body,requestId:'explicit-next'},()=>{});
+  assert.deepEqual(received,[{event:'done',content:'committed reply'}]);
+  assert.deepEqual(requests,['completed','explicit-next']);
+});
+
+test('Protocol failure after text retains only partial events and rejects a late success marker',async()=>{
+  const received:AgentStreamEvent[]=[];let channel:any;let cancelled=0;
+  harness((command,args)=>{
+    if(command==='builtin_cancel')cancelled++;
+    if(command==='builtin_agent_subscribe'){
+      channel=args.onEvent;
+      channel.onmessage({sequence:1,requestId:body.requestId,payload:{event:'text',content:'partial evidence'}});
+      channel.onmessage({sequence:0,requestId:body.requestId,payload:{event:'error',content:'模型协议无效',code:'MODEL_PROTOCOL_FAILED'}});
+      channel.onmessage({sequence:2,requestId:body.requestId,payload:{event:'done',content:'incorrect success'}});
+    }
+    return Promise.resolve();
+  });
+  await assert.rejects(agentApi.chatStream(body,e=>received.push(e)),e=>e instanceof ChatRequestError&&e.code==='MODEL_PROTOCOL_FAILED');
+  channel.onmessage({sequence:3,requestId:body.requestId,payload:{event:'text',content:'late'}});
+  assert.deepEqual(received,[{event:'text',content:'partial evidence'},{event:'error',content:'模型协议无效',code:'MODEL_PROTOCOL_FAILED'}]);
+  assert.equal(cancelled,1);
+});

@@ -267,7 +267,7 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
         <div className="agent-model-controls"><div className="agent-model-picker"><Select label="对话模型" value={selectedModel ?? ''} disabled={busy || stopping || disabled || !models.length} options={models.length ? models.map(model => ({value:model.agentId,label:`${model.agentName}${model.modelName ? ` · ${model.modelName}` : ''}`})) : [{value:'',label:'请先添加模型'}]} onChange={value => selectModel?.(value)}/></div>
           <button className="agent-model-settings-button" type="button" aria-label="模型设置" title="模型设置" onClick={openModelSettings}><Icon name="settings" size={16}/></button></div>
         <div className="agent-mode-note"><i/>文本对话<span>·</span>工具和附件将在后续接入</div>
-        {recoveredRunning && <div className="agent-recovery-controls"><span>此请求仍在生成</span><button type="button" onClick={refreshCurrent}>刷新</button><button type="button" onClick={stopRecovered}>停止</button></div>}
+        {recoveredRunning && <div className="agent-recovery-controls"><span role="status">{stopping ? '正在确认停止…' : '此请求仍在生成'}</span><button type="button" onClick={refreshCurrent} disabled={stopping || Boolean(history.loadingSessionId)}><Icon name="refresh" size={13} />刷新</button><button type="button" onClick={stopRecovered} disabled={stopping || Boolean(history.loadingSessionId)}><Icon name="stop" size={13} />{stopping ? '正在停止…' : '停止'}</button></div>}
       </>}
 
       {history.open && <section id="agent-history-list" className="agent-history-popover" aria-label="历史会话列表">

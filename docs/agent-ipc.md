@@ -19,3 +19,11 @@ cargo test --manifest-path src-tauri/Cargo.toml --offline --lib backend_ipc::tes
 ```
 
 最新 B4 验证：前端 37/37、原生 IPC 11/11、TypeScript 和前端生产构建通过。原生测试仅访问回环模型/SSH 协议夹具，不使用真实 API Key 或用户服务器；完整 GUI 验证仍待后续阶段。
+
+## B5 验证（2026-10-14）
+
+已补齐回环模型协议 → 原生 dispatch/agent_stream/ACK → SQLite 的停止、续聊、中断与关闭重开测试；前端补取消隔离、迟到回调、恢复请求和草稿保护回归。历史恢复生成的停止操作现有明确等待状态、防重入和 5 秒确认超时，随后以 SQLite 历史为准。模型设置及名称/密钥身份关系保持不变。
+
+验证：原生 IPC 15 项、前端相关 48 项、TypeScript/Vite 构建通过；Rust 库相关 55 项与 Clippy -D warnings 通过。产品不新增监听端口，测试 HTTP 端口仅模拟模型供应商。
+
+本轮 Tabbit 路由不可用；用户要求不处理该项。组件回归不是完整 WebView 截图验收，真实明暗主题/窄面板检查留待 E6。完整验证证据见兄弟 Rust 库 docs/AGENT_PROGRESS.md 的 B5 完成记录。本轮未提交、推送或打包。

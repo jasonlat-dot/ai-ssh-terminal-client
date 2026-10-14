@@ -56,6 +56,7 @@ function composer({ upload = async file => result(file), send = async () => true
     if (name === '../state/chatAttachments') return api;
     if (name.endsWith('.png')) return 'robot.png';
     if (name === './Ui') return { AccentIcon: leaf, Badge: leaf, Icon: leaf };
+    if (name === './Select') return { Select: leaf };
     if (name === './MarkdownMessage') return { MarkdownMessage: leaf };
     if (name === './CopyMarkdownButton') return { CopyMarkdownButton: leaf };
     if (name === './CopyTextButton') return { CopyTextButton: leaf };
@@ -64,7 +65,8 @@ function composer({ upload = async file => result(file), send = async () => true
     if (name === '../state/chatMarkdown') return {};
     throw new Error(name);
   }, { requestAnimationFrame: callback => frames.push(callback), window: { addEventListener() {}, removeEventListener() {} } });
-  function find(predicate, node = tree) {
+  function find(predicate, node) {
+    if (arguments.length === 1) node = tree;
     if (Array.isArray(node)) { for (const child of node) { const found = find(predicate, child); if (found) return found; } return; }
     if (!node?.props) return;
     if (predicate(node)) return node;
@@ -160,4 +162,46 @@ test('本地与 SSH 共用选区入口，读取 xterm 选区而非页面选择�
   assert.match(app, /setAgentCollapsed\(false\)/);
   const handler = terminal.match(/const addSelectionToAgent = [\s\S]*?\n  };/)?.[0];
   assert.ok(handler); assert.doesNotMatch(handler, /\.paste\(|\.write\(|\.send\(/);
+});
+
+test('恢复中的原生会话禁止发送，刷新和停止只调用显式入口；停止等待期间禁止重复操作', () => {
+  const ui = composer(); let stops = 0, refreshes = 0;
+  ui.props.models = [{agentId:'model',agentName:'日常模型',modelName:'test'}];
+  ui.props.selectedModel = 'model'; ui.props.recoveredRunning = true; ui.props.disabled = true;
+  ui.props.stopRecovered = () => { stops++; }; ui.props.refreshCurrent = () => { refreshes++; };
+  ui.render();
+  assert.equal(ui.input().props.disabled, true);
+  const controls = ui.find(node => node.props.className === 'agent-recovery-controls');
+  assert.ok(controls);
+  const refresh = ui.find(node => node.type === 'button' && node.props.onClick === ui.props.refreshCurrent);
+  const stop = ui.find(node => node.type === 'button' && node.props.onClick === ui.props.stopRecovered);
+  assert.equal(!!refresh.props.disabled, false); assert.equal(!!stop.props.disabled, false);
+  refresh.props.onClick(); stop.props.onClick(); assert.equal(refreshes,1); assert.equal(stops,1);
+  ui.props.stopping = true; ui.render();
+  assert.equal(ui.find(node => node.props.onClick === ui.props.stopRecovered).props.disabled,true);
+  assert.equal(ui.find(node => node.props.onClick === ui.props.refreshCurrent).props.disabled,true);
+});
+
+test('停止后可恢复原请求而不自动发送；已有草稿不会被覆盖，新请求成功才清空', async () => {
+  let sends = 0; const ui = composer({send:async text => { sends++; assert.equal(text,'原始问题'); return true; }});
+  ui.props.models = [{agentId:'model',agentName:'模型'}];
+  ui.props.messages = [{id:'r:user',role:'user',text:'原始问题'},
+    {id:'r',role:'assistant',text:'部分回复',summary:'已停止生成。'}];
+  ui.render();
+  const restore = () => ui.find(node => node.props.className === 'chat-restore-request');
+  ui.change('当前草稿'); restore().props.onClick(); ui.render();
+  assert.equal(ui.input().props.value,'当前草稿'); assert.equal(sends,0);
+  assert.ok(ui.find(node => node.props.className === 'composer-attachment-error'));
+  ui.change(''); restore().props.onClick(); ui.render();
+  assert.equal(ui.input().props.value,'原始问题'); assert.equal(sends,0);
+  await ui.submit(); assert.equal(sends,1); assert.equal(ui.input().props.value,'');
+});
+
+test('切换会话后旧发送回执不能清空新草稿或锁住新会话', async () => {
+  let finish; const ui = composer({send:() => new Promise(resolve => { finish=resolve; })});
+  ui.change('旧会话请求'); await ui.submit();
+  ui.props.draftScope=2; ui.props.history.activeSessionId='new-session'; ui.render(); ui.render();
+  ui.change('新会话草稿');
+  finish(true); await ui.settle();
+  assert.equal(ui.input().props.value,'新会话草稿'); assert.equal(ui.input().props.disabled,false);
 });

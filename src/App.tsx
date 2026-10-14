@@ -1234,6 +1234,32 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
       setChatStopping(false);
     }
   };
+  const stopRecoveredChat = async () => {
+    if (stopPending.current || chatting.current || historyLoadingId || !selectedAgent) return;
+    const turn = canonicalHistory?.turns.find(item => item.state === 'running');
+    const sessionId = activeChatSessionId;
+    if (!turn || !sessionId) return;
+    // Capture this exact turn before awaiting; a later session selection must not redirect the stop.
+    const agentId = selectedAgent.agentId;
+    const version = chatVersion.current;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5_000);
+    stopPending.current = true;
+    setChatStopping(true);
+    try {
+      await agentApi.stopChat(agentId, sessionId, controller.signal, turn.requestId);
+    } catch (error) {
+      if (version === chatVersion.current) {
+        notify(error instanceof Error ? error.message : '停止尚未确认，请刷新历史查看状态。', 'error');
+      }
+    } finally {
+      clearTimeout(timeout);
+      stopPending.current = false;
+      setChatStopping(false);
+    }
+    // A false stop receipt may mean completion won the race. SQLite decides the displayed state.
+    if (version === chatVersion.current) await selectChatSession(sessionId);
+  };
   const clearChat = () => {
     const previousSessionId = chatSessionId.current;
     const previousAgentId = selectedAgent?.agentId;
@@ -1444,7 +1470,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
       selectModel={id => { if (!chatting.current && !stopPending.current) setSelectedAgent(agentModels.find(model => model.agentId === id) ?? null); }}
       openModelSettings={() => { setModelSettingsRequested(true); setBackendSettingsOpen(true); }}
       recoveredRunning={recoveredRunning} refreshCurrent={() => { if (activeChatSessionId) void selectChatSession(activeChatSessionId); }}
-      stopRecovered={() => { const turn = canonicalHistory?.turns.find(t => t.state === 'running'); const sessionId = activeChatSessionId; const version = chatVersion.current; if (turn && selectedAgent) void agentApi.stopChat(selectedAgent.agentId, sessionId, undefined, turn.requestId).then(() => { if (version === chatVersion.current) return selectChatSession(sessionId); }).catch(e => { if (version === chatVersion.current) notify(e.message, 'error'); }); }}
+      stopRecovered={stopRecoveredChat}
       agentAvailability={{ ready: !!selectedAgent && !agentLoading && !agentLoadError, loading: agentLoading, error: agentLoadError, retry: () => setAgentLoadAttempt(attempt => attempt + 1) }}
       history={{
         sessions: chatSessions, activeSessionId: activeChatSessionId, open: historyOpen,

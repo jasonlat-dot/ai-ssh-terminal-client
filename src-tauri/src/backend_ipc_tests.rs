@@ -765,3 +765,296 @@ async fn cancelling_before_a_subscription_starts_never_opens_or_retries_an_ssh_s
     .unwrap();
     services.shutdown().await;
 }
+
+// B5: real loopback model HTTP feeds the same native dispatch/Channel functions used by Tauri.
+// No ShellPilot HTTP service, user credentials, SSH connection or production database is used.
+async fn b5_model_server() -> (String, Arc<Mutex<Vec<Value>>>, tokio::task::JoinHandle<()>) {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}/v1/", listener.local_addr().unwrap());
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let captured = requests.clone();
+    let router = axum::Router::new().route(
+        "/v1/chat/completions",
+        axum::routing::post(move |axum::Json(request): axum::Json<Value>| {
+            let captured = captured.clone();
+            async move {
+                let mode = request["messages"].as_array().unwrap().last().unwrap()["content"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned();
+                captured.lock().unwrap().push(request);
+                let first = format!(
+                    "data: {}\r\n\r\n",
+                    json!({"choices":[{"index":0,"delta":{"content":"汉🙂"},"finish_reason":null}]})
+                );
+                let finish = if mode == "broken" {
+                    "data: {provider-private-error\r\n\r\n".into()
+                } else {
+                    format!(
+                        "data: {}\r\n\r\ndata: [DONE]\r\n\r\n",
+                        json!({"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]})
+                    )
+                };
+                axum::response::Response::builder()
+                    .header("content-type", "text/event-stream")
+                    .body(axum::body::Body::from_stream(async_stream_for_ipc(
+                        first,
+                        finish,
+                        mode == "stall",
+                    )))
+                    .unwrap()
+            }
+        }),
+    );
+    let server = tokio::spawn(async move {
+        axum::serve(listener, router).await.unwrap();
+    });
+    (base, requests, server)
+}
+fn b5_request(session: &str, id: &str, message: &str) -> shellpilot_server::agent::chat::Request {
+    serde_json::from_value(json!({"requestId":id,"agentId":"model","userId":"default",
+        "sessionId":session,"terminalSessionId":"","message":message}))
+    .unwrap()
+}
+fn b5_start(
+    services: Arc<Services>,
+    request: shellpilot_server::agent::chat::Request,
+) -> (
+    Arc<Subscription>,
+    tokio::sync::mpsc::Receiver<Value>,
+    tokio::task::JoinHandle<Result<()>>,
+) {
+    let sub = subscription();
+    let stream = sub.clone();
+    let (send, receive) = tokio::sync::mpsc::channel(4);
+    let run = tokio::spawn(agent_stream(services, request, stream, move |event| {
+        send.try_send(event).map_err(|_| ())
+    }));
+    (sub, receive, run)
+}
+async fn b5_frame(frames: &mut tokio::sync::mpsc::Receiver<Value>) -> Value {
+    tokio::time::timeout(Duration::from_secs(3), frames.recv())
+        .await
+        .unwrap()
+        .unwrap()
+}
+async fn b5_history(services: Arc<Services>, session: &str) -> Value {
+    dispatch(
+        services,
+        "agent/chat_history",
+        "GET",
+        Value::Null,
+        json!({"agentId":"model","userId":"default","sessionId":session,"after":"0"}),
+    )
+    .await
+    .unwrap()
+}
+async fn b5_stop(services: Arc<Services>, session: &str, request: &str) -> Value {
+    dispatch(
+        services,
+        "agent/stop_chat",
+        "POST",
+        json!({"agentId":"model","userId":"default","sessionId":session,"requestId":request}),
+        Value::Null,
+    )
+    .await
+    .unwrap()
+}
+async fn b5_cached(services: Arc<Services>, request: shellpilot_server::agent::chat::Request) {
+    let (sub, mut frames, run) = b5_start(services, request);
+    let done = b5_frame(&mut frames).await;
+    assert_eq!(done["payload"], json!({"event":"done","content":"汉🙂"}));
+    acknowledge(&sub, done["sequence"].as_u64().unwrap());
+    tokio::time::timeout(Duration::from_secs(3), run)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert!(frames.recv().await.is_none());
+}
+#[tokio::test]
+async fn b5_native_stop_without_ack_continue_and_reopen_do_not_reexecute_old_turns() {
+    let (dir, services) = services().await;
+    let (base, requests, server) = b5_model_server().await;
+    save_test_model(&services, base);
+    let created = dispatch(
+        services.clone(),
+        "agent/create_session",
+        "POST",
+        json!({"agentId":"model","userId":"default"}),
+        Value::Null,
+    )
+    .await
+    .unwrap();
+    let session = created["sessionId"].as_str().unwrap().to_owned();
+    let cancelled = b5_request(&session, "b5-stopped", "stall");
+    let (old_sub, mut frames, run) = b5_start(services.clone(), cancelled.clone());
+    let first = b5_frame(&mut frames).await;
+    assert_eq!(first["requestId"], "b5-stopped");
+    assert_eq!(first["payload"]["content"], "汉🙂");
+    assert_eq!(
+        b5_stop(services.clone(), &session, "unrelated-turn").await,
+        false
+    );
+    assert_eq!(
+        b5_history(services.clone(), &session).await["turns"][0]["state"],
+        "running"
+    );
+    // Stop must work while the renderer has not acknowledged the first frame.
+    assert_eq!(
+        b5_stop(services.clone(), &session, "b5-stopped").await,
+        true
+    );
+    let error = b5_frame(&mut frames).await;
+    assert_eq!(error["sequence"], 0);
+    assert_eq!(error["payload"]["code"], "AGENT_CANCELLED");
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(3), run)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap_err()
+            .code,
+        "AGENT_CANCELLED"
+    );
+
+    let completed = b5_request(&session, "b5-continued", "continue");
+    let (sub, mut frames, run) = b5_start(services.clone(), completed.clone());
+    let first = b5_frame(&mut frames).await;
+    assert_eq!(
+        b5_stop(services.clone(), &session, "b5-stopped").await,
+        false
+    );
+    acknowledge(&old_sub, first["sequence"].as_u64().unwrap()); // A late ACK belongs to the old subscription.
+    assert!(
+        tokio::time::timeout(Duration::from_millis(30), frames.recv())
+            .await
+            .is_err()
+    );
+    acknowledge(&sub, first["sequence"].as_u64().unwrap());
+    let done = b5_frame(&mut frames).await;
+    assert_eq!(done["requestId"], "b5-continued");
+    assert_eq!(done["payload"]["event"], "done");
+    acknowledge(&sub, done["sequence"].as_u64().unwrap());
+    run.await.unwrap().unwrap();
+    let history = b5_history(services.clone(), &session).await;
+    assert_eq!(history["turns"][0]["state"], "cancelled");
+    assert_eq!(history["turns"][0]["partialText"], "汉🙂");
+    assert!(history["turns"][0]["resultText"].is_null());
+    assert_eq!(history["turns"][1]["state"], "completed");
+    assert_eq!(history["turns"][1]["resultText"], "汉🙂");
+    {
+        let requests = requests.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert_eq!(requests[1]["messages"].as_array().unwrap().len(), 2);
+        assert_eq!(requests[1]["messages"][1]["content"], "continue");
+    }
+    let (_, mut errors, replay) = b5_start(services.clone(), cancelled);
+    assert_eq!(
+        b5_frame(&mut errors).await["payload"]["code"],
+        "AGENT_CANCELLED"
+    );
+    assert_eq!(replay.await.unwrap().unwrap_err().code, "AGENT_CANCELLED");
+    services.shutdown().await;
+    drop(services);
+    server.abort();
+    let store =
+        Arc::new(shellpilot_server::store::Store::open(&dir.path().join("db.sqlite3")).unwrap());
+    let restored = Services::native(store, Default::default(), uuid::Uuid::new_v4());
+    assert_eq!(
+        b5_history(restored.clone(), &session).await["turns"],
+        history["turns"]
+    );
+    b5_cached(restored.clone(), completed).await; // Model server is gone; completion must come from SQLite.
+    assert_eq!(requests.lock().unwrap().len(), 2);
+    restored.shutdown().await;
+}
+#[tokio::test]
+async fn b5_dropped_native_subscription_recovers_partial_and_requires_an_explicit_new_request() {
+    let (_dir, services) = services().await;
+    let (base, requests, server) = b5_model_server().await;
+    save_test_model(&services, base);
+    let session = services
+        .agent
+        .create_session("model".into(), "default".into())
+        .await
+        .unwrap();
+    let request = b5_request(&session, "b5-interrupted", "stall");
+    let (_, mut frames, run) = b5_start(services.clone(), request.clone());
+    assert_eq!(b5_frame(&mut frames).await["payload"]["content"], "汉🙂");
+    run.abort();
+    assert!(run.await.unwrap_err().is_cancelled());
+    tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            let history = b5_history(services.clone(), &session).await;
+            if history["turns"][0]["state"] == "interrupted" {
+                assert_eq!(history["turns"][0]["partialText"], "汉🙂");
+                assert_eq!(history["turns"][0]["errorCode"], "AGENT_INTERRUPTED");
+                assert!(history["turns"][0]["resultText"].is_null());
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let (_, mut errors, replay) = b5_start(services.clone(), request);
+    assert_eq!(
+        b5_frame(&mut errors).await["payload"]["code"],
+        "AGENT_INTERRUPTED"
+    );
+    assert_eq!(replay.await.unwrap().unwrap_err().code, "AGENT_INTERRUPTED");
+    assert_eq!(requests.lock().unwrap().len(), 1);
+    let (sub, mut frames, run) = b5_start(
+        services.clone(),
+        b5_request(&session, "b5-explicit-retry", "continue"),
+    );
+    let text = b5_frame(&mut frames).await;
+    acknowledge(&sub, text["sequence"].as_u64().unwrap());
+    let done = b5_frame(&mut frames).await;
+    acknowledge(&sub, done["sequence"].as_u64().unwrap());
+    run.await.unwrap().unwrap();
+    assert_eq!(requests.lock().unwrap().len(), 2);
+    assert_eq!(
+        b5_history(services.clone(), &session).await["turns"][1]["state"],
+        "completed"
+    );
+    services.shutdown().await;
+    server.abort();
+}
+#[tokio::test]
+async fn b5_provider_protocol_failure_keeps_native_history_and_redacts_error_frames() {
+    let (_dir, services) = services().await;
+    let (base, requests, server) = b5_model_server().await;
+    save_test_model(&services, base);
+    let session = services
+        .agent
+        .create_session("model".into(), "default".into())
+        .await
+        .unwrap();
+    let request = b5_request(&session, "b5-protocol-failure", "broken");
+    let (sub, mut frames, run) = b5_start(services.clone(), request.clone());
+    let text = b5_frame(&mut frames).await;
+    acknowledge(&sub, text["sequence"].as_u64().unwrap());
+    let error = b5_frame(&mut frames).await;
+    assert_eq!(error["payload"]["code"], "MODEL_PROTOCOL_FAILED");
+    assert_eq!(error["sequence"], 0);
+    assert!(!error.to_string().contains("provider-private-error"));
+    assert_eq!(
+        run.await.unwrap().unwrap_err().code,
+        "MODEL_PROTOCOL_FAILED"
+    );
+    let history = b5_history(services.clone(), &session).await;
+    assert_eq!(history["turns"][0]["state"], "failed");
+    assert_eq!(history["turns"][0]["partialText"], "汉🙂");
+    assert!(history["turns"][0]["resultText"].is_null());
+    let (_, mut frames, replay) = b5_start(services.clone(), request);
+    assert_eq!(
+        b5_frame(&mut frames).await["payload"]["code"],
+        "MODEL_PROTOCOL_FAILED"
+    );
+    replay.await.unwrap().unwrap_err();
+    assert_eq!(requests.lock().unwrap().len(), 1);
+    services.shutdown().await;
+    server.abort();
+}
