@@ -357,7 +357,12 @@ async fn agent_channel_waits_for_each_frame_ack_and_finishes_without_backend_htt
     let sub = subscription();
     let (token, mut frames) = tokio::sync::mpsc::channel(1);
     let stream = sub.clone();
+    let metadata_ack = sub.clone();
     let operation = tokio::spawn(agent_stream(services, request, stream, move |e| {
+        if e["payload"]["event"] == "context" {
+            acknowledge(&metadata_ack, e["sequence"].as_u64().unwrap());
+            return Ok(());
+        }
         token.try_send(e).map_err(|_| ())
     }));
     let first = tokio::time::timeout(Duration::from_secs(2), frames.recv())
@@ -391,7 +396,12 @@ async fn agent_stop_control_cancels_model_stream_and_emits_compatible_error() {
     let sub = subscription();
     let (token, mut frames) = tokio::sync::mpsc::channel(1);
     let stream = sub.clone();
+    let metadata_ack = sub.clone();
     let operation = tokio::spawn(agent_stream(services.clone(), request, stream, move |e| {
+        if e["payload"]["event"] == "context" {
+            acknowledge(&metadata_ack, e["sequence"].as_u64().unwrap());
+            return Ok(());
+        }
         token.try_send(e).map_err(|_| ())
     }));
     let first = tokio::time::timeout(Duration::from_secs(2), frames.recv())
@@ -828,7 +838,12 @@ fn b5_start(
     let sub = subscription();
     let stream = sub.clone();
     let (send, receive) = tokio::sync::mpsc::channel(4);
+    let metadata_ack = sub.clone();
     let run = tokio::spawn(agent_stream(services, request, stream, move |event| {
+        if event["payload"]["event"] == "context" {
+            acknowledge(&metadata_ack, event["sequence"].as_u64().unwrap());
+            return Ok(());
+        }
         send.try_send(event).map_err(|_| ())
     }));
     (sub, receive, run)
@@ -1093,7 +1108,7 @@ async fn c2_model_server() -> (String, Arc<C2Model>, tokio::task::JoinHandle<()>
             if state.hold.load(Ordering::SeqCst) {state.release.notified().await;}
             let source:Value=serde_json::from_str(body["messages"][1]["content"].as_str().unwrap()).unwrap();
             let content=json!({"summary":"先前讨论日志，尚未执行命令；原历史仍然保留。","nextSteps":["继续只读分析"],
-                "evidenceEventIds":[source["availableEvidenceEventIds"].as_array().unwrap().last().unwrap()]}).to_string();
+                "retainedUserFacts":[],"evidenceEventIds":[source["availableEvidenceEventIds"].as_array().unwrap().last().unwrap()]}).to_string();
             axum::response::Response::builder().header("content-type","application/json").body(axum::body::Body::from(
                 json!({"choices":[{"index":0,"message":{"role":"assistant","content":content},"finish_reason":"stop"}]}).to_string())).unwrap()
         })).with_state(state.clone());
@@ -1210,6 +1225,63 @@ async fn c2_compaction_flows_through_native_channel_and_preserves_visible_histor
         .iter()
         .all(|turn| turn["state"] == "completed"));
     assert_eq!(history["turns"][8]["requestId"], "c2-native");
+    services.shutdown().await;
+    server.abort();
+}
+#[tokio::test]
+async fn c5_context_status_uses_real_channel_events_and_owner_scoped_persisted_measurements() {
+    let (_dir, services) = services().await;
+    let (base, model, server) = c2_model_server().await;
+    let session = c2_seed(services.clone(), base).await;
+    let sub = subscription();
+    let stream = sub.clone();
+    let (tx, mut frames) = tokio::sync::mpsc::channel(4);
+    let run = tokio::spawn(agent_stream(
+        services.clone(),
+        b5_request(&session, "c5-native", "查看上下文"),
+        stream,
+        move |frame| tx.try_send(frame).map_err(|_| ()),
+    ));
+    let mut states = Vec::new();
+    loop {
+        let frame = b5_frame(&mut frames).await;
+        assert_eq!(frame["requestId"], "c5-native");
+        if frame["payload"]["event"] == "context" {
+            states.push(frame["payload"]["status"].clone());
+        }
+        acknowledge(&sub, frame["sequence"].as_u64().unwrap());
+        if frame["payload"]["event"] == "done" {
+            break;
+        }
+    }
+    run.await.unwrap().unwrap();
+    assert!(states.iter().any(|state| state["phase"] == "running"));
+    assert!(states
+        .iter()
+        .any(|state| state["phase"] == "succeeded" && state["compactionCount"] == 1));
+    let status = dispatch(
+        services.clone(),
+        "agent/context_status",
+        "GET",
+        Value::Null,
+        json!({"agentId":"model","userId":"default","sessionId":session}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(status["phase"], "succeeded");
+    assert_eq!(status["usage"]["source"], "estimated");
+    assert_eq!(status["compactionCount"], 1);
+    assert!(status["usage"]["inputTokens"].as_u64().unwrap() > 0);
+    assert!(dispatch(
+        services.clone(),
+        "agent/context_status",
+        "GET",
+        Value::Null,
+        json!({"agentId":"model","userId":"other","sessionId":session})
+    )
+    .await
+    .is_err());
+    assert_eq!(model.summaries.load(Ordering::SeqCst), 1);
     services.shutdown().await;
     server.abort();
 }

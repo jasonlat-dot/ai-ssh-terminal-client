@@ -259,3 +259,23 @@ test('Projects and cross-model persistent sidebar use owner-scoped IPC without H
  assert.equal(requests[2].params.after,'history-cursor');assert.equal(requests[3].params.projectId,'');
  assert.equal(requests[4].body.terminalSessionId,'reconnected-pty');assert.equal(requests[5].body.agentId,'model-b');
 });
+
+test('C5 context frames use request-scoped sequence and ACK without changing reply text',async()=>{
+  const status={requestId:'turn-1',usage:{inputTokens:512,availableInputTokens:6656,contextWindow:8192,outputReserve:1024,safetyReserve:512,compactPercent:75,source:'estimated'},phase:'idle',method:null,errorCode:null,fallback:false,checkpointId:null,compactionCount:0,updatedAt:1};
+  const received:AgentStreamEvent[]=[];let acknowledgements=0;
+  harness((command,args)=>{
+    if(command==='builtin_agent_ack')acknowledgements++;
+    if(command==='builtin_agent_subscribe'){
+      args.onEvent.onmessage({sequence:1,requestId:'turn-1',payload:{event:'context',status}});
+      args.onEvent.onmessage({sequence:2,requestId:'turn-1',payload:{event:'done',content:'answer'}});
+    }
+    return Promise.resolve();
+  });
+  await agentApi.chatStream(body,event=>received.push(event));
+  assert.deepEqual(received,[{event:'context',status},{event:'done',content:'answer'}]);assert.equal(acknowledgements,2);
+  harness((command,args)=>{
+    if(command==='builtin_agent_subscribe')args.onEvent.onmessage({sequence:1,payload:{event:'context',status:{...status,requestId:'wrong'}}});
+    return Promise.resolve();
+  });
+  await assert.rejects(agentApi.chatStream(body,()=>{}),error=>error instanceof ChatRequestError&&error.code==='MODEL_PROTOCOL_FAILED');
+});

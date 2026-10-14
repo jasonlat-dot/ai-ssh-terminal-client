@@ -281,6 +281,17 @@ pub async fn dispatch(
                 .await
                 .map_err(agent_error)?,
         ),
+        ("GET", "agent/context_status") => value(
+            services
+                .agent
+                .context_status(
+                    text(&params, "agentId")?.into(),
+                    text(&params, "userId")?.into(),
+                    text(&params, "sessionId")?.into(),
+                )
+                .await
+                .map_err(agent_error)?,
+        ),
         ("GET", "agent/chat_history") => value(
             services
                 .agent

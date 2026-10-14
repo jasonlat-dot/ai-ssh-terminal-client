@@ -1,0 +1,19 @@
+.agent-context-status {display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-height:30px;padding:5px 14px;border-top:1px solid var(--line);color:var(--muted);font-size:11px;background:var(--panel);position:relative;z-index:2;container-type:inline-size;}
+.agent-context-details {position:relative;min-width:0;}
+.agent-context-details summary {display:flex;align-items:center;gap:5px;cursor:pointer;list-style:none;min-height:22px;border-radius:4px;}
+.agent-context-details summary::-webkit-details-marker {display:none;}
+.agent-context-details summary:focus-visible {outline:2px solid var(--ui-accent);outline-offset:3px;}
+.agent-context-details summary strong {color:var(--text);font-variant-numeric:tabular-nums;font-weight:600;}
+.agent-context-source {font-size:10px;color:var(--muted);}
+.agent-context-explanation {position:absolute;top:calc(100% + 7px);left:0;width:min(360px,calc(100cqi - 28px));padding:12px 14px;border:1px solid var(--line-strong);border-radius:8px;background:var(--theme-panel,var(--panel));color:var(--text);box-shadow:var(--ui-menu-shadow);font-size:12px;line-height:1.65;overflow-wrap:anywhere;}
+.agent-context-explanation p {margin:6px 0;color:var(--muted);}
+.agent-context-explanation small {color:var(--muted);font-size:10px;}
+.agent-context-meter {display:block;width:58px;height:4px;border-radius:4px;overflow:hidden;background:var(--line);}
+.agent-context-meter i {display:block;height:100%;background:var(--ui-accent);border-radius:inherit;}
+.agent-context-count {font-variant-numeric:tabular-nums;white-space:nowrap;}
+.agent-context-phase {display:flex;align-items:center;gap:4px;line-height:1.6;}
+.phase-running .agent-context-phase {color:var(--ui-accent);}
+.phase-succeeded .agent-context-phase {color:var(--mint);}
+.phase-failed .agent-context-phase,.phase-interrupted .agent-context-phase {color:var(--red,#c7474a);}
+.agent-context-error {margin-left:auto;}
+.agent-context-error button {padding:0 3px;color:var(--ui-accent);background:transparent;border:0;cursor:pointer;font:inherit;}

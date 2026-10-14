@@ -9,6 +9,7 @@ import { ProjectChatHistory } from './components/ProjectChatHistory';
 import type { AgentProject, ProjectChat } from './api/agent';
 import { agentApi } from './api/agent';
 import type { AgentConfig, AgentStreamEvent, AgentHistory } from './api/agent';
+import type { AgentContextStatus } from './api/agentContext';
 import { readAgentHistory, turnMessages } from './state/agentHistory';
 import {
   listClientChatSessions,
@@ -140,6 +141,9 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
   const [modelSettingsRequested, setModelSettingsRequested] = useState(false);
   const [historyMore, setHistoryMore] = useState('');
   const [canonicalHistory, setCanonicalHistory] = useState<AgentHistory | null>(null);
+  const [contextSnapshot,setContextSnapshot]=useState<{sessionId:string;agentId:string;status:AgentContextStatus}|null>(null);
+  const [contextError,setContextError]=useState('');
+  const [contextReload,setContextReload]=useState(0);
   const [scopeSwitching, setScopeSwitching] = useState(false);
   const scopeSwitchRef = useRef(false);
   const [activeProject,setActiveProject]=useState<AgentProject|null>(null);
@@ -153,6 +157,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
   const [agentLoadAttempt, setAgentLoadAttempt] = useState(0);
   const [chatSessions, setChatSessions] = useState<ClientChatSession[]>([]);
   const [activeChatSessionId, setActiveChatSessionId] = useState('');
+  const contextStatus=contextSnapshot?.sessionId===activeChatSessionId&&contextSnapshot?.agentId===selectedAgent?.agentId?contextSnapshot.status:null;
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyLoadingId, setHistoryLoadingId] = useState('');
@@ -1008,6 +1013,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     }
 
     chatting.current = true;
+    setContextSnapshot(null);setContextError('');
     if (!chatSessionId.current) chatTarget.current = null;
     const version = chatVersion.current;
     const assistantId = crypto.randomUUID();
@@ -1067,6 +1073,9 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     const receive = (event: AgentStreamEvent) => {
       if (version !== chatVersion.current || controller.signal.aborted || stopPending.current) return;
       switch (event.event) {
+        case 'context':
+          if(event.status.requestId===assistantId)setContextSnapshot({sessionId:chatSessionId.current,agentId:selectedAgent.agentId,status:event.status});
+          break;
         case 'text':
           updateAssistant(message => appendText(message, event.content));
           break;
@@ -1392,6 +1401,22 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
 
   const autoProjectBinding=useRef('');
   const projectConnected=Boolean(projectTerminalId && sessions.some(item=>item.terminalSessionId===projectTerminalId && isSessionConnected(item)));
+  useEffect(()=>{
+    setContextError('');
+    if(!rustBuiltin||!selectedAgent||!activeChatSessionId||chatBusy)return;
+    const agentId=selectedAgent.agentId,sessionId=activeChatSessionId,version=chatVersion.current;
+    const controller=new AbortController();let timer:ReturnType<typeof setTimeout>|undefined;
+    const load=async()=>{
+      try{
+        const status=await agentApi.contextStatus(agentId,sessionId,controller.signal);
+        if(controller.signal.aborted||version!==chatVersion.current)return;
+        setContextSnapshot({sessionId,agentId,status});setContextError('');
+        if(status.phase==='running')timer=setTimeout(()=>void load(),1000);
+      }catch(error){if(!controller.signal.aborted&&version===chatVersion.current)setContextError(error instanceof Error?error.message:'上下文状态暂不可用');}
+    };
+    void load();
+    return()=>{controller.abort();if(timer)clearTimeout(timer);};
+  },[activeChatSessionId,selectedAgent?.agentId,canonicalHistory?.session.revision,chatBusy,contextReload,rustBuiltin]);
   const projectLocked=chatBusy||chatStopping||recoveredRunning||scopeSwitching||Boolean(historyLoadingId);
   const connectProject=async(p:AgentProject)=>{
     const {terminal,project:verified}=await ensureProjectTerminal(p,{
@@ -1575,6 +1600,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     <PanelDivider value={terminalWidth} change={setTerminalWidth} min={24} max={55} defaultValue={34} minPixels={320} reservePixels={400} reserveWidthSelectors=".activity-bar, .workspace-sidebar"
       controls="terminal-dock-content" label="调整对话与终端宽度" collapseLabel="终端面板" collapsed={agentCollapsed || terminalDockCollapsed} collapse={() => setTerminalDockCollapsed(true)} />
     <AgentPanel ref={agentComposer} chatDraft={chatDraft} draftScope={chatVersion.current}
+      contextStatus={contextStatus} contextError={contextError} refreshContext={()=>setContextReload(value=>value+1)}
       host={chatTargetState.host} connected={activeProject ? projectConnected : chatTargetState.connected}
       localTerminal={chatTargetState.localTerminal} targetLabel={rustBuiltin ? activeProject ? activeProject.name+(projectConnected?' · 服务器任务':' · 离线讨论') : chatTargetState.label : undefined}
       messages={messages} busy={chatBusy} stopping={chatStopping} send={sendMessage} stop={stopChat} collapsed={agentCollapsed}

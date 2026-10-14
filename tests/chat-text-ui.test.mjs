@@ -58,6 +58,7 @@ function composer({ upload = async file => result(file), send = async () => true
     if (name === './Ui') return { AccentIcon: leaf, Badge: leaf, Icon: leaf };
     if (name === './Select') return { Select: leaf };
     if (name === './MarkdownMessage') return { MarkdownMessage: leaf };
+    if (name === './AgentContextStatus') return { AgentContextStatus: leaf };
     if (name === './CopyMarkdownButton') return { CopyMarkdownButton: leaf };
     if (name === './CopyTextButton') return { CopyTextButton: leaf };
     if (name === './ChatAttachments') return { DraftAttachments: leaf, MessageAttachments: leaf };

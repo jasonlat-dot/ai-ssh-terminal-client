@@ -4,6 +4,8 @@ import { MarkdownMessage } from './MarkdownMessage';
 import agentRobotAvatar from '../assets/agent-robot-avatar.png';
 import type { ClientChatSession } from '../state/clientChatHistory';
 import type { AgentConfig } from '../api/agent';
+import type { AgentContextStatus as ContextStatus } from '../api/agentContext';
+import { AgentContextStatus } from './AgentContextStatus';
 import type { ChatAttachment, ChatAgentActivity, ChatMessage, ChatToolActivity, ChatTextExcerpt, Host } from '../types';
 import { AccentIcon, Badge, Icon } from './Ui';
 import { CopyMarkdownButton } from './CopyMarkdownButton';
@@ -134,7 +136,7 @@ function sessionTime(value: ClientChatSession['updatedAt']): string {
 }
 
 export type AgentComposerHandle = { addText: (text: string, source: ChatTextExcerpt['source']) => boolean };
-export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localTerminal, targetLabel, scopeControls, messages, busy, stopping, send, stop, clear, disabled, agentAvailability, history, collapsed, models, selectedModel, selectModel, openModelSettings, recoveredRunning, stopRecovered, refreshCurrent }: {
+export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localTerminal, targetLabel, scopeControls, messages, busy, stopping, send, stop, clear, disabled, agentAvailability, history, collapsed, models, selectedModel, selectModel, openModelSettings, recoveredRunning, stopRecovered, refreshCurrent, contextStatus=null, contextError, refreshContext }: {
   ref?: Ref<AgentComposerHandle>;
   chatDraft: ChatAttachmentDraft;
   draftScope: number;
@@ -155,6 +157,7 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
   history: HistoryControls;
   collapsed: boolean;
   models?: AgentConfig[]; selectedModel?: string; selectModel?: (id: string) => void; openModelSettings?: () => void;
+  contextStatus?: ContextStatus|null; contextError?:string; refreshContext?:()=>void;
   recoveredRunning?: boolean; stopRecovered?: () => void; refreshCurrent?: () => void;
 }) {
   const [draft, setDraft] = useState('');
@@ -279,6 +282,7 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
             onClick={()=>scopeControls.useServer(true)}><Icon name="edit" size={13}/>新任务</button>}
         </div>}
         <div className="agent-mode-note"><i/>文本对话<span>·</span>工具和附件将在后续接入</div>
+        <AgentContextStatus status={contextStatus} error={contextError} retry={refreshContext}/>
         {recoveredRunning && <div className="agent-recovery-controls"><span role="status">{stopping ? '正在确认停止…' : '此请求仍在生成'}</span><button type="button" onClick={refreshCurrent} disabled={stopping || Boolean(history.loadingSessionId)}><Icon name="refresh" size={13} />刷新</button><button type="button" onClick={stopRecovered} disabled={stopping || Boolean(history.loadingSessionId)}><Icon name="stop" size={13} />{stopping ? '正在停止…' : '停止'}</button></div>}
       </>}
 

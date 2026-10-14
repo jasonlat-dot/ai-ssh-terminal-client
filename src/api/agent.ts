@@ -4,6 +4,7 @@ import { builtinRequest, NativeRequestError } from './builtin';
 import { Channel, invoke } from '@tauri-apps/api/core';
 import { requireBackendUrl, isBuiltinEndpoint } from '../config/backend';
 import { isTauriRuntime } from '../state/runtime';
+import { isAgentContextStatus, type AgentContextStatus } from './agentContext';
 
 export type AgentConfig = {
   agentId: string;
@@ -15,6 +16,7 @@ export type AgentConfig = {
 export type AgentToolStatus = 'running' | 'success' | 'error' | 'unknown';
 
 export type AgentStreamEvent =
+  | { event: 'context'; status: AgentContextStatus }
   | { event: 'text'; content: string }
   | { event: 'agent_start'; agentCallId: string; agentName: string; task: string; parentToolCallId?: string }
   | { event: 'agent_text'; agentCallId: string; sourceAgent?: string; content: string }
@@ -222,7 +224,10 @@ async function chatStream(
       }
       let event:AgentStreamEvent|null;
       const native=frame.payload&&typeof frame.payload==='object' ? frame.payload as Record<string,unknown> : undefined;
-      if(native&&(native.event==='text'||native.event==='done'||native.event==='error')) {
+      if(native?.event==='context') {
+        if(!isAgentContextStatus(native.status)||native.status.requestId!==turnRequest.requestId) throw new ChatRequestError('上下文状态格式或关联无效。','MODEL_PROTOCOL_FAILED');
+        event={event:'context',status:native.status};
+      } else if(native&&(native.event==='text'||native.event==='done'||native.event==='error')) {
         if(typeof native.content!=='string'||(native.code!==undefined&&typeof native.code!=='string')) {
           throw new ChatRequestError('对话输出格式无效。','MODEL_PROTOCOL_FAILED');
         }
@@ -280,6 +285,11 @@ export const agentApi = {
   ),
   history: (agentId:string,sessionId:string,after=0,signal?:AbortSignal) => request<AgentHistory>(
     'chat_history','GET',undefined,signal,{agentId,userId:sshUserId,sessionId,after:String(after)}),
+  contextStatus: async(agentId:string,sessionId:string,signal?:AbortSignal):Promise<AgentContextStatus>=>{
+    const status=await request<unknown>('context_status','GET',undefined,signal,{agentId,userId:sshUserId,sessionId});
+    if(!isAgentContextStatus(status))throw new ChatRequestError('上下文状态格式无效。','MODEL_PROTOCOL_FAILED');
+    return status;
+  },
   sessions: (agentId:string,after='',signal?:AbortSignal) => request<AgentSession[]>(
     'session_list','GET',undefined,signal,{agentId,userId:sshUserId,after}),
   events: (agentId:string,sessionId:string,after=0,signal?:AbortSignal) => request<unknown[]>(
