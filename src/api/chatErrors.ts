@@ -6,7 +6,9 @@ export function chatErrorGuidance(code?: string): string {
   switch (code) {
     case 'MODEL_CREDENTIALS': return '请打开模型设置，配置或重新保存 API Key。';
     case 'MODEL_CONTEXT_LIMIT':
-    case 'AGENT_HISTORY_LIMIT': return '上下文超过当前限制，请新建会话或检查模型窗口设置；自动压缩尚未接入。';
+    case 'AGENT_HISTORY_LIMIT': return '当前输入与保留上下文超过模型容量，请缩短输入、新建会话或检查模型窗口设置。';
+    case 'AGENT_COMPACTION_FAILED': return '对话整理失败，原始历史仍保留；请检查模型是否支持非流式 JSON 摘要，再手动重试。';
+    case 'AGENT_COMPACTION_LIMIT': return '整理后仍无法容纳当前请求，请缩短输入、新建会话或提高合理的模型窗口设置。';
     case 'AGENT_TARGET_MISMATCH':
     case 'SSH_SESSION_NOT_FOUND': return '原会话绑定的终端已不可用，请连接目标服务器后新建会话。';
     case 'AGENT_CANCELLED': return '本次生成已停止，部分回复已保留。';

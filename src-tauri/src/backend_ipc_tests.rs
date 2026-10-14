@@ -1058,3 +1058,172 @@ async fn b5_provider_protocol_failure_keeps_native_history_and_redacts_error_fra
     services.shutdown().await;
     server.abort();
 }
+
+// C2 exercises real model HTTP -> native IPC -> SQLite with no ShellPilot HTTP listener.
+struct C2Model {
+    summaries: AtomicU64,
+    streams: AtomicU64,
+    hold: std::sync::atomic::AtomicBool,
+    arrived: tokio::sync::Notify,
+    release: tokio::sync::Notify,
+}
+async fn c2_model_server() -> (String, Arc<C2Model>, tokio::task::JoinHandle<()>) {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}/v1/", listener.local_addr().unwrap());
+    let state = Arc::new(C2Model {
+        summaries: AtomicU64::new(0),
+        streams: AtomicU64::new(0),
+        hold: std::sync::atomic::AtomicBool::new(false),
+        arrived: tokio::sync::Notify::new(),
+        release: tokio::sync::Notify::new(),
+    });
+    let router=axum::Router::new().route("/v1/chat/completions",axum::routing::post(
+        |axum::extract::State(state):axum::extract::State<Arc<C2Model>>,axum::Json(body):axum::Json<Value>|async move {
+            assert!(body.get("tools").is_none());
+            if body["stream"]==true {
+                state.streams.fetch_add(1,Ordering::SeqCst);
+                let data=format!("data: {}\n\ndata: {}\n\ndata: [DONE]\n\n",
+                    json!({"choices":[{"index":0,"delta":{"content":"a".repeat(1000)},"finish_reason":null}]}),
+                    json!({"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}));
+                return axum::response::Response::builder().header("content-type","text/event-stream")
+                    .body(axum::body::Body::from(data)).unwrap();
+            }
+            state.summaries.fetch_add(1,Ordering::SeqCst);state.arrived.notify_one();
+            if state.hold.load(Ordering::SeqCst) {state.release.notified().await;}
+            let source:Value=serde_json::from_str(body["messages"][1]["content"].as_str().unwrap()).unwrap();
+            let content=json!({"summary":"先前讨论日志，尚未执行命令；原历史仍然保留。","nextSteps":["继续只读分析"],
+                "evidenceEventIds":[source["availableEvidenceEventIds"].as_array().unwrap().last().unwrap()]}).to_string();
+            axum::response::Response::builder().header("content-type","application/json").body(axum::body::Body::from(
+                json!({"choices":[{"index":0,"message":{"role":"assistant","content":content},"finish_reason":"stop"}]}).to_string())).unwrap()
+        })).with_state(state.clone());
+    let server = tokio::spawn(async move {
+        axum::serve(listener, router).await.unwrap();
+    });
+    (base, state, server)
+}
+async fn c2_seed(services: Arc<Services>, base: String) -> String {
+    save_test_model(&services, base);
+    let profile = dispatch(
+        services.clone(),
+        "agent/models",
+        "GET",
+        Value::Null,
+        json!({"userId":"default"}),
+    )
+    .await
+    .unwrap();
+    let mut config = profile[0]["config"].clone();
+    config["contextWindow"] = json!(32768);
+    dispatch(
+        services.clone(),
+        "agent/models",
+        "POST",
+        json!({"id":"model","userId":"default","revision":profile[0]["revision"],
+        "update":{"config":config,"apiKey":{"action":"keep"}}}),
+        Value::Null,
+    )
+    .await
+    .unwrap();
+    let session = services
+        .agent
+        .create_session("model".into(), "default".into())
+        .await
+        .unwrap();
+    for i in 0..8 {
+        let message = if i == 0 {
+            "只读解释日志".into()
+        } else {
+            "u".repeat(1000)
+        };
+        services
+            .agent
+            .chat(
+                b5_request(&session, &format!("c2-seed-{i}"), &message),
+                None,
+                &CancellationToken::new(),
+                |_| async { Ok(()) },
+            )
+            .await
+            .unwrap();
+    }
+    let profile = dispatch(
+        services.clone(),
+        "agent/models",
+        "GET",
+        Value::Null,
+        json!({"userId":"default"}),
+    )
+    .await
+    .unwrap();
+    let mut config = profile[0]["config"].clone();
+    config["contextWindow"] = json!(8192);
+    config["compactPercent"] = json!(60);
+    dispatch(
+        services.clone(),
+        "agent/models",
+        "POST",
+        json!({"id":"model","userId":"default","revision":profile[0]["revision"],
+        "update":{"config":config,"apiKey":{"action":"keep"}}}),
+        Value::Null,
+    )
+    .await
+    .unwrap();
+    session
+}
+#[tokio::test]
+async fn c2_compaction_flows_through_native_channel_and_preserves_visible_history() {
+    let (_dir, services) = services().await;
+    let (base, model, server) = c2_model_server().await;
+    let session = c2_seed(services.clone(), base).await;
+    let request = b5_request(&session, "c2-native", "最新问题");
+    let (sub, mut frames, run) = b5_start(services.clone(), request);
+    let text = b5_frame(&mut frames).await;
+    assert_eq!(text["requestId"], "c2-native");
+    assert_eq!(text["payload"]["event"], "text");
+    assert_eq!(text["payload"]["content"], "a".repeat(1000));
+    acknowledge(&sub, text["sequence"].as_u64().unwrap());
+    let done = b5_frame(&mut frames).await;
+    assert_eq!(done["payload"]["event"], "done");
+    acknowledge(&sub, done["sequence"].as_u64().unwrap());
+    run.await.unwrap().unwrap();
+    assert_eq!(model.summaries.load(Ordering::SeqCst), 1);
+    assert_eq!(model.streams.load(Ordering::SeqCst), 9);
+    let history = b5_history(services.clone(), &session).await;
+    assert!(history["session"]["checkpointId"].is_string());
+    assert_eq!(history["turns"].as_array().unwrap().len(), 9);
+    assert!(history["turns"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|turn| turn["state"] == "completed"));
+    assert_eq!(history["turns"][8]["requestId"], "c2-native");
+    services.shutdown().await;
+    server.abort();
+}
+#[tokio::test]
+async fn c2_native_stop_during_summary_works_before_any_text_frame_or_turn_admission() {
+    let (_dir, services) = services().await;
+    let (base, model, server) = c2_model_server().await;
+    let session = c2_seed(services.clone(), base).await;
+    model.hold.store(true, Ordering::SeqCst);
+    let (_, mut frames, run) = b5_start(
+        services.clone(),
+        b5_request(&session, "c2-stop", "最新问题"),
+    );
+    tokio::time::timeout(Duration::from_secs(3), model.arrived.notified())
+        .await
+        .unwrap();
+    assert_eq!(b5_stop(services.clone(), &session, "c2-stop").await, true);
+    let error = b5_frame(&mut frames).await;
+    assert_eq!(error["sequence"], 0);
+    assert_eq!(error["payload"]["code"], "AGENT_CANCELLED");
+    assert_eq!(run.await.unwrap().unwrap_err().code, "AGENT_CANCELLED");
+    let history = b5_history(services.clone(), &session).await;
+    assert!(history["session"]["checkpointId"].is_null());
+    assert_eq!(history["turns"].as_array().unwrap().len(), 8);
+    assert_eq!(model.summaries.load(Ordering::SeqCst), 1);
+    assert_eq!(model.streams.load(Ordering::SeqCst), 8);
+    model.release.notify_one();
+    services.shutdown().await;
+    server.abort();
+}

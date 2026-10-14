@@ -98,7 +98,7 @@ export function RustBackendSettingsDialog({required=false,onClose,onSave,showUpd
         {tab==='about'&&<div className="rust-about">
           <Badge tone="success">Rust Preview</Badge><h2>轻量的桌面 SSH 终端</h2>
           <p>SSH、文件管理与本地数据直接运行在应用内，无需本地服务器端口、Java 或独立数据库。</p>
-          <div className="rust-feature-grid"><article><Icon name="terminal"/><h3>现在可用</h3><p>连接管理、SSH 终端、SFTP 文件管理、本地 CMD、独立附件存储，以及模型设置、基础文本 AI 对话和会话历史。</p></article><article><Icon name="folder"/><h3>后续迁移</h3><p>上下文自动压缩、聊天附件发送与工具执行审批。</p></article></div>
+          <div className="rust-feature-grid"><article><Icon name="terminal"/><h3>现在可用</h3><p>连接管理、SSH 终端、SFTP 文件管理、本地 CMD、独立附件存储，以及模型设置、基础文本 AI 对话、自动整理上下文和会话历史。</p></article><article><Icon name="folder"/><h3>后续迁移</h3><p>上下文占用与整理状态提示、聊天附件发送与工具执行审批。</p></article></div>
           <p>试用版与原版本使用不同的数据目录。自动更新已关闭，后续使用新的试用安装包更新。</p>
         </div>}
         {tab==='general'&&<>
