@@ -3,23 +3,26 @@ import type { Host } from '../types';
 import { Icon, Modal } from './Ui';
 import './DisconnectDialog.css';
 
-export function DisconnectDialog({ host, connected, busy, error, close, confirm }: {
+export function DisconnectDialog({ host, connected, busy, error, close, confirm, disconnectOnly }: {
   host: Host; connected: boolean; busy: boolean; error: string; close: () => void;
   confirm: () => Promise<boolean>;
+  disconnectOnly?: () => Promise<boolean>;
 }) {
   const [attempted, setAttempted] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
+  const [submitting, setSubmitting] = useState<'disconnect' | 'close' | null>(null);
   const locked = useRef(false);
-  const pending = busy || submitting;
-  const submit = async () => {
+  const pending = busy || submitting !== null;
+  const submit = async (action: 'disconnect' | 'close') => {
     if (pending || locked.current) return;
-    locked.current = true; setSubmitting(true); setAttempted(true);
-    try { await confirm(); }
-    finally { locked.current = false; setSubmitting(false); }
+    const operation = action === 'disconnect' ? disconnectOnly : confirm;
+    if (!operation) return;
+    locked.current = true; setSubmitting(action); setAttempted(true);
+    try { await operation(); }
+    finally { locked.current = false; setSubmitting(null); }
   };
-  return <Modal title={connected ? '关闭终端会话？' : '关闭终端页签？'} className="disconnect-dialog" dismissDisabled={pending} onClose={close}>
+  return <Modal title={connected ? disconnectOnly ? '断开终端连接？' : '关闭终端会话？' : '关闭终端页签？'} className="disconnect-dialog" dismissDisabled={pending} onClose={close}>
     <div className="disconnect-intro">
-      <p>{connected ? '关闭后会结束此页签的 Shell 会话，请确认没有需要保留的任务。' : '此终端已断开，可以直接关闭页签。'}</p>
+      <p>{connected ? disconnectOnly ? '断开会结束此页签的 Shell 会话并保留页签；“断开并关闭”会同时关闭页签。请确认没有需要保留的任务。' : '关闭后会结束此页签的 Shell 会话，请确认没有需要保留的任务。' : '此终端已断开，可以直接关闭页签。'}</p>
     </div>
     <div className="disconnect-host">
       <span className="disconnect-server"><Icon name="terminal" size={22} /></span>
@@ -31,7 +34,8 @@ export function DisconnectDialog({ host, connected, busy, error, close, confirm 
     {attempted && error && !pending && <p role="alert" className="disconnect-error">{error} 终端已保留，请重试。</p>}
     <div className="disconnect-actions">
       <button data-autofocus className="outlined-button" disabled={pending} onClick={close}>取消</button>
-      <button className="disconnect-confirm" disabled={pending} onClick={submit}>{submitting ? '正在关闭…' : connected ? '断开并关闭' : '关闭页签'}</button>
+      {disconnectOnly && <button type="button" className="disconnect-only" disabled={pending} onClick={() => void submit('disconnect')}>{submitting === 'disconnect' ? '正在断开…' : '断开'}</button>}
+      <button type="button" className="disconnect-confirm" disabled={pending} onClick={() => void submit('close')}>{submitting === 'close' ? '正在关闭…' : connected ? '断开并关闭' : '关闭页签'}</button>
     </div>
   </Modal>;
 }

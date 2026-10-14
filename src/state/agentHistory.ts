@@ -4,8 +4,8 @@ import type { ChatMessage } from '../types';
 const states = { running: '仍在生成，可刷新历史或停止。', completed: '', cancelled: '已停止生成。', failed: '生成失败。', interrupted: '生成已中断，重新发送会开始新的请求。' };
 export function turnMessages(turns: AgentTurn[]): ChatMessage[] {
   return turns.flatMap(turn => [
-    { id: `${turn.requestId}:user`, role: 'user' as const, text: turn.message },
-    { id: turn.requestId, role: 'assistant' as const,
+    { id: `${turn.requestId}:user`, role: 'user' as const, text: turn.message, timestamp: turn.createdAt },
+    { id: turn.requestId, role: 'assistant' as const, timestamp: turn.state === 'running' ? undefined : turn.updatedAt,
       text: turn.state === 'completed' ? turn.resultText ?? '' : turn.partialText,
       summary: states[turn.state] || undefined,
       error: turn.state === 'failed' || turn.state === 'interrupted',

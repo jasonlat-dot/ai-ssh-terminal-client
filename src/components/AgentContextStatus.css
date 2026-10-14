@@ -1,19 +1,22 @@
-.agent-context-status {display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-height:30px;padding:5px 14px;border-top:1px solid var(--line);color:var(--muted);font-size:11px;background:var(--panel);position:relative;z-index:2;container-type:inline-size;}
-.agent-context-details {position:relative;min-width:0;}
-.agent-context-details summary {display:flex;align-items:center;gap:5px;cursor:pointer;list-style:none;min-height:22px;border-radius:4px;}
-.agent-context-details summary::-webkit-details-marker {display:none;}
-.agent-context-details summary:focus-visible {outline:2px solid var(--ui-accent);outline-offset:3px;}
-.agent-context-details summary strong {color:var(--text);font-variant-numeric:tabular-nums;font-weight:600;}
-.agent-context-source {font-size:10px;color:var(--muted);}
-.agent-context-explanation {position:absolute;top:calc(100% + 7px);left:0;width:min(360px,calc(100cqi - 28px));padding:12px 14px;border:1px solid var(--line-strong);border-radius:8px;background:var(--theme-panel,var(--panel));color:var(--text);box-shadow:var(--ui-menu-shadow);font-size:12px;line-height:1.65;overflow-wrap:anywhere;}
-.agent-context-explanation p {margin:6px 0;color:var(--muted);}
-.agent-context-explanation small {color:var(--muted);font-size:10px;}
-.agent-context-meter {display:block;width:58px;height:4px;border-radius:4px;overflow:hidden;background:var(--line);}
-.agent-context-meter i {display:block;height:100%;background:var(--ui-accent);border-radius:inherit;}
-.agent-context-count {font-variant-numeric:tabular-nums;white-space:nowrap;}
-.agent-context-phase {display:flex;align-items:center;gap:4px;line-height:1.6;}
-.phase-running .agent-context-phase {color:var(--ui-accent);}
-.phase-succeeded .agent-context-phase {color:var(--mint);}
-.phase-failed .agent-context-phase,.phase-interrupted .agent-context-phase {color:var(--red,#c7474a);}
-.agent-context-error {margin-left:auto;}
-.agent-context-error button {padding:0 3px;color:var(--ui-accent);background:transparent;border:0;cursor:pointer;font:inherit;}
+.agent-context-indicator { position: relative; flex: 0 0 28px; width: 28px; height: 28px; color: var(--ui-accent); }
+.agent-context-indicator.level-warning { color: var(--accent-amber-ink, #b77b26); }
+.agent-context-indicator.level-error { color: var(--ui-danger-text, #c7474a); }
+.agent-context-indicator.is-unknown { color: var(--theme-text-muted); }
+.agent-context-indicator > .agent-context-ring { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: inherit; cursor: pointer; }
+.agent-context-indicator > .agent-context-ring:hover { background: var(--theme-hover); }
+.agent-context-indicator > .agent-context-ring:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
+.agent-context-ring circle { fill: none; stroke-width: 2.4; }
+.agent-context-ring-track { stroke: var(--line-strong); }
+.agent-context-ring-value { stroke: currentColor; stroke-linecap: round; transition: stroke-dashoffset 220ms ease; }
+.is-unknown .agent-context-ring-track { stroke-dasharray: 2 3; }
+.agent-context-tooltip { position: absolute; right: -4px; bottom: calc(100% + 12px); z-index: var(--ui-popover-layer); box-sizing: border-box; width: min(300px, calc(100cqi - 72px)); padding: 13px 15px; border: 1px solid var(--line); border-radius: 12px; background: var(--theme-panel); color: var(--theme-text-muted); box-shadow: var(--ui-menu-shadow); font-size: 11px; line-height: 1.65; overflow-wrap: anywhere; pointer-events: none; }
+.agent-context-tooltip-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--theme-text-strong); }
+.agent-context-tooltip-heading strong { font-size: 12px; font-weight: 600; }
+.agent-context-tooltip-heading > span { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.agent-context-tooltip p { margin: 7px 0 0; }
+.agent-context-tooltip-usage { font-variant-numeric: tabular-nums; }
+.agent-context-tooltip-state { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--line); }
+.agent-context-tooltip .agent-context-tooltip-note, .agent-context-tooltip small { color: var(--theme-text-muted); font-size: 10px; }
+.agent-context-tooltip .agent-context-tooltip-error { color: var(--ui-danger-text, #c7474a); }
+.agent-context-tooltip small { display: block; margin-top: 7px; }
+@media (prefers-reduced-motion: reduce) { .agent-context-ring-value { transition: none; } }

@@ -20,6 +20,14 @@ function AgentAvatar({ compact = false }: { compact?: boolean }) {
   return <span className={`agent-avatar ${compact ? 'compact' : ''}`}><img src={agentRobotAvatar} alt="Agent 机器人" /></span>;
 }
 
+function MessageTime({ timestamp }: { timestamp?: number }) {
+  if (!timestamp || !Number.isFinite(timestamp)) return null;
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return null;
+  return <time className="chat-message-time" dateTime={date.toISOString()} title={date.toLocaleString()}>
+    {date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })}
+  </time>;
+}
 
 function ToolActivity({ tool, copyable }: { tool: ChatToolActivity; copyable: boolean }) {
   const label = tool.status === 'running' ? '调用中'
@@ -100,15 +108,29 @@ function AgentActivity({ agent, copyable }: { agent: ChatAgentActivity; copyable
   </section>;
 }
 
-function ReplyLoading({ message, stopping }: { message: ChatMessage; stopping: boolean }) {
-  const activeAgent = message.segments?.some(segment => segment.type === 'agent' && segment.agent.status === 'running');
-  const activeTool = message.tools?.some(tool => tool.status === 'running')
-    || message.segments?.some(segment => segment.type === 'tool' && segment.tool.status === 'running');
-  const hasText = Boolean(message.text.trim() || message.segments?.some(segment => segment.type === 'text' && segment.text.trim()));
-  const label = stopping ? '正在停止…' : activeAgent ? '智能体正在协作' : activeTool ? '正在执行工具' : hasText ? '正在生成回复' : '正在思考';
-  return <div className="reply-loading" role="status" aria-atomic="true">
+function ReplyLoading({ message, stopping, compacting = false }: { message?: ChatMessage; stopping: boolean; compacting?: boolean }) {
+  // Local elapsed time for this visible request, never inferred from token usage or history.
+  const [startedAt] = useState(Date.now);
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    const timer = window.setInterval(() => setElapsed(Math.max(0, Math.floor((Date.now() - startedAt) / 1000))), 1000);
+    return () => window.clearInterval(timer);
+  }, [startedAt]);
+  const activeAgent = message?.segments?.some(segment => segment.type === 'agent' && segment.agent.status === 'running');
+  const activeTool = message?.tools?.some(tool => tool.status === 'running')
+    || message?.segments?.some(segment => segment.type === 'tool' && segment.tool.status === 'running');
+  const hasText = Boolean(message?.text.trim() || message?.segments?.some(segment => segment.type === 'text' && segment.text.trim()));
+  const label = stopping ? '正在停止…' : activeAgent ? '智能体正在协作' : activeTool ? '正在执行工具' : hasText ? '正在生成回复' : '';
+  if (compacting) {
+    const duration = elapsed < 60 ? `${elapsed}秒` : `${Math.floor(elapsed / 60)}分钟 ${elapsed % 60}秒`;
+    return <div className={`reply-compaction${stopping ? ' is-stopping' : ''}`}>
+      <div className="reply-processing-time" aria-hidden="true">已处理 {duration}</div>
+      <div className="reply-compaction-detail" role="status"><Icon name="file" size={16}/><span className="reply-compaction-copy">{stopping ? '正在停止压缩…' : '正在压缩上下文 · 可能需要几分钟'}</span></div>
+    </div>;
+  }
+  return <div className="reply-loading" role="status" aria-label={label || '正在等待模型回复'} aria-atomic="true">
     <span className="reply-loading-wave" aria-hidden="true"><i /><i /><i /></span>
-    <span>{label}</span>
+    {label && <span>{label}</span>}
   </div>;
 }
 
@@ -169,6 +191,7 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
   const attachmentInput = useRef<HTMLInputElement>(null);
   const attachments = useSyncExternalStore(chatDraft.subscribe, chatDraft.getSnapshot);
   const locked = disabled || busy || stopping || sending;
+  const lastMessage = messages[messages.length - 1];
   const notReady = attachments.some(item => item.status !== 'success');
   const addFiles = (files: File[]) => {
     try { chatDraft.add(files); setAttachmentError(''); }
@@ -223,7 +246,7 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
   useLayoutEffect(() => {
     const container = scrollRef.current;
     if (container && followOutputRef.current) container.scrollTop = container.scrollHeight;
-  }, [messages, busy]);
+  }, [messages, busy, contextStatus?.phase]);
 
   const handleMessagesScroll = () => {
     const container = scrollRef.current;
@@ -236,7 +259,7 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
     const textarea = textareaRef.current;
     if (!textarea) return;
     textarea.style.height = 'auto';
-    textarea.style.height = `${Math.min(Math.max(textarea.scrollHeight, 42), 180)}px`;
+    textarea.style.height = `${Math.min(Math.max(textarea.scrollHeight, 56), 180)}px`;
     textarea.style.overflowY = textarea.scrollHeight > 180 ? 'auto' : 'hidden';
   }, [draft]);
 
@@ -272,8 +295,6 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
       </header>
 
       {models && <>
-        <div className="agent-model-controls"><div className="agent-model-picker"><Select label="对话模型" value={selectedModel ?? ''} disabled={busy || stopping || disabled || !models.length} options={models.length ? models.map(model => ({value:model.agentId,label:`${model.agentName}${model.modelName ? ` · ${model.modelName}` : ''}`})) : [{value:'',label:'请先添加模型'}]} onChange={value => selectModel?.(value)}/></div>
-          <button className="agent-model-settings-button" type="button" aria-label="模型设置" title="模型设置" onClick={openModelSettings}><Icon name="settings" size={16}/></button></div>
         {scopeControls && <div className="agent-scope-controls">
           <Select label="对话范围" value={scopeControls.value} options={scopeControls.options} disabled={locked||scopeControls.locked} onChange={scopeControls.select}/>
           <button type="button" className="agent-scope-action" disabled={locked||scopeControls.locked||!scopeControls.serverAvailable}
@@ -282,7 +303,6 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
             onClick={()=>scopeControls.useServer(true)}><Icon name="edit" size={13}/>新任务</button>}
         </div>}
         <div className="agent-mode-note"><i/>文本对话<span>·</span>工具和附件将在后续接入</div>
-        <AgentContextStatus status={contextStatus} error={contextError} retry={refreshContext}/>
         {recoveredRunning && <div className="agent-recovery-controls"><span role="status">{stopping ? '正在确认停止…' : '此请求仍在生成'}</span><button type="button" onClick={refreshCurrent} disabled={stopping || Boolean(history.loadingSessionId)}><Icon name="refresh" size={13} />刷新</button><button type="button" onClick={stopRecovered} disabled={stopping || Boolean(history.loadingSessionId)}><Icon name="stop" size={13} />{stopping ? '正在停止…' : '停止'}</button></div>}
       </>}
 
@@ -318,14 +338,13 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
         {messages.map((message, index) => message.role === 'user'
           ? <div className="user-message-group" key={message.id}>
             <div className="user-message">{message.text && <div>{message.text}</div>}{!!message.attachments?.length && <MessageAttachments files={message.attachments} attach={attachFiles} disabled={locked} />}</div>
-            <div className="message-copy-actions"><button type="button" className="chat-restore-request" disabled={locked} onClick={() => {
+            <div className="message-copy-actions chat-message-meta request"><button type="button" className="chat-restore-request" aria-label="恢复请求" title="恢复到输入框" disabled={locked} onClick={() => {
               if (draft.trim() || attachments.length) { setAttachmentError('请先清空当前草稿，再恢复这条请求。'); return; }
               try { chatDraft.attach(message.attachments ?? []); setDraft(message.text); setAttachmentError(''); textareaRef.current?.focus(); }
               catch (error) { setAttachmentError((error as Error).message); }
-            }}>恢复请求</button><CopyMarkdownButton getText={() => messageToMarkdown(message)} label="复制请求（Markdown）" /></div>
+            }}><Icon name="edit" size={14}/></button><MessageTime timestamp={message.timestamp}/><CopyMarkdownButton getText={() => messageToMarkdown(message)} label="复制请求（Markdown）" iconOnly /></div>
           </div>
           : <div className={`assistant-message ${message.error ? 'error' : ''} ${(busy || stopping) && index === messages.length - 1 ? 'active' : ''}`} key={message.id}>
-            <AgentAvatar />
             <div className="assistant-main">
               {message.segments
                 ? message.segments.map(segment => segment.type === 'text'
@@ -344,10 +363,12 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
                 </>}
               {message.error && <p className="chat-error-guidance">{chatErrorGuidance(message.errorCode)}</p>}
               {(busy || stopping) && index === messages.length - 1
-                ? <ReplyLoading message={message} stopping={stopping} />
-                : <div className="message-copy-actions"><CopyMarkdownButton getText={() => messageToMarkdown(message)} label="复制回复（Markdown）" /></div>}
+                ? <ReplyLoading message={message} stopping={stopping} compacting={contextStatus?.phase === 'running' && contextStatus.requestId === message.id} />
+                : <div className="message-copy-actions chat-message-meta response"><CopyMarkdownButton getText={() => messageToMarkdown(message)} label="复制回复（Markdown）" iconOnly /><MessageTime timestamp={message.timestamp}/></div>}
             </div>
           </div>)}
+        {contextStatus?.phase === 'running' && !((busy || stopping) && lastMessage?.role === 'assistant' && lastMessage.id === contextStatus.requestId) &&
+          <div className="assistant-message active"><div className="assistant-main"><ReplyLoading key={contextStatus.requestId} stopping={stopping} compacting /></div></div>}
       </div>
     </section>
 
@@ -362,7 +383,7 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
         {!agentAvailability.loading && <button type="button" onClick={agentAvailability.retry}><Icon name="refresh" size={13} />重试加载</button>}
       </div>}
       {!!attachments.length && <DraftAttachments items={attachments} draft={chatDraft} locked={locked} report={setAttachmentError} />}
-      <div className="composer-input-row"><textarea ref={textareaRef} rows={1} aria-label="智能体任务输入" placeholder={models ? '输入问题，或粘贴纯文本' : '输入问题，或粘贴文本、截图与文件'} value={draft} disabled={locked} onChange={event => setDraft(event.target.value)}
+      <div className="composer-input-row"><textarea ref={textareaRef} rows={1} aria-label="智能体任务输入" placeholder="与 ShellPilot 协作" value={draft} disabled={locked} onChange={event => setDraft(event.target.value)}
         onPaste={event => {
           const files = pastedFiles(event.clipboardData);
           const text = event.clipboardData.getData('text/plain');
@@ -383,15 +404,22 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
         }}
         onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void submit(); } }} /></div>
       <div className="composer-bottom-bar">
-        <button type="button" className="composer-attach-button" disabled={locked || !!models} onClick={() => attachmentInput.current?.click()} title={models ? '聊天附件尚未接入' : '选择图片、PDF 或文本文件'}><Icon name="attach" size={16} />附件</button>
+        <button type="button" className="composer-attach-button" aria-label="添加附件" disabled={locked || !!models} onClick={() => attachmentInput.current?.click()} title={models ? '聊天附件尚未接入' : '选择图片、PDF 或文本文件'}><Icon name="plus" size={20} /></button>
         <input ref={attachmentInput} type="file" multiple tabIndex={-1} className="visually-hidden" aria-label="选择聊天附件" accept={chatAttachmentPolicy.extensions.map(ext => `.${ext}`).join(',')} onChange={event => {
           if (!locked && event.target.files?.length) addFiles(Array.from(event.target.files));
           event.target.value = '';
         }} />
-        <span className="composer-attachment-note">{models ? '仅支持文本' : `${attachments.length}/4 · 合计 ≤ 20 MB`}</span>
+        {!models && <span className="composer-attachment-note">{attachments.length}/4 · 合计 ≤ 20 MB</span>}
+        {models && <div className="agent-model-controls composer-model-controls">
+          <div className="agent-model-picker"><Select label="对话模型" value={selectedModel ?? ''} disabled={busy || stopping || disabled || !models.length}
+            options={models.length ? models.map(model => ({value:model.agentId,label:`${model.agentName}${model.modelName ? ` · ${model.modelName}` : ''}`})) : [{value:'',label:'请先添加模型'}]}
+            menuMinWidth={260} menuAlign="end" onChange={value => selectModel?.(value)}/></div>
+          <button className="agent-model-settings-button" type="button" aria-label="模型设置" title="模型设置" onClick={openModelSettings}><Icon name="settings" size={15}/></button>
+          <AgentContextStatus status={contextStatus} error={contextError} retry={refreshContext}/>
+        </div>}
         {busy || stopping
           ? <button type="button" className="send-button stop-button" aria-label={stopping ? '正在停止' : '停止生成'} title={stopping ? '正在停止' : '停止生成'} onClick={stop} disabled={stopping}><Icon name="stop" size={16} /></button>
-          : <button type="submit" className="send-button" aria-label="发送消息" title={agentAvailability.ready ? '发送消息' : '智能体就绪后即可发送，草稿会保留'} disabled={(!draft.trim() && !attachments.length) || locked || notReady || !agentAvailability.ready}><Icon name="send" size={20} /></button>}
+          : <button type="submit" className="send-button" aria-label="发送消息" title={agentAvailability.ready ? '发送消息' : '智能体就绪后即可发送，草稿会保留'} disabled={(!draft.trim() && !attachments.length) || locked || notReady || !agentAvailability.ready}><Icon name="arrowUp" size={20} /></button>}
       </div>
       {(attachmentError || notReady) && <p className="composer-attachment-error" role="status">{attachmentError || (attachments.some(item => item.status === 'error') ? '附件上传失败，请重试或移除后再发送。' : '附件正在准备中，请等待上传完成。')}</p>}
     </form>

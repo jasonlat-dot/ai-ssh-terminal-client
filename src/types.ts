@@ -39,7 +39,7 @@ export type ChatAgentActivity = { id: string; name: string; task?: string; statu
 export type ChatMessageSegment = { id: string; type: 'text'; text: string } | { id: string; type: 'tool'; tool: ChatToolActivity } | { id: string; type: 'agent'; agent: ChatAgentActivity };
 export type ChatTextExcerpt = { source: 'terminal' | 'paste'; characters: number; preview: string };
 export type ChatAttachment = { fileId: string; fileName: string; contentType: string; size: number; downloadUrl?: string; urlExpiresAt?: string | number; previewUrl?: string; textExcerpt?: ChatTextExcerpt };
-export type ChatMessage = { attachments?: ChatAttachment[]; errorCode?: string; id: string; role: 'user' | 'assistant'; text: string; segments?: ChatMessageSegment[]; tools?: ChatToolActivity[]; summary?: string; suggestion?: boolean; error?: boolean };
+export type ChatMessage = { timestamp?: number; attachments?: ChatAttachment[]; errorCode?: string; id: string; role: 'user' | 'assistant'; text: string; segments?: ChatMessageSegment[]; tools?: ChatToolActivity[]; summary?: string; suggestion?: boolean; error?: boolean };
 export type Navigation = '连接' | '命令';
 
 export type SessionFileState = { open: boolean; files: FileNode[]; selected: string; expanded: Set<string> };

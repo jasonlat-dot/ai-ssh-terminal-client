@@ -74,6 +74,7 @@ import { StartupUpdatePrompt } from './components/StartupUpdatePrompt';
 import './panel-resize.css';
 import './components/TerminalLayout.css';
 import './components/AgentDesktopLayout.css';
+import './components/AgentComposer.css';
 import { Icon } from './components/Ui';
 
 const RemoteTerminalView = lazy(() => import('./components/RemoteTerminalView').then(module => ({ default: module.RemoteTerminalView })));
@@ -163,7 +164,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
   const [historyLoadingId, setHistoryLoadingId] = useState('');
   const [historyError, setHistoryError] = useState('');
   const historyRefreshVersion = useRef(0);
-  const [disconnectTarget, setDisconnectTarget] = useState<{ tabId: string; host: Host } | null>(null);
+  const [disconnectTarget, setDisconnectTarget] = useState<{ tabId: string; host: Host; allowDisconnectOnly: boolean } | null>(null);
   const [dialog, setDialog] = useState<Dialog>(null);
   const [backendSettingsOpen, setBackendSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<RustSettingsSection>('general');
@@ -822,7 +823,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     terminalClients.current.delete(id);
     tabLastUsedAt.current.delete(id);
   };
-  const closeSession = (id: string) => {
+  const closeSession = (id: string, allowDisconnectOnly = false) => {
     const session = sessionsRef.current.find(item => item.id === id);
     if (!session || disconnectTarget) return;
     const runtime = terminalClients.current.get(id);
@@ -850,19 +851,22 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     }
     setDialog(null);
     setTerminalError('');
-    setDisconnectTarget({ tabId: id, host: hosts.find(item => item.id === session.connectionId) ?? session.host });
+    setDisconnectTarget({ tabId: id, host: hosts.find(item => item.id === session.connectionId) ?? session.host, allowDisconnectOnly });
   };
-  const confirmDisconnect = async () => {
+  const confirmDisconnect = async (keepTab = false) => {
     if (!disconnectTarget) return false;
     const target = disconnectTarget;
-    const targetSession = sessions.find(session => session.id === target.tabId);
+    if (keepTab && !target.allowDisconnectOnly) return false;
+    const targetSession = sessionsRef.current.find(session => session.id === target.tabId);
     if (!targetSession || !await closeTerminalSession(target.tabId)) return false;
     let historySaved = true;
     try { recordDisconnect(target.host); }
     catch { historySaved = false; }
-    removeSessionTab(target.tabId);
+    if (!keepTab) removeSessionTab(target.tabId);
     setDisconnectTarget(null);
-    notify(historySaved ? `当前 ${target.host.name} 终端页签已断开并关闭。` : `当前终端页签已关闭，但本机存储不可用，未能保留连接记录。`, historySaved ? 'success' : 'error');
+    notify(historySaved
+      ? keepTab ? `${target.host.name} 已断开，页签和终端内容已保留，可手动重新连接。` : `当前 ${target.host.name} 终端页签已断开并关闭。`
+      : keepTab ? '连接已断开，页签已保留，但未能保存本机连接记录。' : '当前终端页签已关闭，但本机存储不可用，未能保留连接记录。', historySaved ? 'success' : 'error');
     return true;
   };
   /**
@@ -1022,7 +1026,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     chatAbort.current = controller;
     updateMessages(previous => [
       ...previous,
-      { id: crypto.randomUUID(), role: 'user', text, attachments },
+      { id: crypto.randomUUID(), role: 'user', text, attachments, timestamp: Date.now() },
       { id: assistantId, role: 'assistant', text: '', segments: [] },
     ]);
     setChatBusy(true);
@@ -1215,6 +1219,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
       if(chatRequestId.current===assistantId)chatRequestId.current='';
       if (version === chatVersion.current) {
         const sessionId = chatSessionId.current;
+        updateAssistant(message => ({ ...message, timestamp: Date.now() }));
         try {
           await persistClientSession(selectedAgent.agentId, sessionId);
         } catch (persistError) {
@@ -1570,7 +1575,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
               onReconnectExhausted={attempts => handleReconnectExhausted(session.id, attempts, runtime)}
               reconnect={options => reconnectTerminal(session.id, options, runtime)}
               cancelReconnect={() => cancelTerminalReconnect(session.id)}
-              disconnect={() => closeSession(session.id)} />
+              disconnect={() => closeSession(session.id, true)} />
             </Suspense>
           </section>;
         })}
@@ -1597,7 +1602,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
           controls="command-shelf-content" collapseLabel="常用命令" collapsed={commandCollapsed} collapse={() => setCommandCollapsed(true)} />} />
     </main>
     <>
-    <PanelDivider value={terminalWidth} change={setTerminalWidth} min={24} max={55} defaultValue={34} minPixels={320} reservePixels={400} reserveWidthSelectors=".activity-bar, .workspace-sidebar"
+    <PanelDivider value={terminalWidth} change={setTerminalWidth} min={24} max={75} defaultValue={34} minPixels={320} reservePixels={360} reserveWidthSelectors=".activity-bar, .workspace-sidebar"
       controls="terminal-dock-content" label="调整对话与终端宽度" collapseLabel="终端面板" collapsed={agentCollapsed || terminalDockCollapsed} collapse={() => setTerminalDockCollapsed(true)} />
     <AgentPanel ref={agentComposer} chatDraft={chatDraft} draftScope={chatVersion.current}
       contextStatus={contextStatus} contextError={contextError} refreshContext={()=>setContextReload(value=>value+1)}
@@ -1639,7 +1644,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
       notify('命令已保存到客户端', 'success');
     }} />}
     {dialog === 'connection' && <SshConnectionDialog connections={connections} connectAfterSave={connectAfterSave} onClose={closeDialog} onSaved={saved => { if (connectAfterSave) void selectHost(saved.id, saved); else notify('SSH 连接已保存。', 'success'); }} />}
-    {disconnectTarget && <DisconnectDialog key={disconnectTarget.tabId} host={hosts.find(item => item.id === disconnectTarget.host.id) ?? disconnectTarget.host} connected={sessions.find(session => session.id === disconnectTarget.tabId)?.connected === true} busy={false} error={terminalError} close={() => setDisconnectTarget(null)} confirm={confirmDisconnect} />}
+    {disconnectTarget && <DisconnectDialog key={disconnectTarget.tabId} host={hosts.find(item => item.id === disconnectTarget.host.id) ?? disconnectTarget.host} connected={sessions.find(session => session.id === disconnectTarget.tabId)?.connected === true} busy={false} error={terminalError} close={() => setDisconnectTarget(null)} confirm={() => confirmDisconnect()} disconnectOnly={disconnectTarget.allowDisconnectOnly ? () => confirmDisconnect(true) : undefined} />}
   </div>;
 }
 

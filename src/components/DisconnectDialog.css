@@ -28,6 +28,8 @@
 .disconnect-actions .outlined-button { border-color: var(--line-strong); background: transparent; color: var(--theme-text-muted); }
 .disconnect-confirm { background: #c34848; color: #fff; border: 1px solid #c34848; font-weight: 600; }
 .disconnect-confirm:hover:not(:disabled) { background: #ac3838; }
+.disconnect-only { background: #e8b64b; color: #382808; border: 1px solid #e8b64b; font-weight: 600; }
+.disconnect-only:hover:not(:disabled) { background: #dca538; border-color: #dca538; }
 .disconnect-actions button:focus-visible { outline: 3px solid #3687ff; outline-offset: 3px; }
 .disconnect-dialog button:disabled { opacity: .55; cursor: wait; }
 .disconnect-error { margin: 0 0 14px; padding: 10px 12px; border-radius: 6px; background: #fff0ec; color: #aa392e; font-size: 13px; line-height: 1.6; }

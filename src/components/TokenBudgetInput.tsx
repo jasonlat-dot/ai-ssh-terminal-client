@@ -2,19 +2,20 @@ import { Select } from './Select';
 
 type TokenPreset = { value: number; short: string; label: string; description: string };
 const preset = (short: string, value: number): TokenPreset => ({
-  value, short, label: short, description: value.toLocaleString('en-US'),
+  value, short, label: `${short} · ${short.includes('i') ? '1024 制' : '1000 制'}`,
+  description: value.toLocaleString('en-US'),
 });
 
 const contextPresets = [
-  preset('8K', 8192), preset('16K', 16384), preset('32K', 32768), preset('64K', 65536),
-  preset('128K', 128000), preset('128K', 131072), preset('200K', 200000),
-  preset('256K', 256000), preset('256K', 262144), preset('400K', 400000),
-  preset('1M', 1000000), preset('1M', 1048576), preset('1M', 1050000),
+  preset('8Ki', 8192), preset('16Ki', 16384), preset('32Ki', 32768), preset('64Ki', 65536),
+  preset('128K', 128000), preset('128Ki', 131072), preset('200K', 200000),
+  preset('256K', 256000), preset('256Ki', 262144), preset('400K', 400000),
+  preset('1M', 1000000), preset('1Mi', 1048576), preset('1.05M', 1050000),
 ];
 const outputPresets = [
-  preset('1K', 1024), preset('2K', 2048), preset('4K', 4096), preset('8K', 8192),
-  preset('16K', 16384), preset('32K', 32768), preset('64K', 65536),
-  preset('128K', 128000), preset('128K', 131072),
+  preset('1Ki', 1024), preset('2Ki', 2048), preset('4Ki', 4096), preset('8Ki', 8192),
+  preset('16Ki', 16384), preset('32Ki', 32768), preset('64Ki', 65536),
+  preset('128K', 128000), preset('128Ki', 131072),
 ];
 
 /** 精确数值始终可编辑；档位仅提供快捷填写，不代表模型支持该容量。 */
@@ -38,6 +39,6 @@ export function TokenBudgetInput({ id, label, value, kind, disabled, onChange }:
       step={1} value={value} disabled={disabled} onChange={event => onChange(Number(event.target.value))} />
     <Select id={`${id}-preset`} label={`${label}常用档位`} className="model-token-presets"
       value={value} displayValue={selected?.short ?? '自定义'} options={options}
-      menuMinWidth={216} menuAlign="end" menuClassName="model-token-menu" disabled={disabled} onChange={onChange} />
+      menuMinWidth={264} menuAlign="end" menuClassName="model-token-menu" disabled={disabled} onChange={onChange} />
   </div>;
 }
