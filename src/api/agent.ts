@@ -34,7 +34,12 @@ export type AgentChatRequest = {
   attachments?: { fileId: string }[];
 };
 export type AgentTurnState = 'running'|'completed'|'cancelled'|'failed'|'interrupted';
-export type AgentSession = { id:string;agentId:string;userId:string;revision:number;task?:{
+export type AgentProject = {id:string;name:string;connectionId:string;identity:AgentScope["identity"];profile?:{host:string;port:number;username:string}|null};
+export type ProjectChat = {sessionId:string;agentId:string;title:string;createdAt:number};
+export type ProjectChats = {items:ProjectChat[];nextAfter:string|null};
+export type AgentScope = { rootId:string;kind:'general'|'server';connectionId:string|null;
+  identity:{host:string;port:number;username:string;hostKey:string}|null;originTerminalId:string|null };
+export type AgentSession = { scope?:AgentScope|null; id:string;agentId:string;userId:string;revision:number;task?:{
   id:string;goal:string;constraints:string[];target:{connectionId:string;terminalSessionId:string}|null;status:string;
 }|null;checkpointId?:string|null };
 export type AgentTurn = {
@@ -261,6 +266,15 @@ export const agentApi = {
   createSession: (agentId: string, signal?: AbortSignal) => request<{ sessionId: string }>(
     'create_session', 'POST', { agentId, userId: sshUserId }, signal,
   ),
+  serverScope: (agentId:string,rootId:string,terminalSessionId:string,newTask=false,signal?:AbortSignal) =>
+    request<AgentSession>('server_scope','POST',{agentId,userId:sshUserId,rootId,terminalSessionId,newTask},signal),
+  scopes: (agentId:string,rootId:string,signal?:AbortSignal) =>
+    request<AgentSession[]>('scopes','GET',undefined,signal,{agentId,userId:sshUserId,rootId}),
+  projects: () => request<AgentProject[]>('projects','GET',undefined,undefined,{userId:sshUserId}),
+  createProject: (name:string,connectionId:string) => request<AgentProject>('create_project','POST',{name,connectionId,userId:sshUserId}),
+  projectChats: (projectId='',after='') => request<ProjectChats>('project_chats','GET',undefined,undefined,{userId:sshUserId,projectId,after}),
+  projectTerminal: (projectId:string,terminalSessionId:string) => request<AgentProject>('project_terminal','POST',{projectId,terminalSessionId,userId:sshUserId}),
+  projectChat: (projectId:string,agentId:string,terminalSessionId:string) => request<AgentSession>('project_chat','POST',{projectId,agentId,terminalSessionId,userId:sshUserId}),
   stopChat: (agentId: string, sessionId: string, signal?: AbortSignal, requestId?:string) => request<boolean>(
     'stop_chat', 'POST', { agentId, userId: sshUserId, sessionId,...(requestId?{requestId}:{}) }, signal,
   ),

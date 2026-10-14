@@ -11,8 +11,9 @@ export function chatErrorGuidance(code?: string): string {
     case 'AGENT_HISTORY_LIMIT': return '当前输入与保留上下文超过模型容量，请缩短输入、新建会话或检查模型窗口设置。';
     case 'AGENT_COMPACTION_FAILED': return '对话整理失败，原始历史仍保留；请检查模型是否支持非流式 JSON 摘要，再手动重试。';
     case 'AGENT_COMPACTION_LIMIT': return '整理后仍无法容纳当前请求，请缩短输入、新建会话或提高合理的模型窗口设置。';
-    case 'AGENT_TARGET_MISMATCH':
-    case 'SSH_SESSION_NOT_FOUND': return '原会话绑定的终端已不可用，请连接目标服务器后新建会话。';
+    case 'AGENT_TARGET_UNAVAILABLE':
+    case 'SSH_SESSION_NOT_FOUND': return '当前连接不可用；仍可讨论已有记录，新建服务器任务或实时操作需先连接。';
+    case 'AGENT_TARGET_MISMATCH': return '当前连接与任务的服务器身份不一致，请选择对应任务或为当前服务器新建任务；原有历史已保留。';
     case 'AGENT_CANCELLED': return '本次生成已停止，部分回复已保留。';
     case 'AGENT_INTERRUPTED': return '上次生成已中断；可查看部分回复，重新发送会创建新的请求。';
     case 'MODEL_TIMEOUT': return '模型请求超时，请检查网络或模型超时设置后手动重试。';

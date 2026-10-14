@@ -1,5 +1,5 @@
 import { useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
-import type { Ref } from 'react';
+import type { Ref, ReactNode } from 'react';
 import { MarkdownMessage } from './MarkdownMessage';
 import agentRobotAvatar from '../assets/agent-robot-avatar.png';
 import type { ClientChatSession } from '../state/clientChatHistory';
@@ -111,6 +111,7 @@ function ReplyLoading({ message, stopping }: { message: ChatMessage; stopping: b
 }
 
 type HistoryControls = {
+  content?:ReactNode;
   sessions: ClientChatSession[];
   activeSessionId: string;
   open: boolean;
@@ -132,13 +133,16 @@ function sessionTime(value: ClientChatSession['updatedAt']): string {
 }
 
 export type AgentComposerHandle = { addText: (text: string, source: ChatTextExcerpt['source']) => boolean };
-export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localTerminal, messages, busy, stopping, send, stop, clear, disabled, agentAvailability, history, collapsed, models, selectedModel, selectModel, openModelSettings, recoveredRunning, stopRecovered, refreshCurrent }: {
+export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localTerminal, targetLabel, scopeControls, messages, busy, stopping, send, stop, clear, disabled, agentAvailability, history, collapsed, models, selectedModel, selectModel, openModelSettings, recoveredRunning, stopRecovered, refreshCurrent }: {
   ref?: Ref<AgentComposerHandle>;
   chatDraft: ChatAttachmentDraft;
   draftScope: number;
   host?: Host;
   connected: boolean;
   localTerminal: boolean;
+  targetLabel?: string;
+  scopeControls?: {value:string;options:{value:string;label:string}[];select:(id:string)=>void;useServer:(newTask:boolean)=>void;
+    serverAvailable:boolean;serverName:string;locked:boolean;serverTask:boolean;general?:boolean};
   messages: ChatMessage[];
   busy: boolean;
   stopping: boolean;
@@ -251,7 +255,7 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
       <header>
         <div className="conversation-title">
           <AgentAvatar compact />
-          <span><h3>智能体对话</h3><small><i className={`status-dot ${connected ? '' : 'offline'}`} />{localTerminal ? '本地 CMD · 未绑定' : host?.name ?? '尚未选择服务器'}</small></span>
+          <span><h3>智能体对话</h3><small title={targetLabel}><i className={`status-dot ${scopeControls?.general ? 'general' : connected ? '' : 'offline'}`} />{targetLabel ?? (localTerminal ? '本地 CMD · 未绑定' : host?.name ?? '尚未选择服务器')}</small></span>
         </div>
         <button type="button" className="agent-history-button" aria-label="历史会话" aria-expanded={history.open}
           aria-controls="agent-history-list" onClick={history.toggle} disabled={disabled || busy || !agentAvailability.ready}>
@@ -266,12 +270,20 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
       {models && <>
         <div className="agent-model-controls"><div className="agent-model-picker"><Select label="对话模型" value={selectedModel ?? ''} disabled={busy || stopping || disabled || !models.length} options={models.length ? models.map(model => ({value:model.agentId,label:`${model.agentName}${model.modelName ? ` · ${model.modelName}` : ''}`})) : [{value:'',label:'请先添加模型'}]} onChange={value => selectModel?.(value)}/></div>
           <button className="agent-model-settings-button" type="button" aria-label="模型设置" title="模型设置" onClick={openModelSettings}><Icon name="settings" size={16}/></button></div>
+        {scopeControls && <div className="agent-scope-controls">
+          <Select label="对话范围" value={scopeControls.value} options={scopeControls.options} disabled={locked||scopeControls.locked} onChange={scopeControls.select}/>
+          <button type="button" className="agent-scope-action" disabled={locked||scopeControls.locked||!scopeControls.serverAvailable}
+            title={'在独立上下文中讨论 '+scopeControls.serverName} onClick={()=>scopeControls.useServer(false)}><Icon name="server" size={13}/>针对当前服务器</button>
+          {scopeControls.serverTask && <button type="button" className="agent-scope-action" disabled={locked||scopeControls.locked||!scopeControls.serverAvailable}
+            onClick={()=>scopeControls.useServer(true)}><Icon name="edit" size={13}/>新任务</button>}
+        </div>}
         <div className="agent-mode-note"><i/>文本对话<span>·</span>工具和附件将在后续接入</div>
         {recoveredRunning && <div className="agent-recovery-controls"><span role="status">{stopping ? '正在确认停止…' : '此请求仍在生成'}</span><button type="button" onClick={refreshCurrent} disabled={stopping || Boolean(history.loadingSessionId)}><Icon name="refresh" size={13} />刷新</button><button type="button" onClick={stopRecovered} disabled={stopping || Boolean(history.loadingSessionId)}><Icon name="stop" size={13} />{stopping ? '正在停止…' : '停止'}</button></div>}
       </>}
 
       {history.open && <section id="agent-history-list" className="agent-history-popover" aria-label="历史会话列表">
         <div className="agent-history-heading"><strong>历史会话</strong><button type="button" onClick={history.refresh} disabled={history.loading} aria-label="刷新历史会话"><Icon name="refresh" size={15} /></button></div>
+        {history.content ?? <>
         {history.error && <p className="agent-history-note error">{history.error}</p>}
         {history.loading && !history.sessions.length && <p className="agent-history-note">正在加载历史会话…</p>}
         {!history.loading && !history.error && !history.sessions.length && <p className="agent-history-note">暂无历史会话</p>}
@@ -285,6 +297,7 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
           </button>)}
         </div>
         {history.more && <button type="button" className="agent-history-more" disabled={history.loading} onClick={history.more}>加载更多会话</button>}
+        </>}
       </section>}
 
       <div className="chat-messages" ref={scrollRef} aria-label="聊天记录" aria-live="polite"

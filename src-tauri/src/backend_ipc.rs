@@ -180,16 +180,95 @@ pub async fn dispatch(
                 .map_err(agent_error)?,
         ),
         ("POST", "agent/create_session") => {
-            let session_id = services
+            let session = services
                 .agent
-                .create_session(
+                .create_general_session(
                     text(&body, "agentId")?.into(),
                     text(&body, "userId")?.into(),
                 )
                 .await
                 .map_err(agent_error)?;
-            Ok(json!({"sessionId":session_id}))
+            Ok(json!({"sessionId":session.id}))
         }
+        ("POST", "agent/server_scope") => value(
+            services
+                .agent
+                .server_scope(
+                    text(&body, "agentId")?.into(),
+                    text(&body, "userId")?.into(),
+                    text(&body, "rootId")?.into(),
+                    text(&body, "terminalSessionId")?.into(),
+                    body["newTask"].as_bool().unwrap_or(false),
+                )
+                .await
+                .map_err(agent_error)?,
+        ),
+        ("GET", "agent/scopes") => value(
+            services
+                .agent
+                .scopes(
+                    text(&params, "agentId")?.into(),
+                    text(&params, "userId")?.into(),
+                    text(&params, "rootId")?.into(),
+                )
+                .await
+                .map_err(agent_error)?,
+        ),
+        ("GET", "agent/projects") => value(
+            services
+                .agent
+                .projects(text(&params, "userId")?.into())
+                .await
+                .map_err(agent_error)?,
+        ),
+        ("POST", "agent/create_project") => value(
+            services
+                .agent
+                .create_project(
+                    text(&body, "userId")?.into(),
+                    text(&body, "name")?.into(),
+                    text(&body, "connectionId")?.into(),
+                )
+                .await
+                .map_err(agent_error)?,
+        ),
+        ("GET", "agent/project_chats") => value(
+            services
+                .agent
+                .project_chats(
+                    text(&params, "userId")?.into(),
+                    params["projectId"]
+                        .as_str()
+                        .filter(|s| !s.is_empty())
+                        .map(str::to_owned),
+                    params["after"].as_str().unwrap_or("").into(),
+                )
+                .await
+                .map_err(agent_error)?,
+        ),
+        ("POST", "agent/project_terminal") => value(
+            services
+                .agent
+                .project_terminal(
+                    text(&body, "userId")?.into(),
+                    text(&body, "projectId")?.into(),
+                    text(&body, "terminalSessionId")?.into(),
+                )
+                .await
+                .map_err(agent_error)?,
+        ),
+        ("POST", "agent/project_chat") => value(
+            services
+                .agent
+                .project_chat(
+                    text(&body, "userId")?.into(),
+                    text(&body, "projectId")?.into(),
+                    text(&body, "agentId")?.into(),
+                    text(&body, "terminalSessionId")?.into(),
+                )
+                .await
+                .map_err(agent_error)?,
+        ),
         ("POST", "agent/stop_chat") => value(
             services
                 .agent
@@ -510,7 +589,7 @@ async fn agent_stream(
     subscription: Arc<Subscription>,
     send: impl Fn(Value) -> std::result::Result<(), ()> + Send + Sync,
 ) -> Result<()> {
-    use shellpilot_server::agent::{chat, provider::ModelError, Target};
+    use shellpilot_server::agent::{chat, provider::ModelError};
     use std::sync::atomic::Ordering;
     if services.stop.is_cancelled() {
         return Err(Error::unavailable("工作区已停止"));
@@ -522,26 +601,12 @@ async fn agent_stream(
         .map_err(agent_error)?;
     let target = if let Some(turn) = receipt {
         turn.target
-    } else if request.terminal_session_id.is_empty() {
-        None
     } else {
-        let terminal = services.terminals.connected(&request.terminal_session_id);
-        if !terminal.connected {
-            return Err(Error::invalid("所选 SSH 终端已断开"));
-        }
-        let connection = terminal
-            .connection_id
-            .ok_or_else(|| Error::invalid("终端目标不存在"))?;
-        let id = connection.clone();
-        let user = request.user_id.clone();
-        let owner = db(&services, move |store| Ok(store.get(&id)?.user_id == user)).await?;
-        if !owner {
-            return Err(Error::invalid("终端不属于当前用户"));
-        }
-        Some(Target {
-            connection_id: connection,
-            terminal_session_id: request.terminal_session_id.clone(),
-        })
+        services
+            .agent
+            .text_target(request.clone())
+            .await
+            .map_err(agent_error)?
     };
     let request_id = request.request_id.clone();
     let result = services

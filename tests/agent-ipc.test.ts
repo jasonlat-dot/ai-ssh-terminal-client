@@ -233,3 +233,29 @@ test('Protocol failure after text retains only partial events and rejects a late
   assert.deepEqual(received,[{event:'text',content:'partial evidence'},{event:'error',content:'模型协议无效',code:'MODEL_PROTOCOL_FAILED'}]);
   assert.equal(cancelled,1);
 });
+
+test('对话范围使用原生用户/模型/根会话隔离接口，不传客户端身份或授权', async()=>{
+  const calls:any[]=[];
+  harness((command,args)=>{assert.equal(command,'builtin_request');calls.push(args.request);return Promise.resolve(args.request.method==='GET'?[]:{id:'server-a'});});
+  await agentApi.scopes('model','root');
+  await agentApi.serverScope('model','root','pty-a');
+  await agentApi.serverScope('model','root','pty-a',true);
+  assert.equal(calls[0].endpoint,'agent/scopes');
+  assert.deepEqual(calls[0].params,{agentId:'model',userId:'default',rootId:'root'});
+  assert.deepEqual(calls[1].body,{agentId:'model',userId:'default',rootId:'root',terminalSessionId:'pty-a',newTask:false});
+  assert.equal(calls[2].body.newTask,true);
+  assert.ok(calls.every(call=>!('identity' in (call.body??{})) && !('approvals' in (call.body??{}))));
+});
+
+test('Projects and cross-model persistent sidebar use owner-scoped IPC without HTTP',async()=>{
+ const requests:any[]=[];
+ harness((command,args)=>{assert.equal(command,'builtin_request');requests.push(args.request);return Promise.resolve([]);});
+ await agentApi.projects();await agentApi.createProject('A','conn-a');
+ await agentApi.projectChats('project-a','history-cursor');await agentApi.projectChats();
+ await agentApi.projectTerminal('project-a','reconnected-pty');
+ await agentApi.projectChat('project-a','model-b','reconnected-pty');
+ assert.deepEqual(requests.map(r=>r.endpoint),['agent/projects','agent/create_project','agent/project_chats','agent/project_chats','agent/project_terminal','agent/project_chat']);
+ assert.ok(requests.every(r=>(r.body?.userId??r.params.userId)==='default'));
+ assert.equal(requests[2].params.after,'history-cursor');assert.equal(requests[3].params.projectId,'');
+ assert.equal(requests[4].body.terminalSessionId,'reconnected-pty');assert.equal(requests[5].body.agentId,'model-b');
+});

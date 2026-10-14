@@ -205,3 +205,39 @@ test('切换会话后旧发送回执不能清空新草稿或锁住新会话', as
   finish(true); await ui.settle();
   assert.equal(ui.input().props.value,'新会话草稿'); assert.equal(ui.input().props.disabled,false);
 });
+test('聊天绑定说明沿用标题状态灯并提供完整名称提示，不受当前页签描述覆盖', () => {
+  const ui = composer();
+  ui.props.targetLabel = '原服务器 A · 已断开';
+  ui.props.host = { name: '当前服务器 B' };
+  ui.props.connected = false;
+  ui.props.localTerminal = true;
+  ui.render();
+  const label = ui.find(node => node.type === 'small' && node.props.title === ui.props.targetLabel);
+  assert.equal(label.props.children[1], '原服务器 A · 已断开');
+  assert.match(label.props.children[0].props.className, /offline/);
+  ui.props.connected = true;
+  ui.props.targetLabel = '原服务器 A · 已绑定';
+  ui.render();
+  const connected = ui.find(node => node.type === 'small' && node.props.title === ui.props.targetLabel);
+  assert.equal(connected.props.children[1], '原服务器 A · 已绑定');
+  assert.doesNotMatch(connected.props.children[0].props.className, /offline/);
+});
+
+test('范围选择与服务器按钮只触发显式切换，忙碌/离线时锁定且不发送内容', () => {
+  const ui=composer();const selected=[],servers=[];
+  ui.props.models=[{agentId:'model',agentName:'文本模型'}];
+  ui.props.scopeControls={value:'general',options:[{value:'general',label:'普通对话'},{value:'a',label:'A 任务'}],
+    select:id=>selected.push(id),useServer:value=>servers.push(value),serverAvailable:true,serverName:'A',locked:false,serverTask:true,general:true};
+  ui.render();
+  assert.ok(ui.find(node=>node.type==='i' && node.props.className==='status-dot general'));
+  ui.find(node=>node.props.label==='对话范围').props.onChange('a');
+  const action=ui.find(node=>node.props.title==='在独立上下文中讨论 A');
+  action.props.onClick();
+  assert.deepEqual(selected,['a']);assert.deepEqual(servers,[false]);
+  ui.props.scopeControls.serverAvailable=false;ui.render();
+  assert.equal(ui.find(node=>node.props.title==='在独立上下文中讨论 A').props.disabled,true);
+  assert.equal(ui.find(node=>node.props.label==='对话范围').props.disabled,false);
+  ui.props.scopeControls.locked=true;ui.render();
+  assert.equal(ui.find(node=>node.props.label==='对话范围').props.disabled,true);
+  assert.equal(ui.input().props.value,'');
+});

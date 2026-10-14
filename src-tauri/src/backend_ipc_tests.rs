@@ -1103,6 +1103,13 @@ async fn c2_model_server() -> (String, Arc<C2Model>, tokio::task::JoinHandle<()>
     (base, state, server)
 }
 async fn c2_seed(services: Arc<Services>, base: String) -> String {
+    c2_seed_target(services, base, None).await
+}
+async fn c2_seed_target(
+    services: Arc<Services>,
+    base: String,
+    target: Option<shellpilot_server::agent::Target>,
+) -> String {
     save_test_model(&services, base);
     let profile = dispatch(
         services.clone(),
@@ -1136,11 +1143,16 @@ async fn c2_seed(services: Arc<Services>, base: String) -> String {
         } else {
             "u".repeat(1000)
         };
+        let mut request = b5_request(&session, &format!("seed-{}", i), &message);
+        request.terminal_session_id = target
+            .as_ref()
+            .map(|t| t.terminal_session_id.clone())
+            .unwrap_or_default();
         services
             .agent
             .chat(
-                b5_request(&session, &format!("c2-seed-{i}"), &message),
-                None,
+                request,
+                target.clone(),
                 &CancellationToken::new(),
                 |_| async { Ok(()) },
             )
@@ -1323,6 +1335,13 @@ async fn c3_model_server() -> (String, Arc<C2Model>, tokio::task::JoinHandle<()>
     (base, state, server)
 }
 async fn c3_seed(services: Arc<Services>, base: String) -> String {
+    c3_seed_target(services, base, None).await
+}
+async fn c3_seed_target(
+    services: Arc<Services>,
+    base: String,
+    target: Option<shellpilot_server::agent::Target>,
+) -> String {
     save_test_model(&services, base);
     let profile = dispatch(
         services.clone(),
@@ -1359,11 +1378,16 @@ async fn c3_seed(services: Arc<Services>, base: String) -> String {
         } else {
             "u".repeat(1000)
         };
+        let mut request = b5_request(&session, &format!("seed-{}", i), &message);
+        request.terminal_session_id = target
+            .as_ref()
+            .map(|t| t.terminal_session_id.clone())
+            .unwrap_or_default();
         services
             .agent
             .chat(
-                b5_request(&session, &format!("c3-seed-{i}"), &message),
-                None,
+                request,
+                target.clone(),
                 &CancellationToken::new(),
                 |_| async { Ok(()) },
             )
@@ -1450,5 +1474,307 @@ async fn c3_native_stop_during_summary_works_before_any_text_frame_or_turn_admis
     assert_eq!(model.streams.load(Ordering::SeqCst), 8);
     model.release.notify_one();
     services.shutdown().await;
+    server.abort();
+}
+
+// Local SSH + real product Channel: a terminal close cannot become a successful compact/turn.
+#[tokio::test]
+async fn c4_native_disconnect_during_either_compaction_keeps_offline_discussion_and_legacy_scope() {
+    for responses in [false, true] {
+        let fixture = protocol::Fixture::new(Default::default()).await;
+        let (store, connection) = fixture.saved(false);
+        let services = Services::native(store, Default::default(), uuid::Uuid::new_v4());
+        let opened = services
+            .terminals
+            .connect(protocol::open(&connection.connection_id))
+            .await
+            .unwrap();
+        let target = Some(shellpilot_server::agent::Target {
+            connection_id: connection.connection_id.clone(),
+            terminal_session_id: opened.session_id.clone(),
+        });
+        let (base, model, server) = if responses {
+            c3_model_server().await
+        } else {
+            c2_model_server().await
+        };
+        let session = if responses {
+            c3_seed_target(services.clone(), base, target).await
+        } else {
+            c2_seed_target(services.clone(), base, target).await
+        };
+        model.hold.store(true, Ordering::SeqCst);
+        let mut request = b5_request(&session, "c4-disconnect", "整理时断开");
+        request.terminal_session_id = opened.session_id.clone();
+        let (sub, mut frames, run) = b5_start(services.clone(), request);
+        tokio::time::timeout(Duration::from_secs(3), model.arrived.notified())
+            .await
+            .unwrap();
+        services.terminals.close(&opened.session_id);
+        model.hold.store(false, Ordering::SeqCst);
+        model.release.notify_one();
+        // Text compaction continues after close; only live SSH operations would require a lease.
+        let text = b5_frame(&mut frames).await;
+        assert_eq!(text["payload"]["event"], "text");
+        acknowledge(&sub, text["sequence"].as_u64().unwrap());
+        let done = b5_frame(&mut frames).await;
+        acknowledge(&sub, done["sequence"].as_u64().unwrap());
+        run.await.unwrap().unwrap();
+        let history = b5_history(services.clone(), &session).await;
+        assert!(history["session"]["checkpointId"].is_string());
+        assert_eq!(history["turns"].as_array().unwrap().len(), 9);
+        assert_eq!(model.streams.load(Ordering::SeqCst), 9);
+        let reopened = services
+            .terminals
+            .connect(protocol::open(&connection.connection_id))
+            .await
+            .unwrap();
+        let mut retry = b5_request(&session, "c4-new-pty", "不允许更换目标");
+        retry.terminal_session_id = reopened.session_id;
+        let (_, mut frames, run) = b5_start(services.clone(), retry);
+        assert_eq!(
+            b5_frame(&mut frames).await["payload"]["code"],
+            "AGENT_TARGET_MISMATCH"
+        );
+        assert_eq!(
+            run.await.unwrap().unwrap_err().code,
+            "AGENT_TARGET_MISMATCH"
+        );
+        let mut old = b5_request(&session, "c4-old-pty", "旧目标");
+        old.terminal_session_id = opened.session_id.clone();
+        let (sub, mut frames, run) = b5_start(services.clone(), old);
+        let text = b5_frame(&mut frames).await;
+        acknowledge(&sub, text["sequence"].as_u64().unwrap());
+        let done = b5_frame(&mut frames).await;
+        acknowledge(&sub, done["sequence"].as_u64().unwrap());
+        run.await.unwrap().unwrap();
+        // Replaying a completed seed is read-only and works after its original terminal has closed.
+        let mut receipt = b5_request(&session, "seed-0", "只读解释日志");
+        receipt.terminal_session_id = opened.session_id;
+        let (sub, mut frames, replay) = b5_start(services.clone(), receipt);
+        let done = b5_frame(&mut frames).await;
+        assert_eq!(
+            done["payload"],
+            json!({"event":"done","content":"a".repeat(1000)})
+        );
+        acknowledge(&sub, done["sequence"].as_u64().unwrap());
+        replay.await.unwrap().unwrap();
+        assert_eq!(model.streams.load(Ordering::SeqCst), 10);
+        services.shutdown().await;
+        server.abort();
+    }
+}
+
+#[tokio::test]
+async fn scope_native_creation_family_owner_isolation_offline_stream_and_verified_reconnect() {
+    let fixture = protocol::Fixture::new(Default::default()).await;
+    let (store, connection) = fixture.saved(false);
+    let services = Services::native(store, Default::default(), uuid::Uuid::new_v4());
+    let (base, requests, server) = b5_model_server().await;
+    save_test_model(&services, base);
+    let root = dispatch(
+        services.clone(),
+        "agent/create_session",
+        "POST",
+        json!({"agentId":"model","userId":"default"}),
+        Value::Null,
+    )
+    .await
+    .unwrap()["sessionId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let opened = services
+        .terminals
+        .connect(protocol::open(&connection.connection_id))
+        .await
+        .unwrap();
+    let body = json!({"agentId":"model","userId":"default","rootId":root,"terminalSessionId":opened.session_id});
+    let a = dispatch(
+        services.clone(),
+        "agent/server_scope",
+        "POST",
+        body.clone(),
+        Value::Null,
+    )
+    .await
+    .unwrap();
+    assert_eq!(a["scope"]["kind"], "server");
+    assert!(a["scope"]["identity"]["hostKey"]
+        .as_str()
+        .unwrap()
+        .starts_with("SHA256:"));
+    assert_eq!(
+        dispatch(
+            services.clone(),
+            "agent/server_scope",
+            "POST",
+            body.clone(),
+            Value::Null
+        )
+        .await
+        .unwrap()["id"],
+        a["id"]
+    );
+    let list = dispatch(
+        services.clone(),
+        "agent/scopes",
+        "GET",
+        Value::Null,
+        json!({"agentId":"model","userId":"default","rootId":root}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(list.as_array().unwrap().len(), 2);
+    assert_eq!(
+        dispatch(
+            services.clone(),
+            "agent/scopes",
+            "GET",
+            Value::Null,
+            json!({"agentId":"model","userId":"other","rootId":root})
+        )
+        .await
+        .unwrap_err()
+        .code,
+        "AGENT_NOT_FOUND"
+    );
+    let session = a["id"].as_str().unwrap();
+    services.terminals.close(&opened.session_id);
+    let request = b5_request(session, "scope-offline", "continue");
+    let (sub, mut frames, run) = b5_start(services.clone(), request.clone());
+    let text = b5_frame(&mut frames).await;
+    acknowledge(&sub, text["sequence"].as_u64().unwrap());
+    let done = b5_frame(&mut frames).await;
+    acknowledge(&sub, done["sequence"].as_u64().unwrap());
+    run.await.unwrap().unwrap();
+    assert_eq!(
+        b5_history(services.clone(), session).await["turns"][0]["state"],
+        "completed"
+    );
+    let reopened = services
+        .terminals
+        .connect(protocol::open(&connection.connection_id))
+        .await
+        .unwrap();
+    let resumed=dispatch(services.clone(),"agent/server_scope","POST",json!({"agentId":"model","userId":"default","rootId":root,"terminalSessionId":reopened.session_id}),Value::Null).await.unwrap();
+    assert_eq!(resumed["id"], a["id"]);
+    assert_eq!(requests.lock().unwrap().len(), 1);
+    services.shutdown().await;
+    server.abort();
+}
+
+#[tokio::test]
+async fn project_native_history_restores_without_new_chat_and_rebinds_after_workspace_restart() {
+    let fixture = protocol::Fixture::new(Default::default()).await;
+    let (store, connection) = fixture.saved(false);
+    let services = Services::native(store.clone(), Default::default(), uuid::Uuid::new_v4());
+    let (base, requests, server) = b5_model_server().await;
+    save_test_model(&services, base);
+    let project = dispatch(
+        services.clone(),
+        "agent/create_project",
+        "POST",
+        json!({"userId":"default","name":"项目 A","connectionId":connection.connection_id}),
+        Value::Null,
+    )
+    .await
+    .unwrap();
+    let project_id = project["id"].as_str().unwrap().to_owned();
+    let opened = services
+        .terminals
+        .connect(protocol::open(&connection.connection_id))
+        .await
+        .unwrap();
+    let created=dispatch(services.clone(),"agent/project_chat","POST",json!({"userId":"default","projectId":project_id,"agentId":"model","terminalSessionId":opened.session_id}),Value::Null).await.unwrap();
+    let id = created["id"].as_str().unwrap().to_owned();
+    let mut request = b5_request(&id, "project-original", "keep the original constraints");
+    request.terminal_session_id = opened.session_id.clone();
+    let (sub, mut frames, run) = b5_start(services.clone(), request);
+    let frame = b5_frame(&mut frames).await;
+    acknowledge(&sub, frame["sequence"].as_u64().unwrap());
+    let done = b5_frame(&mut frames).await;
+    acknowledge(&sub, done["sequence"].as_u64().unwrap());
+    run.await.unwrap().unwrap();
+    let history = b5_history(services.clone(), &id).await;
+    services.shutdown().await;
+    let resumed = Services::native(store, Default::default(), uuid::Uuid::new_v4());
+    let list = dispatch(
+        resumed.clone(),
+        "agent/projects",
+        "GET",
+        Value::Null,
+        json!({"userId":"default"}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(list[0]["id"], project_id);
+    let chats = dispatch(
+        resumed.clone(),
+        "agent/project_chats",
+        "GET",
+        Value::Null,
+        json!({"userId":"default","projectId":project_id}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(chats["items"].as_array().unwrap().len(), 1);
+    assert_eq!(chats["items"][0]["sessionId"], id);
+    assert_eq!(
+        b5_history(resumed.clone(), &id).await["turns"],
+        history["turns"]
+    );
+    let new_terminal = resumed
+        .terminals
+        .connect(protocol::open(&connection.connection_id))
+        .await
+        .unwrap();
+    assert_ne!(new_terminal.session_id, opened.session_id);
+    dispatch(resumed.clone(),"agent/project_terminal","POST",json!({"userId":"default","projectId":project_id,"terminalSessionId":new_terminal.session_id}),Value::Null).await.unwrap();
+    let again = dispatch(
+        resumed.clone(),
+        "agent/project_chats",
+        "GET",
+        Value::Null,
+        json!({"userId":"default","projectId":project_id}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(again["items"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        dispatch(
+            resumed.clone(),
+            "agent/project_chats",
+            "GET",
+            Value::Null,
+            json!({"userId":"other","projectId":project_id})
+        )
+        .await
+        .unwrap_err()
+        .code,
+        "AGENT_NOT_FOUND"
+    );
+    assert_eq!(requests.lock().unwrap().len(), 1);
+    // Explicit continuation uses the new PTY, same persisted chat, and original context.
+    let mut next = b5_request(&id, "project-continue", "continue the previous constraints");
+    next.terminal_session_id = new_terminal.session_id.clone();
+    let (sub, mut frames, run) = b5_start(resumed.clone(), next);
+    let frame = b5_frame(&mut frames).await;
+    acknowledge(&sub, frame["sequence"].as_u64().unwrap());
+    let done = b5_frame(&mut frames).await;
+    acknowledge(&sub, done["sequence"].as_u64().unwrap());
+    run.await.unwrap().unwrap();
+    let continued = b5_history(resumed.clone(), &id).await;
+    assert_eq!(continued["turns"].as_array().unwrap().len(), 2);
+    assert_eq!(continued["turns"][1]["state"], "completed");
+    {
+        let captured = requests.lock().unwrap();
+        assert_eq!(captured.len(), 2);
+        assert!(captured[1]
+            .to_string()
+            .contains("keep the original constraints"));
+        assert!(captured[1].to_string().contains(&new_terminal.session_id));
+    }
+    resumed.shutdown().await;
     server.abort();
 }

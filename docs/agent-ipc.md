@@ -2,7 +2,7 @@
 
 前端 `src/api/agent.ts` 已接通同进程 Rust Agent 服务：配置列表、创建会话和停止用 invoke；文本流式对话用 `builtin_agent_subscribe` Channel，逐帧调用 `builtin_agent_ack` 确认。事件继续使用既有 `text/done/error` 协议，不走 WebView HTTP 请求。
 
-B4 已启用基础文本 AI 面板与模型配置页面，不会执行 SSH 命令、使用聊天附件或自动压缩上下文。操作说明见 [agent-model-settings.md](agent-model-settings.md)。
+B4 已启用基础文本 AI 面板与模型配置页面；C1–C4 已接入文字整理和宿主上下文重建，不会执行 SSH 命令或使用聊天附件。操作说明见 [agent-model-settings.md](agent-model-settings.md)。
 
 完整接口与边界见兄弟 Rust 工程的 [AGENT_CHAT.md](../../ai-ssh-terminal-server-rust/docs/AGENT_CHAT.md)，进度与 B4 续接入口见 [AGENT_PROGRESS.md](../../ai-ssh-terminal-server-rust/docs/AGENT_PROGRESS.md)。
 
@@ -27,3 +27,21 @@ cargo test --manifest-path src-tauri/Cargo.toml --offline --lib backend_ipc::tes
 验证：原生 IPC 15 项、前端相关 48 项、TypeScript/Vite 构建通过；Rust 库相关 55 项与 Clippy -D warnings 通过。产品不新增监听端口，测试 HTTP 端口仅模拟模型供应商。
 
 本轮 Tabbit 路由不可用；用户要求不处理该项。组件回归不是完整 WebView 截图验收，真实明暗主题/窄面板检查留待 E6。完整验证证据见兄弟 Rust 库 docs/AGENT_PROGRESS.md 的 B5 完成记录。本轮未提交、推送或打包。
+
+## C4 / C4R：宿主上下文与对话范围
+
+Agent 与终端服务共享同进程 TerminalManager。POST agent/create_session 创建普通范围；POST agent/server_scope 接受 agentId/userId/rootId/terminalSessionId/newTask，身份从原生实际 SSH 握手读取，不接受客户端提供的授权或服务器身份。GET agent/scopes 返回当前用户/模型所属根会话的范围列表。流事件仍为 text/done/error，没有产品 HTTP 后端。
+
+每个普通/服务器任务使用独立 sessionId 和原有日志、检查点与完整 Responses 窗口。server scope 的 identity 包含实际 host/port/username/hostKey，originTerminalId 只是最初终端线索；同身份重连可续用原范围，身份变化不能带入旧历史。每根最多 64 个范围，列表有界。
+
+文字 chat_stream 的 terminalSessionId 是本次环境参考，不是授权：普通范围必须为空；服务器范围可为空进行离线讨论，也可提供匹配身份的当前终端。原始请求回执仍按原 requestId/输入幂等重放。取消只来自本次请求/工作区停止；关闭 SSH 不会取消纯文字生成或整理。实时工具在 D 阶段另行绑定当前 PTY/taskId/有效授权，不能把文本任务当作执行许可。
+
+schema 9 新增 agent_session_scopes，旧 schema 8 日志、检查点、模型名/Key/供应商窗口保持。老会话没有 scope 字段时按原历史保留，不自动转为普通共享上下文。客户端按明确范围显示标题/状态与历史，终端页签变化不自动切换范围；复制终端选区需进入来源任务。完整验证和续接只维护 AGENT_PROGRESS.md。
+
+## C4R 项目工作区
+
+schema 10 增加 agent_projects / agent_project_chats。GET agent/projects 与 GET agent/project_chats 按 userId 返回跨模型项目历史，projectId 为空返回普通/未归属聊天；after 为该分组会话 ID，每页 50 条，nextAfter 继续加载。标题为首轮原请求的有界摘要，不发送模型请求。
+
+POST agent/create_project 接受 userId/name/connectionId，检查保存连接所有权并记录创建时的地址/端口/用户快照。POST agent/project_terminal 接受 userId/projectId/terminalSessionId，从 TerminalManager 检查实际 SSH 身份并绑定/校验项目；不会创建聊天。POST agent/project_chat 额外接受 agentId，核对模型与项目/实际身份后，在同一事务创建独立 server scope 和项目归属。
+
+前端历史点击始终 load 原 sessionId/agentId，再自动连接/原生验证；只有显式“新对话”调用 project_chat。项目聊天无需依赖普通根会话列表，可跨重启恢复。不同项目/模型聊天的日志与整理窗口不合并。旧 scopes 接口保留兼容基础回归；用户已撤销项目侧栏/最左图标导航；项目归组和恢复现在放在原 Agent“历史”弹层。完整验证与里程碑只维护 AGENT_PROGRESS.md。
