@@ -2,7 +2,7 @@
 export type ClientTypography = { family: string | null; normalWeight: number | null; boldWeight: number | null; error: string | null };
 export const TYPOGRAPHY_KEY = 'agent-ssh-ui-typography-v1';
 export const DEFAULT_TYPOGRAPHY = { normalWeight: 400, boldWeight: 600 };
-export const UI_FONT_FAMILIES = ['Microsoft YaHei UI', 'Microsoft YaHei', 'Segoe UI', 'Arial', 'Consolas', 'PingFang SC', 'Noto Sans SC'] as const;
+export const UI_FONT_FAMILIES = ['Noto Sans SC', 'Noto Serif SC', 'Segoe UI Variable', 'Microsoft YaHei UI', 'Microsoft YaHei', 'Segoe UI', 'Arial', 'Consolas', 'PingFang SC'] as const;
 export function normalizeFontFamily(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   const name = value.trim();

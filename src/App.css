@@ -1,5 +1,7 @@
 :root {
-  --font-ui: 'Segoe UI', 'Microsoft YaHei UI', 'Microsoft YaHei', 'PingFang SC', 'Noto Sans CJK SC', sans-serif;
+  /* Noto Sans SC is a local variable CJK font on supported Windows installs;
+     the rest of the stack keeps older machines readable. */
+  --font-ui: 'Noto Sans SC', 'Segoe UI Variable', 'Segoe UI', 'Microsoft YaHei UI', 'Microsoft YaHei', 'PingFang SC', 'Noto Sans CJK SC', sans-serif;
   --sans: var(--font-ui);
   --font-body: 13px;
   --font-small: 12px;

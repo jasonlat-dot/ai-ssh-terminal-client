@@ -3,13 +3,18 @@ import {readFileSync} from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
 import ts from 'typescript';
+import {historyPreviewPosition,historyPreviewTime} from '../src/state/historyPreview.ts';
 const p={id:'project-A',name:'A 服务器',connectionId:'A',identity:null};
 const q={id:'project-B',name:'B 服务器',connectionId:'B',identity:null};
 const a={sessionId:'old-A',agentId:'original-A-model',title:'A 的完整历史',createdAt:1};
 const b={sessionId:'old-B',agentId:'B-model',title:'B 的独立历史',createdAt:1};
 const g={sessionId:'general',agentId:'general-model',title:'普通解疑',createdAt:1};
 function harness(){
- const slots=[],effects=[];let cursor=0,tree;
+ const slots=[],effects=[],timers=new Map(),listeners=new Map();let cursor=0,tree,timerId=0;
+ const window={innerWidth:1200,innerHeight:800,
+  setTimeout(callback){const id=++timerId;timers.set(id,callback);return id;},clearTimeout(id){timers.delete(id);},
+  addEventListener(name,callback){if(!listeners.has(name))listeners.set(name,new Set());listeners.get(name).add(callback);},removeEventListener(name,callback){listeners.get(name)?.delete(callback);},
+  getComputedStyle(){return {fontFamily:'Microsoft YaHei UI'};}};
  const actions=[],api={projects:async()=>[p,q],projectChats:async id=>({items:id===p.id?[a]:id===q.id?[b]:[g],nextAfter:null}),
   createProject:async(name,connectionId)=>{actions.push(['create',name,connectionId]);return {...p,id:'created',name,connectionId};}};
  const props={hosts:[{id:'A',name:'服务器 A',address:'a.test',user:'tester'},{id:'B',name:'服务器 B',address:'b.test',user:'tester'}],project:null,sessionId:'',view:'chat',locked:false,revision:'initial',connected:false,
@@ -18,20 +23,27 @@ function harness(){
  const hooks={
   useState(initial){const i=cursor++;if(!(i in slots))slots[i]=typeof initial==='function'?initial():initial;return [slots[i],value=>slots[i]=typeof value==='function'?value(slots[i]):value];},
   useRef(initial){const i=cursor++;return slots[i]??={current:initial};},
+  useId(){return 'history-preview';},
   useEffect(callback,deps){const i=cursor++,old=slots[i];if(!old||!deps.every((v,n)=>Object.is(v,old.deps[n]))){const next={deps,cleanup:null};slots[i]=next;effects.push(()=>{old?.cleanup?.();next.cleanup=callback();});}},
+  useLayoutEffect(callback,deps){hooks.useEffect(callback,deps);},
  };
  const compiled=ts.transpileModule(readFileSync(new URL('../src/components/ProjectChatHistory.tsx',import.meta.url),'utf8'),
   {compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText;
- const context=vm.createContext({exports:{},require:name=>{
+ const context=vm.createContext({exports:{},window,document:{body:{}},require:name=>{
   if(name==='react')return hooks;
+  if(name==='react-dom')return {createPortal:content=>content};
   if(name==='react/jsx-runtime')return {jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props})};
   if(name==='../api/agent')return {agentApi:api};
   if(name==='./Ui')return {Icon:()=>null,Modal:'modal'};
   if(name==='./Select')return {Select:()=>null};
+  if(name==='../state/historyPreview')return {historyPreviewPosition,historyPreviewTime};
   throw new Error(name);
  }});
  vm.runInContext(compiled,context);
- function render(){cursor=0;tree=context.exports.ProjectChatHistory(props);while(effects.length)effects.shift()();}
+ function render(){cursor=0;tree=context.exports.ProjectChatHistory(props);
+  const card=find(n=>n.props.role==='tooltip');
+  if(card)card.props.ref.current={getBoundingClientRect:()=>({width:352,height:124}),contains:node=>!!node?.insidePreview};
+  while(effects.length)effects.shift()();}
  function all(predicate,node){if(arguments.length===1)node=tree;
   if(Array.isArray(node))return node.flatMap(child=>all(predicate,child));
   if(!node?.props)return [];
@@ -40,7 +52,7 @@ function harness(){
  function find(predicate){return all(predicate)[0];}
  function button(label){return find(n=>n.type==='button'&&(n.props['aria-label']===label||n.props.children===label));}
  render();
- return {props,actions,api,render,find,all,button,async settle(){await new Promise(resolve=>setImmediate(resolve));render();}};
+ return {props,actions,api,render,find,all,button,runTimers(){const pending=[...timers.values()];timers.clear();pending.forEach(callback=>callback());},emit(name,event={}){listeners.get(name)?.forEach(callback=>callback(event));},unmount(){slots.forEach(slot=>slot?.cleanup?.());},async settle(){await new Promise(resolve=>setImmediate(resolve));render();}};
 }
 test('Sidebar groups persisted A/B/general history and clicks retain exact session/model/project',async()=>{
  const ui=harness();await ui.settle();
@@ -102,11 +114,11 @@ test('Selected older conversation remains visible in a compact preview with exac
  ui.props.project=p;ui.props.sessionId='a-11';ui.props.revision='older';ui.render();await ui.settle();
  const group=ui.find(n=>n.props.id==='project-chats-project-A');
  assert.equal(ui.all(n=>n.type==='button'&&n.props.className?.includes('project-chat-row'),group).length,5);
- const selected=ui.find(n=>n.props['aria-current']==='page');assert.equal(selected.props.title,'任务 11');
+ const selected=ui.find(n=>n.props['aria-current']==='page');assert.equal(selected.props['aria-label'],'任务 11');
  selected.props.onClick();assert.equal(ui.actions[0][1].sessionId,'a-11');assert.equal(ui.actions[0][2].id,p.id);
  ui.button('显示更多A 服务器记录').props.onClick();ui.render();
  ui.button('收起A 服务器记录').props.onClick();ui.render();
- assert.equal(ui.find(n=>n.props['aria-current']==='page').props.title,'任务 11');
+ assert.equal(ui.find(n=>n.props['aria-current']==='page').props['aria-label'],'任务 11');
 });
 
 test('Show more uses the server cursor and deduplicates overlapping pages',async()=>{
@@ -202,20 +214,20 @@ test('Approval badges follow exact conversations and live resolution overrides s
  ui.props.revision='approval';ui.render();await ui.settle();
  const statuses=()=>ui.all(n=>n.props.role==='status');
  assert.equal(statuses().length,1);assert.equal(statuses()[0].props['aria-label'],'等待审批');
- const row=ui.find(n=>n.props.title===a.title);assert.ok(ui.all(n=>n.props.role==='status',row).length);
+ const row=ui.find(n=>n.props['aria-label']===a.title);assert.ok(ui.all(n=>n.props.role==='status',row).length);
  ui.props.approvalState={sessionId:a.sessionId,pending:false};ui.render();assert.equal(statuses().length,0);
  ui.props.approvalState={sessionId:b.sessionId,pending:true};ui.render();assert.equal(statuses().length,2);
- assert.equal(ui.all(n=>n.props.role==='status',ui.find(n=>n.props.title===b.title)).length,1);
+ assert.equal(ui.all(n=>n.props.role==='status',ui.find(n=>n.props['aria-label']===b.title)).length,1);
  ui.props.approvalState={sessionId:b.sessionId,pending:false};ui.render();assert.equal(statuses().length,1);
 });
 
 test('Running conversations show a spinner, keep selected styling, and clear live state without waiting for history',async()=>{
  const ui=harness();await ui.settle();
  ui.props.sessionId=a.sessionId;ui.props.activeRunning=true;ui.props.locked=true;ui.render();
- const row=ui.find(n=>n.props.title===a.title);
+ const row=ui.find(n=>n.props['aria-label']===a.title);
  assert.match(row.props.className,/active/);assert.equal(row.props['aria-current'],'page');
  assert.equal(ui.all(n=>n.props['aria-label']==='对话进行中',row).length,1);
- assert.equal(ui.all(n=>n.props['aria-label']==='对话进行中',ui.find(n=>n.props.title===b.title)).length,0);
+ assert.equal(ui.all(n=>n.props['aria-label']==='对话进行中',ui.find(n=>n.props['aria-label']===b.title)).length,0);
  ui.props.approvalState={sessionId:a.sessionId,pending:true};ui.render();
  assert.equal(ui.all(n=>n.props['aria-label']==='等待审批').length,1);
  assert.equal(ui.all(n=>n.props['aria-label']==='对话进行中').length,0);
@@ -223,8 +235,8 @@ test('Running conversations show a spinner, keep selected styling, and clear liv
  assert.equal(ui.all(n=>n.props.role==='status').length,0);
  ui.api.projectChats=async id=>({items:id===p.id?[{...a,running:true}]:id===q.id?[{...b,running:true}]:[],nextAfter:null});
  ui.props.revision='persisted-running';ui.render();await ui.settle();
- assert.equal(ui.all(n=>n.props['aria-label']==='对话进行中',ui.find(n=>n.props.title===a.title)).length,0);
- assert.equal(ui.all(n=>n.props['aria-label']==='对话进行中',ui.find(n=>n.props.title===b.title)).length,1);
+ assert.equal(ui.all(n=>n.props['aria-label']==='对话进行中',ui.find(n=>n.props['aria-label']===a.title)).length,0);
+ assert.equal(ui.all(n=>n.props['aria-label']==='对话进行中',ui.find(n=>n.props['aria-label']===b.title)).length,1);
 });
 
 test('Busy projects cannot be removed; failed removal keeps the project and permits a retry',async()=>{
@@ -238,5 +250,68 @@ test('Busy projects cannot be removed; failed removal keeps the project and perm
  assert.equal(calls,1);assert.ok(ui.find(n=>n.props.role==='alert'));
  assert.ok(ui.find(n=>n.props.label==='项目选项：A 服务器'));
  assert.ok(ui.find(n=>n.type==='modal'));
+});
+
+function hoverAnchor(){return {isConnected:true,querySelector:()=>null,getBoundingClientRect:()=>({left:70,right:300,top:100,bottom:134})};}
+function hoverEntry(ui,anchor,pointerType='mouse'){
+ ui.find(n=>n.props.className==='project-chat-entry').props.onPointerEnter({pointerType,currentTarget:{querySelector:()=>anchor}});
+}
+
+test('Hover preview replaces native title, appears after a delay, and stays open while the pointer enters the card',async()=>{
+ const ui=harness();await ui.settle();const anchor=hoverAnchor();
+ const row=ui.button(a.title);assert.equal(row.props.title,undefined);
+ hoverEntry(ui,anchor);ui.render();assert.equal(ui.find(n=>n.props.role==='tooltip'),undefined);
+ ui.runTimers();ui.render();ui.render();
+ const card=ui.find(n=>n.props.role==='tooltip');assert.ok(card);assert.equal(card.props.style.visibility,'visible');
+ assert.equal(card.props.style.left,310);assert.equal(card.props.style.fontFamily,'Microsoft YaHei UI');
+ assert.equal(ui.find(n=>n.type==='strong'&&n.props.children===a.title).props.children,a.title);
+ assert.equal(ui.button(a.title).props['aria-describedby'],card.props.id);
+ assert.ok(ui.find(n=>n.type==='span'&&n.props.children===p.name));
+ assert.match(ui.find(n=>n.type==='time').props['aria-label'],/^创建于 /);
+ ui.emit('pointerdown',{target:{nodeType:1,insidePreview:true}});ui.emit('scroll',{target:{nodeType:1,insidePreview:true}});ui.render();
+ assert.ok(ui.find(n=>n.props.role==='tooltip'));
+ ui.find(n=>n.props.className==='project-chat-entry').props.onPointerLeave();
+ card.props.onPointerEnter();ui.runTimers();ui.render();assert.ok(ui.find(n=>n.props.role==='tooltip'));
+ ui.find(n=>n.props.role==='tooltip').props.onPointerLeave();ui.runTimers();ui.render();
+ assert.equal(ui.find(n=>n.props.role==='tooltip'),undefined);assert.equal(ui.actions.length,0);
+});
+
+test('Keyboard focus previews immediately; escape, outside pointer, scroll, resize and window blur dismiss it',async()=>{
+ const ui=harness();await ui.settle();const anchor=hoverAnchor();
+ for(const [event,payload] of [['keydown',{key:'Escape'}],['pointerdown',{target:{}}],['scroll',{target:{}}],['resize',{}],['blur',{}]]){
+  ui.button(a.title).props.onFocus({currentTarget:anchor});ui.render();ui.render();
+  assert.ok(ui.find(n=>n.props.role==='tooltip'));ui.emit(event,payload);ui.render();
+  assert.equal(ui.find(n=>n.props.role==='tooltip'),undefined,event);
+ }
+ // Scrolling while the opening delay is pending must cancel it too.
+ hoverEntry(ui,anchor);ui.emit('scroll',{target:{}});ui.runTimers();ui.render();
+ assert.equal(ui.find(n=>n.props.role==='tooltip'),undefined);
+});
+
+test('An open preview follows adjacent rows immediately, including disabled running history rows',async()=>{
+ const ui=harness();await ui.settle();ui.props.locked=true;ui.render();
+ hoverEntry(ui,hoverAnchor());ui.runTimers();ui.render();ui.render();
+ assert.equal(ui.find(n=>n.type==='strong').props.children,a.title);
+ const anchor=hoverAnchor();
+ ui.all(n=>n.props.className==='project-chat-entry')[1].props.onPointerEnter({pointerType:'mouse',currentTarget:{querySelector:()=>anchor}});
+ ui.render();ui.render();assert.equal(ui.find(n=>n.type==='strong').props.children,b.title);
+ assert.equal(ui.actions.length,0);
+});
+
+test('Touch, quick pointer departure, detached rows and unmount never leave a delayed popup behind',async()=>{
+ const ui=harness();await ui.settle();const anchor=hoverAnchor();
+ hoverEntry(ui,anchor,'touch');ui.runTimers();ui.render();assert.equal(ui.find(n=>n.props.role==='tooltip'),undefined);
+ hoverEntry(ui,anchor);ui.find(n=>n.props.className==='project-chat-entry').props.onPointerLeave();ui.runTimers();ui.render();
+ assert.equal(ui.find(n=>n.props.role==='tooltip'),undefined);
+ hoverEntry(ui,anchor);anchor.isConnected=false;ui.runTimers();ui.render();assert.equal(ui.find(n=>n.props.role==='tooltip'),undefined);
+ anchor.isConnected=true;hoverEntry(ui,anchor);ui.unmount();ui.runTimers();ui.render();assert.equal(ui.find(n=>n.props.role==='tooltip'),undefined);
+});
+
+test('Previewing an ungrouped conversation keeps its real history and closes before navigation',async()=>{
+ const ui=harness();await ui.settle();const anchor=hoverAnchor();
+ ui.button(g.title).props.onFocus({currentTarget:anchor});ui.render();ui.render();
+ assert.ok(ui.find(n=>n.type==='span'&&n.props.children==='未分组对话'));
+ ui.button(g.title).props.onClick();ui.render();assert.equal(ui.find(n=>n.props.role==='tooltip'),undefined);
+ assert.equal(ui.actions[0][1].sessionId,g.sessionId);assert.equal(ui.actions[0][2],null);
 });
 

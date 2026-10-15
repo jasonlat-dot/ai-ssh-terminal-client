@@ -7,7 +7,7 @@ import { AccentIcon, Badge, Icon } from './Ui';
 
 const fontOptions = [
   { value: '', label: '跟随默认字体' },
-  ...UI_FONT_FAMILIES.map(name => ({ value: name, label: name })),
+  ...UI_FONT_FAMILIES.map(name => ({ value: name, label: name === 'Noto Sans SC' ? `${name}（可变字重）` : name })),
   { value: 'custom', label: '自定义本机字体…' },
 ];
 

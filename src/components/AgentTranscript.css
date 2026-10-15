@@ -22,10 +22,11 @@
 }
 .agent-panel.conversation-only .conversation-card .assistant-main { gap:12px; min-width:0; }
 .agent-panel.conversation-only .conversation-card .assistant-message { margin-block:4px 20px; }
-.agent-panel.conversation-only .assistant-content .markdown-body {
+:root .agent-panel.conversation-only .assistant-content .markdown-body {
   color:var(--chat-prose);
-  font-size:15px;
-  font-weight:var(--weight-body);
+  font-size:14px;
+  font-weight:max(450,var(--weight-body,400));
+  font-synthesis:none;
   line-height:1.75;
   letter-spacing:normal;
   overflow-wrap:anywhere;
@@ -34,6 +35,9 @@
 .agent-panel.conversation-only .assistant-content .markdown-body :is(p, li, blockquote, th, td) {
   font-size:inherit;
   line-height:inherit;
+}
+:root .agent-panel.conversation-only .assistant-content .markdown-body :is(h1, h2, h3, h4, h5, h6, strong, b, th) {
+  font-weight:max(600,var(--weight-title,600));
 }
 .agent-panel.conversation-only .assistant-content .markdown-body :is(p, ul, ol, blockquote, table) { margin-top:0; margin-bottom:16px; }
 .agent-panel.conversation-only .assistant-content .markdown-body :is(ul, ol) { padding-left:1.55em; }
@@ -49,7 +53,7 @@
 .agent-panel.conversation-only .assistant-content .markdown-body :not(pre) > code { font-size:.88em; }
 .agent-panel.conversation-only .assistant-content .markdown-body pre code { font-size:13px; line-height:1.7; }
 .agent-panel.conversation-only .conversation-card .user-message-group { max-width:var(--agent-chat-width); margin-bottom:16px; }
-.agent-panel.conversation-only .conversation-card .user-message {
+:root .agent-panel.conversation-only .conversation-card .user-message {
   width:fit-content;
   max-width:85%;
   margin:0 0 2px auto;
@@ -59,13 +63,46 @@
   box-shadow:none;
   background:var(--chat-user-surface);
   color:var(--chat-prose);
-  font-size:15px;
+  font-size:14px;
+  font-weight:max(450,var(--weight-body,400));
+  font-synthesis:none;
   line-height:1.65;
   overflow-wrap:anywhere;
 }
 .agent-panel.conversation-only .assistant-message .chat-message-meta.response { padding:0; min-height:28px; margin-top:-6px; }
 .agent-panel.conversation-only .chat-message-meta .chat-message-time { font-size:12px; }
 .agent-panel.conversation-only .assistant-message.error .assistant-content .markdown-body { color:var(--ui-danger-text,#bd4248); }
+
+/* A quiet Codex-style rail gives long conversations a smooth, message-level jump target. */
+.chat-messages-shell { position:relative; flex:1; min-height:0; min-width:0; }
+.chat-messages-shell > .chat-messages { height:100%; }
+.chat-messages .user-message-group, .chat-messages .assistant-message { scroll-margin-block:28px; }
+.chat-scroll-rail { position:absolute; z-index:2; top:50%; left:10px; width:36px; max-height:min(70vh,40rem,calc(100% - 36px)); display:flex; flex-direction:column; overflow-y:auto; overscroll-behavior:contain; scrollbar-width:none; pointer-events:auto; transform:translateY(-50%); }
+.chat-scroll-rail::-webkit-scrollbar { display:none; }
+.chat-scroll-rail button { position:relative; left:0; flex:0 0 10px; width:36px; height:10px; padding:0; border:0; border-radius:0; background:transparent; pointer-events:auto; }
+.chat-scroll-marker { display:flex; align-items:center; width:26px; height:4px; color:var(--theme-text-muted); opacity:.4; position:relative; }
+.chat-scroll-marker-line { width:6px; height:2px; border-radius:1px; background:currentColor; transition:width 160ms linear, color 160ms linear, opacity 160ms linear; }
+.chat-scroll-rail button[data-hierarchy-level="2"] .chat-scroll-marker-line { width:8px; }
+.chat-scroll-rail button[data-hierarchy-level="3"] .chat-scroll-marker-line { width:4px; }
+.chat-scroll-rail button[data-neighbor-distance="1"] .chat-scroll-marker-line { width:20px; }
+.chat-scroll-rail button[data-neighbor-distance="2"] .chat-scroll-marker-line { width:14px; }
+.chat-scroll-rail button[data-neighbor-distance="3"] .chat-scroll-marker-line { width:9px; }
+.chat-scroll-rail button.is-active .chat-scroll-marker { color:var(--theme-text-strong); opacity:.6; }
+.chat-scroll-rail button:hover .chat-scroll-marker,
+.chat-scroll-rail button:focus-visible .chat-scroll-marker { color:var(--theme-text-strong); opacity:1; }
+.chat-scroll-rail button:hover .chat-scroll-marker-line,
+.chat-scroll-rail button:focus-visible .chat-scroll-marker-line { width:26px; }
+.chat-scroll-rail button:hover .chat-scroll-marker,
+.chat-scroll-rail button:focus-visible .chat-scroll-marker { color:var(--theme-text-strong); opacity:1; }
+.chat-scroll-rail button:focus-visible { outline:2px solid var(--ui-accent); outline-offset:2px; }
+.chat-scroll-preview { position:fixed; z-index:1000; width:min(320px,calc(100vw - 16px)); padding:8px; border:1px solid color-mix(in srgb,var(--theme-text-strong) 14%,var(--theme-panel)); border-radius:12px; background:var(--theme-panel); box-shadow:0 16px 34px var(--theme-shadow); color:var(--theme-text-strong); pointer-events:auto; transform:translateY(-50%); animation:chat-scroll-preview-in 160ms ease-out; }
+.chat-scroll-preview > strong { display:block; max-width:calc(100% - 24px); overflow:hidden; margin-bottom:4px; color:var(--theme-text-strong); font-size:14px; font-weight:600; line-height:1.4; text-overflow:ellipsis; white-space:nowrap; }
+.chat-scroll-preview > svg { position:absolute; top:10px; right:11px; color:var(--theme-text-muted); }
+.chat-scroll-preview p { margin:0; overflow:hidden; color:var(--theme-text-muted); font-size:12px; line-height:1.55; text-overflow:ellipsis; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; }
+@keyframes chat-scroll-preview-in { from { opacity:0; } to { opacity:1; } }
+.chat-message-jump-highlight { animation:chat-message-jump-highlight 720ms cubic-bezier(.23,1,.32,1); }
+@keyframes chat-message-jump-highlight { 0% { filter:brightness(1.04); } 100% { filter:brightness(1); } }
+@media (prefers-reduced-motion:reduce) { .chat-scroll-rail button, .chat-scroll-preview { transition:none; animation:none; } }
 
 .activity-transcript { min-width:0; color:var(--theme-text-muted); }
 .activity-transcript > summary { display:flex; align-items:center; gap:6px; width:fit-content; max-width:100%; min-height:26px; padding:2px 0; border-radius:5px; color:inherit; cursor:pointer; list-style:none; font-size:13px; line-height:1.65; }

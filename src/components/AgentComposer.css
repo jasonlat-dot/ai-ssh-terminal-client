@@ -241,3 +241,11 @@
 .composer-queue-item.is-unconfirmed, .composer-queue-item.is-failed { color:var(--ui-danger-text,#c7474a); }
 .pending-input-note { display:block; margin-top:8px; color:var(--theme-text-muted); font-size:11px; line-height:1.5; }
 @container (max-width:380px) { .composer-queue-item button span { display:none; } .composer-queue { margin-inline:0; } }
+
+/* Keep everyday conversation text a little stronger than the global 400 weight. */
+:root .agent-panel.conversation-only .composer-project-strip,
+:root .agent-panel.conversation-only .composer-project-strip .composer-project-picker,
+:root .agent-panel.conversation-only .chat-composer textarea {
+  font-weight:max(600,var(--weight-body,400));
+  font-synthesis:weight;
+}

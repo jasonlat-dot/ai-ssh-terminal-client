@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { agentApi } from '../api/agent';
 import type { AgentProject, ProjectChat, ProjectChats } from '../api/agent';
 import type { Host } from '../types';
 import { Icon, Modal } from './Ui';
 import { Select } from './Select';
+import { historyPreviewPosition, historyPreviewTime } from '../state/historyPreview';
 
 const PREVIEW_ROWS = 5;
 
@@ -38,6 +40,41 @@ export function ProjectChatHistory({hosts,project,sessionId,locked,revision,newC
  const [creating,setCreating]=useState(false);const [name,setName]=useState('');
  const [connection,setConnection]=useState('');const [saving,setSaving]=useState(false);
  const [reload,setReload]=useState(0);const version=useRef(0);const initialized=useRef(false);
+ const previewId=useId();
+ const [preview,setPreview]=useState<{chat:ProjectChat;project:AgentProject|null;anchor:HTMLElement;fontFamily:string}|null>(null);
+ const [previewPosition,setPreviewPosition]=useState<{left:number;top:number}|null>(null);
+ const previewCard=useRef<HTMLDivElement>(null);
+ const previewTimers=useRef<{open?:number;close?:number}>({});
+ const cancelPreviewTimers=()=>{
+  window.clearTimeout(previewTimers.current.open);window.clearTimeout(previewTimers.current.close);
+  previewTimers.current={};
+ };
+ const closePreview=()=>{cancelPreviewTimers();setPreview(null);setPreviewPosition(null);};
+ const showPreview=(chat:ProjectChat,p:AgentProject|null,anchor:HTMLElement,immediate=false)=>{
+  cancelPreviewTimers();
+  if(preview?.anchor===anchor)return;
+  const show=()=>{if(!anchor.isConnected)return;setPreviewPosition(null);setPreview({chat,project:p,anchor,fontFamily:window.getComputedStyle(anchor).fontFamily});};
+  if(immediate||preview)show();else previewTimers.current.open=window.setTimeout(show,400);
+ };
+ const leavePreview=()=>{cancelPreviewTimers();previewTimers.current.close=window.setTimeout(closePreview,120);};
+ useEffect(()=>{closePreview();},[revision,reload,creating,deleteTarget,removeTarget]);
+ useEffect(()=>()=>cancelPreviewTimers(),[]);
+ useLayoutEffect(()=>{
+  if(!preview||!previewCard.current)return;
+  const card=previewCard.current.getBoundingClientRect();
+  setPreviewPosition(historyPreviewPosition(preview.anchor.getBoundingClientRect(),card,{width:window.innerWidth,height:window.innerHeight}));
+ },[preview]);
+ useEffect(()=>{
+  const inside=(target:EventTarget|null)=>!!target&&'nodeType' in target&&!!previewCard.current?.contains(target as Node);
+  const key=(event:KeyboardEvent)=>{if(event.key==='Escape')closePreview();};
+  const pointer=(event:PointerEvent)=>{if(!inside(event.target))closePreview();};
+  const scroll=(event:Event)=>{if(!inside(event.target))closePreview();};
+  window.addEventListener('keydown',key);window.addEventListener('pointerdown',pointer);
+  window.addEventListener('scroll',scroll,true);window.addEventListener('resize',closePreview);window.addEventListener('blur',closePreview);
+  return()=>{window.removeEventListener('keydown',key);window.removeEventListener('pointerdown',pointer);
+   window.removeEventListener('scroll',scroll,true);window.removeEventListener('resize',closePreview);window.removeEventListener('blur',closePreview);};
+ },[]);
+ const previewTime=preview?historyPreviewTime(preview.chat.createdAt):null;
  const refresh=async()=>{
   const current=++version.current;setLoading(true);setError('');
   try {
@@ -77,11 +114,14 @@ export function ProjectChatHistory({hosts,project,sessionId,locked,revision,newC
   return <div className="project-chat-list" id={'project-chats-'+(id||'general')}>
   {visible.map(chat=>{const awaiting=approvalState?.sessionId===chat.sessionId?approvalState.pending:!!chat.awaitingApproval;
    const running=chat.sessionId===sessionId&&activeRunning!==undefined?activeRunning:!!chat.running;
-   return <div className="project-chat-entry" key={chat.sessionId}><button type="button"
+   return <div className="project-chat-entry" key={chat.sessionId}
+    onPointerEnter={event=>{if(event.pointerType==='touch')return;const row=event.currentTarget.querySelector<HTMLButtonElement>('.project-chat-row');if(row)showPreview(chat,p,row);}}
+    onPointerLeave={leavePreview}><button type="button"
    className={'project-chat-row '+(sessionId===chat.sessionId?'active':'')} disabled={locked}
-   aria-current={sessionId===chat.sessionId?'page':undefined} title={chat.title||'新对话'}
-   onPointerEnter={event=>measureTitleOverflow(event.currentTarget)} onFocus={event=>measureTitleOverflow(event.currentTarget)}
-   onClick={()=>openChat(chat,p)}><span className="project-chat-title"><span className="project-chat-title-text">{chat.title||'新对话'}</span></span>{awaiting?<span className="project-chat-awaiting" role="status" aria-label="等待审批"><span>等待审批</span><i aria-hidden="true"/></span>:running?<span className="project-chat-running" role="status" aria-label="对话进行中" title="对话进行中"><i aria-hidden="true"/></span>:null}</button>
+   aria-current={sessionId===chat.sessionId?'page':undefined} aria-label={chat.title||'新对话'}
+   aria-describedby={preview?.chat.sessionId===chat.sessionId?previewId:undefined}
+   onPointerEnter={event=>measureTitleOverflow(event.currentTarget)} onFocus={event=>{measureTitleOverflow(event.currentTarget);showPreview(chat,p,event.currentTarget,true);}}
+   onBlur={leavePreview} onClick={()=>{closePreview();openChat(chat,p);}}><span className="project-chat-title"><span className="project-chat-title-text">{chat.title||'新对话'}</span></span>{awaiting?<span className="project-chat-awaiting" role="status" aria-label="等待审批"><span>等待审批</span><i aria-hidden="true"/></span>:running?<span className="project-chat-running" role="status" aria-label="对话进行中"><i aria-hidden="true"/></span>:null}</button>
    <button type="button" className="project-chat-delete" aria-label={'删除对话：'+(chat.title||'新对话')}
     title={locked||chat.running?'对话进行中，暂不能删除':'删除对话及聊天记录'} disabled={locked||!!chat.running||deleting}
     onClick={()=>{if(locked||chat.running||deleting)return;setDeleteError('');setDeleteTarget(chat);}}><Icon name="trash" size={14}/></button>
@@ -96,6 +136,13 @@ export function ProjectChatHistory({hosts,project,sessionId,locked,revision,newC
  </div>;};
 
  return <section className="agent-project-history" aria-label="项目聊天历史">
+   {preview&&createPortal(<div ref={previewCard} id={previewId} role="tooltip" className="history-preview"
+    style={{left:previewPosition?.left??0,top:previewPosition?.top??0,fontFamily:preview.fontFamily,visibility:previewPosition?'visible':'hidden'}}
+    onPointerEnter={cancelPreviewTimers} onPointerLeave={leavePreview}>
+    <div className="history-preview-heading"><strong>{preview.chat.title||'新对话'}</strong>
+     {previewTime&&<time dateTime={previewTime.iso} title={previewTime.full} aria-label={previewTime.full}>{previewTime.label}</time>}</div>
+    <div className="history-preview-project"><Icon name={preview.project?'folder':'history'} size={15}/><span>{preview.project?.name??'未分组对话'}</span></div>
+   </div>,document.body)}
    <div className="project-history-toolbar">
     <button type="button" className="workspace-new-chat" disabled={locked} onClick={()=>newChat(null)}><Icon name="edit" size={16}/><span>新对话</span></button>
     <button type="button" className="project-toolbar-action" aria-label="新建项目" title="新建项目" disabled={locked} onClick={()=>{setConnection(hosts[0]?.id??'');setName('');setCreating(true);}}><Icon name="folder" size={16}/><Icon name="plus" size={10}/></button>

@@ -2002,17 +2002,30 @@ async fn d5_native_channel_waits_for_human_approval_executes_bound_ssh_and_resto
     let address = format!("http://{}/", listener.local_addr().unwrap());
     let calls = Arc::new(AtomicU64::new(0));
     let count = calls.clone();
-    let router=axum::Router::new().route("/chat/completions",axum::routing::post(move|axum::Json(body):axum::Json<Value>|{let count=count.clone();async move{
-        if body["stream"]==true {
+    let stream_release = Arc::new(tokio::sync::Notify::new());
+    let release = stream_release.clone();
+    let router=axum::Router::new().route("/chat/completions",axum::routing::post(move|axum::Json(body):axum::Json<Value>|{let count=count.clone();let release=release.clone();async move{
+        if body["stream"]==true && body.get("tools").is_none() {
             let messages=body["messages"].to_string();assert!(messages.contains("历史工具证据"));assert!(messages.contains("__exec_chunked__"));assert!(messages.contains("textOnly"));
             let events=format!("data: {}\n\ndata: {}\n\ndata: [DONE]\n\n",json!({"choices":[{"index":0,"delta":{"content":"离线分析历史输出"},"finish_reason":null}]}),json!({"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}));
             return axum::response::Response::builder().header("content-type","text/event-stream").body(axum::body::Body::from(events)).unwrap();
         }
         assert_eq!(body["tools"].as_array().unwrap().len(),2);
+        assert_eq!(body["stream"],true);
         let index=count.fetch_add(1,Ordering::SeqCst);
-        let (message,reason)=if index==0{(json!({"role":"assistant","content":null,"tool_calls":[{"id":"ipc-command","type":"function","function":{"name":"ssh_execute","arguments":"{\"command\":\"__exec_chunked__\",\"timeoutSeconds\":2}"}}]}),"tool_calls")}
-        else{assert_eq!(index,1);let messages=body["messages"].as_array().unwrap();assert!(messages.iter().any(|m|m["role"]=="tool"&&m["tool_call_id"]=="ipc-command"));(json!({"role":"assistant","content":"已读取绑定服务器日志"}),"stop")};
-        axum::response::IntoResponse::into_response(axum::Json(json!({"choices":[{"index":0,"message":message,"finish_reason":reason}]})))
+        if index==0 {
+            // Compatibility: this first response ignores stream=true and sends JSON once.
+            return axum::response::IntoResponse::into_response(axum::Json(json!({"choices":[{"index":0,"message":{"role":"assistant","content":"先查看日志","tool_calls":[{"id":"ipc-command","type":"function","function":{"name":"ssh_execute","arguments":"{\"command\":\"__exec_chunked__\",\"timeoutSeconds\":2}"}}]},"finish_reason":"tool_calls"}]})));
+        }
+        assert!(index<=2);
+        let messages=body["messages"].as_array().unwrap();assert!(messages.iter().any(|m|m["role"]=="tool"&&m["tool_call_id"]=="ipc-command"));
+        let first=format!("data: {}\n\n",json!({"choices":[{"index":0,"delta":{"content":if index==1{"已读取"}else{"未完成的部分回复"}},"finish_reason":null}]}));
+        let rest=format!("data: {}\n\ndata: {}\n\ndata: [DONE]\n\n",json!({"choices":[{"index":0,"delta":{"content":"绑定服务器日志"},"finish_reason":null}]}),json!({"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}));
+        let chunks=futures_util::stream::unfold(0,move|step|{let release=release.clone();let first=first.clone();let rest=rest.clone();async move{
+            let data=match step{0=>first,1=>{release.notified().await;rest},_=>return None};
+            Some((Ok::<_,std::convert::Infallible>(data.into_bytes()),step+1))
+        }});
+        axum::response::Response::builder().header("content-type","text/event-stream").body(axum::body::Body::from_stream(chunks)).unwrap()
     }}));
     let server = tokio::spawn(async move {
         axum::serve(listener, router).await.unwrap();
@@ -2057,6 +2070,7 @@ async fn d5_native_channel_waits_for_human_approval_executes_bound_ssh_and_resto
     let mut tool_call = false;
     let mut tool_result = false;
     let mut done = false;
+    let mut text = String::new();
     tokio::time::timeout(Duration::from_secs(12),async{
         while let Some(frame)=events.recv().await{
             assert_eq!(frame["requestId"],"ipc-d5-turn");
@@ -2072,13 +2086,15 @@ async fn d5_native_channel_waits_for_human_approval_executes_bound_ssh_and_resto
                     dispatch(services.clone(),"agent/execution_decision","POST",json!({"agentId":"model","userId":"default","sessionId":id,"id":receipt["id"],"action":"approveOnce"}),Value::Null).await.unwrap();
                 },
                 "tool_result"=>{tool_result=true;assert_eq!(frame["payload"]["status"],"success");},
-                "done"=>{done=true;break;},
+                "text"=>{let content=frame["payload"]["content"].as_str().unwrap();text.push_str(content);if content=="已读取"{assert!(tool_result);assert!(!run.is_finished());stream_release.notify_one();}},
+                "done"=>{done=true;assert_eq!(frame["payload"]["content"],text);break;},
                 "context"=>{},other=>panic!("unexpected native frame {other}")
             }
         }
     }).await.unwrap();
     run.await.unwrap().unwrap();
     assert!(tool_call && tool_result && done);
+    assert_eq!(text,"先查看日志\n\n已读取绑定服务器日志");
     assert_eq!(fixture.stats.execs.lock().unwrap().len(), 1);
     let history = dispatch(
         services.clone(),
@@ -2090,6 +2106,10 @@ async fn d5_native_channel_waits_for_human_approval_executes_bound_ssh_and_resto
     .await
     .unwrap();
     assert_eq!(history["turns"][0]["state"], "completed");
+    assert_eq!(history["turns"][0]["resultText"],"先查看日志\n\n已读取绑定服务器日志");
+    let raw=shellpilot_server::agent::Repository::new(services.store.clone()).events(&id,"default",0,200).unwrap();
+    let replies=raw.iter().filter_map(|event|if let shellpilot_server::agent::Payload::AssistantMessage{text}=&event.payload{Some(text.as_str())}else{None}).collect::<Vec<_>>();
+    assert_eq!(replies,vec!["先查看日志","已读取绑定服务器日志"]);
     let result = &history["turns"][0]["toolEvents"][1]["payload"];
     let output = result["outputs"]
         .as_array()
@@ -2115,6 +2135,25 @@ async fn d5_native_channel_waits_for_human_approval_executes_bound_ssh_and_resto
         bytes,
         (65534..66046).map(|i| (i % 251) as u8).collect::<Vec<_>>()
     );
+    // A second tool-enabled turn is cancelled while its provider is still streaming.
+    let mut cancelled=request.clone();cancelled.request_id="ipc-d5-stream-cancel".into();
+    let cancel_sub=subscription();let ack=cancel_sub.clone();
+    let (tx,mut frames)=tokio::sync::mpsc::unbounded_channel();
+    let cancelled_run=tokio::spawn(agent_stream_mode(services.clone(),cancelled,cancel_sub.clone(),true,move|frame|tx.send(frame).map_err(|_|())));
+    tokio::time::timeout(Duration::from_secs(8),async{
+        loop{let frame=frames.recv().await.unwrap();let sequence=frame["sequence"].as_u64().unwrap();
+            if frame["payload"]["event"]=="error"{assert_eq!(frame["payload"]["code"],"AGENT_CANCELLED");break;}
+            assert!(sequence>0,"{frame}");acknowledge(&ack,sequence);
+            if frame["payload"]["event"]=="text"{assert_eq!(frame["payload"]["content"],"未完成的部分回复");
+                dispatch(services.clone(),"agent/stop_chat","POST",json!({"agentId":"model","userId":"default","sessionId":id,"requestId":"ipc-d5-stream-cancel"}),Value::Null).await.unwrap();
+            }
+        }
+    }).await.unwrap();
+    assert_eq!(cancelled_run.await.unwrap().unwrap_err().code,"AGENT_CANCELLED");
+    let retained=b5_history(services.clone(),&id).await;
+    assert_eq!(retained["turns"][1]["partialText"],"未完成的部分回复");
+    assert_eq!(retained["turns"][1]["state"],"cancelled");assert!(retained["turns"][1]["resultText"].is_null());
+    assert_eq!(fixture.stats.execs.lock().unwrap().len(),1);
     services.terminals.shutdown().await;
     let mut offline = request.clone();
     offline.request_id = "ipc-d5-offline".into();
@@ -2143,7 +2182,7 @@ async fn d5_native_channel_waits_for_human_approval_executes_bound_ssh_and_resto
     })
     .await
     .unwrap();
-    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    assert_eq!(calls.load(Ordering::SeqCst), 3);
     assert_eq!(fixture.stats.execs.lock().unwrap().len(), 1);
     dispatch(
         services.clone(),

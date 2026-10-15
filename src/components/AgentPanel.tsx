@@ -1,5 +1,6 @@
-import { useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
-import type { Ref, ReactNode } from 'react';
+import { Fragment, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
+import type { PointerEvent as ReactPointerEvent, Ref, ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { MarkdownMessage } from './MarkdownMessage';
 import agentRobotAvatar from '../assets/agent-robot-avatar.png';
 import type { ClientChatSession } from '../state/clientChatHistory';
@@ -54,6 +55,17 @@ function ToolActivity({ tool, copyable }: { tool: ChatToolActivity; copyable: bo
       <CopyMarkdownButton getText={() => toolToMarkdown(tool)} label="复制工具结果（Markdown）" />
     </div>}</div>
   </details>;
+}
+
+function messageRailPreview(message: ChatMessage, messages: ChatMessage[], index: number) {
+  const segment = message.segments?.find(item => item.type === 'text');
+  const response = message.role === 'user' ? messages.slice(index + 1).find(item => item.role === 'assistant') : message;
+  const title = message.role === 'user' ? message.text : message.text || message.summary || (segment?.type === 'text' ? segment.text : '') || message.tools?.[0]?.command || '工具执行记录';
+  const responseSegment = response?.segments?.find(item => item.type === 'text');
+  const summary = response && response !== message
+    ? response.text || response.summary || (responseSegment?.type === 'text' ? responseSegment.text : '') || '正在生成…'
+    : message.summary || '';
+  return { title: title.replace(/\s+/g, ' ').trim().slice(0, 96) || '空消息', summary: summary.replace(/\s+/g, ' ').trim().slice(0, 150) };
 }
 
 function ActivityTranscript({activities,copyable}:{activities:ActivitySegment[];copyable:boolean}) {
@@ -217,6 +229,7 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
   const editingLocked=disabled||projectSelecting;
   const projectSelectionLocked=busy||stopping||sending||!!recoveredRunning||projectSelecting||!!queue.length||!!composerProject?.locked;
   const lastMessage = messages[messages.length - 1];
+  const railMessages = messages.filter(message => message.role === 'user');
   const notReady = attachments.some(item => item.status !== 'success');
   const addFiles = (files: File[]) => {
     try { chatDraft.add(files); setAttachmentError(''); }
@@ -228,6 +241,15 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
     catch (error) { setAttachmentError((error as Error).message); }
   };
   const scrollRef = useRef<HTMLDivElement>(null);
+  const messageRefs = useRef(new Map<string, HTMLDivElement>());
+  const [activeMessageId, setActiveMessageId] = useState<string>('');
+  const [hoveredMessageId, setHoveredMessageId] = useState<string>('');
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string>('');
+  const [railPreview, setRailPreview] = useState<{ id: string; left: number; top: number } | null>(null);
+  const railScrubRef = useRef<{ pointerId: number; startY: number; moved: boolean } | null>(null);
+  const suppressRailClickRef = useRef(false);
+  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const previewCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const followOutputRef = useRef(true);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   useImperativeHandle(ref, () => ({ addText(text, source) {
@@ -315,7 +337,104 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
     if (!container) return;
     // 用户向上翻阅时暂停跟随；主动回到底部后恢复流式自动滚动。
     followOutputRef.current = container.scrollHeight - container.scrollTop - container.clientHeight <= 48;
+    const midpoint = container.scrollTop + container.clientHeight * .35;
+    let closest = '', distance = Number.POSITIVE_INFINITY;
+    for (const message of railMessages) {
+      const node = messageRefs.current.get(message.id);
+      if (!node) continue;
+      const next = Math.abs(node.offsetTop - midpoint);
+      if (next < distance) { distance = next; closest = message.id; }
+    }
+    if (closest && closest !== activeMessageId) setActiveMessageId(closest);
   };
+
+  const jumpToMessage = (id: string, behavior: ScrollBehavior = 'smooth', highlight = true) => {
+    const container = scrollRef.current;
+    const target = messageRefs.current.get(id);
+    if (!container || !target) return;
+    followOutputRef.current = false;
+    const containerBounds = container.getBoundingClientRect();
+    const targetBounds = target.getBoundingClientRect();
+    const nextTop = container.scrollTop + targetBounds.top - containerBounds.top - container.clientHeight * .28;
+    if (behavior === 'smooth') {
+      // Match Codex's native target scroll so nested WebView scroll containers
+      // resolve the correct ancestor themselves.
+      target.scrollIntoView({ behavior: 'smooth', block: 'start', inline: 'nearest' });
+    } else {
+      container.scrollTo({ top: Math.max(0, Math.min(container.scrollHeight - container.clientHeight, nextTop)), behavior });
+    }
+    setActiveMessageId(id);
+    if (highlight) {
+      if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+      setHighlightedMessageId(id);
+      highlightTimerRef.current = setTimeout(() => { setHighlightedMessageId(''); highlightTimerRef.current = null; }, 720);
+    }
+  };
+
+  const scrubRailAt = (rail: HTMLElement, clientY: number) => {
+    if (railMessages.length < 4) return;
+    const bounds = rail.getBoundingClientRect();
+    const ratio = Math.max(0, Math.min(1, (clientY - bounds.top + rail.scrollTop) / Math.max(1, rail.scrollHeight)));
+    const message = railMessages[Math.round(ratio * (railMessages.length - 1))];
+    if (!message) return;
+    setHoveredMessageId(message.id);
+    jumpToMessage(message.id, 'auto', false);
+  };
+  const hoveredRailIndex = railMessages.findIndex(message => message.id === hoveredMessageId);
+  // Codex keeps the visible turn marker short; only hover, focus, or scrubbing expands it.
+  const railFocusIndex = hoveredRailIndex;
+  const hoveredRailMessage = railMessages.find(message => message.id === hoveredMessageId);
+  const hoveredRailPreview = hoveredRailMessage ? messageRailPreview(hoveredRailMessage, messages, messages.indexOf(hoveredRailMessage)) : null;
+
+  const hideRailPreview = () => {
+    if (previewCloseTimerRef.current) clearTimeout(previewCloseTimerRef.current);
+    previewCloseTimerRef.current = setTimeout(() => { setHoveredMessageId(''); setRailPreview(null); previewCloseTimerRef.current = null; }, 140);
+  };
+  const showRailPreview = (id: string, button: HTMLElement) => {
+    if (previewCloseTimerRef.current) { clearTimeout(previewCloseTimerRef.current); previewCloseTimerRef.current = null; }
+    const bounds = button.getBoundingClientRect();
+    const width = Math.min(320, Math.max(240, window.innerWidth - 16));
+    setHoveredMessageId(id);
+    setRailPreview({ id, left: Math.min(window.innerWidth - width - 8, bounds.right + 4), top: Math.max(92, Math.min(window.innerHeight - 92, bounds.top + bounds.height / 2)) });
+  };
+
+  const beginRailScrub = (event: ReactPointerEvent<HTMLElement>) => {
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+    const target = event.target as HTMLElement;
+    if (target.closest('[data-message-id]') || target.closest('.chat-scroll-preview')) return;
+    railScrubRef.current = { pointerId: event.pointerId, startY: event.clientY, moved: false };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    scrubRailAt(event.currentTarget, event.clientY);
+  };
+  const moveRailScrub = (event: ReactPointerEvent<HTMLElement>) => {
+    const scrub = railScrubRef.current;
+    if (!scrub || scrub.pointerId !== event.pointerId) return;
+    if (Math.abs(event.clientY - scrub.startY) > 3) scrub.moved = true;
+    scrubRailAt(event.currentTarget, event.clientY);
+  };
+  const endRailScrub = (event: ReactPointerEvent<HTMLElement>) => {
+    const scrub = railScrubRef.current;
+    if (!scrub || scrub.pointerId !== event.pointerId) return;
+    if (scrub.moved) {
+      suppressRailClickRef.current = true;
+      window.setTimeout(() => { suppressRailClickRef.current = false; }, 0);
+    }
+    railScrubRef.current = null;
+    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+  };
+
+  useLayoutEffect(() => {
+    const frame = requestAnimationFrame(handleMessagesScroll);
+    return () => cancelAnimationFrame(frame);
+  }, [messages, busy, contextStatus?.phase]);
+
+  useEffect(() => {
+    const container = scrollRef.current;
+    if (!container || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => handleMessagesScroll());
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [messages.length]);
 
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -402,6 +521,25 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
       </section>}
 
       {execution&&<AgentExecution key={`${execution.agentId}:${execution.sessionId}`} scope={execution} approvalTarget={approvalTarget} policyTarget={policyTarget} onPendingChange={setApprovalPending} onApprovalChange={onApprovalChange}/>}
+      <div className="chat-messages-shell">
+        {railMessages.length >= 4 && <nav className="chat-scroll-rail" aria-label="消息快捷定位"
+          onMouseLeave={() => { if (!railScrubRef.current) hideRailPreview(); }}
+          onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) hideRailPreview(); }}
+          onPointerDown={beginRailScrub} onPointerMove={moveRailScrub} onPointerUp={endRailScrub} onPointerCancel={endRailScrub}>
+          {railMessages.map((message, index) => <Fragment key={message.id}>
+            <button type="button" className={message.id === activeMessageId ? 'is-active' : undefined}
+              data-neighbor-distance={railFocusIndex >= 0 && index !== railFocusIndex && Math.abs(index - railFocusIndex) <= 3 ? Math.abs(index - railFocusIndex) : undefined}
+              aria-label={`跳转到第 ${index + 1} 条消息`} title={`跳转到第 ${index + 1} 条消息`}
+              data-message-id={message.id}
+              onMouseEnter={event => showRailPreview(message.id, event.currentTarget)} onFocus={event => showRailPreview(message.id, event.currentTarget)}
+              onClick={event => { if (suppressRailClickRef.current) return; showRailPreview(message.id, event.currentTarget); jumpToMessage(message.id); }}><span className="chat-scroll-marker"><span className="chat-scroll-marker-line" /></span></button>
+          </Fragment>)}
+        </nav>}
+        {railPreview && hoveredRailPreview && typeof document !== 'undefined' && createPortal(
+          <div className="chat-scroll-preview" style={{ left: railPreview.left, top: railPreview.top }}
+            onMouseEnter={() => { if (previewCloseTimerRef.current) { clearTimeout(previewCloseTimerRef.current); previewCloseTimerRef.current = null; } }} onMouseLeave={hideRailPreview}>
+            <strong>{hoveredRailPreview.title}</strong><Icon name="book" size={15} /><p>{hoveredRailPreview.summary || '这条消息暂无摘要。'}</p>
+          </div>, document.body)}
       <div className="chat-messages" ref={scrollRef} aria-label="聊天记录" aria-live="polite"
         onScroll={handleMessagesScroll} onWheel={event => { if (event.deltaY < 0) followOutputRef.current = false; }}>
         {messages.length === 0 && !busy && <div className="agent-chat-empty">
@@ -413,7 +551,7 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
         </div>}
 
         {messages.map((message, index) => message.role === 'user'
-          ? <div className="user-message-group" key={message.id}>
+          ? <div className={`user-message-group${highlightedMessageId === message.id ? ' chat-message-jump-highlight' : ''}`} key={message.id} ref={node => { if (node) messageRefs.current.set(message.id, node); else messageRefs.current.delete(message.id); }}>
             <div className="user-message">{message.text && <div>{message.text}</div>}{message.inputPending&&<small className="pending-input-note">补充已保存，尚未被当前轮接收；不会自动重新执行</small>}{!!message.attachments?.length && <MessageAttachments files={message.attachments} attach={attachFiles} disabled={locked} />}</div>
             <div className="message-copy-actions chat-message-meta request"><button type="button" className="chat-restore-request" aria-label="恢复请求" title="恢复到输入框" disabled={locked} onClick={() => {
               if (draft.trim() || attachments.length) { setAttachmentError('请先清空当前草稿，再恢复这条请求。'); return; }
@@ -421,7 +559,7 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
               catch (error) { setAttachmentError((error as Error).message); }
             }}><Icon name="edit" size={14}/></button><MessageTime timestamp={message.timestamp}/><CopyMarkdownButton getText={() => messageToMarkdown(message)} label="复制请求（Markdown）" iconOnly /></div>
           </div>
-          : <div className={`assistant-message ${message.error ? 'error' : ''} ${(busy || stopping) && index === messages.length - 1 ? 'active' : ''}`} key={message.id}>
+          : <div className={`assistant-message ${message.error ? 'error' : ''} ${(busy || stopping) && index === messages.length - 1 ? 'active' : ''}${highlightedMessageId === message.id ? ' chat-message-jump-highlight' : ''}`} key={message.id} ref={node => { if (node) messageRefs.current.set(message.id, node); else messageRefs.current.delete(message.id); }}>
             <div className="assistant-main">
               {message.segments
                 ? transcriptBlocks(message.segments).map(segment => segment.type === 'text'
@@ -442,6 +580,7 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
           </div>)}
         {contextStatus?.phase === 'running' && !((busy || stopping) && lastMessage?.role === 'assistant' && lastMessage.id === contextStatus.requestId) &&
           <div className="assistant-message active"><div className="assistant-main"><ReplyLoading key={contextStatus.requestId} stopping={stopping} compacting /></div></div>}
+      </div>
       </div>
     </section>
 
@@ -473,7 +612,7 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
         {!agentAvailability.loading && <button type="button" onClick={agentAvailability.retry}><Icon name="refresh" size={13} />重试加载</button>}
       </div>}
       {!!attachments.length && <DraftAttachments items={attachments} draft={chatDraft} locked={editingLocked} report={setAttachmentError} />}
-      <div className="composer-input-row"><textarea ref={textareaRef} rows={1} aria-label="智能体任务输入" placeholder={busy?'继续输入，新消息将进入队列':'与 ShellPilot 协作'} value={draft} disabled={editingLocked} onChange={event => setDraft(event.target.value)}
+      <div className="composer-input-row"><textarea ref={textareaRef} rows={1} aria-label="智能体任务输入" placeholder={busy?'继续输入，新消息将进入队列':'让思路沿着终端，走到答案'} value={draft} disabled={editingLocked} onChange={event => setDraft(event.target.value)}
         onPaste={event => {
           const files = pastedFiles(event.clipboardData);
           const text = event.clipboardData.getData('text/plain');

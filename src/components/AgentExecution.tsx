@@ -215,9 +215,6 @@ export function AgentExecution({scope,approvalTarget,policyTarget,onPendingChang
   };
   const policyMenu=<ExecutionPolicyMenu policy={policy} disabled={scope.locked||!!action||!scope.available||!policy} error={policyError} retry={()=>setReload(value=>value+1)} select={mode=>void changePolicy(mode)}/>;
   return <section className="agent-execution" aria-label="工具执行权限">
-    <div className="execution-mode"><Icon name="shield" size={15}/><span>{scope.available?`工具权限 · ${policy?policyLabel(policy):policyError?'权限读取失败':'读取权限…'}`:'工具协议暂不支持'}</span>
-      <button type="button" aria-expanded={expanded} onClick={()=>setExpanded(v=>!v)}>审批与记录{receipts.some(r=>r.state==='pending')?' · 待确认':''}</button>
-    </div>
     {scope.target&&<div className="execution-target">固定目标 {scope.target.username}@{scope.target.host}:{scope.target.port}{scope.connected?'':' · 已断开'}
       {scope.terminalId&&<details><summary>查看绑定身份</summary><span>终端 {scope.terminalId}</span><code>{scope.target.hostKey}</code></details>}</div>}
     {!scope.available&&<p>当前工具执行链支持 Chat Completions；Responses 工具调用尚未接入。</p>}
