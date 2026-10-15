@@ -8,7 +8,7 @@ import { TerminalWelcome } from './TerminalWelcome';
 import { isSessionConnected } from '../state/terminalSessions';
 import { Select } from './Select';
 
-export function TerminalWorkspace({ remoteViews, sessions, activeId, host, select, close, add, filesOpen, toggleFiles, commandCollapsed, toggleCommands, agentCollapsed, toggleAgent, filesAvailable = true, agentAvailable = true, copy, connections, layout = 'single', visibleIds = [activeId], changeLayout, reorder, commandControls, dockControls }: { remoteViews: ReactNode; sessions: TerminalSession[]; activeId: string; host?: Host; select: (id: string) => void; close: (id: string) => void; add: () => void; filesOpen: boolean; toggleFiles: () => void; commandCollapsed: boolean; toggleCommands: () => void; agentCollapsed: boolean; toggleAgent: () => void; filesAvailable?: boolean; agentAvailable?: boolean; connections: () => void; copy: (text: string) => void; layout?: TerminalLayout; visibleIds?: string[]; changeLayout?: (layout: TerminalLayout) => void; reorder?: (draggedId: string, targetId: string, after: boolean) => void; commandControls?: ReactNode; dockControls?: ReactNode }) {
+export function TerminalWorkspace({ remoteViews, sessions, activeId, host, select, close, add, filesOpen, toggleFiles, commandCollapsed, toggleCommands, agentCollapsed, toggleAgent, filesAvailable = true, agentAvailable = true, copy, connections, layout = 'single', visibleIds = [activeId], changeLayout, reorder, commandControls, dockControls, agentTerminalId }: { remoteViews: ReactNode; sessions: TerminalSession[]; activeId: string; host?: Host; select: (id: string) => void; close: (id: string) => void; add: () => void; filesOpen: boolean; toggleFiles: () => void; commandCollapsed: boolean; toggleCommands: () => void; agentCollapsed: boolean; toggleAgent: () => void; filesAvailable?: boolean; agentAvailable?: boolean; connections: () => void; copy: (text: string) => void; layout?: TerminalLayout; visibleIds?: string[]; changeLayout?: (layout: TerminalLayout) => void; reorder?: (draggedId: string, targetId: string, after: boolean) => void; commandControls?: ReactNode; dockControls?: ReactNode; agentTerminalId?:string }) {
   const active = sessions.find(session => session.id === activeId);
   const dragging = useRef<{ id: string; pointerId: number; x: number; y: number; left: number; top: number; width: number; node: HTMLDivElement; moved: boolean; target: { id: string; after: boolean } | null } | null>(null);
   const suppressClick = useRef(false);
@@ -105,6 +105,7 @@ export function TerminalWorkspace({ remoteViews, sessions, activeId, host, selec
             const target = sessions[index + (event.key === 'ArrowLeft' ? -1 : 1)];
             if (target) { reorder(session.id, target.id, event.key === 'ArrowRight'); setAnnouncement(`${session.title} 已移动`); }
           }} onClick={() => { if (!suppressClick.current) select(session.id); }}><i className={"status-dot " + (session.connectionStatus === 'unreachable' ? 'unreachable' : isSessionConnected(session) ? '' : 'offline')} /><span>{session.title}</span>{session.connectionStatus === 'unreachable' && <span className="terminal-tab-state">不可达</span>}</button>
+        {!!agentTerminalId&&session.terminalSessionId===agentTerminalId&&<span className="terminal-agent-binding" role="img" title="当前 Agent 对话关联此终端" aria-label="当前 Agent 对话关联此终端"><Icon name="bot" size={14}/></span>}
         <IconButton icon="close" label={'关闭 ' + session.title} onClick={() => close(session.id)} />
       </div>)}
       <button className="new-terminal-button" onClick={add} title="新建本地 CMD"><Icon name="tabs" size={17} /><span>新建终端</span></button>
@@ -121,6 +122,7 @@ export function TerminalWorkspace({ remoteViews, sessions, activeId, host, selec
         <div className="terminal-toolbar">
           <i className={"terminal-connection-dot " + (active.connectionStatus === 'unreachable' ? 'unreachable' : !isSessionConnected(active) ? 'offline' : '')} aria-hidden="true" />
           <span>{active.kind === 'local' ? `本地 · cmd.exe · ${host?.address ?? ''}` : (host?.user ?? '') + '@' + (host?.address ?? '')}</span>
+          {!!agentTerminalId&&active.terminalSessionId===agentTerminalId&&<span className="terminal-agent-binding toolbar-binding" role="img" title="Agent 已关联 · 命令将在此终端的当前 Shell 中执行" aria-label="当前 Agent 对话关联此终端"><Icon name="bot" size={14}/></span>}
           {active.connectionStatus === 'unreachable' && <Badge tone="amber" icon="alert">服务不可达</Badge>}
           {active.kind === 'ssh' && <IconButton icon="copy" label="复制主机地址" onClick={() => copy(host?.address ?? '')} />}
           <div className="inline-actions workspace-panel-controls" aria-label="工作区面板">

@@ -63,3 +63,53 @@ test('A lost steering response stays unconfirmed and cannot be edited or automat
   assert.equal(p.find(n=>n.props['aria-label']==='删除排队消息').props.disabled,true);
   p.props.busy=false;p.render();assert.deepEqual(p.requests,[]);
 });
+
+const project={id:'existing-project',name:'测试服务器',connectionId:'saved-ssh',identity:{host:'example.test',port:22,username:'tester',hostKey:'test-key'}};
+
+test('Empty new chat offers text or existing SSH projects and preserves the draft across connection and history scopes',async()=>{
+ const p=panel(),selections=[];
+ p.props.composerProject={project:null,projects:[project],locked:false,select:async id=>{
+  selections.push(id);p.props.draftScope=2;p.render();p.render();
+  await new Promise(setImmediate);
+  p.props.draftScope=3;p.props.composerProject.project=project;p.render();p.render();
+ }};
+ p.type('安装前先检查环境');p.render();
+ const picker=p.find(n=>n.props.label==='新对话连接');
+ assert.equal(picker.props.value,'');assert.equal(picker.props.options.length,2);
+ assert.equal(picker.props.options[0].label,'文字对话');
+ assert.equal(picker.props.options[1].value,project.id);
+ picker.props.onChange(project.id);p.render();
+ assert.equal(p.find(n=>n.type==='textarea').props.disabled,true);
+ await new Promise(setImmediate);await new Promise(setImmediate);p.render();p.render();
+ assert.deepEqual(selections,[project.id]);
+ assert.equal(p.find(n=>n.type==='textarea').props.value,'安装前先检查环境');
+ assert.equal(p.find(n=>n.props.label==='新对话连接').props.value,project.id);
+ assert.equal(p.find(n=>n.type==='textarea').props.disabled,false);
+ // An ordinary history navigation must still clear the old conversation draft.
+ p.props.draftScope=4;p.render();p.render();assert.equal(p.find(n=>n.type==='textarea').props.value,'');
+});
+
+test('Project choice can return to text, rejects unknown IDs, and cannot redirect a running or existing conversation',async()=>{
+ const p=panel(),selections=[];
+ p.props.composerProject={project,projects:[project],locked:false,select:async id=>{selections.push(id);}};
+ p.render();p.find(n=>n.props.label==='新对话连接').props.onChange('unknown');assert.deepEqual(selections,[]);
+ p.find(n=>n.props.label==='新对话连接').props.onChange('');await new Promise(setImmediate);p.render();p.render();
+ assert.deepEqual(selections,['']);
+ p.props.busy=true;p.render();const picker=p.find(n=>n.props.label==='新对话连接');assert.equal(picker.props.disabled,true);
+ picker.props.onChange('');await new Promise(setImmediate);assert.deepEqual(selections,['']);
+ p.props.busy=false;p.props.messages=[{id:'sent',role:'user',text:'已有对话'}];p.render();
+ assert.equal(p.find(n=>n.props.label==='新对话连接'),undefined);
+ assert.equal(p.find(n=>n.props.className==='composer-project-label').props.children,project.name);
+});
+
+test('Failed project selection keeps text and unlocks the selector for retry',async()=>{
+ const p=panel();let fail=true,calls=0;
+ p.props.composerProject={project:null,projects:[project],locked:false,select:async()=>{calls++;if(fail)throw Error('连接失败');}};
+ p.type('保留此草稿');p.render();p.find(n=>n.props.label==='新对话连接').props.onChange(project.id);
+ await new Promise(setImmediate);p.render();p.render();
+ assert.equal(p.find(n=>n.type==='textarea').props.value,'保留此草稿');
+ assert.equal(p.find(n=>n.props.label==='新对话连接').props.disabled,false);
+ assert.equal(p.find(n=>n.props.className==='composer-attachment-error').props.children,'连接失败');
+ fail=false;p.find(n=>n.props.label==='新对话连接').props.onChange(project.id);await new Promise(setImmediate);p.render();p.render();
+ assert.equal(calls,2);assert.equal(p.find(n=>n.props.className==='composer-attachment-error'),undefined);
+});

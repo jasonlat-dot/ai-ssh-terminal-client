@@ -2751,14 +2751,4 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.985); }
 
 
 /* Durable projects stay in the existing Agent history menu; the desktop layout is unchanged. */
-.agent-project-history .workspace-new-chat,.agent-project-history .project-section-heading,.agent-project-history .project-folder-row {display:flex;align-items:center;gap:6px;margin-bottom:6px;}
-.agent-project-history .project-section-heading > span,.agent-project-history .project-name {flex:1;min-width:0;}
-.agent-project-history .project-folder-row > button,.agent-project-history .project-section-heading > button,.agent-project-history .workspace-new-chat {color:var(--text);border:1px solid var(--line);border-radius:7px;background:var(--raised);padding:6px;display:flex;align-items:center;gap:5px;}
-.agent-project-history .project-chat-list {padding-left:12px;margin-bottom:12px;}
-.agent-project-history .project-chat-row {flex-direction:row;align-items:center;gap:7px;}
-.agent-project-history .project-name span,.agent-project-history .project-chat-row span {overflow:hidden;white-space:nowrap;text-overflow:ellipsis;}
-.agent-project-history .project-empty {font-size:11px;color:var(--muted);margin:6px;}
 .agent-project-history .project-sidebar-error {color:var(--red,#c7474a);overflow-wrap:anywhere;}
-.agent-project-history .project-create-dialog form {display:flex;flex-direction:column;gap:14px;padding:16px;}
-.agent-project-history .project-create-dialog label {display:flex;flex-direction:column;gap:6px;}
-.agent-project-history .project-create-dialog footer {display:flex;gap:8px;justify-content:space-between;}

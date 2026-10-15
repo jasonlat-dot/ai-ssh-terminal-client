@@ -36,7 +36,7 @@
 .execution-receipt-heading { font-size:13px; color:var(--theme-text-muted); }
 .execution-receipt-heading > span:first-child { display:inline-flex; align-items:center; gap:8px; }
 .execution-server { font-family:var(--mono); font-size:12px; font-variant-numeric:tabular-nums; }
-.execution-receipt h4 { margin:14px 0 16px; font-family:var(--font-ui); font-size:16px; font-weight:var(--weight-label); color:var(--chat-prose,var(--theme-text-strong)); line-height:1.6; }
+.execution-receipt h4 { margin:14px 0 16px; font-family:var(--font-ui); font-size:16px; font-weight:max(600,var(--weight-title,600)); font-synthesis:weight; color:var(--chat-prose,var(--theme-text-strong)); line-height:1.6; }
 .execution-command { display:flex; align-items:baseline; gap:8px 14px; min-width:0; flex-wrap:wrap; }
 .execution-command pre { flex:0 1 auto; min-width:0; max-width:100%; max-height:none; overflow:visible; padding:0; margin:0; background:transparent; color:var(--chat-prose,var(--theme-text-strong)); font-size:13px; line-height:1.75; }
 .execution-command > .markdown-copy-control { opacity:0; transition:opacity .16s; }
@@ -57,6 +57,12 @@
 .execution-approval-footer { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-top:16px; padding-top:16px; border-top:1px solid var(--line); }
 .execution-approval-actions { display:flex; align-items:center; gap:8px; }
 .agent-panel.conversation-only .execution-receipt button { font-family:var(--font-ui); font-size:14px; font-weight:var(--weight-label); line-height:1.5; }
+/* Approval controls also render in the composer portal. Give them their own
+   weight instead of inheriting body text or the global 500-weight button rule. */
+:root .execution-receipt .execution-approval-footer button,
+:root .execution-receipt .execution-menu-options button {
+  font-family:var(--font-ui); font-weight:max(600,var(--weight-label,500)); font-synthesis:weight;
+}
 .execution-receipt .execution-cancel, .execution-receipt .execution-deny { min-height:38px; padding:7px 16px; border-radius:20px; white-space:nowrap; transition:background 160ms ease,border-color 160ms ease,transform 120ms ease; }
 .execution-receipt .execution-cancel { --action-color:var(--ui-warning-text,#b86618); color:var(--action-color); border-color:color-mix(in srgb,var(--action-color) 30%,var(--theme-panel)); background:color-mix(in srgb,var(--action-color) 12%,var(--theme-panel)); }
 .execution-receipt .execution-deny { --action-color:var(--ui-danger-text,#c7474a); color:var(--action-color); border-color:color-mix(in srgb,var(--action-color) 30%,var(--theme-panel)); background:color-mix(in srgb,var(--action-color) 12%,var(--theme-panel)); }
@@ -64,7 +70,6 @@
 .execution-receipt .execution-cancel:active:not(:disabled), .execution-receipt .execution-deny:active:not(:disabled) { transform:translateY(1px); background:color-mix(in srgb,var(--action-color) 27%,var(--theme-panel)); }
 .execution-split-button { display:flex; align-items:stretch; border-radius:20px; background:var(--theme-text-strong); color:var(--theme-panel); }
 .execution-receipt .execution-approve { display:inline-flex; align-items:center; gap:10px; border:0; border-radius:20px 0 0 20px; padding:8px 14px; background:transparent; color:inherit; white-space:nowrap; font-weight:var(--weight-label); }
-.execution-receipt .execution-approve:hover { background:color-mix(in srgb, currentColor 14%, transparent); }
 .execution-approval-menu { position:relative; border-left:1px solid color-mix(in srgb, currentColor 25%, transparent); }
 .execution-approval-menu > summary { display:flex; align-items:center; height:100%; padding:0 9px; border-radius:0 20px 20px 0; list-style:none; cursor:pointer; }
 .execution-approval-menu > summary[aria-disabled='true'] { opacity:.45; cursor:default; }
@@ -109,6 +114,24 @@
 @container (max-width: 480px) { .agent-execution { margin:6px 10px; } .execution-receipt.needs-confirmation { padding:14px; border-radius:16px; } .execution-server { flex-basis:100%; } .execution-approval-footer { flex-wrap:wrap; } .execution-approval-actions { margin-left:auto; } .execution-command > .markdown-copy-control { opacity:1; } }
 
 .execution-receipt .execution-menu-trigger { display:flex; align-items:center; height:100%; padding:0 10px; border:0; border-radius:0 20px 20px 0; background:transparent; color:inherit; }
+/* Both halves stay on the same solid surface. Generic receipt button hover
+   colors otherwise turn the menu trigger pale while its icon stays white. */
+.execution-receipt .execution-split-button :is(.execution-approve,.execution-menu-trigger) {
+  color:var(--theme-panel); background:var(--theme-text-strong);
+}
+.execution-receipt .execution-split-button :is(.execution-approve,.execution-menu-trigger):hover:not(:disabled),
+.execution-receipt .execution-split-button .execution-menu-trigger[aria-expanded='true'] {
+  background:color-mix(in srgb,var(--theme-text-strong) 90%,var(--theme-panel));
+}
+.execution-receipt .execution-split-button :is(.execution-approve,.execution-menu-trigger):active:not(:disabled) {
+  background:color-mix(in srgb,var(--theme-text-strong) 82%,var(--theme-panel));
+}
+.execution-receipt .execution-split-button :is(.execution-approve,.execution-menu-trigger):focus:not(:focus-visible) {
+  outline:none; box-shadow:none;
+}
+.execution-receipt .execution-split-button :is(.execution-approve,.execution-menu-trigger):focus-visible {
+  outline:2px solid color-mix(in srgb,var(--theme-panel) 70%,transparent); outline-offset:-4px; box-shadow:none;
+}
 .execution-menu-trigger svg { transition:transform 220ms cubic-bezier(.2,.8,.2,1); }
 .execution-approval-menu.is-open .execution-menu-trigger svg { transform:rotate(180deg); }
 .execution-approval-menu .execution-menu-options { visibility:hidden; opacity:0; transform:translateY(6px) scale(.97); transform-origin:bottom right; transition:opacity 160ms ease,transform 220ms cubic-bezier(.2,.8,.2,1),visibility 0s 220ms; }

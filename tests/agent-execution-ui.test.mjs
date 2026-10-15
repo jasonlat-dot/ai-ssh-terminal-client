@@ -23,6 +23,22 @@ function text(node){if(Array.isArray(node))return node.map(text).join(' ');retur
 const receipt={id:'approval',callId:'call',binding:{sessionId:'chat',tool:{taskId:'task',target:{connectionId:'a',terminalSessionId:'terminal-a'}},identity:{host:'server-a',port:22,username:'root',hostKey:'SHA256:example'}},task:{id:'task',goal:'inspect',constraints:['不要重启']},command:{command:'printf "汉🙂"\ncheck',timeoutSeconds:30},state:'pending',createdAt:Date.now(),expiresAt:Date.now()+300000,grant:null,result:null};
 const scope={agentId:'model',sessionId:'chat',enabled:true,available:true,connected:true,locked:false,target:receipt.binding.identity,terminalId:'terminal-a',toggle:async()=>{}};
 
+test('Command purpose explains simple commands even when old receipts stored the missing-purpose placeholder',()=>{
+ const h=harness();
+ const purpose=command=>{
+  const tree=h.render('ApprovalCard',{receipt:{...receipt,command:{timeoutSeconds:20,...command}},disabled:false,act(){}});
+  return text(all(tree).find(n=>n.type==='div'&&all(n).some(child=>child.type==='dt'&&text(child)==='命令用途')));
+ };
+ for(const explanation of [undefined,null,'','  ','未提供命令用途说明，请核对完整命令。']) {
+  assert.match(purpose({command:'df -h',explanation}),/磁盘总量、已用空间、可用空间和使用率/);
+  assert.match(purpose({command:'whoami',explanation}),/用户身份/);
+  assert.match(purpose({command:'pwd',explanation}),/工作目录/);
+ }
+ assert.match(purpose({command:'df -h',explanation:'查看挂载文件系统的容量'}),/查看挂载文件系统的容量/);
+ for(const command of ['df -h && custom-script','df -h | cat','df\n-h','df -h; whoami'])
+  assert.match(purpose({command}),/未附用途说明/);
+});
+
 test('D5 approval UI shows exact host/command and distinct once/task/deny/cancel actions',()=>{
   const h=harness();const decisions=[];const tree=h.render('ApprovalCard',{receipt,disabled:false,act:(id,action)=>decisions.push([id,action])});
   assert.match(text(tree).replace(/\s/g,''),/root@server-a:22/);assert.match(text(tree),/printf "汉🙂"\ncheck/);assert.match(text(tree),/手工命令和后台终端输出不会作为工具结果/);
@@ -50,13 +66,14 @@ test('D5 raw byte viewer preserves cross-range non UTF-8 data through hex and ma
   assert.equal(decoded.lossy,true);assert.equal(decoded.hex,'e6 b1 89 ff');assert.match(decoded.text,/汉/);
   assert.equal(h.module.outputReferences({outputs:[{id:'a',channel:'stdout',size:4,sha256:'hash'},{id:'bad',channel:'stdin',size:4}]}).length,1);
 });
-test('D5 pending approval poll opens record panel, routes click to same session and keeps execution toggle locked during a turn',async()=>{
+test('D5 pending approval poll opens record panel and routes decisions to the same session',async()=>{
   const requests=[];const actions=[];const h=harness({executionRequests:async(...args)=>{requests.push(args);return [receipt];},executionPolicy:async()=>({mode:'confirm',revision:0}),executionDecision:async(...args)=>{actions.push(args);return true;}});
   h.render('AgentExecution',{scope});h.flush();await new Promise(setImmediate);
   let tree=h.render('AgentExecution',{scope});h.flush();assert.equal(requests[0][0],'model');assert.equal(requests[0][1],'chat');
   const card=all(tree).find(n=>n.type===h.module.ApprovalCard);assert.ok(card);card.props.act('approval','approveOnce');await new Promise(setImmediate);
   assert.deepEqual(actions[0],['model','chat','approval','approveOnce']);
-  tree=h.render('AgentExecution',{scope:{...scope,locked:true}});assert.equal(all(tree).find(n=>n.type==='button'&&text(n)==='切换文字对话').props.disabled,true);
+  tree=h.render('AgentExecution',{scope:{...scope,locked:true},policyTarget:{}});
+  assert.equal(all(tree).find(n=>n.type===h.module.ExecutionPolicyMenu).props.disabled,true);
 });
 test('D5 unknown tool output with retained original references remains readable without claiming execution succeeded',()=>{
   const h=harness();const tree=h.render('NativeToolOutput',{output:JSON.stringify({ok:false,error:'result_unknown',data:{outputs:[{id:'raw',channel:'stderr',size:100,sha256:'hash'}]}})});
@@ -124,13 +141,18 @@ test('Failed policy save does not display full access as enabled',async()=>{
 test('Auto review keeps composer available until the reviewer requests human confirmation',async()=>{
   let current={...receipt,review:null};
   const changes=[];const h=harness({executionRequests:async()=>[current],executionPolicy:async()=>({mode:'auto',revision:2})});
-  const props={scope,approvalTarget:{},onPendingChange:value=>changes.push(value)};
+  const statuses=[];
+  const props={scope,approvalTarget:{},onPendingChange:value=>changes.push(value),onApprovalChange:(id,pending)=>statuses.push([id,pending])};
   h.render('AgentExecution',props);h.flush();await new Promise(setImmediate);
   let tree=h.render('AgentExecution',props);h.flush();
   assert.equal(changes.at(-1),false);assert.match(text(tree),/正在独立审查/);
+  assert.deepEqual(statuses.at(-1),['chat',false]);
   assert.ok(!all(tree).some(n=>n.props.className==='composer-approval'));
   current={...receipt,review:{mode:'auto',decision:'ask',risk:'high',reason:'删除需要确认'}};
   h.timers.shift()();await new Promise(setImmediate);
   tree=h.render('AgentExecution',props);h.flush();
   assert.equal(changes.at(-1),true);assert.ok(all(tree).some(n=>n.props.className==='composer-approval'));
+  assert.deepEqual(statuses.at(-1),['chat',true]);
+  current={...current,state:'denied'};h.timers.shift()();await new Promise(setImmediate);
+  h.render('AgentExecution',props);h.flush();assert.deepEqual(statuses.at(-1),['chat',false]);
 });

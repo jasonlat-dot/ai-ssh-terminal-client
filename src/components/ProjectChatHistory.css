@@ -1,0 +1,210 @@
+/* A single quiet list surface; project headers and conversation rows share a left edge. */
+.workspace-conversations {
+  --history-text: color-mix(in srgb, var(--theme-text-strong) 80%, #454545);
+  --history-muted: color-mix(in srgb, var(--theme-text-muted) 65%, #888);
+  --history-hover: color-mix(in srgb, var(--history-text) 5%, transparent);
+  --history-selected: color-mix(in srgb, var(--history-text) 9%, transparent);
+  --history-font-weight: max(500, var(--weight-label, 500));
+}
+.workspace-conversations .workspace-history-heading { padding: 13px 14px 3px; color: var(--history-muted); }
+.workspace-conversations .workspace-history-heading h2 { font-size: 12px; font-weight: var(--weight-label); }
+.workspace-conversations .agent-project-history {
+  display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; padding: 0 5px 8px;
+}
+.workspace-conversations .agent-project-history button { font-family: var(--font-ui); font-weight: var(--history-font-weight); }
+.workspace-conversations .project-history-toolbar { display: flex; align-items: center; gap: 2px; padding: 2px 3px 12px; }
+.workspace-conversations .workspace-new-chat {
+  display: flex; flex: 1; justify-content: flex-start; align-items: center; gap: 9px;
+  min-width: 0; min-height: 34px; padding: 6px 8px; margin: 0; border: 0; border-radius: 7px;
+  color: var(--history-text); background: transparent; box-shadow: none;
+  font-size: var(--font-body); font-weight: var(--weight-body);
+}
+.workspace-conversations .project-toolbar-action,
+.workspace-conversations .project-add-chat {
+  display: inline-flex; align-items: center; justify-content: center; gap: 0;
+  flex: 0 0 28px; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 6px;
+  color: var(--history-muted); background: transparent; box-shadow: none;
+}
+.workspace-conversations .project-toolbar-action { position: relative; }
+.workspace-conversations .project-toolbar-action > svg + svg { position: absolute; right: 1px; bottom: 2px; background: var(--theme-chrome); }
+.workspace-conversations .project-sidebar-scroll {
+  flex: 1; min-width: 0; min-height: 0; overflow-x: hidden; overflow-y: auto;
+  padding: 0 3px 8px; scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--history-text) 22%, transparent) transparent;
+}
+.workspace-conversations .project-sidebar-scroll::-webkit-scrollbar { width: 5px; }
+.workspace-conversations .project-sidebar-scroll::-webkit-scrollbar-track { background: transparent; }
+.workspace-conversations .project-sidebar-scroll::-webkit-scrollbar-thumb {
+  border-radius: 10px; background: color-mix(in srgb, var(--history-text) 22%, transparent);
+}
+.workspace-conversations .agent-project + .agent-project { margin-top: 20px; }
+.workspace-conversations .project-folder-row { display: flex; align-items: center; gap: 2px; min-width: 0; min-height: 32px; margin: 0 0 3px; }
+.workspace-conversations .project-disclosure {
+  position: relative; display: grid; place-items: center; flex: 0 0 26px; height: 28px; padding: 0;
+  border: 0; border-radius: 5px; color: var(--history-text); background: transparent;
+}
+.workspace-conversations .project-disclosure svg { grid-area: 1 / 1; transition: opacity .15s ease, transform .15s ease; }
+.workspace-conversations .project-folder-chevron { opacity: 0; transform: translateX(-2px); }
+.workspace-conversations .project-disclosure:is(:hover, :focus-visible) .project-folder-icon { opacity: 0; }
+.workspace-conversations .project-disclosure:is(:hover, :focus-visible) .project-folder-chevron { opacity: 1; transform: none; }
+.workspace-conversations .project-name {
+  display: flex; align-items: center; justify-content: flex-start; flex: 1; min-width: 0;
+  min-height: 30px; padding: 3px 2px; border: 0; border-radius: 5px; text-align: left;
+  color: var(--history-text); background: transparent; font-size: var(--font-body); font-weight: var(--weight-body);
+}
+.workspace-conversations .project-name > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-conversations .project-add-chat { opacity: 1; transition: background-color .15s ease; }
+.workspace-conversations .project-folder-actions { display:flex; align-items:center; gap:1px; flex-shrink:0; }
+.workspace-conversations .project-folder-actions .project-more-trigger {
+  display:inline-flex; align-items:center; justify-content:center; flex:0 0 28px; width:28px; height:28px;
+  min-height:0; padding:0; border:0; border-radius:6px; background:transparent; box-shadow:none;
+  color:var(--history-muted); font-size:21px; line-height:1;
+}
+.workspace-conversations .project-more-trigger > svg { display:none; }
+.workspace-conversations .project-more-trigger:hover:not(:disabled),
+.workspace-conversations .project-more-trigger[aria-expanded='true'] { color:var(--history-text); background:var(--history-hover); box-shadow:none; }
+.project-actions-menu { padding:5px; border-radius:10px; font-family:var(--font-ui); }
+.project-actions-menu .ui-select-option { display:grid; grid-template-columns:1fr; gap:3px; padding:9px 11px; color:var(--red,#c7474a); border-radius:7px; font-size:13px; font-weight:500; }
+.project-actions-menu .ui-select-option-description { font-size:11px; font-weight:400; color:var(--theme-text-muted); }
+.project-actions-menu .ui-select-option.is-active { color:var(--red,#c7474a); background:color-mix(in srgb,var(--red,#c7474a) 7%,transparent); }
+.workspace-conversations .project-chat-list { padding: 0; margin: 0; }
+.workspace-conversations .project-chat-entry { position:relative; }
+.workspace-conversations .project-chat-entry .project-chat-row { padding-right:32px; }
+.workspace-conversations .project-chat-delete {
+  position:absolute; right:5px; top:50%; transform:translateY(-50%); display:flex; align-items:center; justify-content:center;
+  width:25px; height:25px; padding:0; border:0; border-radius:5px; opacity:0; background:transparent; color:var(--history-muted);
+}
+.workspace-conversations .project-chat-entry:is(:hover,:focus-within) .project-chat-delete { opacity:1; }
+.workspace-conversations .project-chat-delete:hover:not(:disabled) { background:color-mix(in srgb,var(--red,#c7474a) 10%,transparent); color:var(--red,#c7474a); }
+.workspace-conversations .project-chat-delete:disabled { opacity:0; }
+.workspace-conversations .project-chat-entry:is(:hover,:focus-within) .project-chat-delete:disabled { opacity:.35; }
+.project-delete-dialog { max-width:420px; }
+.project-delete-dialog > p { margin:12px 22px; color:var(--theme-text-muted); font-size:13px; line-height:1.7; }
+.project-delete-dialog > .project-delete-title { color:var(--theme-text-strong); font-size:14px; font-weight:500; overflow-wrap:anywhere; }
+.project-delete-dialog > footer { display:flex; justify-content:flex-end; gap:8px; padding:12px 22px 20px; }
+.project-delete-dialog > footer button { min-height:34px; padding:6px 14px; border:1px solid var(--line); border-radius:7px; }
+.project-delete-dialog > footer .project-confirm-delete { color:#fff; border-color:#c44343; background:#c44343; }
+.project-delete-dialog > footer .project-confirm-delete:hover:not(:disabled) { background:#ae3434; }
+.project-delete-dialog > footer button:disabled { opacity:.5; }
+.modal.project-create-dialog {
+  width:min(460px,100%); max-height:calc(100dvh - 48px); border:1px solid var(--line);
+  border-radius:16px; background:var(--theme-panel); color:var(--theme-text-strong);
+  font-family:var(--font-ui); box-shadow:0 20px 64px var(--theme-shadow);
+}
+.modal.project-create-dialog > header { padding:22px 24px 0; border:0; background:transparent; }
+.modal.project-create-dialog > header h2 { margin:0; font-size:18px; line-height:1.5; font-weight:600; }
+.modal.project-create-dialog > header .icon-button {
+  width:28px; height:28px; min-height:0; padding:5px; border:0; border-radius:7px;
+  color:var(--theme-text-muted); background:transparent;
+}
+.modal.project-create-dialog > header .icon-button:hover:not(:disabled) { background:var(--theme-hover); }
+.modal.project-create-dialog .project-create-form { display:flex; flex-direction:column; gap:0; padding:0; }
+.project-create-fields { display:flex; flex-direction:column; gap:18px; padding:24px; }
+.modal.project-create-dialog label {
+  display:flex; flex-direction:column; gap:8px; min-width:0; font-size:13px; line-height:1.5; font-weight:500;
+}
+.modal.project-create-dialog input,
+.modal.project-create-dialog .ui-select-trigger {
+  width:100%; min-width:0; min-height:40px; padding:9px 12px; border:1px solid var(--line-strong);
+  border-radius:8px; background:var(--theme-panel); color:var(--theme-text-strong);
+  font:500 13px/1.5 var(--font-ui); box-shadow:none;
+}
+.modal.project-create-dialog input:focus-visible,
+.modal.project-create-dialog .ui-select-trigger:focus-visible {
+  outline:2px solid color-mix(in srgb,var(--ui-accent) 65%,transparent); outline-offset:2px;
+}
+.modal.project-create-dialog .project-create-hint {
+  margin:-4px 0 0; color:var(--theme-text-muted); font-size:12px; font-weight:400; line-height:1.7;
+}
+.modal.project-create-dialog .project-create-footer {
+  display:flex; align-items:center; justify-content:space-between; gap:12px; margin:0;
+  padding:16px 24px; border-top:1px solid var(--line); background:var(--theme-panel-soft);
+}
+.modal.project-create-dialog .project-create-footer button {
+  display:inline-flex; align-items:center; justify-content:center; gap:7px; min-height:36px;
+  margin:0; padding:8px 12px; border:1px solid transparent; border-radius:8px;
+  font:500 13px/1.5 var(--font-ui); white-space:nowrap; box-shadow:none;
+}
+.modal.project-create-dialog .project-manage-servers { padding-inline:8px; color:var(--theme-text-muted); background:transparent; }
+.modal.project-create-dialog .project-manage-servers:hover:not(:disabled) { color:var(--theme-text-strong); background:var(--theme-hover); }
+.modal.project-create-dialog .project-create-submit { color:var(--theme-panel); background:var(--theme-text-strong); }
+.modal.project-create-dialog .project-create-submit:hover:not(:disabled) { background:color-mix(in srgb,var(--theme-text-strong) 88%,var(--theme-panel)); }
+.modal.project-create-dialog .project-create-footer button:disabled { opacity:.45; cursor:not-allowed; }
+@media (max-width:420px) {
+  .modal.project-create-dialog > header { padding:18px 18px 0; }
+  .project-create-fields { padding:20px 18px; }
+  .modal.project-create-dialog .project-create-footer { padding:14px 18px; flex-wrap:wrap; }
+  .modal.project-create-dialog .project-create-submit { margin-left:auto; }
+}
+.workspace-conversations .project-chat-row {
+  display: flex; flex-direction: row; align-items: center; justify-content: flex-start;
+  width: 100%; min-width: 0; min-height: 33px; padding: 6px 10px 6px 30px; margin: 1px 0;
+  border: 0; border-radius: 7px; box-shadow: none; background: transparent;
+  color: var(--history-text); text-align: left; font-size: var(--font-body); line-height: 1.5; font-weight: var(--weight-body);
+  transition: background-color .16s ease, color .16s ease;
+}
+.workspace-conversations .project-chat-title { display: block; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.workspace-conversations .project-chat-title-text { display:inline-block; min-width:100%; vertical-align:top; transform:translateX(0); }
+.workspace-conversations .project-chat-awaiting {
+  display:inline-flex; align-items:center; gap:6px; flex-shrink:0; margin-left:8px; padding:2px 8px;
+  border-radius:12px; color:light-dark(#13743e,#80df9d); background:light-dark(#d5eddd,#183f2a);
+  font-size:11px; font-weight:500; line-height:1.6; white-space:nowrap;
+}
+.workspace-conversations .project-chat-running {
+  display:inline-flex; align-items:center; justify-content:center; flex:0 0 16px;
+  width:16px; height:16px; margin-left:8px; color:var(--history-muted);
+}
+.workspace-conversations .project-chat-awaiting i,
+.workspace-conversations .project-chat-running i {
+  width:10px; height:10px; box-sizing:border-box; border:1.5px solid currentColor; border-right-color:transparent;
+  border-radius:50%; animation:history-approval-wait 1s linear infinite;
+}
+@keyframes history-approval-wait { to { transform:rotate(360deg); } }
+.workspace-conversations .project-chat-running i { width:13px; height:13px; border-color:color-mix(in srgb,currentColor 30%,transparent); border-top-color:currentColor; }
+.workspace-conversations .project-chat-row[data-title-overflow='true']:is(:hover,:focus-visible) .project-chat-title {
+  text-overflow:clip;
+}
+.workspace-conversations .project-chat-row[data-title-overflow='true']:is(:hover,:focus-visible) .project-chat-title-text {
+  animation:history-title-pan var(--history-title-duration,4s) linear .5s infinite alternate;
+}
+@keyframes history-title-pan {
+  0%,12% { transform:translateX(0); }
+  88%,100% { transform:translateX(var(--history-title-shift,0px)); }
+}
+.workspace-conversations .project-chat-row:hover:not(:disabled),
+.workspace-conversations :is(.workspace-new-chat, .project-toolbar-action, .project-add-chat, .project-general-toggle):hover:not(:disabled) { background: var(--history-hover); color: var(--history-text); }
+.workspace-conversations .project-chat-row.active,
+.workspace-conversations .project-chat-row.active:hover { color: var(--history-text); background: var(--history-selected); }
+.workspace-conversations .project-general-toggle {
+  display: flex; align-items: center; justify-content: flex-start; gap: 10px; width: 100%; min-width: 0;
+  min-height: 30px; padding: 3px 6px; border: 0; border-radius: 5px; color: var(--history-muted); background: transparent;
+  font-size: var(--font-body); font-weight: var(--weight-body);
+}
+.workspace-conversations .project-general-toggle > svg:last-child { margin-left: auto; opacity: 0; }
+.workspace-conversations .project-general-toggle:is(:hover, :focus-visible) > svg:last-child { opacity: 1; }
+.workspace-conversations .project-list-actions { display:flex; align-items:center; flex-wrap:wrap; gap:4px; padding:3px 6px 2px 22px; }
+.workspace-conversations button.project-more {
+  display:inline-flex; align-items:center; justify-content:flex-start; gap:6px;
+  min-height:30px; margin:0; padding:5px 8px; border:0; border-radius:6px;
+  color:var(--history-muted); background:transparent; box-shadow:none; text-decoration:none;
+  font-family:var(--font-ui); font-size:var(--font-small); font-weight:max(600,var(--weight-label,500));
+  font-synthesis:weight; line-height:1.5; transition:color .15s ease,background-color .15s ease;
+}
+.workspace-conversations .project-more > svg { flex-shrink:0; opacity:.75; }
+.workspace-conversations button.project-more:is(:hover,:focus-visible):not(:disabled) { color:var(--history-text); background:var(--history-hover); }
+.workspace-conversations button.project-more:active:not(:disabled) { color:var(--history-text); background:var(--history-selected); }
+.workspace-conversations button.project-more:disabled { opacity:.45; }
+.workspace-conversations .project-empty { margin: 0; padding: 5px 10px 5px 30px; font-size: var(--font-small); color: var(--history-muted); }
+.workspace-conversations .project-sidebar-error { margin: 4px 6px 10px; padding: 8px; border-radius: 6px; background: color-mix(in srgb, var(--red, #c7474a) 7%, transparent); font-size: var(--font-small); overflow-wrap: anywhere; }
+.workspace-conversations .project-sidebar-error button { padding: 0 5px; text-decoration: underline; }
+.workspace-conversations button:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: -2px; }
+.workspace-conversations button:disabled { cursor: default; }
+.workspace-conversations button.project-chat-row:disabled { opacity: 1; }
+@media (prefers-reduced-motion: reduce) {
+  .workspace-conversations .project-chat-awaiting i,
+  .workspace-conversations .project-chat-running i { animation:none; }
+  .workspace-conversations button, .workspace-conversations .project-disclosure svg { transition: none; }
+  .workspace-conversations .project-chat-row[data-title-overflow='true']:is(:hover,:focus-visible) .project-chat-title-text { animation:none; }
+  .workspace-conversations .project-chat-row[data-title-overflow='true']:is(:hover,:focus-visible) .project-chat-title { text-overflow:ellipsis; }
+}
+@media (hover:none) { .workspace-conversations .project-chat-delete { opacity:1; } }

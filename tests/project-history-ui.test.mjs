@@ -76,3 +76,167 @@ test('History loading failure is visible and does not create or connect chats',a
  assert.ok(ui.find(n=>n.props.role==='alert'));assert.equal(ui.actions.length,0);
 });
 
+test('Project previews show five titles, reveal more without refetching, and collapse independently',async()=>{
+ const ui=harness();await ui.settle();let fetches=0;
+ const items=Array.from({length:12},(_,i)=>({...a,sessionId:'a-'+i,title:'服务器任务 '+i}));
+ ui.api.projectChats=async id=>{fetches++;return {items:id===p.id?items:id===q.id?[b]:[g],nextAfter:null};};
+ ui.props.revision='many';ui.render();await ui.settle();
+ const rows=()=>ui.all(n=>n.type==='button'&&n.props.className?.includes('project-chat-row'),ui.find(n=>n.props.id==='project-chats-project-A'));
+ assert.equal(rows().length,5);assert.equal(fetches,3);
+ assert.equal(ui.find(n=>n.props.className==='agent-history-item'),undefined);
+ for(const row of rows())assert.equal(row.props.children[0].props.className,'project-chat-title');
+ ui.button('显示更多A 服务器记录').props.onClick();ui.render();
+ assert.equal(rows().length,10);assert.equal(fetches,3);
+ ui.button('显示更多A 服务器记录').props.onClick();ui.render();
+ assert.equal(rows().length,12);assert.equal(ui.button('显示更多A 服务器记录'),undefined);
+ ui.button('收起A 服务器记录').props.onClick();ui.render();assert.equal(rows().length,5);
+ ui.button('收起A 服务器').props.onClick();ui.render();
+ assert.equal(ui.find(n=>n.props.id==='project-chats-project-A'),undefined);
+ assert.ok(ui.find(n=>n.props.id==='project-chats-project-B'));
+});
+
+test('Selected older conversation remains visible in a compact preview with exact routing',async()=>{
+ const ui=harness();await ui.settle();
+ const items=Array.from({length:12},(_,i)=>({...a,sessionId:'a-'+i,title:'任务 '+i}));
+ ui.api.projectChats=async id=>({items:id===p.id?items:[],nextAfter:null});
+ ui.props.project=p;ui.props.sessionId='a-11';ui.props.revision='older';ui.render();await ui.settle();
+ const group=ui.find(n=>n.props.id==='project-chats-project-A');
+ assert.equal(ui.all(n=>n.type==='button'&&n.props.className?.includes('project-chat-row'),group).length,5);
+ const selected=ui.find(n=>n.props['aria-current']==='page');assert.equal(selected.props.title,'任务 11');
+ selected.props.onClick();assert.equal(ui.actions[0][1].sessionId,'a-11');assert.equal(ui.actions[0][2].id,p.id);
+ ui.button('显示更多A 服务器记录').props.onClick();ui.render();
+ ui.button('收起A 服务器记录').props.onClick();ui.render();
+ assert.equal(ui.find(n=>n.props['aria-current']==='page').props.title,'任务 11');
+});
+
+test('Show more uses the server cursor and deduplicates overlapping pages',async()=>{
+ const ui=harness();await ui.settle();const calls=[];
+ const items=Array.from({length:5},(_,i)=>({...a,sessionId:'a-'+i,title:'任务 '+i}));
+ ui.api.projectChats=async(id,after)=>{
+  calls.push([id,after]);
+  if(id!==p.id)return {items:[],nextAfter:null};
+  return after?{items:[items[4],{...a,sessionId:'a-5'},{...a,sessionId:'a-6'}],nextAfter:null}:{items,nextAfter:'cursor-a'};
+ };
+ ui.props.revision='paged';ui.render();await ui.settle();
+ ui.button('显示更多A 服务器记录').props.onClick();await ui.settle();
+ assert.deepEqual(calls.at(-1),[p.id,'cursor-a']);
+ const group=ui.find(n=>n.props.id==='project-chats-project-A');
+ assert.equal(ui.all(n=>n.type==='button'&&n.props.className?.includes('project-chat-row'),group).length,7);
+ assert.equal(ui.button('显示更多A 服务器记录'),undefined);
+});
+
+test('Pagination failure keeps visible records and permits an explicit retry',async()=>{
+ const ui=harness();await ui.settle();let fail=true;
+ const items=Array.from({length:5},(_,i)=>({...a,sessionId:'a-'+i}));
+ ui.api.projectChats=async(id,after)=>{
+  if(id!==p.id)return {items:[],nextAfter:null};
+  if(after&&fail)throw new Error('历史分页暂不可用');
+  return after?{items:[{...a,sessionId:'older'}],nextAfter:null}:{items,nextAfter:'next'};
+ };
+ ui.props.revision='failure';ui.render();await ui.settle();
+ ui.button('显示更多A 服务器记录').props.onClick();await ui.settle();
+ assert.ok(ui.find(n=>n.props.role==='alert'));assert.equal(ui.actions.length,0);
+ assert.equal(ui.all(n=>n.type==='button'&&n.props.className?.includes('project-chat-row')).length,5);
+ fail=false;ui.button('显示更多A 服务器记录').props.onClick();await ui.settle();
+ assert.equal(ui.find(n=>n.props.role==='alert'),undefined);
+ assert.equal(ui.all(n=>n.type==='button'&&n.props.className?.includes('project-chat-row')).length,6);
+});
+
+test('Composer project choices receive only projects returned by the successful history refresh',async()=>{
+ const ui=harness(),lists=[];await ui.settle();ui.props.projectsChanged=projects=>lists.push(projects);
+ ui.props.revision='share-projects';ui.render();await ui.settle();
+ assert.equal(lists.length,1);assert.deepEqual(lists[0],[p,q]);
+ ui.api.projects=async()=>{throw new Error('offline');};ui.props.revision='failed-refresh';ui.render();await ui.settle();
+ assert.equal(lists.length,1);
+});
+
+test('Deleting a history conversation requires confirmation and passes exact model/session IDs',async()=>{
+ const ui=harness();await ui.settle();const calls=[],removed=[];
+ ui.api.deleteChat=async(...args)=>{calls.push(args);};ui.props.deleted=chat=>removed.push(chat);
+ ui.button('删除对话：A 的完整历史').props.onClick();ui.render();
+ assert.equal(calls.length,0);assert.ok(ui.find(n=>n.type==='modal'&&n.props.title==='删除对话？'));
+ ui.find(n=>n.props.className==='project-confirm-delete').props.onClick();ui.render();await ui.settle();
+ assert.deepEqual(calls,[['original-A-model','old-A']]);assert.equal(removed[0].sessionId,'old-A');
+ assert.equal(ui.find(n=>n.type==='modal'),undefined);
+});
+
+test('Deletion is disabled during generation and a failure keeps records with an explicit retry',async()=>{
+ const ui=harness();await ui.settle();let calls=0;
+ ui.api.deleteChat=async()=>{calls++;throw new Error('正在生成，不能删除');};
+ ui.props.locked=true;ui.render();assert.equal(ui.button('删除对话：A 的完整历史').props.disabled,true);
+ ui.button('删除对话：A 的完整历史').props.onClick();ui.render();assert.equal(ui.find(n=>n.type==='modal'),undefined);
+ ui.props.locked=false;ui.render();ui.button('删除对话：A 的完整历史').props.onClick();ui.render();
+ ui.find(n=>n.props.className==='project-confirm-delete').props.onClick();await ui.settle();
+ assert.equal(calls,1);assert.ok(ui.find(n=>n.props.role==='alert'));
+ assert.ok(ui.find(n=>n.props.className==='project-confirm-delete'));
+ assert.equal(ui.all(n=>n.type==='button'&&n.props.className?.includes('project-chat-row')).length,3);
+ ui.props.locked=true;ui.render();assert.equal(ui.find(n=>n.props.className==='project-confirm-delete').props.disabled,true);
+});
+
+test('A running conversation in another project cannot be deleted from a stale idle view',async()=>{
+ const ui=harness();await ui.settle();
+ ui.api.projectChats=async id=>({items:id===p.id?[{...a,running:true}]:[],nextAfter:null});
+ ui.props.revision='running';ui.render();await ui.settle();
+ assert.equal(ui.button('删除对话：A 的完整历史').props.disabled,true);
+});
+
+test('Project actions use compose next to more, and removal explains that conversations are retained',async()=>{
+ const ui=harness();await ui.settle();const calls=[],removed=[];
+ ui.api.deleteProject=async id=>{calls.push(id);};ui.props.removed=project=>removed.push(project);
+ const compose=ui.button('在 A 服务器 新建对话');assert.equal(compose.props.children.props.name,'edit');
+ const menu=ui.find(n=>n.props.label==='项目选项：A 服务器');assert.equal(menu.props.displayValue,'⋯');
+ assert.equal(menu.props.options[0].label,'移除项目');
+ assert.match(menu.props.options[0].description,/保留聊天记录/);
+ ui.api.deleteChat=async()=>assert.fail('removing a group must never delete a conversation');
+ menu.props.onChange('remove');ui.render();assert.equal(calls.length,0);
+ assert.ok(ui.find(n=>n.type==='modal'&&n.props.title==='移除项目？'));
+ assert.ok(ui.find(n=>n.type==='p'&&typeof n.props.children==='string'&&n.props.children.includes('未分组对话')));
+ ui.find(n=>n.props.className==='project-confirm-delete').props.onClick();ui.render();await ui.settle();
+ assert.deepEqual(calls,[p.id]);assert.equal(removed[0].id,p.id);
+ assert.equal(ui.find(n=>n.type==='modal'),undefined);
+});
+
+test('Approval badges follow exact conversations and live resolution overrides stale history',async()=>{
+ const ui=harness();await ui.settle();
+ ui.api.projectChats=async id=>({items:id===p.id?[{...a,awaitingApproval:true}]:id===q.id?[b]:[g],nextAfter:null});
+ ui.props.revision='approval';ui.render();await ui.settle();
+ const statuses=()=>ui.all(n=>n.props.role==='status');
+ assert.equal(statuses().length,1);assert.equal(statuses()[0].props['aria-label'],'等待审批');
+ const row=ui.find(n=>n.props.title===a.title);assert.ok(ui.all(n=>n.props.role==='status',row).length);
+ ui.props.approvalState={sessionId:a.sessionId,pending:false};ui.render();assert.equal(statuses().length,0);
+ ui.props.approvalState={sessionId:b.sessionId,pending:true};ui.render();assert.equal(statuses().length,2);
+ assert.equal(ui.all(n=>n.props.role==='status',ui.find(n=>n.props.title===b.title)).length,1);
+ ui.props.approvalState={sessionId:b.sessionId,pending:false};ui.render();assert.equal(statuses().length,1);
+});
+
+test('Running conversations show a spinner, keep selected styling, and clear live state without waiting for history',async()=>{
+ const ui=harness();await ui.settle();
+ ui.props.sessionId=a.sessionId;ui.props.activeRunning=true;ui.props.locked=true;ui.render();
+ const row=ui.find(n=>n.props.title===a.title);
+ assert.match(row.props.className,/active/);assert.equal(row.props['aria-current'],'page');
+ assert.equal(ui.all(n=>n.props['aria-label']==='对话进行中',row).length,1);
+ assert.equal(ui.all(n=>n.props['aria-label']==='对话进行中',ui.find(n=>n.props.title===b.title)).length,0);
+ ui.props.approvalState={sessionId:a.sessionId,pending:true};ui.render();
+ assert.equal(ui.all(n=>n.props['aria-label']==='等待审批').length,1);
+ assert.equal(ui.all(n=>n.props['aria-label']==='对话进行中').length,0);
+ ui.props.approvalState={sessionId:a.sessionId,pending:false};ui.props.activeRunning=false;ui.render();
+ assert.equal(ui.all(n=>n.props.role==='status').length,0);
+ ui.api.projectChats=async id=>({items:id===p.id?[{...a,running:true}]:id===q.id?[{...b,running:true}]:[],nextAfter:null});
+ ui.props.revision='persisted-running';ui.render();await ui.settle();
+ assert.equal(ui.all(n=>n.props['aria-label']==='对话进行中',ui.find(n=>n.props.title===a.title)).length,0);
+ assert.equal(ui.all(n=>n.props['aria-label']==='对话进行中',ui.find(n=>n.props.title===b.title)).length,1);
+});
+
+test('Busy projects cannot be removed; failed removal keeps the project and permits a retry',async()=>{
+ const ui=harness();await ui.settle();let calls=0;
+ ui.api.deleteProject=async()=>{calls++;throw new Error('项目中有任务正在运行');};
+ ui.props.locked=true;ui.render();
+ const locked=ui.find(n=>n.props.label==='项目选项：A 服务器');assert.equal(locked.props.disabled,true);
+ locked.props.onChange('remove');ui.render();assert.equal(ui.find(n=>n.type==='modal'),undefined);
+ ui.props.locked=false;ui.render();ui.find(n=>n.props.label==='项目选项：A 服务器').props.onChange('remove');ui.render();
+ ui.find(n=>n.props.className==='project-confirm-delete').props.onClick();await ui.settle();
+ assert.equal(calls,1);assert.ok(ui.find(n=>n.props.role==='alert'));
+ assert.ok(ui.find(n=>n.props.label==='项目选项：A 服务器'));
+ assert.ok(ui.find(n=>n.type==='modal'));
+});
+

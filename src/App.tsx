@@ -29,7 +29,7 @@ import type { TerminalRuntime } from './state/terminalRuntime';
 import { isTauriRuntime } from './state/runtime';
 import { isSessionConnected, loadTerminalSessions, saveTerminalSessions, terminalSessionsStorageKey } from './state/terminalSessions';
 import { resolveScopeDisplay, scopeTerminal } from './state/chatTarget';
-import { executionTerminal, prepareExecutionBinding } from './state/executionBinding';
+import { agentBoundTerminalId, executionTerminal, prepareExecutionBinding } from './state/executionBinding';
 import { reorderTerminalSessions, replaceTerminalPane, selectTerminalPane, visibleTerminalIds } from './state/terminalLayout';
 import type { TerminalLayout } from './state/terminalLayout';
 import { canSubmitTerminalCommand, resolveTerminalCommandTargets, submitTerminalCommandBatch } from './state/terminalBroadcast';
@@ -75,6 +75,7 @@ import { StartupUpdatePrompt } from './components/StartupUpdatePrompt';
 import './panel-resize.css';
 import './components/TerminalLayout.css';
 import './components/AgentDesktopLayout.css';
+import './components/ProjectChatHistory.css';
 import './components/AgentComposer.css';
 import './components/AgentTranscript.css';
 import { Icon } from './components/Ui';
@@ -150,8 +151,14 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
   const [scopeSwitching, setScopeSwitching] = useState(false);
   const scopeSwitchRef = useRef(false);
   const [activeProject,setActiveProject]=useState<AgentProject|null>(null);
+  const [chatProjects,setChatProjects]=useState<AgentProject[]>([]);
   const [projectTerminalId,setProjectTerminalId]=useState('');
   const [projectRevision,setProjectRevision]=useState(0);
+  const [approvalState,setApprovalState]=useState<{sessionId:string;pending:boolean}>();
+  const onApprovalChange=useCallback((sessionId:string,pending:boolean)=>{
+    setApprovalState(previous=>!pending&&previous?.sessionId!==sessionId?previous:
+      previous?.sessionId===sessionId&&previous.pending===pending?previous:{sessionId,pending});
+  },[]);
   const skipModelReset=useRef('');
   const chatTarget = useRef<{connectionId:string;terminalSessionId:string}|null>(null);
   const recoveredRunning = canonicalHistory?.turns.some(turn => turn.state === 'running') ?? false;
@@ -1004,7 +1011,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     &&!!executionTerminal(canonicalHistory.session,sessions,canonicalHistory.session.task?.target?.terminalSessionId??'');
   const sendMessage = async (text: string, selectedAttachments: ChatAttachment[] = []): Promise<boolean> => {
     if (!text.trim() && !selectedAttachments.length) return false;
-    if (chatting.current || stopPending.current || scopeSwitchRef.current || historyLoadingId || recoveredRunning || agentLoading || agentLoadError || (activeProject && !chatSessionId.current)) return false;
+    if (chatting.current || stopPending.current || scopeSwitchRef.current || historyLoadingId || recoveredRunning || agentLoading || agentLoadError) return false;
     // Fix this turn's references before any session creation or network await.
     const attachments = selectedAttachments.map(file => ({ ...file }));
     if (rustBuiltin && attachments.length) { notify('聊天附件尚未接入，请发送纯文本。', 'error'); return false; }
@@ -1197,24 +1204,35 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     };
 
     try {
-      if (executionEnabled) {
-        const session = await prepareExecutionBinding(canonicalHistory?.session, toolTerminal,
+      let executionSession=canonicalHistory?.session;
+      let useExecution=executionEnabled;
+      if (!chatSessionId.current) {
+        if(activeProject){
+          if(!scopeRuntime)throw new Error('请先连接此项目对应的 SSH 终端，再发送消息。');
+          executionSession=await agentApi.projectChat(activeProject.id,selectedAgent.agentId,scopeRuntime.terminalSessionId);
+          if (controller.signal.aborted || stopPending.current || version !== chatVersion.current) return false;
+          chatSessionId.current=executionSession.id;setActiveChatSessionId(executionSession.id);
+          setCanonicalHistory({session:executionSession,turns:[],hasMore:false,nextAfter:0});
+          terminalSessionId=scopeRuntime.terminalSessionId;useExecution=!!selectedAgent.toolsAvailable;
+        }else{
+        const created = await agentApi.createSession(selectedAgent.agentId, controller.signal);
+        if (!created?.sessionId) throw new Error('应用未返回 Agent 会话 ID');
+        if (controller.signal.aborted || version !== chatVersion.current) return false;
+        chatSessionId.current = created.sessionId;
+        setActiveChatSessionId(created.sessionId);
+        }
+      }
+      if (useExecution) {
+        const session = await prepareExecutionBinding(executionSession, toolTerminal??scopeRuntime,
           (sessionId, terminalId) => agentApi.bindExecution(selectedAgent.agentId, sessionId, terminalId));
         if (controller.signal.aborted || stopPending.current || version !== chatVersion.current) return false;
         terminalSessionId = session.task!.target!.terminalSessionId;
         chatTarget.current = session.task!.target;
         setCanonicalHistory(old => old?.session.id === session.id ? { ...old, session } : old);
       }
-      if (!chatSessionId.current) {
-        const created = await agentApi.createSession(selectedAgent.agentId, controller.signal);
-        if (!created?.sessionId) throw new Error('应用未返回 Agent 会话 ID');
-        if (controller.signal.aborted || version !== chatVersion.current) return false;
-        chatSessionId.current = created.sessionId;
-        setActiveChatSessionId(created.sessionId);
-      }
       await agentApi.chatStream({
         requestId:assistantId,
-        executionEnabled,
+        executionEnabled:useExecution,
         agentId: selectedAgent.agentId,
         userId: agentApi.userId,
         sessionId: chatSessionId.current,
@@ -1467,6 +1485,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
   };
   useEffect(()=>{
     if(chatting.current || stopPending.current || !activeProject || !activeChatSessionId || canonicalHistory?.session.scope?.kind!=='server' || canonicalHistory.session.scope.connectionId!==activeProject.connectionId || scopeSwitching || historyLoadingId)return;
+    if(sessions.some(item=>item.terminalSessionId===projectTerminalId&&isSessionConnected(item)))return;
     const terminal=sessions.find(item=>item.kind==='ssh' && item.connectionId===activeProject.connectionId
       && isSessionConnected(item) && !!terminalClients.current.get(item.id));
     if(!terminal || terminal.terminalSessionId===projectTerminalId)return;
@@ -1498,9 +1517,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     clearChat();
     if(model.agentId!==selectedAgentRef.current?.agentId){skipModelReset.current=model.agentId;setSelectedAgent(model);}
     try{
-      const terminal=await connectProject(p);
-      const created=await agentApi.projectChat(p.id,model.agentId,terminal.terminalSessionId);
-      await selectChatSession(created.id,created.agentId);setProjectRevision(v=>v+1);
+      await connectProject(p);
     }catch(error){notify(error instanceof Error?error.message:'新建项目对话失败','error');}
     finally{scopeSwitchRef.current=false;setScopeSwitching(false);}
   };
@@ -1518,8 +1535,11 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     <aside className="workspace-sidebar" id="workspace-sidebar-content" aria-label="会话与 SSH 工作区">
       <header className="workspace-sidebar-heading"><span><Icon name="sidebar" size={16}/><strong>工作区</strong></span><button type="button" className="workspace-sidebar-toggle" aria-label={connectionSidebarCollapsed ? '展开工作区侧栏' : '收起工作区侧栏'} aria-expanded={!connectionSidebarCollapsed} onClick={() => setConnectionSidebarCollapsed(value => !value)}><Icon name={connectionSidebarCollapsed ? 'right' : 'left'} size={16}/></button></header>
       <section className="workspace-conversations" aria-label="Agent 会话">
-        <header className="workspace-section-heading"><Icon name="history" size={16}/><h2>Agent 会话</h2></header>
-        <ProjectChatHistory hosts={hosts} project={activeProject} sessionId={activeChatSessionId}
+        <header className="workspace-section-heading workspace-history-heading"><h2>对话</h2></header>
+        <ProjectChatHistory hosts={hosts} project={activeProject} sessionId={activeChatSessionId} approvalState={approvalState} activeRunning={chatBusy||recoveredRunning}
+          projectsChanged={setChatProjects}
+          deleted={chat=>{if(chatSessionId.current===chat.sessionId){clearChat();setActiveProject(null);setProjectTerminalId('');}setProjectRevision(value=>value+1);}}
+          removed={project=>{setChatProjects(old=>old.filter(item=>item.id!==project.id));if(activeProject?.id===project.id){setActiveProject(null);setProjectTerminalId('');}setProjectRevision(value=>value+1);}}
           locked={projectLocked} revision={String(projectRevision)+':'+activeChatSessionId+':'+String(chatBusy)}
           newChat={p=>void newProjectChat(p)} openChat={(chat,p)=>void openProjectChat(chat,p)}
           servers={()=>{setSshSectionCollapsed(false);setConnectionSidebarCollapsed(false);setBackendSettingsOpen(false);}}/>
@@ -1533,6 +1553,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
       collapse={() => setConnectionSidebarCollapsed(true)} />
     <main id="terminal-dock-content" hidden={navigation !== '命令'} className={`central-workspace ${!active ? 'no-session' : ''} ${commandCollapsed ? 'command-collapsed' : ''}`}>
       <TerminalWorkspace
+        agentTerminalId={rustBuiltin?agentBoundTerminalId(canonicalHistory?.session,activeProject?projectTerminalId:'',sessions):undefined}
         dockControls={<><span><Icon name="terminal" size={16}/>SSH 终端</span><div><button type="button" className="terminal-return-chat" aria-label="展开智能体对话" onClick={() => setAgentCollapsed(false)}><Icon name="bot" size={15}/></button><button type="button" aria-label={terminalDockCollapsed ? '展开终端面板' : '收起终端面板'} aria-expanded={!terminalDockCollapsed} onClick={() => {setTerminalDockCollapsed(value => !value);setAgentCollapsed(false);}}><Icon name={terminalDockCollapsed ? 'left' : 'right'} size={16}/></button></div></>}
         commandControls={<TerminalCommandBar mode={commandMode} changeMode={mode => {
           setCommandMode(mode); setBroadcastResult('');
@@ -1627,7 +1648,13 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     <>
     <PanelDivider value={terminalWidth} change={setTerminalWidth} min={24} max={75} defaultValue={34} minPixels={320} reservePixels={360} reserveWidthSelectors=".activity-bar, .workspace-sidebar"
       controls="terminal-dock-content" label="调整对话与终端宽度" collapseLabel="终端面板" collapsed={agentCollapsed || terminalDockCollapsed} collapse={() => setTerminalDockCollapsed(true)} />
-    <AgentPanel ref={agentComposer} chatDraft={chatDraft} draftScope={chatVersion.current}
+    <AgentPanel ref={agentComposer} chatDraft={chatDraft} draftScope={chatVersion.current} onApprovalChange={onApprovalChange}
+      composerProject={rustBuiltin?{project:activeProject,projects:chatProjects,locked:projectLocked,
+        select:async id=>{
+          const project=id?chatProjects.find(item=>item.id===id):null;
+          if(id&&!project){notify('此 SSH 项目已不可用，请刷新对话历史后重试。','error');return;}
+          await newProjectChat(project??null);
+        }}:undefined}
       execution={rustBuiltin&&selectedAgent&&activeChatSessionId&&canonicalHistory&&(canonicalHistory.session.scope?.kind==='server'||canonicalHistory.session.task?.status==='active')?{
         agentId:selectedAgent.agentId,sessionId:activeChatSessionId,enabled:executionEnabled,available:!!selectedAgent.toolsAvailable,
         connected:activeProject?projectConnected:chatTargetState.connected,locked:chatStopping||!!historyLoadingId||scopeSwitching,
@@ -1644,7 +1671,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
         await agentApi.steer(agentId,sessionId,requestId,id,text);
       }:undefined}
       clear={rustBuiltin ? ()=>void newProjectChat(activeProject) : clearChat}
-      disabled={Boolean(activeProject && !activeChatSessionId) || Boolean(historyLoadingId) || scopeSwitching}
+      disabled={Boolean(historyLoadingId) || scopeSwitching}
       models={rustBuiltin ? agentModels : undefined} selectedModel={selectedAgent?.agentId}
       selectModel={id => {if(!chatting.current&&!stopPending.current){const model=agentModels.find(item=>item.agentId===id)??null;if(activeProject&&model)void newProjectChat(activeProject,model);else setSelectedAgent(model);}}}
       openModelSettings={() => { setSettingsSection('models');setModelSettingsRequested(true); setBackendSettingsOpen(true); }}

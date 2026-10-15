@@ -246,6 +246,29 @@ pub async fn dispatch(
                 .await
                 .map_err(agent_error)?,
         ),
+        ("POST", "agent/delete_chat") => {
+            services
+                .agent
+                .delete_chat(
+                    text(&body, "agentId")?.into(),
+                    text(&body, "userId")?.into(),
+                    text(&body, "sessionId")?.into(),
+                )
+                .await
+                .map_err(agent_error)?;
+            Ok(json!(null))
+        }
+        ("POST", "agent/delete_project") => {
+            services
+                .agent
+                .delete_project(
+                    text(&body, "userId")?.into(),
+                    text(&body, "projectId")?.into(),
+                )
+                .await
+                .map_err(agent_error)?;
+            Ok(json!(null))
+        }
         ("POST", "agent/project_terminal") => value(
             services
                 .agent

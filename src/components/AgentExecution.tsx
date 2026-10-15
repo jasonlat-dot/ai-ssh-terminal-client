@@ -54,11 +54,14 @@ export function approvalLabel(receipt:ExecutionReceipt,now=Date.now()){
   return (receipt.state==='pending'||receipt.state==='approved')&&receipt.expiresAt<=now?'已过期':states[receipt.state];
 }
 function commandExplanation(command:ExecutionReceipt['command']) {
-  if(command.explanation?.trim())return command.explanation.trim();
+  const explanation=command.explanation?.trim();
+  // Older native adapters persisted this placeholder as if it were a purpose.
+  const missing=!explanation||explanation==='未提供命令用途说明，请核对完整命令。'||explanation==='此命令未附用途说明，请结合上方完整命令确认操作。';
+  if(!missing)return explanation;
   // Older receipts did not store a purpose. Only explain exact simple forms;
   // never infer the behavior of pipelines, substitutions or entire scripts.
   const text=command.command.trim();
-  if(/^df\s+-h$/.test(text))return '查看各文件系统的磁盘总量、已用空间、可用空间和使用率，以易读的单位显示。';
+  if(/^df[ \t]+-h$/.test(text))return '查看各文件系统的磁盘总量、已用空间、可用空间和使用率，以易读的单位显示。';
   if(text==='whoami')return '查看当前终端实际执行命令的用户身份。';
   if(text==='pwd')return '显示当前终端所在的工作目录。';
   return '此命令未附用途说明，请结合上方完整命令确认操作。';
@@ -153,7 +156,7 @@ export function ApprovalCard({receipt,disabled,act}:{receipt:ExecutionReceipt;di
     {pending?content:<details className="execution-record"><summary><Icon name="terminal" size={14}/><span className="execution-record-state">{approvalLabel(receipt)}</span><code title={receipt.command.command}>{receipt.command.command}</code><Icon name="down" size={13} className="execution-chevron"/></summary><div className="execution-record-body">{content}</div></details>}
   </article>;
 }
-export function AgentExecution({scope,approvalTarget,policyTarget,onPendingChange}:{scope:ExecutionScope;approvalTarget?:HTMLElement|null;policyTarget?:HTMLElement|null;onPendingChange?:(pending:boolean)=>void}){
+export function AgentExecution({scope,approvalTarget,policyTarget,onPendingChange,onApprovalChange}:{scope:ExecutionScope;approvalTarget?:HTMLElement|null;policyTarget?:HTMLElement|null;onPendingChange?:(pending:boolean)=>void;onApprovalChange?:(sessionId:string,pending:boolean)=>void}){
   const [receipts,setReceipts]=useState<ExecutionReceipt[]>([]);const [policy,setPolicy]=useState<ExecutionPolicy|null>(null);
   const [error,setError]=useState('');const [action,setAction]=useState('');const [expanded,setExpanded]=useState(false);const [more,setMore]=useState(false);
   const [reload,setReload]=useState(0);const alive=useRef(true);const loadedOlder=useRef(false);
@@ -165,6 +168,7 @@ export function AgentExecution({scope,approvalTarget,policyTarget,onPendingChang
   const reviewing=policy?.mode==='auto'&&waiting.some(receipt=>!receipt.review);
   const pending=waiting.filter(receipt=>policy?.mode==='confirm'||(policy?.mode==='auto'&&receipt.review?.decision==='ask'));
   useEffect(()=>{onPendingChange?.(pending.length>0);return()=>onPendingChange?.(false);},[pending.length>0,onPendingChange]);
+  useEffect(()=>{onApprovalChange?.(scope.sessionId,pending.length>0);return()=>onApprovalChange?.(scope.sessionId,false);},[scope.sessionId,pending.length>0,onApprovalChange]);
   useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
   useEffect(()=>{
     if(scope.hidden)return;

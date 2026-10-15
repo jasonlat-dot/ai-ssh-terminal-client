@@ -20,6 +20,22 @@ function harness(handler:(command:string,args:any)=>unknown) {
   globalThis.fetch=async()=>{throw new Error('Agent must use IPC');};
 }
 const body={requestId:'turn-1',agentId:'model',userId:'default',sessionId:'chat',terminalSessionId:'',message:'hello'};
+
+test('Deleting a conversation is owner/model/session scoped and uses the native bridge',async()=>{
+ const requests:any[]=[];
+ harness((command,args)=>{assert.equal(command,'builtin_request');requests.push(args.request);return Promise.resolve(null);});
+ await agentApi.deleteChat('model','history-chat');
+ assert.equal(requests.length,1);assert.equal(requests[0].endpoint,'agent/delete_chat');
+ assert.deepEqual(requests[0].body,{agentId:'model',sessionId:'history-chat',userId:'default'});
+});
+
+test('Removing a project uses the native owner/project endpoint, without deleting SSH profiles',async()=>{
+ const requests:any[]=[];
+ harness((command,args)=>{assert.equal(command,'builtin_request');requests.push(args.request);return Promise.resolve(null);});
+ await agentApi.deleteProject('project-id');
+ assert.equal(requests.length,1);assert.equal(requests[0].endpoint,'agent/delete_project');
+ assert.deepEqual(requests[0].body,{projectId:'project-id',userId:'default'});
+});
 test('Steering is an exact-turn native request and does not send a stop or start another turn',async()=>{
   const requests:any[]=[];harness((command,args)=>{assert.equal(command,'builtin_request');requests.push(args.request);return Promise.resolve({id:'input-1',message:'只讨论',eventId:null,createdAt:1});});
   await agentApi.steer('model','chat','turn-1','input-1','只讨论');

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { AgentSession } from '../src/api/agent.ts';
 import type { TerminalSession } from '../src/types.ts';
-import { executionTerminal, prepareExecutionBinding } from '../src/state/executionBinding.ts';
+import { agentBoundTerminalId, executionTerminal, prepareExecutionBinding } from '../src/state/executionBinding.ts';
 
 const session: AgentSession = {
   id:'chat-a', agentId:'model', userId:'default', revision:1,
@@ -55,4 +55,13 @@ test('native host-key rejection or busy turn propagates without falling back or 
 
 test('a stale native response cannot be used as a successful rebind', async () => {
   await assert.rejects(prepareExecutionBinding(session,terminal('new-a'),async()=>session),/目标未确认/);
+});
+
+test('Agent marker identifies one native terminal session, not every tab for the SSH profile',()=>{
+ const terminals=[terminal('old-a'),terminal('new-a')];
+ assert.equal(agentBoundTerminalId(session,'new-a',terminals),'old-a');
+ assert.equal(agentBoundTerminalId(undefined,'new-a',terminals),'new-a');
+ assert.equal(agentBoundTerminalId(session,'new-a',[terminal('old-a',false),terminal('new-a')]),'new-a');
+ assert.equal(agentBoundTerminalId(session,'old-a',[terminal('old-a',false)]),undefined);
+ assert.equal(agentBoundTerminalId(session,'other',[{...terminal('other'),connectionId:'b'}]),undefined);
 });

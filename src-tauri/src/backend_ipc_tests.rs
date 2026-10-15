@@ -16,12 +16,148 @@ fn acknowledge(subscription: &Subscription, sequence: u64) {
     subscription.acknowledged.store(sequence, Ordering::SeqCst);
     subscription.ack.notify_one();
 }
+
+#[tokio::test]
+async fn delete_chat_dispatch_removes_owned_history_without_deleting_models() {
+    let (_dir, services) = services().await;
+    save_test_model(&services, "http://127.0.0.1:1/v1/".into());
+    let created = dispatch(
+        services.clone(),
+        "agent/create_session",
+        "POST",
+        json!({"agentId":"model","userId":"default"}),
+        Value::Null,
+    )
+    .await
+    .unwrap();
+    let body = json!({"agentId":"model","userId":"default","sessionId":created["sessionId"]});
+    let mut wrong = body.clone();
+    wrong["userId"] = json!("other");
+    let error = dispatch(
+        services.clone(),
+        "agent/delete_chat",
+        "POST",
+        wrong,
+        Value::Null,
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(error.code, "AGENT_NOT_FOUND");
+    assert!(dispatch(
+        services.clone(),
+        "agent/delete_chat",
+        "POST",
+        body.clone(),
+        Value::Null
+    )
+    .await
+    .unwrap()
+    .is_null());
+    let error = dispatch(
+        services.clone(),
+        "agent/chat_history",
+        "GET",
+        Value::Null,
+        body,
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(error.code, "AGENT_NOT_FOUND");
+    let models = dispatch(
+        services,
+        "agent/models",
+        "GET",
+        Value::Null,
+        json!({"userId":"default"}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(models.as_array().unwrap().len(), 1);
+}
 async fn services() -> (tempfile::TempDir, Arc<Services>) {
     let dir = tempfile::tempdir().unwrap();
     let store =
         Arc::new(shellpilot_server::store::Store::open(&dir.path().join("db.sqlite3")).unwrap());
     let services = Services::native(store, Default::default(), uuid::Uuid::new_v4());
     (dir, services)
+}
+
+#[tokio::test]
+async fn delete_project_dispatch_preserves_chats_and_ssh_configuration() {
+    use shellpilot_server::agent::{Payload, Repository, ServerIdentity, Target};
+    let (_dir, services) = services().await;
+    services
+        .store
+        .save(
+            shellpilot_server::model::ConnectionRequest {
+                connection_id: Some("saved-server".into()),
+                connection_name: "saved".into(),
+                host: "host".into(),
+                port: 22,
+                username: "user".into(),
+                user_id: Some("default".into()),
+                strict_host_key_check: Some(false),
+                ..Default::default()
+            },
+            false,
+        )
+        .unwrap();
+    let repo = Repository::new(services.store.clone());
+    let p = repo
+        .create_project("default", "待移除", "saved-server")
+        .unwrap();
+    let chat = repo
+        .create_project_chat(
+            &p.id,
+            "default",
+            "model",
+            &Target {
+                connection_id: "saved-server".into(),
+                terminal_session_id: "terminal".into(),
+            },
+            ServerIdentity {
+                host: "host".into(),
+                port: 22,
+                username: "user".into(),
+                host_key: "test-key".into(),
+            },
+        )
+        .unwrap();
+    repo.append(
+        &chat.id,
+        "default",
+        0,
+        "message",
+        Payload::UserMessage {
+            text: "项目记录".into(),
+        },
+    )
+    .unwrap();
+    let wrong = dispatch(
+        services.clone(),
+        "agent/delete_project",
+        "POST",
+        json!({"userId":"other","projectId":p.id}),
+        Value::Null,
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(wrong.code, "AGENT_NOT_FOUND");
+    assert_eq!(repo.projects("default").unwrap().len(), 1);
+    dispatch(
+        services.clone(),
+        "agent/delete_project",
+        "POST",
+        json!({"userId":"default","projectId":p.id}),
+        Value::Null,
+    )
+    .await
+    .unwrap();
+    assert!(repo.projects("default").unwrap().is_empty());
+    assert_eq!(repo.session(&chat.id, "default").unwrap().scope.unwrap().origin_terminal_id.as_deref(),Some("terminal"));
+    assert_eq!(repo.events(&chat.id,"default",0,200).unwrap().len(),1);
+    assert_eq!(repo.project_chats("default",None,"").unwrap().items[0].session_id,chat.id);
+    assert!(services.store.get("saved-server").is_ok());
 }
 
 #[tokio::test]

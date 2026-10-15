@@ -3,6 +3,14 @@ import type { TerminalSession } from '../types';
 import { scopeTerminal } from './chatTarget';
 import { isSessionConnected } from './terminalSessions';
 
+/** Mark only the exact live native session, never every tab sharing a saved SSH profile. */
+export function agentBoundTerminalId(session:AgentSession|undefined,preparedId:string,terminals:TerminalSession[]) {
+  const matches=(id:string)=>terminals.some(item=>item.kind==='ssh'&&item.terminalSessionId===id&&isSessionConnected(item)
+    &&(!session?.scope?.connectionId||item.connectionId===session.scope.connectionId));
+  const target=session?.task?.target?.terminalSessionId;
+  return target&&matches(target)?target:preparedId&&matches(preparedId)?preparedId:undefined;
+}
+
 /** Keep a live tool target pinned. Reconnection can only select the saved server scope. */
 export function executionTerminal(session: AgentSession | undefined, terminals: TerminalSession[], boundId: string) {
   const pinned = terminals.find(item => item.terminalSessionId === boundId

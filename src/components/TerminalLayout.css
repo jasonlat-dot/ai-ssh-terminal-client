@@ -36,3 +36,10 @@
 .terminal-view-grid:not([data-layout='single']) .remote-terminal-clipboard kbd { display: none; }
 .terminal-layout-announcement { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 @media (max-width: 900px) { .terminal-layout-control > span { display: none; } .terminal-layout-control .terminal-layout-select { width: 8rem; } }
+.terminal-agent-binding {
+  display:inline-flex; flex:0 0 18px; align-self:center; align-items:center; justify-content:center;
+  width:18px; height:18px; padding:0; margin-right:3px; border:0; border-radius:0;
+  color:var(--theme-accent-text); background:transparent; line-height:1; vertical-align:middle;
+}
+.terminal-agent-binding > svg { display:block; flex-shrink:0; }
+.terminal-agent-binding.toolbar-binding { margin-right:0; color:var(--theme-text-muted); }

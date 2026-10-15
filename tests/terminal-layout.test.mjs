@@ -132,6 +132,19 @@ test('多个 SSH 页签按下后由外层捕获指针，未拖动松手也能切
   assert.deepEqual(ui.selected, ['b', 'c', 'a', 'b']);
 });
 
+test('Agent binding badge appears on exactly one native terminal even when profiles match',()=>{
+ const w=workspace();w.props.sessions=[
+  {id:'a',title:'同一服务器',kind:'ssh',connectionId:'shared',terminalSessionId:'native-a',connected:true},
+  {id:'b',title:'同一服务器',kind:'ssh',connectionId:'shared',terminalSessionId:'native-b',connected:true},
+ ];
+ w.props.agentTerminalId='native-b';w.render();
+ const badges=w.all().filter(node=>node.props.className==='terminal-agent-binding');assert.equal(badges.length,1);
+ const b=w.all().find(node=>node.props['data-terminal-id']==='b');assert.ok(b.props.children.includes(badges[0]));
+ assert.equal(w.all().filter(node=>node.props.className==='terminal-agent-binding toolbar-binding').length,0);
+ w.props.activeId='b';w.render();assert.equal(w.all().filter(node=>node.props.className==='terminal-agent-binding toolbar-binding').length,1);
+ w.props.agentTerminalId=undefined;w.render();assert.equal(w.all().filter(node=>node.props.className?.includes('terminal-agent-binding')).length,0);
+});
+
 test('关闭按钮、非主按钮、其他指针松手及取消不激活 SSH 页签，随后普通点击可恢复', () => {
   const ui = workspace();
   ui.event(1, 'onPointerDown', { target: { closest: () => ({ getAttribute: () => null }) } });

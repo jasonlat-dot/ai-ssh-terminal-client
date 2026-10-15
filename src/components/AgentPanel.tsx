@@ -3,7 +3,7 @@ import type { Ref, ReactNode } from 'react';
 import { MarkdownMessage } from './MarkdownMessage';
 import agentRobotAvatar from '../assets/agent-robot-avatar.png';
 import type { ClientChatSession } from '../state/clientChatHistory';
-import type { AgentConfig } from '../api/agent';
+import type { AgentConfig, AgentProject } from '../api/agent';
 import type { AgentContextStatus as ContextStatus } from '../api/agentContext';
 import { AgentContextStatus } from './AgentContextStatus';
 import type { ChatAttachment, ChatAgentActivity, ChatMessage, ChatToolActivity, ChatTextExcerpt, Host } from '../types';
@@ -167,8 +167,9 @@ function sessionTime(value: ClientChatSession['updatedAt']): string {
 }
 
 export type AgentComposerHandle = { addText: (text: string, source: ChatTextExcerpt['source']) => boolean };
-export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localTerminal, targetLabel, scopeControls, messages, busy, stopping, send, steer, stop, clear, disabled, agentAvailability, history, collapsed, models, selectedModel, selectModel, openModelSettings, recoveredRunning, stopRecovered, refreshCurrent, contextStatus=null, contextError, refreshContext, execution }: {
+export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localTerminal, targetLabel, scopeControls, composerProject, messages, busy, stopping, send, steer, stop, clear, disabled, agentAvailability, history, collapsed, models, selectedModel, selectModel, openModelSettings, recoveredRunning, stopRecovered, refreshCurrent, contextStatus=null, contextError, refreshContext, execution, onApprovalChange }: {
   execution?: ExecutionScope;
+  onApprovalChange?:(sessionId:string,pending:boolean)=>void;
   ref?: Ref<AgentComposerHandle>;
   chatDraft: ChatAttachmentDraft;
   draftScope: number;
@@ -176,6 +177,7 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
   connected: boolean;
   localTerminal: boolean;
   targetLabel?: string;
+  composerProject?: {project:AgentProject|null;projects:AgentProject[];locked:boolean;select:(projectId:string)=>Promise<void>};
   scopeControls?: {value:string;options:{value:string;label:string}[];select:(id:string)=>void;useServer:(newTask:boolean)=>void;
     serverAvailable:boolean;serverName:string;locked:boolean;serverTask:boolean;general?:boolean};
   messages: ChatMessage[];
@@ -196,6 +198,9 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
   const [draft, setDraft] = useState('');
   const [attachmentError, setAttachmentError] = useState('');
   const [sending, setSending] = useState(false);
+  const [projectSelecting,setProjectSelecting]=useState(false);
+  const [projectSelectionVersion,setProjectSelectionVersion]=useState(0);
+  const projectSelectionDraft=useRef<{text:string}|null>(null);
   const sendingRef = useRef(false);
   const scopeRef = useRef(draftScope);
   scopeRef.current = draftScope;
@@ -209,7 +214,8 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
   const [queue,setQueue]=useState<QueuedInput[]>([]);
   const queueAction=useRef(false);
   const [queuePaused,setQueuePaused]=useState(false);
-  const editingLocked=disabled;
+  const editingLocked=disabled||projectSelecting;
+  const projectSelectionLocked=busy||stopping||sending||!!recoveredRunning||projectSelecting||!!queue.length||!!composerProject?.locked;
   const lastMessage = messages[messages.length - 1];
   const notReady = attachments.some(item => item.status !== 'success');
   const addFiles = (files: File[]) => {
@@ -238,6 +244,7 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
   } }));
 
   const submit = async () => {
+    if(projectSelectionDraft.current)return;
     if (!draft.trim() && !chatDraft.getSnapshot().length) return;
     if (editingLocked || !agentAvailability.ready || notReady) return;
     if(queue.length>=32){setAttachmentError('队列最多保留 32 条消息，请先处理已有消息。');return;}
@@ -318,7 +325,21 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
     textarea.style.overflowY = textarea.scrollHeight > 180 ? 'auto' : 'hidden';
   }, [draft]);
 
-  useEffect(() => { setDraft(''); setAttachmentError(''); setSending(false); sendingRef.current = false;setQueue([]);setQueuePaused(false);queueAction.current=false;setApprovalPending(false); }, [draftScope]);
+  useEffect(() => { setDraft(projectSelectionDraft.current?.text??''); setAttachmentError(''); setSending(false); sendingRef.current = false;setQueue([]);setQueuePaused(false);queueAction.current=false;setApprovalPending(false); }, [draftScope]);
+  useEffect(()=>{
+    if(!projectSelecting&&projectSelectionDraft.current){
+      setDraft(projectSelectionDraft.current.text);projectSelectionDraft.current=null;
+    }
+  },[draftScope,projectSelecting,projectSelectionVersion]);
+
+  const chooseProject=async(id:string)=>{
+    if(!composerProject||projectSelectionLocked||projectSelectionDraft.current||messages.length||(id===(composerProject.project?.id??'')&&!disabled))return;
+    if(id&&!composerProject.projects.some(project=>project.id===id))return;
+    projectSelectionDraft.current={text:draft};setProjectSelecting(true);setAttachmentError('');
+    try{await composerProject.select(id);}
+    catch(error){setAttachmentError(error instanceof Error?error.message:'切换对话项目失败，请重试。');}
+    finally{setProjectSelecting(false);setProjectSelectionVersion(value=>value+1);}
+  };
 
   useEffect(() => {
     const handleShortcut = (event: KeyboardEvent) => {
@@ -380,7 +401,7 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
         </>}
       </section>}
 
-      {execution&&<AgentExecution key={`${execution.agentId}:${execution.sessionId}`} scope={execution} approvalTarget={approvalTarget} policyTarget={policyTarget} onPendingChange={setApprovalPending}/>}
+      {execution&&<AgentExecution key={`${execution.agentId}:${execution.sessionId}`} scope={execution} approvalTarget={approvalTarget} policyTarget={policyTarget} onPendingChange={setApprovalPending} onApprovalChange={onApprovalChange}/>}
       <div className="chat-messages" ref={scrollRef} aria-label="聊天记录" aria-live="polite"
         onScroll={handleMessagesScroll} onWheel={event => { if (event.deltaY < 0) followOutputRef.current = false; }}>
         {messages.length === 0 && !busy && <div className="agent-chat-empty">
@@ -425,6 +446,16 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
     </section>
 
     <div className="composer-dock" aria-hidden={collapsed}>
+      {composerProject&&!approvalPending&&<div className="composer-project-strip">
+        <Icon name={composerProject.project?'folder':'edit'} size={16}/>
+        {!messages.length?<Select label="新对话连接" value={composerProject.project?.id??''}
+          displayValue={composerProject.project?.name??'文字对话'} className="composer-project-picker" menuMinWidth={280} menuClassName="composer-project-menu"
+          disabled={projectSelectionLocked} onChange={id=>void chooseProject(id)}
+          options={[{value:'',label:'文字对话',description:'不连接 SSH，仅进行文字交流'},...composerProject.projects.map(project=>({value:project.id,label:project.name,
+            description:project.identity?`${project.identity.username}@${project.identity.host}:${project.identity.port}`:'已创建的 SSH 项目'}))]}/>
+          :<span className="composer-project-label" title={composerProject.project?.name??'文字对话'}>{composerProject.project?.name??'文字对话'}</span>}
+        {projectSelecting&&<span className="composer-project-status" role="status">正在切换…</span>}
+      </div>}
       {!!queue.length&&<section className="composer-queue" aria-label="待发送消息"><div className="composer-queue-title">{queue.length} 条消息{queuePaused?' · 已暂停':' · 等待处理'}</div>{queue.map(item=><div className={`composer-queue-item is-${item.state}`} key={item.id}>
         <Icon name="tabs" size={14}/><div className="composer-queue-content"><span title={item.text}>{item.text||`${item.files.length} 个附件`}</span>{item.state!=='queued'&&<small>{item.state==='submitting'?'正在提交补充…':item.state==='submitted'?'已提交 · 等待当前轮接收':item.error}</small>}</div>
         {item.state!=='submitted'&&item.state!=='submitting'&&<><button type="button" title={item.state==='unconfirmed'?'使用相同消息 ID 核对提交，不会重复追加':'提交补充信息，不中断模型运行'} aria-label={item.state==='unconfirmed'?'核对提交':'立即提交'} disabled={editingLocked||stopping||((busy||sending)&&!steer)} onClick={()=>void submitQueued(item)}><Icon name="arrowUp" size={14}/><span>{item.state==='unconfirmed'?'核对':'引导'}</span></button><button type="button" aria-label="编辑排队消息" title="移回输入框编辑" disabled={editingLocked||item.state==='unconfirmed'||!!draft||!!attachments.length} onClick={()=>{setDraft(item.text);chatDraft.attach(item.files);setQueue(previous=>previous.filter(value=>value.id!==item.id));textareaRef.current?.focus();}}><Icon name="edit" size={14}/></button><button type="button" aria-label="删除排队消息" disabled={editingLocked||item.state==='unconfirmed'} onClick={()=>setQueue(previous=>previous.filter(value=>value.id!==item.id))}><Icon name="trash" size={14}/></button></>}

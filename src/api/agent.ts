@@ -40,7 +40,7 @@ export type AgentChatRequest = {
 };
 export type AgentTurnState = 'running'|'completed'|'cancelled'|'failed'|'interrupted';
 export type AgentProject = {id:string;name:string;connectionId:string;identity:AgentScope["identity"];profile?:{host:string;port:number;username:string}|null};
-export type ProjectChat = {sessionId:string;agentId:string;title:string;createdAt:number};
+export type ProjectChat = {sessionId:string;agentId:string;title:string;createdAt:number;running?:boolean;awaitingApproval?:boolean};
 export type ProjectChats = {items:ProjectChat[];nextAfter:string|null};
 export type AgentScope = { rootId:string;kind:'general'|'server';connectionId:string|null;
   identity:{host:string;port:number;username:string;hostKey:string}|null;originTerminalId:string|null };
@@ -302,6 +302,8 @@ export const agentApi = {
   projects: () => request<AgentProject[]>('projects','GET',undefined,undefined,{userId:sshUserId}),
   createProject: (name:string,connectionId:string) => request<AgentProject>('create_project','POST',{name,connectionId,userId:sshUserId}),
   projectChats: (projectId='',after='') => request<ProjectChats>('project_chats','GET',undefined,undefined,{userId:sshUserId,projectId,after}),
+  deleteChat:(agentId:string,sessionId:string)=>request<void>('delete_chat','POST',{agentId,sessionId,userId:sshUserId}),
+  deleteProject:(projectId:string)=>request<void>('delete_project','POST',{projectId,userId:sshUserId}),
   projectTerminal: (projectId:string,terminalSessionId:string) => request<AgentProject>('project_terminal','POST',{projectId,terminalSessionId,userId:sshUserId}),
   projectChat: (projectId:string,agentId:string,terminalSessionId:string) => request<AgentSession>('project_chat','POST',{projectId,agentId,terminalSessionId,userId:sshUserId}),
   stopChat: (agentId: string, sessionId: string, signal?: AbortSignal, requestId?:string) => request<boolean>(
