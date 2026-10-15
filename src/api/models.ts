@@ -15,7 +15,7 @@ export const newModelConfig = (): ModelConfig => ({
   provider: 'openAiCompatible', remoteCompaction: false, baseUrl: '', completionsPath: 'chat/completions', model: '',
   contextWindow: 8192, outputReserve: 1024, safetyReserve: 512, compactPercent: 75,
   outputTokenParameter: 'maxCompletionTokens',
-  capabilities: { toolCalls: false, developerRole: false, temperature: false, reasoningEffort: false, vision: false },
+  capabilities: { toolCalls: true, developerRole: false, temperature: false, reasoningEffort: false, vision: false },
   temperature: null, reasoningEffort: null, timeoutSeconds: 120, maxResponseBytes: 1048576, requireApiKey: true,
 });
 export const modelApi = {

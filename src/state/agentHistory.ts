@@ -23,6 +23,7 @@ const states = { running: '仍在生成，可刷新历史或停止。', complete
 export function turnMessages(turns: AgentTurn[]): ChatMessage[] {
   return turns.flatMap(turn => [
     { id: `${turn.requestId}:user`, role: 'user' as const, text: turn.message, timestamp: turn.createdAt },
+    ...(turn.inputs??[]).map(input=>({id:input.id,role:'user' as const,text:input.message,timestamp:input.createdAt,inputPending:input.eventId===null})),
     { id: turn.requestId, role: 'assistant' as const, timestamp: turn.state === 'running' ? undefined : turn.updatedAt,
       text: turn.state === 'completed' ? turn.resultText ?? '' : turn.partialText,
       summary: states[turn.state] || undefined,

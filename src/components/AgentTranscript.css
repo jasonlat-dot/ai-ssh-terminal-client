@@ -1,0 +1,90 @@
+/* Conversation prose follows content height; only executable content has its own surface. */
+.agent-panel.conversation-only {
+  --chat-prose: #242424;
+  --chat-user-surface: #eaf3ff;
+}
+:root[data-theme='dark'] .agent-panel.conversation-only {
+  --chat-prose: #e4e4e7;
+  --chat-user-surface: #26354a;
+}
+:root[data-client-text-primary='true'] .agent-panel.conversation-only { --chat-prose:var(--client-text-primary); }
+.agent-panel.conversation-only .conversation-card .assistant-message .assistant-content {
+  display:block;
+  min-height:0;
+  height:auto;
+  padding:0;
+  margin:0;
+  border:0;
+  border-radius:0;
+  background:transparent;
+  box-shadow:none;
+  color:var(--chat-prose);
+}
+.agent-panel.conversation-only .conversation-card .assistant-main { gap:12px; min-width:0; }
+.agent-panel.conversation-only .conversation-card .assistant-message { margin-block:4px 20px; }
+.agent-panel.conversation-only .assistant-content .markdown-body {
+  color:var(--chat-prose);
+  font-size:15px;
+  font-weight:var(--weight-body);
+  line-height:1.75;
+  letter-spacing:normal;
+  overflow-wrap:anywhere;
+}
+/* Explicitly override the legacy 11px paragraph rule, including paragraphs inside lists. */
+.agent-panel.conversation-only .assistant-content .markdown-body :is(p, li, blockquote, th, td) {
+  font-size:inherit;
+  line-height:inherit;
+}
+.agent-panel.conversation-only .assistant-content .markdown-body :is(p, ul, ol, blockquote, table) { margin-top:0; margin-bottom:16px; }
+.agent-panel.conversation-only .assistant-content .markdown-body :is(ul, ol) { padding-left:1.55em; }
+.agent-panel.conversation-only .assistant-content .markdown-body li + li { margin-top:6px; }
+.agent-panel.conversation-only .assistant-content .markdown-body li > :last-child { margin-bottom:0; }
+.agent-panel.conversation-only .assistant-content .markdown-body :is(h1, h2, h3, h4, h5, h6) { color:inherit; line-height:1.5; margin-block:24px 12px; }
+.agent-panel.conversation-only .assistant-content .markdown-body h1 { font-size:24px; }
+.agent-panel.conversation-only .assistant-content .markdown-body h2 { font-size:21px; }
+.agent-panel.conversation-only .assistant-content .markdown-body h3 { font-size:18px; }
+.agent-panel.conversation-only .assistant-content .markdown-body :is(h4, h5, h6) { font-size:15px; }
+.agent-panel.conversation-only .assistant-content .markdown-body > :first-child { margin-top:0; }
+.agent-panel.conversation-only .assistant-content .markdown-body > :last-child { margin-bottom:0; }
+.agent-panel.conversation-only .assistant-content .markdown-body :not(pre) > code { font-size:.88em; }
+.agent-panel.conversation-only .assistant-content .markdown-body pre code { font-size:13px; line-height:1.7; }
+.agent-panel.conversation-only .conversation-card .user-message-group { max-width:var(--agent-chat-width); margin-bottom:16px; }
+.agent-panel.conversation-only .conversation-card .user-message {
+  width:fit-content;
+  max-width:85%;
+  margin:0 0 2px auto;
+  padding:11px 18px;
+  border:0;
+  border-radius:20px;
+  box-shadow:none;
+  background:var(--chat-user-surface);
+  color:var(--chat-prose);
+  font-size:15px;
+  line-height:1.65;
+  overflow-wrap:anywhere;
+}
+.agent-panel.conversation-only .assistant-message .chat-message-meta.response { padding:0; min-height:28px; margin-top:-6px; }
+.agent-panel.conversation-only .chat-message-meta .chat-message-time { font-size:12px; }
+.agent-panel.conversation-only .assistant-message.error .assistant-content .markdown-body { color:var(--ui-danger-text,#bd4248); }
+
+.activity-transcript { min-width:0; color:var(--theme-text-muted); }
+.activity-transcript > summary { display:flex; align-items:center; gap:6px; width:fit-content; max-width:100%; min-height:26px; padding:2px 0; border-radius:5px; color:inherit; cursor:pointer; list-style:none; font-size:13px; line-height:1.65; }
+.activity-transcript > summary::-webkit-details-marker { display:none; }
+.activity-transcript > summary > span { min-width:0; overflow-wrap:anywhere; }
+.activity-transcript > summary > svg { flex-shrink:0; }
+.activity-transcript > summary:hover { color:var(--theme-text-strong); }
+.activity-transcript > summary:focus-visible, .activity-transcript-list:focus-visible { outline:2px solid var(--ui-accent); outline-offset:3px; }
+.activity-transcript-chevron { transition:transform 180ms ease; }
+.activity-transcript[open] > summary .activity-transcript-chevron { transform:rotate(90deg); }
+.activity-transcript.has-issue > summary > svg:first-child { color:var(--ui-danger-text,#c7474a); }
+.activity-transcript.is-running > summary > svg:first-child { animation:execution-pulse 1.6s ease-in-out infinite; }
+.activity-transcript-list { max-height:min(340px,42vh); min-width:0; overflow:auto; margin-top:6px; padding:0 10px 2px 0; scrollbar-width:thin; scrollbar-color:var(--line-strong,var(--line)) transparent; overscroll-behavior:auto; }
+.activity-transcript-list > .tool-activity { margin:0; }
+.activity-transcript-list > .agent-activity { margin:4px 0; }
+.conversation-card .activity-transcript-list .tool-activity > summary { min-height:28px; padding:4px 0; gap:6px; }
+.conversation-card .activity-transcript-list .tool-activity .tool-identity code { font-family:inherit; font-size:13px; color:var(--theme-text-muted); }
+.conversation-card .activity-transcript-list .tool-activity .tool-terminal-body { margin-left:20px; }
+@media (prefers-reduced-motion:reduce) {
+  .activity-transcript-chevron { transition:none; }
+  .activity-transcript.is-running > summary > svg:first-child { animation:none; }
+}

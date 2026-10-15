@@ -17,6 +17,7 @@ export type AgentConfig = {
 export type AgentToolStatus = 'running' | 'success' | 'error' | 'unknown';
 
 export type AgentStreamEvent =
+  | { event: 'input'; input: AgentSteer }
   | { event: 'context'; status: AgentContextStatus }
   | { event: 'text'; content: string }
   | { event: 'agent_start'; agentCallId: string; agentName: string; task: string; parentToolCallId?: string }
@@ -47,6 +48,7 @@ export type AgentSession = { scope?:AgentScope|null; id:string;agentId:string;us
   id:string;goal:string;constraints:string[];target:{connectionId:string;terminalSessionId:string}|null;status:string;
 }|null;checkpointId?:string|null };
 export type AgentTurn = {
+  inputs?: AgentSteer[];
   requestId:string;message:string;target:{connectionId:string;terminalSessionId:string}|null;state:AgentTurnState;
   partialText:string;resultText:string|null;errorCode:string|null;usage:{prompt_tokens:number;completion_tokens:number;total_tokens:number}|null;
   cursor:number;createdAt:number;updatedAt:number;
@@ -56,8 +58,10 @@ export type AgentHistory = {session:AgentSession;turns:AgentTurn[];hasMore:boole
 
 export type OutputReference={id:string;channel:'stdout'|'stderr';size:number;sha256:string};
 export type NativeToolEvent={id:number;payload:{type:'toolCall';callId:string;toolName:string;arguments:{modelArguments?:unknown}}|{type:'toolResult';callId:string;outcome:'success'|'error'|'unknown'|'cancelled';exitCode:number|null;text:string;outputs?:OutputReference[]}};
-export type ExecutionReceipt={id:string;callId:string;binding:{sessionId:string;tool:{taskId:string;target:{connectionId:string;terminalSessionId:string}};identity:{host:string;port:number;username:string;hostKey:string}};task:{id:string;goal:string;constraints:string[]};command:{command:string;timeoutSeconds:number};state:'pending'|'approved'|'denied'|'cancelled'|'expired'|'admitted'|'completed'|'notSent'|'unknown';result:unknown;grant?:{expiresAt:number;revoked:boolean}|null;createdAt:number;expiresAt:number};
-export type ExecutionPolicy={mode:'confirm'|'deny';revision:number};
+export type ExecutionReceipt={id:string;callId:string;binding:{sessionId:string;tool:{taskId:string;target:{connectionId:string;terminalSessionId:string}};identity:{host:string;port:number;username:string;hostKey:string}};task:{id:string;goal:string;constraints:string[]};command:{command:string;timeoutSeconds:number;explanation?:string|null};state:'pending'|'approved'|'denied'|'cancelled'|'expired'|'admitted'|'completed'|'notSent'|'unknown';result:unknown;grant?:{expiresAt:number;revoked:boolean}|null;review?:ExecutionReview|null;createdAt:number;expiresAt:number};
+export type ExecutionPolicy={mode:'confirm'|'auto'|'fullAccess'|'deny';revision:number};
+export type ExecutionReview={mode:ExecutionPolicy['mode'];decision:string;risk:string;reason:string};
+export type AgentSteer={id:string;message:string;eventId:number|null;createdAt:number};
 export type OutputRange={bytes:number[];offset:number;nextOffset:number;eof:boolean;size:number;channel:'stdout'|'stderr'};
 
 /** Agent control operations also belong to the local Rust workspace. */
@@ -214,7 +218,7 @@ async function chatStream(
   const backendUrl=requireBackendUrl();
   if (!isTauriRuntime() || !isBuiltinEndpoint(backendUrl)) throw new ChatRequestError('请在桌面应用内使用此功能。','DESKTOP_REQUIRED');
   const streamId=crypto.randomUUID();
-  const {executionEnabled=false,...content}=body;
+  const {executionEnabled=true,...content}=body;
   const turnRequest={...content,requestId:body.requestId||crypto.randomUUID()};
   let done=false;
   let ended=false;
@@ -234,7 +238,11 @@ async function chatStream(
       }
       let event:AgentStreamEvent|null;
       const native=frame.payload&&typeof frame.payload==='object' ? frame.payload as Record<string,unknown> : undefined;
-      if(native?.event==='context') {
+      if(native?.event==='input') {
+        const input=native.input as AgentSteer|undefined;
+        if(!input||typeof input.id!=='string'||!input.id||typeof input.message!=='string'||!Number.isSafeInteger(input.eventId)||typeof input.createdAt!=='number')throw new ChatRequestError('补充消息回执无效。','MODEL_PROTOCOL_FAILED');
+        event={event:'input',input};
+      } else if(native?.event==='context') {
         if(!isAgentContextStatus(native.status)||native.status.requestId!==turnRequest.requestId) throw new ChatRequestError('上下文状态格式或关联无效。','MODEL_PROTOCOL_FAILED');
         event={event:'context',status:native.status};
       } else if(native&&(native.event==='tool_call'||native.event==='tool_result')) {
@@ -281,6 +289,7 @@ async function chatStream(
 }
 
 export const agentApi = {
+  steer:(agentId:string,sessionId:string,expectedRequestId:string,id:string,message:string)=>request<AgentSteer>('steer','POST',{agentId,sessionId,expectedRequestId,id,message,userId:sshUserId}),
   userId: sshUserId,
   list: (signal?: AbortSignal) => request<AgentConfig[]>('query_ai_agent_config_list', 'GET', undefined, signal, { userId: sshUserId }),
   createSession: (agentId: string, signal?: AbortSignal) => request<{ sessionId: string }>(

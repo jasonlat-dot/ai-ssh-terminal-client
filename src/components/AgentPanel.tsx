@@ -16,6 +16,7 @@ import { DraftAttachments, MessageAttachments } from './ChatAttachments';
 import { chatErrorGuidance } from '../api/chatErrors';
 import { AgentExecution, ExecutionContext, NativeToolOutput, type ExecutionScope } from './AgentExecution';
 import { agentToMarkdown, messageToMarkdown, toolToMarkdown } from '../state/chatMarkdown';
+import { transcriptBlocks, activitySummary, type ActivitySegment } from '../state/agentTranscript';
 
 function AgentAvatar({ compact = false }: { compact?: boolean }) {
   return <span className={`agent-avatar ${compact ? 'compact' : ''}`}><img src={agentRobotAvatar} alt="Agent 机器人" /></span>;
@@ -31,31 +32,38 @@ function MessageTime({ timestamp }: { timestamp?: number }) {
 }
 
 function ToolActivity({ tool, copyable }: { tool: ChatToolActivity; copyable: boolean }) {
-  const label = tool.status === 'running' ? '调用中'
-    : tool.status === 'success' ? '成功'
-      : tool.status === 'error' ? '失败' : '状态未知';
+  const label = tool.status === 'running' ? '运行中'
+    : tool.status === 'success' ? '已运行'
+      : tool.status === 'error' ? '运行失败' : '结果未知';
   const title = tool.name === 'executeCommand' || tool.name === 'ssh_execute' ? '执行命令' : tool.name === 'read_tool_output' ? '回查工具输出' : tool.name;
   const header = <>
-    <AccentIcon icon="terminal" size={15} className="activity-kind-icon" />
-    <span className="tool-identity"><span className="tool-name"><strong>{title}</strong>{title !== tool.name && <small>{tool.name}</small>}</span>{tool.command && <code title={tool.command}>{tool.command}</code>}</span>
-    <Badge className="tool-status" tone={tool.status === 'success' ? 'success' : tool.status === 'error' ? 'danger' : tool.status === 'running' ? 'blue' : 'neutral'}
-      icon={tool.status === 'success' ? 'check' : tool.status === 'error' ? 'alert' : tool.status === 'running' ? 'refresh' : 'history'}>{label}</Badge>
+    <Icon name="terminal" size={14} />
+    <span className="tool-run-label">{label}</span>
+    <span className="tool-identity"><code title={tool.command || title}>{tool.command || title}</code></span>
+    <Icon name="down" size={13} className="tool-disclosure" />
   </>;
 
-  if (tool.status === 'running') {
-    return <div className="tool-activity running" aria-label={`${title}：${label}`}>
-      <div className="tool-activity-header">{header}</div>
-    </div>;
-  }
-
-  return <details className={`tool-activity ${tool.status}`}>
-    <summary>{header}<small className="tool-view-result">查看结果</small></summary>
-    {tool.output ? <NativeToolOutput output={tool.output}/> : <p className="tool-empty-result">工具没有返回文本。</p>}
+  return <details className={`tool-activity ${tool.status}`} aria-label={`${title}：${label}`}>
+    <summary>{header}</summary>
+    <div className="tool-terminal-body"><div className="tool-terminal-heading"><span>{title === '执行命令' ? 'Shell' : title}</span>{copyable&&tool.command&&<CopyTextButton getText={()=>tool.command!} label="复制命令" iconOnly/>}</div>
+    {tool.command&&<pre className="tool-full-command" tabIndex={0}>$ {tool.command}</pre>}
+    {tool.output ? <NativeToolOutput output={tool.output}/> : <p className="tool-empty-result">{tool.status==='running'?'等待命令输出与退出状态…':'工具没有返回文本。'}</p>}
     {copyable && <div className="message-copy-actions tool-copy-actions">
       {tool.command && <CopyTextButton getText={() => tool.command!} label="复制命令" successMessage="命令已复制" />}
       {tool.output && <CopyTextButton getText={() => tool.output!} label="复制输出" successMessage="执行结果已复制" />}
       <CopyMarkdownButton getText={() => toolToMarkdown(tool)} label="复制工具结果（Markdown）" />
-    </div>}
+    </div>}</div>
+  </details>;
+}
+
+function ActivityTranscript({activities,copyable}:{activities:ActivitySegment[];copyable:boolean}) {
+  const hasRunning=activities.some(item=>(item.type==='tool'?item.tool:item.agent).status==='running');
+  const hasIssue=activities.some(item=>['error','unknown'].includes((item.type==='tool'?item.tool:item.agent).status));
+  return <details className={`activity-transcript${hasRunning?' is-running':''}${hasIssue?' has-issue':''}`}>
+    <summary><Icon name="terminal" size={14}/><span>{activitySummary(activities)}</span><Icon name="right" size={13} className="activity-transcript-chevron"/></summary>
+    <div className="activity-transcript-list" role="region" aria-label="执行过程" tabIndex={0}>
+      {activities.map(item=>item.type==='tool'?<ToolActivity tool={item.tool} copyable={copyable} key={item.id}/>:<AgentActivity agent={item.agent} copyable={copyable} key={item.id}/>)}
+    </div>
   </details>;
 }
 
@@ -159,7 +167,7 @@ function sessionTime(value: ClientChatSession['updatedAt']): string {
 }
 
 export type AgentComposerHandle = { addText: (text: string, source: ChatTextExcerpt['source']) => boolean };
-export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localTerminal, targetLabel, scopeControls, messages, busy, stopping, send, stop, clear, disabled, agentAvailability, history, collapsed, models, selectedModel, selectModel, openModelSettings, recoveredRunning, stopRecovered, refreshCurrent, contextStatus=null, contextError, refreshContext, execution }: {
+export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localTerminal, targetLabel, scopeControls, messages, busy, stopping, send, steer, stop, clear, disabled, agentAvailability, history, collapsed, models, selectedModel, selectModel, openModelSettings, recoveredRunning, stopRecovered, refreshCurrent, contextStatus=null, contextError, refreshContext, execution }: {
   execution?: ExecutionScope;
   ref?: Ref<AgentComposerHandle>;
   chatDraft: ChatAttachmentDraft;
@@ -174,6 +182,7 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
   busy: boolean;
   stopping: boolean;
   send: (text: string, attachments: ChatAttachment[]) => Promise<boolean>;
+  steer?: (id:string,text:string,expectedRequestId:string)=>Promise<void>;
   stop: () => void;
   clear: () => void;
   disabled: boolean;
@@ -193,6 +202,14 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
   const attachmentInput = useRef<HTMLInputElement>(null);
   const attachments = useSyncExternalStore(chatDraft.subscribe, chatDraft.getSnapshot);
   const locked = disabled || busy || stopping || sending;
+  const [approvalTarget,setApprovalTarget]=useState<HTMLDivElement|null>(null);
+  const [policyTarget,setPolicyTarget]=useState<HTMLDivElement|null>(null);
+  const [approvalPending,setApprovalPending]=useState(false);
+  type QueuedInput={id:string;text:string;files:ChatAttachment[];scope:number;requestId:string;state:'queued'|'submitting'|'submitted'|'unconfirmed'|'failed';error?:string};
+  const [queue,setQueue]=useState<QueuedInput[]>([]);
+  const queueAction=useRef(false);
+  const [queuePaused,setQueuePaused]=useState(false);
+  const editingLocked=disabled;
   const lastMessage = messages[messages.length - 1];
   const notReady = attachments.some(item => item.status !== 'success');
   const addFiles = (files: File[]) => {
@@ -200,7 +217,7 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
     catch (error) { setAttachmentError((error as Error).message); }
   };
   const attachFiles = (files: ChatAttachment[]) => {
-    if (locked) return;
+    if (editingLocked) return;
     try { chatDraft.attach(files); setAttachmentError(''); textareaRef.current?.focus(); }
     catch (error) { setAttachmentError((error as Error).message); }
   };
@@ -208,7 +225,7 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
   const followOutputRef = useRef(true);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   useImperativeHandle(ref, () => ({ addText(text, source) {
-    if (locked || !text.trim()) return false;
+    if (editingLocked || !text.trim()) return false;
     try {
       if (models) { setDraft(previous => previous + (previous ? '\n' : '') + text); return true; }
       const inline = chatDraft.addText(text, source);
@@ -221,25 +238,61 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
   } }));
 
   const submit = async () => {
-    if (locked || !agentAvailability.ready || sendingRef.current) return;
+    if (!draft.trim() && !chatDraft.getSnapshot().length) return;
+    if (editingLocked || !agentAvailability.ready || notReady) return;
+    if(queue.length>=32){setAttachmentError('队列最多保留 32 条消息，请先处理已有消息。');return;}
     const scope = draftScope;
     try {
       const files = chatDraft.ready();
       const invalid = validateChatContent(draft, files);
       if (invalid) { setAttachmentError(invalid); return; }
+      const text=draft.trim();
+      const requestId=[...messages].reverse().find(message=>message.role==='assistant')?.id??'';
+      setQueue(previous=>[...previous,{id:crypto.randomUUID(),text,files,scope,requestId,state:'queued'}]);
+      setDraft('');chatDraft.clear();
+      if(!busy&&!stopping&&!sendingRef.current)setQueuePaused(false);
       followOutputRef.current = true;
-      sendingRef.current = true;
-      setSending(true);
       setAttachmentError('');
-      const success = await send(draft.trim(), files);
-      if (scopeRef.current !== scope) return;
-      if (success) { setDraft(''); chatDraft.clear(); }
     } catch (error) {
       if (scopeRef.current === scope) setAttachmentError((error as Error).message);
-    } finally {
-      if (scopeRef.current === scope) { sendingRef.current = false; setSending(false); }
     }
   };
+
+  useEffect(()=>{
+    if(busy||stopping||sendingRef.current||disabled||recoveredRunning||!agentAvailability.ready||queuePaused||queueAction.current)return;
+    const item=queue.find(item=>item.scope===draftScope&&item.state==='queued');
+    if(!item)return;
+    sendingRef.current=true;setSending(true);
+    setQueue(previous=>previous.filter(value=>value.id!==item.id));
+    void send(item.text,item.files).then(success=>{
+      if(scopeRef.current!==item.scope)return;
+      if(!success){setQueuePaused(true);setQueue(previous=>[{...item,state:'failed',error:'本次发送未完成，请查看对话记录后再决定是否重新发送。'},...previous]);}
+    }).catch(error=>{
+      if(scopeRef.current===item.scope){setQueuePaused(true);setQueue(previous=>[{...item,state:'failed',error:error instanceof Error?error.message:'发送失败'},...previous]);}
+    }).finally(()=>{if(scopeRef.current===item.scope){sendingRef.current=false;setSending(false);}});
+  },[queue,busy,stopping,sending,disabled,recoveredRunning,agentAvailability.ready,queuePaused,draftScope,send]);
+
+  const submitQueued=async(item:QueuedInput)=>{
+    if(queueAction.current||editingLocked||stopping||item.state==='submitted'||item.state==='submitting')return;
+    if(!(busy||sendingRef.current||recoveredRunning)&&item.state!=='unconfirmed'){
+      setQueue(previous=>[{...item,state:'queued',error:undefined},...previous.filter(value=>value.id!==item.id)]);setQueuePaused(false);return;
+    }
+    if(!steer||item.files.length){setAttachmentError('当前仅支持将纯文本作为补充信息提交。');return;}
+    const requestId=item.state==='unconfirmed'?item.requestId:[...messages].reverse().find(message=>message.role==='assistant')?.id??item.requestId;
+    queueAction.current=true;
+    setQueue(previous=>previous.map(value=>value.id===item.id?{...value,state:'submitting',requestId,error:undefined}:value));
+    try{
+      await steer(item.id,item.text,requestId);
+      if(scopeRef.current===item.scope)setQueue(previous=>previous.map(value=>value.id===item.id?{...value,state:'submitted'}:value));
+    }catch(error){
+      if(scopeRef.current===item.scope){const rejected=['AGENT_BUSY','AGENT_INVALID_REQUEST','AGENT_NOT_FOUND','AGENT_REQUEST_CONFLICT'].includes((error as {code?:string})?.code??'');setQueuePaused(true);setQueue(previous=>previous.map(value=>value.id===item.id?{...value,state:rejected?'failed':'unconfirmed',error:error instanceof Error?error.message:'提交状态未确认，请核对历史；不会自动重发。'}:value));}
+    }finally{queueAction.current=false;}
+  };
+  useEffect(()=>{
+    const ids=new Set(messages.map(message=>message.id));
+    setQueue(previous=>previous.some(item=>ids.has(item.id))?previous.filter(item=>!ids.has(item.id)):previous);
+  },[messages]);
+  useEffect(()=>{if(stopping)setQueuePaused(true);},[stopping]);
 
   useLayoutEffect(() => {
     followOutputRef.current = true;
@@ -265,7 +318,7 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
     textarea.style.overflowY = textarea.scrollHeight > 180 ? 'auto' : 'hidden';
   }, [draft]);
 
-  useEffect(() => { setDraft(''); setAttachmentError(''); setSending(false); sendingRef.current = false; }, [draftScope]);
+  useEffect(() => { setDraft(''); setAttachmentError(''); setSending(false); sendingRef.current = false;setQueue([]);setQueuePaused(false);queueAction.current=false;setApprovalPending(false); }, [draftScope]);
 
   useEffect(() => {
     const handleShortcut = (event: KeyboardEvent) => {
@@ -304,7 +357,7 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
           {scopeControls.serverTask && <button type="button" className="agent-scope-action" disabled={locked||scopeControls.locked||!scopeControls.serverAvailable}
             onClick={()=>scopeControls.useServer(true)}><Icon name="edit" size={13}/>新任务</button>}
         </div>}
-        <div className="agent-mode-note"><i/>{execution?.enabled?'SSH 工具对话':'文字对话'}<span>·</span>{execution?.enabled?'命令需确认，目标固定':'附件将在后续接入'}</div>
+        <div className="agent-mode-note"><i/>{execution?.enabled?'服务器对话':'文字对话'}<span>·</span>{execution?.enabled?'工具默认可用 · 审核边界见输入框':'可讨论历史与问题'}</div>
         {recoveredRunning && <div className="agent-recovery-controls"><span role="status">{stopping ? '正在确认停止…' : '此请求仍在生成'}</span><button type="button" onClick={refreshCurrent} disabled={stopping || Boolean(history.loadingSessionId)}><Icon name="refresh" size={13} />刷新</button><button type="button" onClick={stopRecovered} disabled={stopping || Boolean(history.loadingSessionId)}><Icon name="stop" size={13} />{stopping ? '正在停止…' : '停止'}</button></div>}
       </>}
 
@@ -327,20 +380,20 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
         </>}
       </section>}
 
-      {execution&&<AgentExecution key={`${execution.agentId}:${execution.sessionId}`} scope={execution}/>}
+      {execution&&<AgentExecution key={`${execution.agentId}:${execution.sessionId}`} scope={execution} approvalTarget={approvalTarget} policyTarget={policyTarget} onPendingChange={setApprovalPending}/>}
       <div className="chat-messages" ref={scrollRef} aria-label="聊天记录" aria-live="polite"
         onScroll={handleMessagesScroll} onWheel={event => { if (event.deltaY < 0) followOutputRef.current = false; }}>
         {messages.length === 0 && !busy && <div className="agent-chat-empty">
           <img className="empty-agent-avatar" src={agentRobotAvatar} alt="Agent 机器人" />
           <h3>有什么需要我协助？</h3>
-          <p>{models ? (agentAvailability.ready ? execution?.enabled?'可以让我检查服务或分析日志；每条服务器命令会先等待你的确认。':'可以提问或粘贴文本；绑定服务器后可启用 SSH 工具。' : '先在模型设置中添加 API 地址、模型与密钥，再开始对话。') : agentAvailability.ready
+          <p>{models ? (agentAvailability.ready ? execution?.enabled?'可以让我检查服务或分析日志；工具操作遵循输入框中的审核设置。':'可以提问或粘贴文本；连接绑定服务器后，SSH 工具自动可用。' : '先在模型设置中添加 API 地址、模型与密钥，再开始对话。') : agentAvailability.ready
             ? connected ? '可以让我执行命令、检查服务状态或分析日志。' : localTerminal ? '当前是本地 CMD，Agent 无法连接或代为执行本地命令，但仍可进行普通对话。' : '可以直接与 Agent 对话；当前页签连接服务器后还可以执行 SSH 命令。'
             : '可以先输入问题或添加附件，智能体就绪后再发送。'}</p>
         </div>}
 
         {messages.map((message, index) => message.role === 'user'
           ? <div className="user-message-group" key={message.id}>
-            <div className="user-message">{message.text && <div>{message.text}</div>}{!!message.attachments?.length && <MessageAttachments files={message.attachments} attach={attachFiles} disabled={locked} />}</div>
+            <div className="user-message">{message.text && <div>{message.text}</div>}{message.inputPending&&<small className="pending-input-note">补充已保存，尚未被当前轮接收；不会自动重新执行</small>}{!!message.attachments?.length && <MessageAttachments files={message.attachments} attach={attachFiles} disabled={locked} />}</div>
             <div className="message-copy-actions chat-message-meta request"><button type="button" className="chat-restore-request" aria-label="恢复请求" title="恢复到输入框" disabled={locked} onClick={() => {
               if (draft.trim() || attachments.length) { setAttachmentError('请先清空当前草稿，再恢复这条请求。'); return; }
               try { chatDraft.attach(message.attachments ?? []); setDraft(message.text); setAttachmentError(''); textareaRef.current?.focus(); }
@@ -350,19 +403,15 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
           : <div className={`assistant-message ${message.error ? 'error' : ''} ${(busy || stopping) && index === messages.length - 1 ? 'active' : ''}`} key={message.id}>
             <div className="assistant-main">
               {message.segments
-                ? message.segments.map(segment => segment.type === 'text'
+                ? transcriptBlocks(message.segments).map(segment => segment.type === 'text'
                   ? <div className="assistant-content" key={segment.id}><MarkdownMessage streaming={(busy || stopping) && index === messages.length - 1}>{segment.text}</MarkdownMessage></div>
-                  : segment.type === 'agent'
-                    ? <AgentActivity agent={segment.agent} copyable={!((busy || stopping) && index === messages.length - 1)} key={segment.id} />
-                    : <section className="tool-activities" aria-label="工具调用记录" key={segment.id}><ToolActivity tool={segment.tool} copyable={!((busy || stopping) && index === messages.length - 1)} /></section>)
+                  : <ActivityTranscript activities={segment.activities} copyable={!((busy || stopping) && index === messages.length - 1)} key={segment.id}/>)
                 : <>
                   {(message.text || message.summary) && <div className="assistant-content">
                     {message.text && <MarkdownMessage streaming={(busy || stopping) && index === messages.length - 1}>{message.text}</MarkdownMessage>}
                     {message.summary && <MarkdownMessage streaming={(busy || stopping) && index === messages.length - 1}>{message.summary}</MarkdownMessage>}
                   </div>}
-                  {message.tools?.length ? <section className="tool-activities" aria-label="工具调用记录">
-                    {message.tools.map(tool => <ToolActivity tool={tool} copyable={!((busy || stopping) && index === messages.length - 1)} key={tool.id} />)}
-                  </section> : null}
+                  {message.tools?.length ? <ActivityTranscript activities={message.tools.map(tool=>({id:tool.id,type:'tool',tool}))} copyable={!((busy || stopping) && index === messages.length - 1)}/> : null}
                 </>}
               {message.error && <p className="chat-error-guidance">{chatErrorGuidance(message.errorCode)}</p>}
               {(busy || stopping) && index === messages.length - 1
@@ -375,7 +424,14 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
       </div>
     </section>
 
-    <form className="chat-composer" aria-hidden={collapsed} onSubmit={event => { event.preventDefault(); void submit(); }}>
+    <div className="composer-dock" aria-hidden={collapsed}>
+      {!!queue.length&&<section className="composer-queue" aria-label="待发送消息"><div className="composer-queue-title">{queue.length} 条消息{queuePaused?' · 已暂停':' · 等待处理'}</div>{queue.map(item=><div className={`composer-queue-item is-${item.state}`} key={item.id}>
+        <Icon name="tabs" size={14}/><div className="composer-queue-content"><span title={item.text}>{item.text||`${item.files.length} 个附件`}</span>{item.state!=='queued'&&<small>{item.state==='submitting'?'正在提交补充…':item.state==='submitted'?'已提交 · 等待当前轮接收':item.error}</small>}</div>
+        {item.state!=='submitted'&&item.state!=='submitting'&&<><button type="button" title={item.state==='unconfirmed'?'使用相同消息 ID 核对提交，不会重复追加':'提交补充信息，不中断模型运行'} aria-label={item.state==='unconfirmed'?'核对提交':'立即提交'} disabled={editingLocked||stopping||((busy||sending)&&!steer)} onClick={()=>void submitQueued(item)}><Icon name="arrowUp" size={14}/><span>{item.state==='unconfirmed'?'核对':'引导'}</span></button><button type="button" aria-label="编辑排队消息" title="移回输入框编辑" disabled={editingLocked||item.state==='unconfirmed'||!!draft||!!attachments.length} onClick={()=>{setDraft(item.text);chatDraft.attach(item.files);setQueue(previous=>previous.filter(value=>value.id!==item.id));textareaRef.current?.focus();}}><Icon name="edit" size={14}/></button><button type="button" aria-label="删除排队消息" disabled={editingLocked||item.state==='unconfirmed'} onClick={()=>setQueue(previous=>previous.filter(value=>value.id!==item.id))}><Icon name="trash" size={14}/></button></>}
+      </div>)}</section>}
+    <div ref={setApprovalTarget} className="composer-approval-slot" hidden={!approvalPending}/>
+    {approvalPending&&execution&&<div className="composer-approval-policy" ref={setPolicyTarget}/>}
+    <form className={`chat-composer${approvalPending?' is-awaiting-approval':''}`} aria-hidden={collapsed||approvalPending} inert={approvalPending} onSubmit={event => { event.preventDefault(); void submit(); }}>
       {localTerminal && <div className="composer-agent-status local-terminal" data-accent="neutral" role="status">
         <Icon name="monitor" size={15} />
         <span>本地 CMD 仅在客户端运行；可手动添加选中文本，Agent 不会收到本地会话 ID。</span>
@@ -385,15 +441,15 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
         <span>{agentAvailability.loading ? '正在加载智能体，你可以先编辑草稿。' : agentAvailability.error || '智能体暂不可用，草稿可以继续编辑。'}</span>
         {!agentAvailability.loading && <button type="button" onClick={agentAvailability.retry}><Icon name="refresh" size={13} />重试加载</button>}
       </div>}
-      {!!attachments.length && <DraftAttachments items={attachments} draft={chatDraft} locked={locked} report={setAttachmentError} />}
-      <div className="composer-input-row"><textarea ref={textareaRef} rows={1} aria-label="智能体任务输入" placeholder="与 ShellPilot 协作" value={draft} disabled={locked} onChange={event => setDraft(event.target.value)}
+      {!!attachments.length && <DraftAttachments items={attachments} draft={chatDraft} locked={editingLocked} report={setAttachmentError} />}
+      <div className="composer-input-row"><textarea ref={textareaRef} rows={1} aria-label="智能体任务输入" placeholder={busy?'继续输入，新消息将进入队列':'与 ShellPilot 协作'} value={draft} disabled={editingLocked} onChange={event => setDraft(event.target.value)}
         onPaste={event => {
           const files = pastedFiles(event.clipboardData);
           const text = event.clipboardData.getData('text/plain');
           if (models) { if (files.length) { event.preventDefault(); setAttachmentError('聊天附件尚未接入，请直接粘贴纯文本。'); } return; }
           if (!files.length && !isLongChatText(text)) return;
           event.preventDefault();
-          if (locked) return;
+          if (editingLocked) return;
           try {
             const inline = chatDraft.addText(text, 'paste', files);
             if (inline) {
@@ -407,12 +463,13 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
         }}
         onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void submit(); } }} /></div>
       <div className="composer-bottom-bar">
-        <button type="button" className="composer-attach-button" aria-label="添加附件" disabled={locked || !!models} onClick={() => attachmentInput.current?.click()} title={models ? '聊天附件尚未接入' : '选择图片、PDF 或文本文件'}><Icon name="plus" size={20} /></button>
+        <button type="button" className="composer-attach-button" aria-label="添加附件" disabled={editingLocked || !!models} onClick={() => attachmentInput.current?.click()} title={models ? '聊天附件尚未接入' : '选择图片、PDF 或文本文件'}><Icon name="plus" size={20} /></button>
         <input ref={attachmentInput} type="file" multiple tabIndex={-1} className="visually-hidden" aria-label="选择聊天附件" accept={chatAttachmentPolicy.extensions.map(ext => `.${ext}`).join(',')} onChange={event => {
-          if (!locked && event.target.files?.length) addFiles(Array.from(event.target.files));
+          if (!editingLocked && event.target.files?.length) addFiles(Array.from(event.target.files));
           event.target.value = '';
         }} />
         {!models && <span className="composer-attachment-note">{attachments.length}/4 · 合计 ≤ 20 MB</span>}
+        {execution&&<div className="composer-policy-slot" ref={approvalPending?undefined:setPolicyTarget}/>}
         {models && <div className="agent-model-controls composer-model-controls">
           <div className="agent-model-picker"><Select label="对话模型" value={selectedModel ?? ''} disabled={busy || stopping || disabled || !models.length}
             options={models.length ? models.map(model => ({value:model.agentId,label:`${model.agentName}${model.modelName ? ` · ${model.modelName}` : ''}`})) : [{value:'',label:'请先添加模型'}]}
@@ -420,11 +477,10 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
           <button className="agent-model-settings-button" type="button" aria-label="模型设置" title="模型设置" onClick={openModelSettings}><Icon name="settings" size={15}/></button>
           <AgentContextStatus status={contextStatus} error={contextError} retry={refreshContext}/>
         </div>}
-        {busy || stopping
-          ? <button type="button" className="send-button stop-button" aria-label={stopping ? '正在停止' : '停止生成'} title={stopping ? '正在停止' : '停止生成'} onClick={stop} disabled={stopping}><Icon name="stop" size={16} /></button>
-          : <button type="submit" className="send-button" aria-label="发送消息" title={agentAvailability.ready ? '发送消息' : '智能体就绪后即可发送，草稿会保留'} disabled={(!draft.trim() && !attachments.length) || locked || notReady || !agentAvailability.ready}><Icon name="arrowUp" size={20} /></button>}
+        {(busy||stopping)&&<button type="button" className="send-button stop-button" aria-label={stopping?'正在停止':'停止生成'} title="停止生成" onClick={()=>{setQueuePaused(true);stop();}} disabled={stopping}><Icon name="stop" size={16}/></button>}
+        {(!(busy||stopping)||!!draft.trim()||attachments.length>0)&&<button type="submit" className="send-button" aria-label={busy||sending?'加入消息队列':'发送消息'} title={busy||sending?'加入队列，当前轮结束后自动发送':'发送消息'} disabled={(!draft.trim() && !attachments.length) || editingLocked || notReady || !agentAvailability.ready}><Icon name="arrowUp" size={20}/></button>}
       </div>
       {(attachmentError || notReady) && <p className="composer-attachment-error" role="status">{attachmentError || (attachments.some(item => item.status === 'error') ? '附件上传失败，请重试或移除后再发送。' : '附件正在准备中，请等待上传完成。')}</p>}
-    </form>
+    </form></div>
   </aside></ExecutionContext.Provider>;
 }

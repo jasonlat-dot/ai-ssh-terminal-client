@@ -1,7 +1,7 @@
 import { Select } from './Select';
 
-type TokenPreset = { value: number; short: string; label: string; description: string };
-const preset = (short: string, value: number): TokenPreset => ({
+type NumberPreset = { value: number; short: string; label: string; description: string };
+const preset = (short: string, value: number): NumberPreset => ({
   value, short, label: `${short} · ${short.includes('i') ? '1024 制' : '1000 制'}`,
   description: value.toLocaleString('en-US'),
 });
@@ -18,16 +18,33 @@ const outputPresets = [
   preset('128K', 128000), preset('128Ki', 131072),
 ];
 
-/** 精确数值始终可编辑；档位仅提供快捷填写，不代表模型支持该容量。 */
-export function TokenBudgetInput({ id, label, value, kind, disabled, onChange }: {
+const timeoutPresets = [15, 30, 60, 120, 180, 300, 600].map(value => ({
+  value, short: `${value}s`, label: `${value} 秒`,
+  description: value < 60 ? `${value} 秒` : `${value / 60} 分钟`,
+}));
+const responsePresets = [
+  {short:'64 KiB',value:65536}, {short:'128 KiB',value:131072}, {short:'256 KiB',value:262144},
+  {short:'512 KiB',value:524288}, {short:'1 MiB',value:1048576},
+  {short:'2 MiB',value:2097152}, {short:'4 MiB',value:4194304},
+  {short:'8 MiB',value:8388608},
+].map(option => ({...option,label:option.short,description:`${option.value.toLocaleString('en-US')} bytes`}));
+const settings = {
+  context: {presets:contextPresets,min:256,max:16777216},
+  output: {presets:outputPresets,min:1,max:undefined},
+  timeout: {presets:timeoutPresets,min:1,max:600},
+  response: {presets:responsePresets,min:1024,max:8388608},
+};
+
+/** 精确数值始终可编辑；预设只快捷填写数值，不改变实际单位或限制。 */
+export function ModelNumberInput({ id, label, value, kind, disabled, onChange }: {
   id: string;
   label: string;
   value: number;
-  kind: 'context' | 'output';
+  kind: keyof typeof settings;
   disabled: boolean;
   onChange: (value: number) => void;
 }) {
-  const presets = kind === 'context' ? contextPresets : outputPresets;
+  const {presets,min,max} = settings[kind];
   const selected = presets.find(option => option.value === value);
   const options = selected ? presets : [
     { value, short: '自定义', label: '自定义', description: value.toLocaleString('en-US') },
@@ -35,7 +52,7 @@ export function TokenBudgetInput({ id, label, value, kind, disabled, onChange }:
   ];
   return <div className={`model-token-input${disabled ? ' is-disabled' : ''}`}>
     <input id={id} className="settings-control model-token-value" type="number" inputMode="numeric"
-      min={kind === 'context' ? 256 : 1} max={kind === 'context' ? 16777216 : undefined}
+      min={min} max={max}
       step={1} value={value} disabled={disabled} onChange={event => onChange(Number(event.target.value))} />
     <Select id={`${id}-preset`} label={`${label}常用档位`} className="model-token-presets"
       value={value} displayValue={selected?.short ?? '自定义'} options={options}

@@ -39,7 +39,14 @@
 .model-protocol-heading { display: flex; align-items: center; gap: 9px; }.model-protocol-heading > .ui-accent-icon { width: 34px; height: 34px; border-radius: 9px; }.model-protocol-heading strong { font-size: 12px; }.model-protocol-heading p { margin-top: 5px; color: var(--settings-text-muted); font-size: 10px; line-height: 1.6; }
 .model-protocol-selected { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px; margin-top: 12px; border: 1px solid var(--settings-blue); border-radius: 7px; color: var(--settings-blue-text); background: var(--settings-tag-bg); }.model-protocol-selected span { display: grid; gap: 5px; }.model-protocol-selected strong { font-size: 12px; }.model-protocol-selected small { font-size: 10px; }
 .model-profile.selected { border-color: var(--settings-blue); box-shadow: inset 3px 0 var(--settings-blue); }.model-create:focus-visible { background: var(--settings-tag-bg); }
-.model-key-summary { display: flex; align-items: center; gap: 9px; padding: 11px 13px; border: 1px solid var(--settings-border); border-radius: 7px; background: var(--settings-panel); }.model-key-summary > .ui-accent-icon { width: 28px; height: 28px; border-radius: 7px; }.model-key-summary strong { display: block; font-size: 11px; font-weight: 500; }.model-key-summary small { display: block; margin-top: 6px; font-size: 10px; color: var(--settings-text-muted); }
+.model-key-input-row { display:flex; align-items:center; gap:16px; min-width:0; }
+.model-key-input-row > input { flex:1; min-width:0; }
+.model-key-toggle { display:flex; align-items:center; gap:9px; flex-shrink:0; white-space:nowrap; }
+.model-key-toggle > span { font-size:11px; color:var(--settings-text-muted); }
+.model-key-toggle > .toggle { flex-shrink:0; }
+.model-advanced-trio { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); grid-column:1 / -1; gap:12px; min-width:0; align-items:stretch; }
+.model-advanced-trio > .settings-field { min-width:0; }
+.model-advanced-trio .settings-field-head { min-height:32px; align-items:center; }
 .model-reasoning-presets { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }.model-reasoning-presets button { min-height: 53px; padding: 10px 12px; border: 1px solid var(--settings-border); border-radius: 7px; background: var(--settings-panel); justify-content: space-between; text-align: left; }.model-reasoning-presets button span { display: flex; align-items: baseline; flex-wrap: wrap; gap: 7px; }.model-reasoning-presets strong { font-size: 12px; font-weight: 600; }.model-reasoning-presets small { font-size: 10px; color: var(--settings-text-muted); }.model-reasoning-presets button:hover:not(:disabled) { border-color: var(--settings-tag-border); background: var(--settings-tag-bg); }.model-reasoning-presets button[aria-pressed='true'] { border-color: var(--settings-blue); background: var(--settings-tag-bg); color: var(--settings-blue-text); box-shadow: inset 0 0 0 1px var(--settings-blue); }
 .model-settings .settings-field { padding: 11px 13px; background: var(--settings-panel); border-color: var(--settings-border); gap: 8px; }
 .model-settings .settings-field-head label { font-size: 11px; font-weight: 600; }
@@ -68,6 +75,7 @@
 @container settings-pane (max-width: 460px) { .model-settings .settings-fields-grid { grid-template-columns: 1fr; }.model-editor-footer { padding-inline: 14px; }.model-editor-scroll { padding: 14px; } }
 @container model-editor (min-width: 940px) { .model-form-columns { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @container model-fields (max-width: 370px) { .model-settings .settings-fields-grid { grid-template-columns: 1fr; }.model-form-section { padding: 13px; }.model-field-badge { font-size: 8px; padding: 2px 5px; } }
+@container model-fields (max-width: 420px) { .model-advanced-trio { grid-template-columns:1fr; } .model-key-input-row { flex-wrap:wrap; gap:10px; } .model-key-input-row > input { flex-basis:100%; } .model-key-toggle { margin-left:auto; } }
 :root[data-theme='dark'] .model-feedback.error { color: #f1b0b6; border-color: #66404a; background: #35212b; }
 
 .agent-recovery-controls button { display: inline-flex; align-items: center; justify-content: center; gap: 4px; color: var(--text); }

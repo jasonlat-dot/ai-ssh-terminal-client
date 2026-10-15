@@ -354,6 +354,20 @@ pub async fn dispatch(
                 .await
                 .map_err(agent_error)?,
         ),
+        ("POST", "agent/steer") => value(
+            services
+                .agent
+                .steer(
+                    text(&body, "agentId")?.into(),
+                    text(&body, "userId")?.into(),
+                    text(&body, "sessionId")?.into(),
+                    text(&body, "expectedRequestId")?.into(),
+                    text(&body, "id")?.into(),
+                    text(&body, "message")?.into(),
+                )
+                .await
+                .map_err(agent_error)?,
+        ),
         ("POST", "agent/stop_chat") => value(
             services
                 .agent
@@ -678,7 +692,7 @@ pub async fn builtin_agent_subscribe(
         services,
         request,
         subscription,
-        execution_enabled.unwrap_or(false),
+        execution_enabled.unwrap_or(true),
         move |event| on_event.send(event).map_err(|_| ()),
     )
     .await

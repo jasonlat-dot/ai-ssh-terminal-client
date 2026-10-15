@@ -27,7 +27,7 @@ function settings() {
     if(name==='../api/models')return {modelApi:api,newModelConfig};
     if(name==='./Ui')return {AccentIcon:leaf,Badge:leaf,Icon:leaf,Toggle:leaf};
     if(name==='./Select')return {Select:leaf};
-    if(name==='./TokenBudgetInput')return {TokenBudgetInput:leaf};
+    if(name==='./ModelNumberInput')return {ModelNumberInput:leaf};
     if(name.endsWith('.css'))return {};
     throw new Error(name);
   }});
@@ -113,11 +113,52 @@ test('切回 Chat Completions 清除远端能力，锁定时协议和能力不�
   assert.match(chatErrorGuidance('MODEL_RESPONSES_UNSUPPORTED'),/供应商/);
 });
 
-test('函数工具能力显式保存，默认关闭，Responses 不提供该开关',async()=>{
+test('函数工具默认启用，设置中不再提供单独开关',async()=>{
   const ui=settings();ui.render();await ui.settle();
   ui.find(node=>node.props.className==='model-advanced-toggle').props.onClick();ui.render();
-  const toggle=ui.find(node=>node.props.label==='启用模型函数工具能力');assert.equal(toggle.props.value,false);
-  toggle.props.onChange(true);ui.render();
+  assert.equal(ui.find(node=>node.props.label==='启用模型函数工具能力'),undefined);
   ui.find(node=>node.type==='form').props.onSubmit({preventDefault(){}});await ui.settle();assert.equal(ui.saved[0][2].capabilities.toolCalls,true);
   ui.find(node=>node.props.id==='model-protocol').props.onChange('openAiResponses');ui.render();assert.equal(ui.find(node=>node.props.label==='启用模型函数工具能力'),undefined);
+});
+
+test('密钥不回显，留空保存保留密钥，输入新值则替换并清空输入框',async()=>{
+  const ui=settings();ui.render();await ui.settle();
+  const keyInput=()=>ui.find(node=>node.type==='input'&&node.props.id==='model-api-key');
+  assert.equal(keyInput().props.type,'password');
+  assert.equal(keyInput().props.value,'');
+  assert.equal(keyInput().props.placeholder,'已配置，留空表示不修改');
+  ui.find(node=>node.type==='form').props.onSubmit({preventDefault(){}});await ui.settle();
+  assert.equal(ui.saved[0][3].action,'keep');
+  assert.equal(ui.saved[0][3].value,undefined);
+  keyInput().props.onChange({target:{value:'  fake-replacement-key  '}});ui.render();
+  ui.find(node=>node.type==='form').props.onSubmit({preventDefault(){}});await ui.settle();
+  assert.equal(ui.saved[1][3].action,'set');
+  assert.equal(ui.saved[1][3].value,'fake-replacement-key');
+  assert.equal(keyInput().props.value,'');
+});
+
+test('关闭和重新开启使用密钥只保存开关，不删除或回传现有密钥',async()=>{
+  const ui=settings();ui.render();await ui.settle();
+  for(const enabled of [false,true]){
+    ui.find(node=>node.props.label==='此服务需要 API Key').props.onChange(enabled);ui.render();
+    ui.find(node=>node.type==='form').props.onSubmit({preventDefault(){}});await ui.settle();
+    const args=ui.saved.at(-1);
+    assert.equal(args[2].requireApiKey,enabled);
+    assert.equal(args[3].action,'keep');
+    assert.equal(args[3].value,undefined);
+    assert.equal(ui.find(node=>node.props.id==='model-api-key'&&node.type==='input').props.value,'');
+  }
+});
+
+test('更换 API 地址不能携带旧密钥，输入替换密钥后才可保存',async()=>{
+  const ui=settings();ui.render();await ui.settle();
+  ui.find(node=>node.type==='input'&&node.props.id==='model-url').props.onChange({target:{value:'https://other.example/v1/'}});ui.render();
+  ui.find(node=>node.type==='form').props.onSubmit({preventDefault(){}});await ui.settle();
+  assert.equal(ui.saved.length,0);
+  ui.find(node=>node.type==='input'&&node.props.id==='model-api-key').props.onChange({target:{value:'fake-new-service-key'}});ui.render();
+  ui.find(node=>node.type==='form').props.onSubmit({preventDefault(){}});await ui.settle();
+  assert.equal(ui.saved.length,1);
+  assert.equal(ui.saved[0][2].baseUrl,'https://other.example/v1/');
+  assert.equal(ui.saved[0][3].action,'set');
+  assert.equal(ui.saved[0][3].value,'fake-new-service-key');
 });

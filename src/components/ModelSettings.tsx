@@ -5,7 +5,7 @@ import type { KeyChange, ModelConfig, ModelProfile } from '../api/models';
 import { AccentIcon, Badge, Icon, Toggle } from './Ui';
 import type { AccentTone, IconName } from './Ui';
 import { Select } from './Select';
-import { TokenBudgetInput } from './TokenBudgetInput';
+import { ModelNumberInput } from './ModelNumberInput';
 import './ModelSettings.css';
 
 function ModelField({ id, label, hint, children, wide = false, badge, icon, tone = 'blue' }: { id:string; label:string; hint?:string; children:ReactNode; wide?:boolean; badge?:string; icon?:IconName; tone?:AccentTone }) {
@@ -20,7 +20,6 @@ export function ModelSettings({ changed, locked = false }: { changed?: () => voi
   const [editing, setEditing] = useState<ModelProfile | null>(null);
   const [displayName, setDisplayName] = useState('');
   const [config, setConfig] = useState(newModelConfig);
-  const [action, setAction] = useState<KeyChange['action']>('set');
   const [key, setKey] = useState('');
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState('');
@@ -35,7 +34,7 @@ export function ModelSettings({ changed, locked = false }: { changed?: () => voi
   }, []);
   const select = (profile: ModelProfile | null) => {
     setEditing(profile); setDisplayName(profile?.displayName ?? profile?.id ?? ''); setConfig(profile?.config ?? newModelConfig());
-    setKey(''); setAction(profile ? 'keep' : 'set'); setError(''); setNotice(''); setConfirmDelete(false); setAdvanced(false);
+    setKey(''); setError(''); setNotice(''); setConfirmDelete(false); setAdvanced(false);
   };
   const field = <K extends keyof ModelConfig>(name: K, value: ModelConfig[K]) => setConfig(c => ({ ...c, [name]: value }));
   const protocol = (provider: ModelConfig['provider']) => {
@@ -52,10 +51,10 @@ export function ModelSettings({ changed, locked = false }: { changed?: () => voi
     setBusy(true); setError(''); setNotice('');
     try {
       if (!displayName.trim()) throw new Error('请输入配置名称。');
-      if (action === 'set' && !key.trim()) throw new Error('请输入新的 API Key。');
-      if (editing?.apiKeyConfigured && action === 'keep' && config.baseUrl.trim().replace(/\/+$/, '') !== editing.config.baseUrl.replace(/\/+$/, ''))
-        throw new Error('更换 API 地址时，请明确替换或清除原来的 API Key。');
-      const saved = await modelApi.save(editing?.id ?? crypto.randomUUID(), editing?.revision ?? 0, config, action === 'set' ? { action, value: key } : { action }, displayName.trim());
+      const apiKey:KeyChange = key.trim() ? {action:'set',value:key.trim()} : {action:'keep'};
+      if (editing?.apiKeyConfigured && apiKey.action === 'keep' && config.baseUrl.trim().replace(/\/+$/, '') !== editing.config.baseUrl.replace(/\/+$/, ''))
+        throw new Error('更换 API 地址时，请输入新密钥；无需密钥的服务请新建配置。');
+      const saved = await modelApi.save(editing?.id ?? crypto.randomUUID(), editing?.revision ?? 0, config, apiKey, displayName.trim());
       select(saved); setProfiles(items => [...items.filter(p => p.id !== saved.id), saved].sort((a,b) => (a.displayName ?? a.id).localeCompare(b.displayName ?? b.id)));
       setNotice(saved.ready ? '已保存，可返回终端选择此模型并发送消息。连接将在发送时验证。' : '已保存；需要配置 API Key 后才能对话。');
       changed?.();
@@ -101,28 +100,31 @@ export function ModelSettings({ changed, locked = false }: { changed?: () => voi
               </div>
             </section>
             <section className="model-form-section"><div className="model-section-title"><AccentIcon icon="key" tone="amber" size={17}/><h4>身份认证</h4><Badge tone="amber" icon="shield">敏感</Badge></div>
-              <div className="model-auth-toggle"><div><strong>使用 API Key</strong><p>无认证的本地模型服务可以关闭。</p></div><Toggle label="此服务需要 API Key" value={config.requireApiKey} disabled={disabled} onChange={value => { field('requireApiKey', value); if (!editing && !value) { setAction('clear'); setKey(''); } }}/></div>
-              <div className="settings-fields-grid">
-                <ModelField id="model-key-action" label="密钥操作"><Select id="model-key-action" label="密钥操作" className="settings-control" value={action} disabled={disabled} options={[{value:'keep',label:'保留现有密钥'},{value:'set',label:'设置 / 替换密钥'},{value:'clear',label:'清除密钥'}]} onChange={value => {setAction(value);setKey('');}} /></ModelField>
-                {action === 'set' ? <ModelField id="model-api-key" label="新 API Key" badge="敏感" icon="shield" tone="amber"><input id="model-api-key" className="settings-control settings-control-mono" type="password" autoComplete="new-password" value={key} onChange={e => setKey(e.target.value)} placeholder="输入 API Key" /></ModelField> : <div className="model-key-summary"><AccentIcon icon="key" tone={editing?.apiKeyConfigured ? 'success' : 'neutral'} size={16}/><div><strong>{editing?.apiKeyConfigured ? '密钥已保存' : '尚未保存密钥'}</strong><small>{action === 'clear' ? '保存时清除密钥' : '加密保存，不回显原文'}</small></div></div>}
-              </div><p className="model-field-note">已保存的密钥不会回显。更换 API 地址时，需要替换或清除密钥。</p>
+              <ModelField id="model-api-key" label="API Key">
+                <div className="model-key-input-row">
+                  <input id="model-api-key" className="settings-control settings-control-mono" type="password" autoComplete="new-password" spellCheck={false} value={key} onChange={e => setKey(e.target.value)} placeholder={editing?.apiKeyConfigured?'已配置，留空表示不修改':'未配置，请输入 API Key'}/>
+                  <div className="model-key-toggle"><span>使用 API Key</span><Toggle label="此服务需要 API Key" value={config.requireApiKey} disabled={disabled} onChange={value=>field('requireApiKey',value)}/></div>
+                </div>
+              </ModelField>
+              <p className="model-field-note">密钥加密保存，不回显原文。关闭后请求不携带密钥，已保存的密钥仍保留。</p>
             </section>
             </div><div className="model-form-column">
             <section className="model-form-section"><div className="model-section-title"><AccentIcon icon="signal" tone="violet" size={17}/><h4>接口与生成</h4><Badge tone="violet" icon="settings">参数</Badge></div><div className="settings-fields-grid">
               <ModelField id="model-path" label="接口相对路径" hint="与基础地址拼接，避免重复 /v1。"><input id="model-path" className="settings-control settings-control-mono" value={config.completionsPath} onChange={e => field('completionsPath', e.target.value)} /></ModelField>
               <ModelField id="model-token-param" label="输出参数">{config.provider === 'openAiResponses' ? <input id="model-token-param" className="settings-control settings-control-mono" value="max_output_tokens" readOnly /> : <Select id="model-token-param" label="输出参数" className="settings-control" value={config.outputTokenParameter} disabled={disabled} options={[{value:'maxCompletionTokens',label:'max_completion_tokens'},{value:'maxTokens',label:'max_tokens'}]} onChange={value => field('outputTokenParameter', value)}/>}</ModelField>
-              <ModelField id="model-window" label="上下文窗口" badge="TOKENS" tone="blue" hint="选择常用档位或直接输入，以供应商上限为准。"><TokenBudgetInput id="model-window" label="上下文窗口" kind="context" value={config.contextWindow} disabled={disabled} onChange={value => field('contextWindow', value)} /></ModelField>
-              <ModelField id="model-output" label="最大输出" badge="TOKENS" tone="blue" hint="为本次回复预留，不超过模型的输出上限。"><TokenBudgetInput id="model-output" label="最大输出" kind="output" value={config.outputReserve} disabled={disabled} onChange={value => field('outputReserve', value)} /></ModelField>
-              <ModelField id="model-timeout" label="请求超时（秒）"><input id="model-timeout" className="settings-control" type="number" min={1} max={600} value={config.timeoutSeconds} onChange={e => field('timeoutSeconds', Number(e.target.value))} /></ModelField>
-              <ModelField id="model-response" label="最大响应（bytes）"><input id="model-response" className="settings-control" type="number" min={1024} max={8388608} value={config.maxResponseBytes} onChange={e => field('maxResponseBytes', Number(e.target.value))} /></ModelField>
+              <ModelField id="model-window" label="上下文窗口" badge="TOKENS" tone="blue" hint="选择常用档位或直接输入，以供应商上限为准。"><ModelNumberInput id="model-window" label="上下文窗口" kind="context" value={config.contextWindow} disabled={disabled} onChange={value => field('contextWindow', value)} /></ModelField>
+              <ModelField id="model-output" label="最大输出" badge="TOKENS" tone="blue" hint="为本次回复预留，不超过模型的输出上限。"><ModelNumberInput id="model-output" label="最大输出" kind="output" value={config.outputReserve} disabled={disabled} onChange={value => field('outputReserve', value)} /></ModelField>
+              <ModelField id="model-timeout" label="请求超时（秒）"><ModelNumberInput id="model-timeout" label="请求超时" kind="timeout" value={config.timeoutSeconds} disabled={disabled} onChange={value => field('timeoutSeconds', value)} /></ModelField>
+              <ModelField id="model-response" label="最大响应（bytes）"><ModelNumberInput id="model-response" label="最大响应" kind="response" value={config.maxResponseBytes} disabled={disabled} onChange={value => field('maxResponseBytes', value)} /></ModelField>
             </div></section>
             <section className={`model-form-section model-advanced ${advanced ? 'open' : ''}`}><button type="button" className="model-advanced-toggle" aria-expanded={advanced} aria-controls="model-advanced-fields" onClick={() => setAdvanced(value => !value)}><Icon name="settings" size={16}/><span><strong>高级参数</strong><small>请求限制与供应商兼容选项</small></span><Icon name={advanced ? 'up' : 'down'} size={15}/></button>
               {advanced && <div id="model-advanced-fields" className="settings-fields-grid">
+                <div className="model-advanced-trio">
                 <ModelField id="model-safety" label="安全预留（tokens）"><input id="model-safety" className="settings-control" type="number" min={0} value={config.safetyReserve} onChange={e => field('safetyReserve', Number(e.target.value))} /></ModelField>
-                {config.provider === 'openAiCompatible' && <div className="model-auth-toggle settings-field is-wide"><div><strong>函数工具能力</strong><p>仅在模型支持 Chat Completions function tools 时开启。服务器任务中可显式启用 SSH 工具，每条命令仍需审批。</p></div><Toggle label="启用模型函数工具能力" value={config.capabilities.toolCalls} disabled={disabled} onChange={value=>field('capabilities',{...config.capabilities,toolCalls:value})}/></div>}
-                {config.provider === 'openAiResponses' && <div className="model-auth-toggle settings-field is-wide"><div><strong>供应商远端整理</strong><p>仅在供应商支持 responses/compact 时开启。完整窗口加密项保存在本机；切换模型、接口或密钥后需新建会话。关闭时按容量限制对话。</p></div><Toggle label="启用 Responses 远端整理" value={!!config.remoteCompaction} disabled={disabled} onChange={value => field('remoteCompaction', value)}/></div>}
                 <ModelField id="model-compact" label="自动整理触发比例" badge="%" tone="blue" hint={config.provider === 'openAiResponses' && !config.remoteCompaction ? '启用供应商远端整理后，此比例用于触发。' : '接近此比例时整理较早对话，原始历史仍会保留。'}><input id="model-compact" className="settings-control" type="number" min={1} max={99} value={config.compactPercent} onChange={e => field('compactPercent', Number(e.target.value))} /></ModelField>
                 <ModelField id="model-temperature" label="Temperature" hint="留空则不发送"><input id="model-temperature" className="settings-control" type="number" min={0} max={2} step="0.1" value={config.temperature ?? ''} onChange={e => { field('temperature', e.target.value === '' ? null : Number(e.target.value)); field('capabilities', { ...config.capabilities, temperature: e.target.value !== '' }); }} /></ModelField>
+                </div>
+                {config.provider === 'openAiResponses' && <div className="model-auth-toggle settings-field is-wide"><div><strong>供应商远端整理</strong><p>仅在供应商支持 responses/compact 时开启。完整窗口加密项保存在本机；切换模型、接口或密钥后需新建会话。关闭时按容量限制对话。</p></div><Toggle label="启用 Responses 远端整理" value={!!config.remoteCompaction} disabled={disabled} onChange={value => field('remoteCompaction', value)}/></div>}
                 <ModelField id="model-reasoning" label="推理强度" wide badge="REASONING" icon="bulb" tone="amber" hint="仅在供应商明确支持时设置；默认不发送此参数。">
                   <Select id="model-reasoning" label="Reasoning effort" className="settings-control" value={config.reasoningEffort ?? ''} disabled={disabled} options={[{value:'',label:'不发送（默认）'},...(['none','minimal','low','medium','high','xhigh'] as const).map(value => ({value,label:value}))]} onChange={value => { field('reasoningEffort', (value || null) as ModelConfig['reasoningEffort']); field('capabilities', { ...config.capabilities, reasoningEffort: !!value }); }}/>
                   <div className="model-reasoning-presets" aria-label="推理强度快捷选项">{([{value:'none',label:'关闭'},{value:'minimal',label:'极低'},{value:'low',label:'低'},{value:'medium',label:'中'},{value:'high',label:'高'},{value:'xhigh',label:'很高'}] as const).map(option => <button type="button" key={option.value} disabled={disabled} aria-pressed={config.reasoningEffort === option.value} onClick={() => {field('reasoningEffort', option.value);field('capabilities',{...config.capabilities,reasoningEffort:true});}}><span><strong>{option.label}</strong><small>{option.value}</small></span>{config.reasoningEffort === option.value && <Icon name="check" size={13}/>}</button>)}</div>

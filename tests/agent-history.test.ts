@@ -4,6 +4,10 @@ import { readAgentHistory, turnMessages } from '../src/state/agentHistory.ts';
 import type { AgentHistory, AgentTurn } from '../src/api/agent.ts';
 const session = { id:'s', agentId:'m', userId:'default', revision:1 };
 const turn = (state: AgentTurn['state'], cursor = 1): AgentTurn => ({requestId:`r${cursor}`,message:'question',target:null,state,partialText:'partial',resultText:'完整回复',errorCode:null,usage:null,cursor,createdAt:1,updatedAt:2});
+test('Steered user inputs restore once and distinguish accepted but unapplied input',()=>{
+  const t=turn('completed');t.inputs=[{id:'applied',message:'first input',eventId:3,createdAt:2},{id:'pending',message:'saved input',eventId:null,createdAt:3}];
+  const messages=turnMessages([t]);assert.deepEqual(messages.map(m=>m.id),['r1:user','applied','pending','r1']);assert.equal(messages[1].inputPending,false);assert.equal(messages[2].inputPending,true);assert.equal(messages[3].text,'完整回复');
+});
 test('Restored turns distinguish complete output from failed cancelled running and interrupted partials', () => {
   for (const state of ['completed','failed','cancelled','running','interrupted'] as const) {
     const messages = turnMessages([turn(state)]);

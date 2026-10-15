@@ -20,6 +20,18 @@ function harness(handler:(command:string,args:any)=>unknown) {
   globalThis.fetch=async()=>{throw new Error('Agent must use IPC');};
 }
 const body={requestId:'turn-1',agentId:'model',userId:'default',sessionId:'chat',terminalSessionId:'',message:'hello'};
+test('Steering is an exact-turn native request and does not send a stop or start another turn',async()=>{
+  const requests:any[]=[];harness((command,args)=>{assert.equal(command,'builtin_request');requests.push(args.request);return Promise.resolve({id:'input-1',message:'只讨论',eventId:null,createdAt:1});});
+  await agentApi.steer('model','chat','turn-1','input-1','只讨论');
+  assert.equal(requests.length,1);assert.equal(requests[0].endpoint,'agent/steer');assert.deepEqual(requests[0].body,{agentId:'model',sessionId:'chat',expectedRequestId:'turn-1',id:'input-1',message:'只讨论',userId:'default'});
+});
+test('Applied steering receipts share ordered Channel ACK and invalid receipts cancel the stream',async()=>{
+  const received:AgentStreamEvent[]=[];let cancelled=false;
+  harness((command,args)=>{if(command==='builtin_cancel')cancelled=true;if(command==='builtin_agent_subscribe'){args.onEvent.onmessage({sequence:1,requestId:'turn-1',payload:{event:'input',input:{id:'input',message:'补充',eventId:9,createdAt:1}}});args.onEvent.onmessage({sequence:2,requestId:'turn-1',payload:{event:'done',content:'answer'}});}return Promise.resolve();});
+  await agentApi.chatStream(body,e=>received.push(e));assert.equal(received[0].event,'input');assert.equal(cancelled,false);
+  harness((command,args)=>{if(command==='builtin_cancel')cancelled=true;if(command==='builtin_agent_subscribe')args.onEvent.onmessage({sequence:1,requestId:'turn-1',payload:{event:'input',input:{id:'bad',message:'bad',eventId:null}}});return Promise.resolve();});
+  await assert.rejects(agentApi.chatStream(body,()=>{}));assert.equal(cancelled,true);
+});
 test('Model settings use native owner-scoped CRUD and explicit key replacement without browser storage', async () => {
   const requests: any[] = [];
   harness((command,args) => { assert.equal(command,'builtin_request'); requests.push(args.request); return Promise.resolve(args.request.method==='GET'?[]:true); });
