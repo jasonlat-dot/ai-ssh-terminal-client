@@ -1,6 +1,24 @@
 import type { AgentHistory, AgentTurn } from '../api/agent';
-import type { ChatMessage } from '../types';
+import type { ChatMessage, ChatMessageSegment, ChatToolActivity } from '../types';
 
+function toolSegments(turn:AgentTurn):ChatMessageSegment[]|undefined {
+  if(!turn.toolEvents?.length)return undefined;
+  const tools=new Map<string,ChatToolActivity>();
+  for(const event of turn.toolEvents){const p=event.payload;
+    if(p.type==='toolCall'){
+      let args=p.arguments.modelArguments??p.arguments;
+      if(typeof args==='string'){try{args=JSON.parse(args);}catch{args={};}}
+      const command=args&&typeof args==='object'&&'command' in args&&typeof args.command==='string'?args.command:undefined;
+      tools.set(p.callId,{id:p.callId,name:p.toolName,command,status:turn.state==='running'?'running':'unknown'});
+    }else{const old=tools.get(p.callId);let output=p.text;
+      if(p.outputs?.length){try{const parsed=JSON.parse(output);if(parsed&&typeof parsed==='object')output=JSON.stringify({...parsed,data:{...parsed.data,outputs:p.outputs}});}catch{/* Preserve original evidence text. */}}
+      tools.set(p.callId,{id:p.callId,name:old?.name??'工具',command:old?.command,status:p.outcome==='success'?'success':p.outcome==='unknown'?'unknown':'error',output});}
+  }
+  const segments:ChatMessageSegment[]=[...tools.values()].map(tool=>({id:tool.id,type:'tool',tool}));
+  const text=turn.state==='completed'?turn.resultText:turn.partialText;
+  if(text)segments.push({id:`${turn.requestId}:text`,type:'text',text});
+  return segments;
+}
 const states = { running: '仍在生成，可刷新历史或停止。', completed: '', cancelled: '已停止生成。', failed: '生成失败。', interrupted: '生成已中断，重新发送会开始新的请求。' };
 export function turnMessages(turns: AgentTurn[]): ChatMessage[] {
   return turns.flatMap(turn => [
@@ -8,6 +26,7 @@ export function turnMessages(turns: AgentTurn[]): ChatMessage[] {
     { id: turn.requestId, role: 'assistant' as const, timestamp: turn.state === 'running' ? undefined : turn.updatedAt,
       text: turn.state === 'completed' ? turn.resultText ?? '' : turn.partialText,
       summary: states[turn.state] || undefined,
+      segments: toolSegments(turn),
       error: turn.state === 'failed' || turn.state === 'interrupted',
       errorCode: turn.errorCode ?? undefined },
   ]);

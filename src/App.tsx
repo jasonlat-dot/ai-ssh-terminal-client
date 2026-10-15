@@ -995,6 +995,23 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     setNavigation('命令');
     if (name === '命令') setConnectionSidebarCollapsed(false);
   };
+  const [executionMode,setExecutionMode]=useState<{sessionId:string;terminalId:string}|null>(null);
+  const executionEnabled=!!executionMode&&executionMode.sessionId===activeChatSessionId;
+  const toggleExecution=async()=>{
+    if(chatting.current||stopPending.current||scopeSwitchRef.current)return;
+    if(executionEnabled){setExecutionMode(null);return;}
+    const sessionId=chatSessionId.current,agentId=selectedAgent?.agentId;
+    const terminal=activeProject?sessions.find(s=>s.terminalSessionId===projectTerminalId&&isSessionConnected(s)):scopeTerminal(canonicalHistory?.session,sessions,active);
+    if(!sessionId||!agentId||!terminal?.terminalSessionId){notify('请先连接并选择此聊天对应的服务器。','error');return;}
+    const version=chatVersion.current;
+    scopeSwitchRef.current=true;setScopeSwitching(true);
+    try{const session=await agentApi.bindExecution(agentId,sessionId,terminal.terminalSessionId);
+      if(version!==chatVersion.current)return;
+      setCanonicalHistory(old=>old?.session.id===sessionId?{...old,session}:old);
+      setExecutionMode({sessionId,terminalId:terminal.terminalSessionId});
+    }catch(e){if(version===chatVersion.current)notify(e instanceof Error?e.message:'绑定失败','error');}
+    finally{scopeSwitchRef.current=false;if(version===chatVersion.current)setScopeSwitching(false);}
+  };
   const sendMessage = async (text: string, selectedAttachments: ChatAttachment[] = []): Promise<boolean> => {
     if (chatting.current || stopPending.current || scopeSwitchRef.current || historyLoadingId || recoveredRunning || agentLoading || agentLoadError || (activeProject && !chatSessionId.current)) return false;
     // Fix this turn's references before any session creation or network await.
@@ -1005,7 +1022,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     const currentSession = active;
     const client = currentSession ? terminalClients.current.get(currentSession.id) : undefined;
     const scopeRuntime = activeProject ? sessions.find(item=>item.terminalSessionId===projectTerminalId && isSessionConnected(item)) : scopeTerminal(canonicalHistory?.session,sessions,currentSession);
-    const terminalSessionId = rustBuiltin
+    const terminalSessionId = executionEnabled ? executionMode!.terminalId : rustBuiltin
       ? canonicalHistory?.session.scope?.kind === 'server' ? scopeRuntime?.terminalSessionId ?? ''
         : canonicalHistory?.session.task?.target?.terminalSessionId ?? ''
       : currentSession?.kind === 'ssh' && isSessionConnected(currentSession)
@@ -1192,6 +1209,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
       }
       await agentApi.chatStream({
         requestId:assistantId,
+        executionEnabled,
         agentId: selectedAgent.agentId,
         userId: agentApi.userId,
         sessionId: chatSessionId.current,
@@ -1230,7 +1248,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
           if (rustBuiltin && sessionId) {
             try {
               const history = await readAgentHistory(after => agentApi.history(selectedAgent.agentId, sessionId, after));
-              if (version === chatVersion.current) { setCanonicalHistory(history); chatTarget.current = history.session.task?.target ?? null; replaceMessages(turnMessages(history.turns));
+              if (version === chatVersion.current) { setCanonicalHistory(history); chatTarget.current = history.session.task?.target ?? null; replaceMessages(turnMessages(history.turns)); if(history.session.task?.status!=='active')setExecutionMode(null);
               }
             } catch (e) { if (version === chatVersion.current) notify(e instanceof Error ? e.message : '重读持久历史失败', 'error'); }
           }
@@ -1605,6 +1623,12 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     <PanelDivider value={terminalWidth} change={setTerminalWidth} min={24} max={75} defaultValue={34} minPixels={320} reservePixels={360} reserveWidthSelectors=".activity-bar, .workspace-sidebar"
       controls="terminal-dock-content" label="调整对话与终端宽度" collapseLabel="终端面板" collapsed={agentCollapsed || terminalDockCollapsed} collapse={() => setTerminalDockCollapsed(true)} />
     <AgentPanel ref={agentComposer} chatDraft={chatDraft} draftScope={chatVersion.current}
+      execution={rustBuiltin&&selectedAgent&&activeChatSessionId&&canonicalHistory?.session.scope?.kind==='server'?{
+        agentId:selectedAgent.agentId,sessionId:activeChatSessionId,enabled:executionEnabled,available:!!selectedAgent.toolsAvailable,
+        connected:activeProject?projectConnected:chatTargetState.connected,locked:chatBusy||chatStopping||!!historyLoadingId||recoveredRunning||scopeSwitching,
+        target:canonicalHistory.session.scope.identity,terminalId:canonicalHistory.session.task?.target?.terminalSessionId,
+        hidden:agentCollapsed,toggle:toggleExecution,
+      }:undefined}
       contextStatus={contextStatus} contextError={contextError} refreshContext={()=>setContextReload(value=>value+1)}
       host={chatTargetState.host} connected={activeProject ? projectConnected : chatTargetState.connected}
       localTerminal={chatTargetState.localTerminal} targetLabel={rustBuiltin ? activeProject ? activeProject.name+(projectConnected?' · 服务器任务':' · 离线讨论') : chatTargetState.label : undefined}

@@ -1850,3 +1850,173 @@ async fn project_native_history_restores_without_new_chat_and_rebinds_after_work
     resumed.shutdown().await;
     server.abort();
 }
+
+#[tokio::test]
+async fn d5_native_channel_waits_for_human_approval_executes_bound_ssh_and_restores_outputs() {
+    use shellpilot_server::agent::provider::*;
+    let fixture = protocol::Fixture::new(protocol::Spec::default()).await;
+    let (_dir, services) = services().await;
+    let connection = services.store.save(fixture.request(false), false).unwrap();
+    let terminal = services
+        .terminals
+        .connect(protocol::open(&connection.connection_id))
+        .await
+        .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = format!("http://{}/", listener.local_addr().unwrap());
+    let calls = Arc::new(AtomicU64::new(0));
+    let count = calls.clone();
+    let router=axum::Router::new().route("/chat/completions",axum::routing::post(move|axum::Json(body):axum::Json<Value>|{let count=count.clone();async move{
+        if body["stream"]==true {
+            let messages=body["messages"].to_string();assert!(messages.contains("历史工具证据"));assert!(messages.contains("__exec_chunked__"));assert!(messages.contains("textOnly"));
+            let events=format!("data: {}\n\ndata: {}\n\ndata: [DONE]\n\n",json!({"choices":[{"index":0,"delta":{"content":"离线分析历史输出"},"finish_reason":null}]}),json!({"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}));
+            return axum::response::Response::builder().header("content-type","text/event-stream").body(axum::body::Body::from(events)).unwrap();
+        }
+        assert_eq!(body["tools"].as_array().unwrap().len(),2);
+        let index=count.fetch_add(1,Ordering::SeqCst);
+        let (message,reason)=if index==0{(json!({"role":"assistant","content":null,"tool_calls":[{"id":"ipc-command","type":"function","function":{"name":"ssh_execute","arguments":"{\"command\":\"__exec_chunked__\",\"timeoutSeconds\":2}"}}]}),"tool_calls")}
+        else{assert_eq!(index,1);let messages=body["messages"].as_array().unwrap();assert!(messages.iter().any(|m|m["role"]=="tool"&&m["tool_call_id"]=="ipc-command"));(json!({"role":"assistant","content":"已读取绑定服务器日志"}),"stop")};
+        axum::response::IntoResponse::into_response(axum::Json(json!({"choices":[{"index":0,"message":message,"finish_reason":reason}]})))
+    }}));
+    let server = tokio::spawn(async move {
+        axum::serve(listener, router).await.unwrap();
+    });
+    save_test_model(&services, address);
+    let models = ModelRepository::new(services.store.clone());
+    let mut config = models.get("model", "default").unwrap();
+    config.config.capabilities.tool_calls = true;
+    models
+        .save(
+            "model",
+            "default",
+            config.revision,
+            ModelConfigUpdate {
+                config: config.config,
+                api_key: KeyChange::Keep,
+            },
+        )
+        .unwrap();
+    let root = services
+        .agent
+        .create_general_session("model".into(), "default".into())
+        .await
+        .unwrap();
+    let session=dispatch(services.clone(),"agent/server_scope","POST",json!({"agentId":"model","userId":"default","rootId":root.id,"terminalSessionId":terminal.session_id}),Value::Null).await.unwrap();
+    let id = session["id"].as_str().unwrap().to_owned();
+    let bound=dispatch(services.clone(),"agent/execution_bind","POST",json!({"agentId":"model","userId":"default","sessionId":id,"terminalSessionId":terminal.session_id}),Value::Null).await.unwrap();
+    assert_eq!(
+        bound["task"]["target"]["terminalSessionId"],
+        terminal.session_id
+    );
+    let request:shellpilot_server::agent::chat::Request=serde_json::from_value(json!({"requestId":"ipc-d5-turn","agentId":"model","userId":"default","sessionId":id,"terminalSessionId":terminal.session_id,"message":"查看日志"})).unwrap();
+    let params = json!({"agentId":"model","userId":"default","sessionId":id});
+    let sub = subscription();
+    let stream = sub.clone();
+    let copy = services.clone();
+    let r = request.clone();
+    let (tx, mut events) = tokio::sync::mpsc::unbounded_channel();
+    let run = tokio::spawn(agent_stream_mode(copy, r, stream, true, move |event| {
+        tx.send(event).map_err(|_| ())
+    }));
+    let mut tool_call = false;
+    let mut tool_result = false;
+    let mut done = false;
+    tokio::time::timeout(Duration::from_secs(12),async{
+        while let Some(frame)=events.recv().await{
+            assert_eq!(frame["requestId"],"ipc-d5-turn");
+            let sequence=frame["sequence"].as_u64().unwrap();assert!(sequence>0);acknowledge(&sub,sequence);
+            match frame["payload"]["event"].as_str().unwrap(){
+                "tool_call"=>{
+                    tool_call=true;assert_eq!(frame["payload"]["command"],"__exec_chunked__");
+                    let receipt=loop{let list=dispatch(services.clone(),"agent/execution_requests","GET",Value::Null,params.clone()).await.unwrap();if let Some(r)=list.as_array().unwrap().iter().find(|r|r["state"]=="pending"){break r.clone();}tokio::time::sleep(Duration::from_millis(10)).await;};
+                    assert!(fixture.stats.execs.lock().unwrap().is_empty());
+                    assert_eq!(receipt["binding"]["tool"]["target"]["connectionId"],connection.connection_id);
+                    let mut forged=params.clone();forged["userId"]=json!("intruder");
+                    assert!(dispatch(services.clone(),"agent/execution_requests","GET",Value::Null,forged).await.is_err());
+                    dispatch(services.clone(),"agent/execution_decision","POST",json!({"agentId":"model","userId":"default","sessionId":id,"id":receipt["id"],"action":"approveOnce"}),Value::Null).await.unwrap();
+                },
+                "tool_result"=>{tool_result=true;assert_eq!(frame["payload"]["status"],"success");},
+                "done"=>{done=true;break;},
+                "context"=>{},other=>panic!("unexpected native frame {other}")
+            }
+        }
+    }).await.unwrap();
+    run.await.unwrap().unwrap();
+    assert!(tool_call && tool_result && done);
+    assert_eq!(fixture.stats.execs.lock().unwrap().len(), 1);
+    let history = dispatch(
+        services.clone(),
+        "agent/chat_history",
+        "GET",
+        Value::Null,
+        params.clone(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(history["turns"][0]["state"], "completed");
+    let result = &history["turns"][0]["toolEvents"][1]["payload"];
+    let output = result["outputs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["channel"] == "stdout")
+        .unwrap();
+    let mut range = params.clone();
+    range["outputId"] = output["id"].clone();
+    range["offset"] = json!("65534");
+    range["limit"] = json!("512");
+    let bytes = dispatch(
+        services.clone(),
+        "agent/execution_output",
+        "GET",
+        Value::Null,
+        range.clone(),
+    )
+    .await
+    .unwrap();
+    let bytes: Vec<u8> = serde_json::from_value(bytes["bytes"].clone()).unwrap();
+    assert_eq!(
+        bytes,
+        (65534..66046).map(|i| (i % 251) as u8).collect::<Vec<_>>()
+    );
+    services.terminals.shutdown().await;
+    let mut offline = request.clone();
+    offline.request_id = "ipc-d5-offline".into();
+    offline.terminal_session_id = String::new();
+    offline.message = "根据已有记录分析，无需执行".into();
+    let target = services.agent.text_target(offline.clone()).await.unwrap();
+    services
+        .agent
+        .chat_desktop(
+            offline,
+            target,
+            false,
+            &CancellationToken::new(),
+            |_| async { Ok(()) },
+        )
+        .await
+        .unwrap();
+    assert_eq!(fixture.stats.execs.lock().unwrap().len(), 1);
+    server.abort();
+    let sub = subscription();
+    let ack = sub.clone();
+    agent_stream_mode(services.clone(), request, sub, true, move |frame| {
+        assert_eq!(frame["payload"]["event"], "done");
+        acknowledge(&ack, frame["sequence"].as_u64().unwrap());
+        Ok(())
+    })
+    .await
+    .unwrap();
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    assert_eq!(fixture.stats.execs.lock().unwrap().len(), 1);
+    dispatch(
+        services.clone(),
+        "agent/execution_output",
+        "GET",
+        Value::Null,
+        range,
+    )
+    .await
+    .unwrap();
+    services.shutdown().await;
+}

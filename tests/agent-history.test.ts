@@ -28,3 +28,12 @@ test('Broken or excessive history pagination fails instead of silently truncatin
 test('A context revision change during pagination cannot combine different snapshots', async () => {
   await assert.rejects(readAgentHistory(async after => ({session:{...session,revision:after+1},turns:[turn('completed',after+1)],hasMore:after===0,nextAfter:after+1})), /会话已更新/);
 });
+
+test('D5 restored tool records retain paired failure and unknown output references without claiming success',()=>{
+  const t=turn('interrupted');t.toolEvents=[{id:2,payload:{type:'toolCall',callId:'a',toolName:'ssh_execute',arguments:{modelArguments:{command:'check'}}}},
+    {id:3,payload:{type:'toolResult',callId:'a',outcome:'error',exitCode:7,text:'{"ok":false,"error":"execution_failed","data":{"exitCode":7,"outputs":[{"id":"output","channel":"stderr","size":12,"sha256":"hash"}]}}'}},
+    {id:4,payload:{type:'toolCall',callId:'b',toolName:'ssh_execute',arguments:{modelArguments:'{"command":"next"}'}}}];
+  const assistant=turnMessages([t])[1];const segments=assistant.segments!;
+  assert.equal(segments[0].type,'tool');if(segments[0].type==='tool'){assert.equal(segments[0].tool.status,'error');assert.match(segments[0].tool.output!,/output/);assert.equal(segments[0].tool.command,'check');}
+  assert.equal(segments[1].type,'tool');if(segments[1].type==='tool'){assert.equal(segments[1].tool.status,'unknown');assert.equal(segments[1].tool.command,'next');}
+});

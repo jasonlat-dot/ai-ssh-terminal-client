@@ -269,6 +269,91 @@ pub async fn dispatch(
                 .await
                 .map_err(agent_error)?,
         ),
+        ("POST", "agent/execution_bind") => value(
+            services
+                .agent
+                .bind_execution(
+                    text(&body, "agentId")?.into(),
+                    text(&body, "userId")?.into(),
+                    text(&body, "sessionId")?.into(),
+                    text(&body, "terminalSessionId")?.into(),
+                )
+                .await
+                .map_err(agent_error)?,
+        ),
+        ("GET", "agent/execution_requests") => value(
+            services
+                .agent
+                .execution_requests(
+                    text(&params, "agentId")?.into(),
+                    text(&params, "userId")?.into(),
+                    text(&params, "sessionId")?.into(),
+                    params["after"].as_str().unwrap_or("").into(),
+                )
+                .await
+                .map_err(agent_error)?,
+        ),
+        ("POST", "agent/execution_decision") => {
+            services
+                .agent
+                .execution_decision(
+                    text(&body, "agentId")?.into(),
+                    text(&body, "userId")?.into(),
+                    text(&body, "sessionId")?.into(),
+                    text(&body, "id")?.into(),
+                    text(&body, "action")?.into(),
+                )
+                .await
+                .map_err(agent_error)?;
+            Ok(json!(true))
+        }
+        ("GET", "agent/execution_policy") => value(
+            services
+                .agent
+                .execution_policy(
+                    text(&params, "agentId")?.into(),
+                    text(&params, "userId")?.into(),
+                    text(&params, "sessionId")?.into(),
+                    None,
+                )
+                .await
+                .map_err(agent_error)?,
+        ),
+        ("POST", "agent/execution_policy") => {
+            let revision = body["revision"]
+                .as_u64()
+                .ok_or_else(|| Error::invalid("策略版本无效"))?;
+            let mode = serde_json::from_value(body["mode"].clone())
+                .map_err(|_| Error::invalid("策略无效"))?;
+            value(
+                services
+                    .agent
+                    .execution_policy(
+                        text(&body, "agentId")?.into(),
+                        text(&body, "userId")?.into(),
+                        text(&body, "sessionId")?.into(),
+                        Some((revision, mode)),
+                    )
+                    .await
+                    .map_err(agent_error)?,
+            )
+        }
+        ("GET", "agent/execution_output") => value(
+            services
+                .agent
+                .execution_output(
+                    text(&params, "agentId")?.into(),
+                    text(&params, "userId")?.into(),
+                    text(&params, "sessionId")?.into(),
+                    text(&params, "outputId")?.into(),
+                    number(&params, "offset", 0)?,
+                    number(&params, "limit", 4096)?
+                        .try_into()
+                        .map_err(|_| Error::invalid("输出范围无效"))?,
+                )
+                .await
+                .map_err(agent_error)?,
+        ),
         ("POST", "agent/stop_chat") => value(
             services
                 .agent
@@ -553,6 +638,7 @@ pub async fn builtin_agent_subscribe(
     backend_url: String,
     stream_id: String,
     request: shellpilot_server::agent::chat::Request,
+    execution_enabled: Option<bool>,
     on_event: Channel<Value>,
 ) -> Result<()> {
     let services = services_for_url(&app, &backend_url)?;
@@ -588,16 +674,30 @@ pub async fn builtin_agent_subscribe(
         id: stream_id,
         subscription: subscription.clone(),
     };
-    agent_stream(services, request, subscription, move |event| {
-        on_event.send(event).map_err(|_| ())
-    })
+    agent_stream_mode(
+        services,
+        request,
+        subscription,
+        execution_enabled.unwrap_or(false),
+        move |event| on_event.send(event).map_err(|_| ()),
+    )
     .await
 }
 
+#[cfg(test)]
 async fn agent_stream(
     services: Arc<Services>,
     request: shellpilot_server::agent::chat::Request,
     subscription: Arc<Subscription>,
+    send: impl Fn(Value) -> std::result::Result<(), ()> + Send + Sync,
+) -> Result<()> {
+    agent_stream_mode(services, request, subscription, false, send).await
+}
+async fn agent_stream_mode(
+    services: Arc<Services>,
+    request: shellpilot_server::agent::chat::Request,
+    subscription: Arc<Subscription>,
+    execution_enabled: bool,
     send: impl Fn(Value) -> std::result::Result<(), ()> + Send + Sync,
 ) -> Result<()> {
     use shellpilot_server::agent::{chat, provider::ModelError};
@@ -622,7 +722,7 @@ async fn agent_stream(
     let request_id = request.request_id.clone();
     let result = services
         .agent
-        .chat(request, target, &subscription.stop, |event| {
+        .chat_desktop(request, target, execution_enabled, &subscription.stop, |event| {
             let send = &send;
             let subscription = subscription.clone();
             let services = services.clone();

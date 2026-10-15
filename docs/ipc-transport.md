@@ -17,7 +17,7 @@
 | 附件上传和保存 | 系统选择/保存对话框 → Rust 文件句柄 |
 | 附件列表、删除、容量、应用设置和历史 | invoke |
 | 工作区就绪检查 | invoke |
-| AI 对话和模型请求 | Rust Agent 尚未接入界面；后续前端通过 IPC/Channel 调用本地 Agent，由 Rust 访问模型服务 |
+| AI 对话和模型请求 | 本地 Rust Agent 通过 IPC/Channel 提供文字及显式启用的 SSH 工具轮次，由 Rust 访问模型服务；模型参数不携带审批权限 |
 
 程序不启动本地 HTTP server。前端随应用打包为静态资源，内部功能没有 TCP 监听端口。`npm run tauri dev` 的 Vite 开发服务器仍使用 1420；安装版没有这个开发服务器。
 
@@ -102,3 +102,22 @@ cargo test --manifest-path ../ai-ssh-terminal-server-rust/Cargo.toml
 按用户要求只改源码、测试适配和文档，未编译、运行测试、启动应用、打包或提交 Git。此前验证记录对应旧代码，不代表此次改动已验证。
 
 独立入口清理：Rust 项目的 src/main.rs 与 Cargo [[bin]] 已删除，autobins=false。可在库目录执行 cargo build --lib/cargo test 独立编译或测试，运行完整应用使用客户端目录的 npm run tauri dev。本轮仍未实际执行这些命令。
+
+
+## D5：原生 SSH 工具接入
+
+`builtin_agent_subscribe` 增加可选的宿主参数 `executionEnabled`（缺省 false），不混入模型请求或 chat::Request。文字与工具轮次共享会话互斥、持久 requestId 回执、停止、租约恢复和逐帧 ACK；工具轮次通过 schema 13 的 agent_tool_turns 标记，未完成的批次在恢复时保守闭合为 unknown，不重新发送。
+
+工具仅支持显式配置具备 function tools 能力的 Chat Completions 模型；Responses 继续保留文字能力。工具轮次的供应商请求是非流式的，Channel 仍逐帧传递真实工具调用、结果、上下文状态和最终回复。工具输出是有界预览，完整证据按原始字节回查。
+
+| 原生业务入口 | 作用 |
+| --- | --- |
+| POST agent/execution_bind | 用户明确启用工具时，核对服务器持久身份和真实终端并固定 task/connection/terminal 目标；运行中禁止重绑 |
+| GET agent/execution_requests | 用户/模型/会话隔离的审批历史，按原始游标分页，显示过期与授权撤销状态 |
+| POST agent/execution_decision | approveOnce / approveTaskCommand / deny / cancel / revoke；同任务相同命令授权最多 5 分钟 |
+| GET / POST agent/execution_policy | revision CAS 的 confirm / deny；禁止执行同时撤销已有授权 |
+| GET agent/execution_output | 只读已关联输出，字节 offset/limit，单次至多 64 KiB；UI 每段 4 KiB，支持十六进制 |
+
+切换终端页签不改变在途工具目标。SSH 命令使用同认证传输的独立无 PTY exec，不继承可见终端目录；停止生成不保证终止远端进程，admitted/unknown 均须先核查。禁用工具后仍可用文字讨论历史证据；断开 SSH 不影响已保存输出的读取。
+
+前台验证入口：模型设置 → 高级参数 → 函数工具能力；选择项目/服务器聊天并连接对应服务器 → 启用 SSH 工具 → 发送任务 → 审批与记录中确认/拒绝 → 查看工具结果及原始输出。当前不提供本地 shell、附件、多 Agent 或 Responses 工具调用。所有阶段验证结果与实际 GUI 限制统一以 Rust 仓库 docs/AGENT_PROGRESS.md 为准。

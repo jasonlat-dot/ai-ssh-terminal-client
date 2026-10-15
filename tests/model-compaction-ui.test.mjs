@@ -27,6 +27,7 @@ function settings() {
     if(name==='../api/models')return {modelApi:api,newModelConfig};
     if(name==='./Ui')return {AccentIcon:leaf,Badge:leaf,Icon:leaf,Toggle:leaf};
     if(name==='./Select')return {Select:leaf};
+    if(name==='./TokenBudgetInput')return {TokenBudgetInput:leaf};
     if(name.endsWith('.css'))return {};
     throw new Error(name);
   }});
@@ -110,4 +111,13 @@ test('切回 Chat Completions 清除远端能力，锁定时协议和能力不�
   assert.equal(ui.saved[0][2].remoteCompaction,false);
   assert.match(chatErrorGuidance('MODEL_CONTEXT_BINDING_CHANGED'),/新建会话/);
   assert.match(chatErrorGuidance('MODEL_RESPONSES_UNSUPPORTED'),/供应商/);
+});
+
+test('函数工具能力显式保存，默认关闭，Responses 不提供该开关',async()=>{
+  const ui=settings();ui.render();await ui.settle();
+  ui.find(node=>node.props.className==='model-advanced-toggle').props.onClick();ui.render();
+  const toggle=ui.find(node=>node.props.label==='启用模型函数工具能力');assert.equal(toggle.props.value,false);
+  toggle.props.onChange(true);ui.render();
+  ui.find(node=>node.type==='form').props.onSubmit({preventDefault(){}});await ui.settle();assert.equal(ui.saved[0][2].capabilities.toolCalls,true);
+  ui.find(node=>node.props.id==='model-protocol').props.onChange('openAiResponses');ui.render();assert.equal(ui.find(node=>node.props.label==='启用模型函数工具能力'),undefined);
 });

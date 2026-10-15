@@ -11,6 +11,7 @@ export type AgentConfig = {
   agentName: string;
   modelName?: string;
   agentDesc: string;
+  toolsAvailable?: boolean;
 };
 
 export type AgentToolStatus = 'running' | 'success' | 'error' | 'unknown';
@@ -34,6 +35,7 @@ export type AgentChatRequest = {
   terminalSessionId: string;
   message: string;
   attachments?: { fileId: string }[];
+  executionEnabled?: boolean;
 };
 export type AgentTurnState = 'running'|'completed'|'cancelled'|'failed'|'interrupted';
 export type AgentProject = {id:string;name:string;connectionId:string;identity:AgentScope["identity"];profile?:{host:string;port:number;username:string}|null};
@@ -48,8 +50,15 @@ export type AgentTurn = {
   requestId:string;message:string;target:{connectionId:string;terminalSessionId:string}|null;state:AgentTurnState;
   partialText:string;resultText:string|null;errorCode:string|null;usage:{prompt_tokens:number;completion_tokens:number;total_tokens:number}|null;
   cursor:number;createdAt:number;updatedAt:number;
+  toolEvents?: NativeToolEvent[];
 };
 export type AgentHistory = {session:AgentSession;turns:AgentTurn[];hasMore:boolean;nextAfter:number};
+
+export type OutputReference={id:string;channel:'stdout'|'stderr';size:number;sha256:string};
+export type NativeToolEvent={id:number;payload:{type:'toolCall';callId:string;toolName:string;arguments:{modelArguments?:unknown}}|{type:'toolResult';callId:string;outcome:'success'|'error'|'unknown'|'cancelled';exitCode:number|null;text:string;outputs?:OutputReference[]}};
+export type ExecutionReceipt={id:string;callId:string;binding:{sessionId:string;tool:{taskId:string;target:{connectionId:string;terminalSessionId:string}};identity:{host:string;port:number;username:string;hostKey:string}};task:{id:string;goal:string;constraints:string[]};command:{command:string;timeoutSeconds:number};state:'pending'|'approved'|'denied'|'cancelled'|'expired'|'admitted'|'completed'|'notSent'|'unknown';result:unknown;grant?:{expiresAt:number;revoked:boolean}|null;createdAt:number;expiresAt:number};
+export type ExecutionPolicy={mode:'confirm'|'deny';revision:number};
+export type OutputRange={bytes:number[];offset:number;nextOffset:number;eof:boolean;size:number;channel:'stdout'|'stderr'};
 
 /** Agent control operations also belong to the local Rust workspace. */
 async function request<T>(endpoint: string, method = 'GET', body?: object, signal?: AbortSignal, params: Record<string, string> = {}): Promise<T> {
@@ -205,7 +214,8 @@ async function chatStream(
   const backendUrl=requireBackendUrl();
   if (!isTauriRuntime() || !isBuiltinEndpoint(backendUrl)) throw new ChatRequestError('请在桌面应用内使用此功能。','DESKTOP_REQUIRED');
   const streamId=crypto.randomUUID();
-  const turnRequest={...body,requestId:body.requestId||crypto.randomUUID()};
+  const {executionEnabled=false,...content}=body;
+  const turnRequest={...content,requestId:body.requestId||crypto.randomUUID()};
   let done=false;
   let ended=false;
   let sequence=0;
@@ -227,6 +237,11 @@ async function chatStream(
       if(native?.event==='context') {
         if(!isAgentContextStatus(native.status)||native.status.requestId!==turnRequest.requestId) throw new ChatRequestError('上下文状态格式或关联无效。','MODEL_PROTOCOL_FAILED');
         event={event:'context',status:native.status};
+      } else if(native&&(native.event==='tool_call'||native.event==='tool_result')) {
+        if(typeof native.toolCallId!=='string'||!native.toolCallId||!['running','success','error','unknown'].includes(String(native.status)))throw new ChatRequestError('工具事件格式无效。','MODEL_PROTOCOL_FAILED');
+        if(native.event==='tool_call'&&(typeof native.toolName!=='string'||(native.command!==null&&native.command!==undefined&&typeof native.command!=='string')))throw new ChatRequestError('工具调用格式无效。','MODEL_PROTOCOL_FAILED');
+        if(native.event==='tool_result'&&typeof native.content!=='string')throw new ChatRequestError('工具结果格式无效。','MODEL_PROTOCOL_FAILED');
+        event=native as unknown as AgentStreamEvent;
       } else if(native&&(native.event==='text'||native.event==='done'||native.event==='error')) {
         if(typeof native.content!=='string'||(native.code!==undefined&&typeof native.code!=='string')) {
           throw new ChatRequestError('对话输出格式无效。','MODEL_PROTOCOL_FAILED');
@@ -252,7 +267,7 @@ async function chatStream(
   };
   signal?.addEventListener('abort',cancel,{once:true});
   try {
-    await invoke('builtin_agent_subscribe',{backendUrl,streamId,request:turnRequest,onEvent:channel});
+    await invoke('builtin_agent_subscribe',{backendUrl,streamId,request:turnRequest,executionEnabled,onEvent:channel});
     if (signal?.aborted) throw new DOMException('对话已取消','AbortError');
     if (failure) throw failure;
     if (!done) throw new ChatRequestError('模型流未完整结束，请核实后重试。','MODEL_INCOMPLETE');
@@ -294,5 +309,11 @@ export const agentApi = {
     'session_list','GET',undefined,signal,{agentId,userId:sshUserId,after}),
   events: (agentId:string,sessionId:string,after=0,signal?:AbortSignal) => request<unknown[]>(
     'events','GET',undefined,signal,{agentId,userId:sshUserId,sessionId,after:String(after)}),
+  bindExecution:(agentId:string,sessionId:string,terminalSessionId:string)=>request<AgentSession>('execution_bind','POST',{agentId,sessionId,terminalSessionId,userId:sshUserId}),
+  executionRequests:(agentId:string,sessionId:string,after='',signal?:AbortSignal)=>request<ExecutionReceipt[]>('execution_requests','GET',undefined,signal,{agentId,sessionId,userId:sshUserId,after}),
+  executionDecision:(agentId:string,sessionId:string,id:string,action:'approveOnce'|'approveTaskCommand'|'deny'|'cancel'|'revoke')=>request<boolean>('execution_decision','POST',{agentId,sessionId,id,action,userId:sshUserId}),
+  executionPolicy:(agentId:string,sessionId:string)=>request<ExecutionPolicy>('execution_policy','GET',undefined,undefined,{agentId,sessionId,userId:sshUserId}),
+  setExecutionPolicy:(agentId:string,sessionId:string,policy:ExecutionPolicy)=>request<ExecutionPolicy>('execution_policy','POST',{agentId,sessionId,userId:sshUserId,...policy}),
+  executionOutput:(agentId:string,sessionId:string,outputId:string,offset=0)=>request<OutputRange>('execution_output','GET',undefined,undefined,{agentId,sessionId,userId:sshUserId,outputId,offset:String(offset),limit:'4096'}),
   chatStream,
 };

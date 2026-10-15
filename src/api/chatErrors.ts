@@ -4,6 +4,10 @@ export class ChatRequestError extends Error {
 }
 export function chatErrorGuidance(code?: string): string {
   switch (code) {
+    case 'AGENT_APPROVAL_CHANGED': return '审批已过期或任务、权限已变化，请刷新执行记录并重新核对命令。';
+    case 'AGENT_TOOLS_UNSUPPORTED': return '请在模型设置中选择支持 Chat Completions 函数工具的模型并开启工具能力。';
+    case 'AGENT_TOOL_UNKNOWN': return '命令可能已执行，请先核查服务器状态；不会自动重试。';
+    case 'AGENT_TOOL_LIMIT': return '本轮已达到工具调用上限，请核对已有结果后再继续。';
     case 'MODEL_CONTEXT_BINDING_CHANGED': return '此会话保存的模型上下文与当前接口、模型或密钥不一致，请使用原配置或新建会话。';
     case 'MODEL_RESPONSES_UNSUPPORTED': return '供应商不支持所需的 Responses 输入计数或远端整理接口，请检查协议和供应商能力。';
     case 'MODEL_CREDENTIALS': return '请打开模型设置，配置或重新保存 API Key。';

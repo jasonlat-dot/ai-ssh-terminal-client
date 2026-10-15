@@ -279,3 +279,29 @@ test('C5 context frames use request-scoped sequence and ACK without changing rep
   });
   await assert.rejects(agentApi.chatStream(body,()=>{}),error=>error instanceof ChatRequestError&&error.code==='MODEL_PROTOCOL_FAILED');
 });
+test('D5 enabled turns keep native tools separate from model request parameters and ACK exact frames',async()=>{
+  const received:AgentStreamEvent[]=[];const acks:number[]=[];
+  harness((command,args)=>{
+    if(command==='builtin_agent_subscribe'){
+      assert.equal(args.executionEnabled,true);assert.equal(args.request.executionEnabled,undefined);
+      const payloads=[{event:'tool_call',toolCallId:'call',toolName:'ssh_execute',command:'echo test',status:'running'},
+      {event:'tool_result',toolCallId:'call',status:'error',content:'{"ok":false,"error":"execution_failed","data":{"exitCode":7}}'},
+      {event:'done',content:'命令失败，需要核查'}];
+      payloads.forEach((payload,index)=>args.onEvent.onmessage({sequence:index+1,requestId:body.requestId,payload}));
+    }if(command==='builtin_agent_ack')acks.push(args.sequence);return Promise.resolve();
+  });
+  await agentApi.chatStream({...body,executionEnabled:true},event=>received.push(event));assert.deepEqual(received.map(e=>e.event),['tool_call','tool_result','done']);assert.deepEqual(acks,[1,2,3]);
+});
+test('D5 human approval, binding and byte reads use owner/session scoped IPC only',async()=>{
+  const requests:any[]=[];harness((command,args)=>{assert.equal(command,'builtin_request');requests.push(args.request);return Promise.resolve(true);});
+  await agentApi.bindExecution('model','chat','terminal-a');await agentApi.executionRequests('model','chat');
+  await agentApi.executionDecision('model','chat','approval','approveOnce');await agentApi.executionDecision('model','chat','approval','revoke');
+  await agentApi.executionPolicy('model','chat');await agentApi.setExecutionPolicy('model','chat',{mode:'deny',revision:2});
+  await agentApi.executionOutput('model','chat','output',65534);
+  assert.ok(requests.every(r=>(r.body?.userId??r.params.userId)==='default'&&(r.body?.sessionId??r.params.sessionId)==='chat'));
+  assert.equal(requests[0].body.terminalSessionId,'terminal-a');assert.equal(requests[5].body.revision,2);assert.equal(requests[6].params.offset,'65534');assert.equal(requests[6].params.limit,'4096');
+});
+test('D5 invalid native tool frames are rejected before rendering and cancel only their subscription',async()=>{
+  let cancelled=false;harness((command,args)=>{if(command==='builtin_cancel')cancelled=true;if(command==='builtin_agent_subscribe')args.onEvent.onmessage({sequence:1,payload:{event:'tool_result',toolCallId:'x',status:'success',content:{fake:true}}});return Promise.resolve();});
+  await assert.rejects(agentApi.chatStream({...body,executionEnabled:true},()=>assert.fail('invalid result must not render')),error=>error instanceof ChatRequestError&&error.code==='MODEL_PROTOCOL_FAILED');assert.equal(cancelled,true);
+});

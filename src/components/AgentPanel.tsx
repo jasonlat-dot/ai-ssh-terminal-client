@@ -14,6 +14,7 @@ import { Select } from './Select';
 import { ChatAttachmentDraft, chatAttachmentPolicy, isLongChatText, pastedFiles, insertPastedText, validateChatContent } from '../state/chatAttachments';
 import { DraftAttachments, MessageAttachments } from './ChatAttachments';
 import { chatErrorGuidance } from '../api/chatErrors';
+import { AgentExecution, ExecutionContext, NativeToolOutput, type ExecutionScope } from './AgentExecution';
 import { agentToMarkdown, messageToMarkdown, toolToMarkdown } from '../state/chatMarkdown';
 
 function AgentAvatar({ compact = false }: { compact?: boolean }) {
@@ -33,7 +34,7 @@ function ToolActivity({ tool, copyable }: { tool: ChatToolActivity; copyable: bo
   const label = tool.status === 'running' ? '调用中'
     : tool.status === 'success' ? '成功'
       : tool.status === 'error' ? '失败' : '状态未知';
-  const title = tool.name === 'executeCommand' ? '执行命令' : tool.name;
+  const title = tool.name === 'executeCommand' || tool.name === 'ssh_execute' ? '执行命令' : tool.name === 'read_tool_output' ? '回查工具输出' : tool.name;
   const header = <>
     <AccentIcon icon="terminal" size={15} className="activity-kind-icon" />
     <span className="tool-identity"><span className="tool-name"><strong>{title}</strong>{title !== tool.name && <small>{tool.name}</small>}</span>{tool.command && <code title={tool.command}>{tool.command}</code>}</span>
@@ -49,7 +50,7 @@ function ToolActivity({ tool, copyable }: { tool: ChatToolActivity; copyable: bo
 
   return <details className={`tool-activity ${tool.status}`}>
     <summary>{header}<small className="tool-view-result">查看结果</small></summary>
-    {tool.output ? <pre>{tool.output}</pre> : <p className="tool-empty-result">工具没有返回文本。</p>}
+    {tool.output ? <NativeToolOutput output={tool.output}/> : <p className="tool-empty-result">工具没有返回文本。</p>}
     {copyable && <div className="message-copy-actions tool-copy-actions">
       {tool.command && <CopyTextButton getText={() => tool.command!} label="复制命令" successMessage="命令已复制" />}
       {tool.output && <CopyTextButton getText={() => tool.output!} label="复制输出" successMessage="执行结果已复制" />}
@@ -158,7 +159,8 @@ function sessionTime(value: ClientChatSession['updatedAt']): string {
 }
 
 export type AgentComposerHandle = { addText: (text: string, source: ChatTextExcerpt['source']) => boolean };
-export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localTerminal, targetLabel, scopeControls, messages, busy, stopping, send, stop, clear, disabled, agentAvailability, history, collapsed, models, selectedModel, selectModel, openModelSettings, recoveredRunning, stopRecovered, refreshCurrent, contextStatus=null, contextError, refreshContext }: {
+export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localTerminal, targetLabel, scopeControls, messages, busy, stopping, send, stop, clear, disabled, agentAvailability, history, collapsed, models, selectedModel, selectModel, openModelSettings, recoveredRunning, stopRecovered, refreshCurrent, contextStatus=null, contextError, refreshContext, execution }: {
+  execution?: ExecutionScope;
   ref?: Ref<AgentComposerHandle>;
   chatDraft: ChatAttachmentDraft;
   draftScope: number;
@@ -277,7 +279,7 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
     return () => window.removeEventListener('keydown', handleShortcut);
   }, [clear]);
 
-  return <aside className={`agent-panel conversation-only ${collapsed ? 'collapsed' : ''}`}>
+  return <ExecutionContext.Provider value={execution?{agentId:execution.agentId,sessionId:execution.sessionId}:null}><aside className={`agent-panel conversation-only ${collapsed ? 'collapsed' : ''}`}>
     <section className="conversation-card" id="agent-panel-content" aria-hidden={collapsed}>
       <header>
         <div className="conversation-title">
@@ -302,7 +304,7 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
           {scopeControls.serverTask && <button type="button" className="agent-scope-action" disabled={locked||scopeControls.locked||!scopeControls.serverAvailable}
             onClick={()=>scopeControls.useServer(true)}><Icon name="edit" size={13}/>新任务</button>}
         </div>}
-        <div className="agent-mode-note"><i/>文本对话<span>·</span>工具和附件将在后续接入</div>
+        <div className="agent-mode-note"><i/>{execution?.enabled?'SSH 工具对话':'文字对话'}<span>·</span>{execution?.enabled?'命令需确认，目标固定':'附件将在后续接入'}</div>
         {recoveredRunning && <div className="agent-recovery-controls"><span role="status">{stopping ? '正在确认停止…' : '此请求仍在生成'}</span><button type="button" onClick={refreshCurrent} disabled={stopping || Boolean(history.loadingSessionId)}><Icon name="refresh" size={13} />刷新</button><button type="button" onClick={stopRecovered} disabled={stopping || Boolean(history.loadingSessionId)}><Icon name="stop" size={13} />{stopping ? '正在停止…' : '停止'}</button></div>}
       </>}
 
@@ -325,12 +327,13 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
         </>}
       </section>}
 
+      {execution&&<AgentExecution key={`${execution.agentId}:${execution.sessionId}`} scope={execution}/>}
       <div className="chat-messages" ref={scrollRef} aria-label="聊天记录" aria-live="polite"
         onScroll={handleMessagesScroll} onWheel={event => { if (event.deltaY < 0) followOutputRef.current = false; }}>
         {messages.length === 0 && !busy && <div className="agent-chat-empty">
           <img className="empty-agent-avatar" src={agentRobotAvatar} alt="Agent 机器人" />
           <h3>有什么需要我协助？</h3>
-          <p>{models ? (agentAvailability.ready ? '可以提问或粘贴文本；当前仅提供文字回复，不会执行服务器命令。' : '先在模型设置中添加 API 地址、模型与密钥，再开始对话。') : agentAvailability.ready
+          <p>{models ? (agentAvailability.ready ? execution?.enabled?'可以让我检查服务或分析日志；每条服务器命令会先等待你的确认。':'可以提问或粘贴文本；绑定服务器后可启用 SSH 工具。' : '先在模型设置中添加 API 地址、模型与密钥，再开始对话。') : agentAvailability.ready
             ? connected ? '可以让我执行命令、检查服务状态或分析日志。' : localTerminal ? '当前是本地 CMD，Agent 无法连接或代为执行本地命令，但仍可进行普通对话。' : '可以直接与 Agent 对话；当前页签连接服务器后还可以执行 SSH 命令。'
             : '可以先输入问题或添加附件，智能体就绪后再发送。'}</p>
         </div>}
@@ -423,5 +426,5 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
       </div>
       {(attachmentError || notReady) && <p className="composer-attachment-error" role="status">{attachmentError || (attachments.some(item => item.status === 'error') ? '附件上传失败，请重试或移除后再发送。' : '附件正在准备中，请等待上传完成。')}</p>}
     </form>
-  </aside>;
+  </aside></ExecutionContext.Provider>;
 }
