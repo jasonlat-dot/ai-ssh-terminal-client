@@ -1,8 +1,7 @@
-import { apiRequest, ApiRequestError } from './client.ts';
+import { ApiRequestError } from './client.ts';
 import { Channel, invoke } from '@tauri-apps/api/core';
 import { usesBuiltinIpc } from './builtin';
 import { requireBackendUrl } from '../config/backend';
-import { readBundledBackendStatus } from './bundledBackend';
 
 export interface UploadedFile {
   fileId: string;
@@ -59,14 +58,6 @@ export async function saveNativeAttachment(fileId: string, backendUrl = requireB
   if (!usesBuiltinIpc(backendUrl)) throw new Error('本地附件需要在桌面应用中保存。');
   return invoke<boolean>('builtin_save_attachment', { backendUrl, fileId });
 }
-export async function refreshNativeAttachment(fileId: string): Promise<UploadedFile> {
-  const status = await readBundledBackendStatus();
-  if (status?.status !== 'running' || !status.backendUrl || !usesBuiltinIpc(status.backendUrl)) {
-    throw new Error('请先初始化本地工作区。');
-  }
-  // Refresh is an explicit operation on the current local instance, independent of the expired reference.
-  return readUploadedFile(fileId, undefined, status.backendUrl);
-}
 
 /** WebView file bytes are never uploaded; use the native picker instead. */
 export async function uploadFile(_file: File, signal?: AbortSignal): Promise<UploadedFile> {
@@ -74,55 +65,8 @@ export async function uploadFile(_file: File, signal?: AbortSignal): Promise<Upl
   throw new ApiRequestError('请使用系统文件选择器上传附件。', 'application', 'FILE_NATIVE_PICKER_REQUIRED');
 }
 
-export function downloadExpiresAt(value: UploadedFile['urlExpiresAt']): number | null {
-  const time = typeof value === 'number'
-    ? value < 1e12 ? value * 1000 : value
-    : Date.parse(value);
-  return Number.isFinite(time) ? time : null;
-}
-
 export function downloadUnavailable(file: Pick<UploadedFile, 'urlExpiresAt' | 'downloadUrl'>, _now = Date.now()): string | null {
   const reference = nativeAttachmentReference(file.downloadUrl);
   if (reference) return usesBuiltinIpc(reference.backendUrl) ? null : '本地附件需要在桌面应用中保存';
-  return '附件引用不可用，请从已存储文件列表重新打开';
-}
-
-export interface FileStorageStats {
-  enabled: boolean; usedBytes: number; reservedBytes: number; maxStorageBytes: number;
-  fileCount: number; maxFiles: number; maxFileBytes: number; retentionDays: number; downloadLinkSeconds: number;
-}
-export async function readUploadedFile(fileId: string, signal?: AbortSignal, baseUrl?: string): Promise<UploadedFile> {
-  if (!fileId.trim()) throw new Error('文件 ID 不能为空。');
-  const file = await apiRequest<UploadedFile>('files/' + encodeURIComponent(fileId), { signal, baseUrl, service: '文件服务' });
-  if (!file || file.fileId !== fileId || file.status !== 'UPLOADED'
-      || typeof file.fileName !== 'string' || typeof file.contentType !== 'string'
-      || typeof file.size !== 'number' || !Number.isFinite(file.size) || file.size <= 0
-      || typeof file.sha256 !== 'string' || downloadExpiresAt(file.urlExpiresAt) === null
-      || typeof file.downloadUrl !== 'string' || downloadUnavailable({ downloadUrl: file.downloadUrl, urlExpiresAt: Date.now() + 1000 }) !== null) {
-    throw new ApiRequestError('附件元数据响应异常。', 'application', 'FILE_RESPONSE_INVALID');
-  }
-  return file;
-}
-export async function listUploadedFiles(offset = 0, signal?: AbortSignal): Promise<{ items: UploadedFile[]; offset: number; hasMore: boolean }> {
-  if (!Number.isInteger(offset) || offset < 0) throw new Error('文件列表偏移无效。');
-  const page = await apiRequest<{ items: UploadedFile[]; offset: number; hasMore: boolean }>('files', { params: { offset: String(offset) }, signal, service: '文件服务' });
-  if (!page || !Array.isArray(page.items) || page.items.length > 20 || page.offset !== offset || typeof page.hasMore !== 'boolean'
-      || page.items.some(file => !file || !file.fileId || typeof file.fileName !== 'string' || file.status !== 'UPLOADED'
-        || typeof file.size !== 'number' || !Number.isFinite(file.size) || file.size <= 0
-        || typeof file.downloadUrl !== 'string' || downloadExpiresAt(file.urlExpiresAt) === null)) {
-    throw new ApiRequestError('文件列表响应异常。', 'application', 'FILE_RESPONSE_INVALID');
-  }
-  return page;
-}
-export async function deleteUploadedFile(fileId: string): Promise<void> {
-  if (!fileId.trim()) throw new Error('文件 ID 不能为空。');
-  await apiRequest<void>('files/' + encodeURIComponent(fileId), { method: 'DELETE', service: '文件服务' });
-}
-export async function readFileStorageStats(): Promise<FileStorageStats> {
-  const stats = await apiRequest<FileStorageStats>('files/storage', { service: '文件服务' });
-  const numbers = ['usedBytes', 'reservedBytes', 'maxStorageBytes', 'fileCount', 'maxFiles', 'maxFileBytes', 'retentionDays', 'downloadLinkSeconds'] as const;
-  if (!stats || typeof stats.enabled !== 'boolean' || numbers.some(key => typeof stats[key] !== 'number' || !Number.isSafeInteger(stats[key]) || stats[key] < 0)) {
-    throw new ApiRequestError('存储容量响应异常。', 'application', 'FILE_RESPONSE_INVALID');
-  }
-  return stats;
+  return '附件引用不可用，请重新附加文件';
 }

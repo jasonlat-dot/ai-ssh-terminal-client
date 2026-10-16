@@ -190,11 +190,16 @@ pub async fn dispatch(
                 .map_err(agent_error)?,
         ),
         ("POST", "agent/create_session") => {
+            let policy = body.get("approvalMode")
+                .map(|mode| serde_json::from_value(mode.clone()))
+                .transpose()
+                .map_err(|_| Error::invalid("策略无效"))?;
             let session = services
                 .agent
-                .create_general_session(
+                .create_general_session_with_policy(
                     text(&body, "agentId")?.into(),
                     text(&body, "userId")?.into(),
+                    policy,
                 )
                 .await
                 .map_err(agent_error)?;

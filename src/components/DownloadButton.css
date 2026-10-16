@@ -1,0 +1,6 @@
+.file-download-button { display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px; border: 1px solid var(--line-strong); border-radius: 6px; color: var(--theme-accent-text); background: var(--theme-panel); font-size: 11px; text-decoration: none; }
+.file-download-button:hover { background: var(--theme-hover); }
+.file-download-button:focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; }
+.file-download-button[aria-disabled='true'] { opacity: .5; cursor: wait; }
+.uploaded-download { display: flex; align-items: flex-end; flex-direction: column; gap: 6px; }
+.uploaded-download small { color: var(--theme-text-muted); font-size: 11px; }

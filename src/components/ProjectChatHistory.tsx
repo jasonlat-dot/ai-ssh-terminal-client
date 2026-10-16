@@ -171,7 +171,7 @@ export function ProjectChatHistory({hosts,project,sessionId,locked,revision,newC
         disabled={locked||deleting||removing||!!histories[p.id]?.items.some(chat=>chat.running)}
         options={[{value:'remove',label:'移除项目',description:'保留聊天记录，仅移除项目分组'}]}
         onChange={()=>{if(locked||deleting||removing||histories[p.id]?.items.some(chat=>chat.running))return;setRemoveError('');setRemoveTarget(p);}}/>
-       <button type="button" className="project-add-chat" title={'在 '+p.name+' 新建对话'} aria-label={'在 '+p.name+' 新建对话'} disabled={locked||removing} onClick={()=>newChat(p)}><Icon name="edit" size={16}/></button>
+       <button type="button" className="project-add-chat" title={'在 '+p.name+' 新建对话'} aria-label={'在 '+p.name+' 新建对话'} disabled={locked||removing} onClick={()=>newChat(p)}><Icon name="chat" size={16}/></button>
       </div></div>
      {expanded.has(p.id)&&rows(p)}
     </section>)}

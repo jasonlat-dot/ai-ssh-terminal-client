@@ -2689,8 +2689,6 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.985); }
 :root .file-source-icon { width: 28px; height: 28px; color: var(--accent-ink); background: var(--accent-soft); }
 :root .sftp-entry-icon { width: 23px; height: 23px; border-radius: 5px; }
 :root .file-row.selected > .sftp-entry-icon { color: var(--ui-highlight-text); background: var(--ui-highlight-bg); }
-:root .upload-file-icon { width: 34px; height: 38px; }
-:root .upload-item-status.ui-badge { color: var(--accent-ink); }
 :root .chat-attachment-meta { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
 :root .chat-attachment-meta .ui-badge { font-size: 9px; min-height: 18px; padding: 1px 5px; }
 :root .welcome-art-label.ui-badge { gap: 5px; font-size: clamp(9px, .9cqi, 12px); padding: 5px 10px; }
@@ -2705,10 +2703,6 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.985); }
 
 @container (max-width: 760px) {
   :root .welcome-feature-icon { width: 34px; height: 38px; border-radius: 11px; }
-}
-@media (max-width: 520px) {
-  :root .upload-file-icon { display: none; }
-  :root .upload-item-heading { flex-wrap: wrap; }
 }
 
 /* Service reachability is independent of the last confirmed SSH channel state. */

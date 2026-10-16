@@ -126,9 +126,24 @@ export function TerminalWorkspace({ remoteViews, sessions, activeId, host, selec
           {active.connectionStatus === 'unreachable' && <Badge tone="amber" icon="alert">服务不可达</Badge>}
           {active.kind === 'ssh' && <IconButton icon="copy" label="复制主机地址" onClick={() => copy(host?.address ?? '')} />}
           <div className="inline-actions workspace-panel-controls" aria-label="工作区面板">
-            {active.kind === 'ssh' && <IconButton icon="folder" disabled={!filesAvailable} label={filesAvailable ? "打开文件管理" : "文件管理（后续版本）"} className={filesOpen ? 'selected' : ''} onClick={toggleFiles} aria-pressed={filesOpen} aria-expanded={filesOpen} />}
-            <IconButton icon="terminal" label={commandCollapsed ? '展开常用命令' : '收起常用命令'} className={!commandCollapsed ? 'selected' : ''} onClick={toggleCommands} aria-pressed={!commandCollapsed} aria-expanded={!commandCollapsed} aria-controls="command-shelf-content" />
-            <IconButton icon="bot" disabled={!agentAvailable} label={!agentAvailable ? "AI 功能（后续版本）" : agentCollapsed ? '展开智能体对话' : '收起智能体对话'} className={!agentCollapsed ? 'selected' : ''} onClick={toggleAgent} aria-pressed={!agentCollapsed} aria-expanded={!agentCollapsed} aria-controls="agent-panel-content" />
+            {active.kind === 'ssh' && <button type="button" className={`terminal-files-toggle ${filesOpen ? 'selected' : ''}`} disabled={!filesAvailable}
+              title={filesAvailable ? filesOpen ? '收起 SFTP 文件管理' : '打开 SFTP 文件管理' : 'SFTP 文件管理（后续版本）'}
+              aria-label={filesOpen ? '收起 SFTP 文件管理' : '打开 SFTP 文件管理'} onClick={toggleFiles} aria-pressed={filesOpen} aria-expanded={filesOpen}>
+              <Icon name="folder" size={15}/><span>文件 · SFTP</span>
+            </button>}
+            <button type="button" className={`terminal-command-toggle ${!commandCollapsed ? 'selected' : ''}`}
+              title={commandCollapsed ? '展开常用命令' : '收起常用命令'} aria-label={commandCollapsed ? '展开常用命令' : '收起常用命令'}
+              onClick={toggleCommands} aria-pressed={!commandCollapsed} aria-expanded={!commandCollapsed} aria-controls="command-shelf-content">
+              <Icon name="terminal" size={15}/><span>{commandCollapsed ? '展开命令' : '常用命令'}</span>
+              <Icon name={commandCollapsed ? 'up' : 'down'} size={13}/>
+            </button>
+            <button type="button" className={`terminal-agent-toggle ${!agentCollapsed ? 'selected' : ''}`} disabled={!agentAvailable}
+              title={!agentAvailable ? 'AI 功能（后续版本）' : agentCollapsed ? '展开智能体对话' : '收起智能体对话'}
+              aria-label={agentCollapsed ? '展开智能体对话' : '收起智能体对话'} onClick={toggleAgent}
+              aria-pressed={!agentCollapsed} aria-expanded={!agentCollapsed} aria-controls="agent-panel-content">
+              <Icon name="bot" size={15}/><span>{agentCollapsed ? '展开对话' : 'Agent 对话'}</span>
+              <Icon name={agentCollapsed ? 'left' : 'right'} size={13}/>
+            </button>
           </div>
         </div>
         {commandControls}

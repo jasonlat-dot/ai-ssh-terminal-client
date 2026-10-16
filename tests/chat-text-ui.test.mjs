@@ -143,7 +143,7 @@ test('文本卡片使用紧凑摘要、字符数、准备状态及移除入口�
     if (name.endsWith('.css')) return {};
     if (name === '../state/chatAttachments') return api;
     if (name === '../config/fileUpload') return policy;
-    if (name === './FileUploadDialog') return { DownloadButton: () => null };
+    if (name === './DownloadButton') return { DownloadButton: () => null };
     if (name === './Ui') return { fileTone: () => 'blue', Icon: () => React.createElement('svg'),
       Badge: ({ children }) => React.createElement('span', null, children), IconButton: ({ label }) => React.createElement('button', { 'aria-label': label }) };
     throw new Error(name);

@@ -5,7 +5,7 @@ import type { UploadItem } from '../state/fileUploads';
 import type { ChatAttachmentDraft } from '../state/chatAttachments';
 import { isImageAttachment, textExcerptLabel } from '../state/chatAttachments';
 import { formatFileSize } from '../config/fileUpload';
-import { DownloadButton } from './FileUploadDialog';
+import { DownloadButton } from './DownloadButton';
 import { CopyTextButton } from './CopyTextButton';
 import { Badge, Icon, IconButton, Modal, fileTone } from './Ui';
 import { agentApi } from '../api/agent';

@@ -181,8 +181,9 @@ function sessionTime(value: ClientChatSession['updatedAt']): string {
 }
 
 export type AgentComposerHandle = { addText: (text: string, source: ChatTextExcerpt['source']) => boolean };
-export function AgentPanel({ ref, memoryScope, chatDraft, draftScope, host, connected, localTerminal, targetLabel, scopeControls, composerProject, messages, busy, stopping, send, steer, stop, clear, disabled, agentAvailability, history, collapsed, models, selectedModel, selectModel, openModelSettings, recoveredRunning, stopRecovered, refreshCurrent, contextStatus=null, contextError, refreshContext, execution, onApprovalChange }: {
+export function AgentPanel({ ref, memoryScope, sshConnections, chatDraft, draftScope, host, connected, localTerminal, targetLabel, scopeControls, composerProject, messages, busy, stopping, send, steer, stop, clear, disabled, agentAvailability, history, collapsed, models, selectedModel, selectModel, openModelSettings, recoveredRunning, stopRecovered, refreshCurrent, contextStatus=null, contextError, refreshContext, execution, onApprovalChange }: {
   memoryScope?: MemoryScope;
+  sshConnections?: { open: boolean; toggle: () => void };
   execution?: ExecutionScope;
   onApprovalChange?:(sessionId:string,pending:boolean)=>void;
   ref?: Ref<AgentComposerHandle>;
@@ -562,10 +563,16 @@ export function AgentPanel({ ref, memoryScope, chatDraft, draftScope, host, conn
           <span><h3>智能体对话</h3><small title={targetLabel}><i className={`status-dot ${scopeControls?.general ? 'general' : connected ? '' : 'offline'}`} />{targetLabel ?? (localTerminal ? '本地 CMD · 未绑定' : host?.name ?? '尚未选择服务器')}</small></span>
         </div>
         {memoryScope&&<AgentMemoryButton key={`${draftScope}:${memoryScope.agentId}:${memoryScope.sessionId}:${memoryScope.projectId??''}`} scope={memoryScope}/>}
-        <button type="button" className="agent-history-button" aria-label={history.external ? '切换会话侧栏' : '历史会话'} aria-expanded={history.external ? undefined : history.open}
+        <button type="button" className="agent-history-button" aria-label={history.external ? '切换会话侧栏' : '历史会话'} aria-expanded={history.open}
           aria-controls={history.external ? 'workspace-sidebar-content' : 'agent-history-list'} onClick={history.toggle} disabled={!history.external && (disabled || busy || !agentAvailability.ready)}>
           <Icon name="history" size={16} /><span>历史</span>
         </button>
+        {sshConnections && <button type="button" className="agent-history-button agent-connections-button"
+          aria-label={sshConnections.open ? '收起 SSH 连接列表' : '展开 SSH 连接列表'}
+          title={sshConnections.open ? '收起 SSH 连接列表' : '展开 SSH 连接列表'}
+          aria-controls="connection-sidebar-content" aria-expanded={sshConnections.open} onClick={sshConnections.toggle}>
+          <Icon name="server" size={16}/><span>SSH 连接</span><Icon name={sshConnections.open ? 'down' : 'up'} size={13}/>
+        </button>}
         <button type="button" className="new-agent-session" onClick={() => { clear(); setDraft(''); }} aria-label="新建智能体会话">
           <Icon name="edit" size={15} />
           <strong>新会话</strong>
@@ -580,7 +587,7 @@ export function AgentPanel({ ref, memoryScope, chatDraft, draftScope, host, conn
           {scopeControls.serverTask && <button type="button" className="agent-scope-action" disabled={locked||scopeControls.locked||!scopeControls.serverAvailable}
             onClick={()=>scopeControls.useServer(true)}><Icon name="edit" size={13}/>新任务</button>}
         </div>}
-        <div className="agent-mode-note"><i/>{execution?.enabled?'服务器对话':'文字对话'}<span>·</span>{execution?.enabled?'工具默认可用 · 审核边界见输入框':'可讨论历史与问题'}</div>
+        <div className="agent-mode-note"><i/>{execution?.enabled?'服务器对话':'文字对话'}<span>·</span>{execution?.enabled?'工具默认可用 · 审核边界见输入框':execution?'审核边界见输入框':'可讨论历史与问题'}</div>
         {recoveredRunning && <div className="agent-recovery-controls"><span role="status">{stopping ? '正在确认停止…' : '此请求仍在生成'}</span><button type="button" onClick={refreshCurrent} disabled={stopping || Boolean(history.loadingSessionId)}><Icon name="refresh" size={13} />刷新</button><button type="button" onClick={stopRecovered} disabled={stopping || Boolean(history.loadingSessionId)}><Icon name="stop" size={13} />{stopping ? '正在停止…' : '停止'}</button></div>}
       </>}
 

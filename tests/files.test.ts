@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
 import { apiRequest, ApiRequestError } from '../src/api/client.ts';
-import { downloadUnavailable, uploadFile, readUploadedFile, listUploadedFiles, readFileStorageStats, deleteUploadedFile } from '../src/api/files.ts';
+import { downloadUnavailable, uploadFile } from '../src/api/files.ts';
 import type { UploadedFile } from '../src/api/files.ts';
 import { fileUploadPolicy, validateUploadFile } from '../src/config/fileUpload.ts';
 import { FileUploadQueue } from '../src/state/fileUploads.ts';
@@ -40,30 +40,18 @@ test('native references are usable without signed-link expiry, HTTP links are no
   assert.ok(downloadUnavailable({...result,downloadUrl:'https://retired.example.test/file'}));
   assert.ok(downloadUnavailable({...result,downloadUrl:'javascript:alert(1)'}));
 });
-test('metadata, history and deletion use IPC and retain the same workspace identity',async()=>{
+test('attachment IPC retains the same workspace identity',async()=>{
   const calls:Record<string,any>[]=[];
   harness(args=>{calls.push(args);assert.equal(args.backendUrl,endpoint);
-    if(args.endpoint==='files')return Promise.resolve({items:[result],offset:20,hasMore:false});
-    return Promise.resolve(args.method==='DELETE'?null:result);});
-  assert.deepEqual(await readUploadedFile(result.fileId),result);
-  assert.equal((await listUploadedFiles(20)).items[0].downloadUrl,result.downloadUrl);
-  await deleteUploadedFile(result.fileId);
-  assert.deepEqual(calls.map(args=>[args.endpoint,args.method]),[['files/file-1','GET'],['files','GET'],['files/file-1','DELETE']]);
+    return Promise.resolve(result);});
+  assert.deepEqual(await apiRequest<UploadedFile>('files/file-1'),result);
+  assert.deepEqual(calls.map(args=>[args.endpoint,args.method]),[['files/file-1','GET']]);
 });
-test('native storage errors remain business errors; malformed metadata is rejected',async()=>{
+test('native storage errors remain business errors and retired HTTP endpoints are rejected',async()=>{
   harness(()=>Promise.reject({message:'附件已清理',code:'FILE_DOWNLOAD_NOT_FOUND',status:404}));
-  await assert.rejects(readUploadedFile('missing'),error=>error instanceof ApiRequestError&&error.code==='FILE_DOWNLOAD_NOT_FOUND');
-  harness(()=>Promise.resolve({...result,fileId:'wrong'}));
-  await assert.rejects(readUploadedFile(result.fileId),error=>error instanceof ApiRequestError&&error.code==='FILE_RESPONSE_INVALID');
+  await assert.rejects(apiRequest('files/missing'),error=>error instanceof ApiRequestError&&error.code==='FILE_DOWNLOAD_NOT_FOUND');
   await assert.rejects(apiRequest('files',{baseUrl:'https://retired.example.test'}));
 });
-test('capacity requires nonnegative safe integers and malformed history is rejected',async()=>{
-  const stats={enabled:true,usedBytes:5,reservedBytes:0,maxStorageBytes:1024,fileCount:1,maxFiles:10000,maxFileBytes:20,retentionDays:0,downloadLinkSeconds:900};
-  harness(()=>Promise.resolve(stats));assert.equal((await readFileStorageStats()).fileCount,1);
-  harness(()=>Promise.resolve({...stats,usedBytes:-1}));await assert.rejects(readFileStorageStats());
-  harness(()=>Promise.resolve({items:[{...result,size:0}],offset:0,hasMore:false}));await assert.rejects(listUploadedFiles());
-});
-
 test('at most two uploads, duplicate submissions blocked, success waits for backend, manual retry runs once', async () => {
   const pending: ReturnType<typeof deferred<UploadedFile>>[] = [];
   const queue = new FileUploadQueue(() => {

@@ -36,11 +36,11 @@
 
 ## 附件操作
 
-在桌面内置模式中，点击“文件与附件 → 选择文件并上传”打开系统文件选择器。Rust 逐个读取并上传所选文件，成功文件进入上传列表；失败文件显示错误提示。上传期间按钮显示“正在选择或上传文件…”。
+在桌面内置模式中，通过聊天输入框的附件按钮打开系统文件选择器。Rust 逐个读取并上传所选文件，成功文件加入当前消息草稿；失败文件显示错误提示。顶栏独立文件管理入口及其上传列表已移除。
 
 点击已存附件的“下载”打开系统保存对话框。保存采用临时文件和原子发布，不覆盖已存在的目标；目标重名时请选择新名称。取消文件对话框不保存文件。
 
-本地附件使用 `ipc://builtin/<实例ID>/files/<文件ID>` 引用，不生成 HTTP 签名下载链接，也不使用链接有效期。重新初始化后，从“已存储文件”列表重新打开，或点击“刷新附件”取得新实例引用。桌面程序不打开 HTTP 下载链接。
+本地附件使用 `ipc://builtin/<实例ID>/files/<文件ID>` 引用，不生成 HTTP 签名下载链接，也不使用链接有效期。重新初始化后，如旧引用不可用，可重新附加文件；已发送内容的预览使用会话快照。桌面程序不打开 HTTP 下载链接。
 
 本地设置支持数据目录、自动初始化、附件启用、容量与保留天数。已移除监听端口、下载链接有效期；旧 `rust-backend.json` 中的 `serverPort`、`downloadLinkMinutes` 会被忽略，其余配置及数据继续沿用。重新初始化工作区会断开当前 SSH/SFTP 会话，不删除数据。
 
@@ -115,17 +115,21 @@ cargo test --manifest-path ../ai-ssh-terminal-server-rust/Cargo.toml
 | POST agent/execution_bind | 用户明确启用工具时，核对服务器持久身份和真实终端并固定 task/connection/terminal 目标；运行中禁止重绑 |
 | GET agent/execution_requests | 用户/模型/会话隔离的审批历史，按原始游标分页，显示过期与授权撤销状态 |
 | POST agent/execution_decision | approveOnce / approveTaskCommand / deny / cancel / revoke；同任务相同命令授权最多 5 分钟 |
-| GET / POST agent/execution_policy | revision CAS 的 confirm / deny；禁止执行同时撤销已有授权 |
+| GET / POST agent/execution_policy | revision CAS 的 confirm / auto / fullAccess / deny；普通对话和服务器对话使用相同的对话级工具策略，禁止执行同时撤销已有授权 |
 | GET agent/execution_output | 只读已关联输出，字节 offset/limit，单次至多 64 KiB；UI 每段 4 KiB，支持十六进制 |
 
 切换终端页签不改变在途工具目标。SSH 命令使用同认证传输的独立无 PTY exec，不继承可见终端目录；停止生成不保证终止远端进程，admitted/unknown 均须先核查。禁用工具后仍可用文字讨论历史证据；断开 SSH 不影响已保存输出的读取。
 
-前台验证入口：模型设置 → 高级参数 → 函数工具能力；选择项目/服务器聊天并连接对应服务器 → 启用 SSH 工具 → 发送任务 → 审批与记录中确认/拒绝 → 查看工具结果及原始输出。当前不提供本地 shell、附件、多 Agent 或 Responses 工具调用。所有阶段验证结果与实际 GUI 限制统一以 Rust 仓库 docs/AGENT_PROGRESS.md 为准。
+普通对话和服务器对话的输入框都显示审核边界，默认“请求批准”，策略按当前用户和对话保存，不依赖 SSH 连接或活动任务。首条普通消息发送前的选择通过 `agent/create_session` 的可选 `approvalMode` 与会话在同一事务中保存；已有对话通过 `agent/execution_policy` 读取和修改。同一对话重新绑定任务仍使用同一审核模式，但单次批准、精确命令授权和目标验证仍独立校验，不跨任务复用。
+
+工具能力开关与 SSH 绑定分离：普通对话不注册 SSH 工具，服务器对话只有在目标绑定可用时才注册 SSH。所有持久化工具轮次必须在 `ToolLoop` 安装对话级 `ApprovalBoundary`，每次分派先读取统一模式，再调用工具适配器的 `authorize_with_policy`。`deny` 阻止所有工具分派；`confirm` / `auto` 要求适配器接入可信的人工/审查授权，缺失时默认拒绝；`fullAccess` 仍须通过适配器自身的访问边界。当前已接入 SSH 和工具输出回查，MCP 客户端及其他通用工具尚未注册，后续也必须通过此公共入口接入。
+
+前台验证入口：模型设置 → 高级参数 → 函数工具能力；选择项目/服务器聊天并连接对应服务器 → 发送任务 → 审批与记录中确认/拒绝 → 查看工具结果及原始输出。当前不提供本地 shell、多 Agent 或 Responses 工具调用。所有阶段验证结果与实际 GUI 限制统一以 Rust 仓库 docs/AGENT_PROGRESS.md 为准。
 
 
 ## E1：聊天附件
 
-聊天提交仅携带附件 fileId。Rust 通过同一文件服务校验上传归属及摘要，并生成会话内不可变快照；Chat Completions 与 Responses 分别使用原生媒体输入，不发送 ipc:// 文件引用给供应商。历史返回附件元数据。GET agent/attachment 要求 agentId/userId/sessionId/fileId，只读返回已关联该会话的 reference 与 text/imageUrl，不调用模型或 SSH。系统选择器的可选 chatOnly/chatLimit 参数限制聊天类型、数量和大小，不改变通用“文件与附件”入口。
+聊天提交仅携带附件 fileId。Rust 通过同一文件服务校验上传归属及摘要，并生成会话内不可变快照；Chat Completions 与 Responses 分别使用原生媒体输入，不发送 ipc:// 文件引用给供应商。历史返回附件元数据。GET agent/attachment 要求 agentId/userId/sessionId/fileId，只读返回已关联该会话的 reference 与 text/imageUrl，不调用模型或 SSH。系统选择器的可选 chatOnly/chatLimit 参数限制聊天类型、数量和大小；原生附件服务继续供聊天使用。
 
 图片能力、PDF 文字提取范围和前台操作见 agent-model-settings.md；验证统一记录于 Rust docs/AGENT_PROGRESS.md。上述 D5 节的手动启用开关及独立 exec 说明属于历史状态，当前执行模式见最新进度。
 

@@ -8,7 +8,7 @@ import { ensureProjectTerminal, restoreProjectConversation } from './state/proje
 import { ProjectChatHistory } from './components/ProjectChatHistory';
 import type { AgentProject, ProjectChat } from './api/agent';
 import { agentApi } from './api/agent';
-import type { AgentConfig, AgentStreamEvent, AgentHistory } from './api/agent';
+import type { AgentConfig, AgentStreamEvent, AgentHistory, ExecutionPolicy } from './api/agent';
 import type { AgentContextStatus } from './api/agentContext';
 import { readAgentHistory, turnMessages } from './state/agentHistory';
 import {
@@ -52,8 +52,6 @@ import { ActivityBar, AppHeader } from './components/Shell';
 import { RustBackendSettingsDialog as BackendSettingsDialog } from './components/RustBackendSettingsDialog';
 import type { RustSettingsSection } from './components/RustBackendSettingsDialog';
 import { usingRustBuiltinBackend } from './config/rustPreview';
-import { FileUploadDialog } from './components/FileUploadDialog';
-import { FileUploadQueue } from './state/fileUploads';
 import { adoptBundledBackendUrl, readBackendUrl, saveBackendUrl } from './config/backend';
 import { watchBundledBackendStatus, restartBundledBackend, type BundledBackendStatus } from './api/bundledBackend';
 import { probeBackendHealth } from './api/health';
@@ -107,6 +105,11 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
   const [connectionSidebarCollapsed, setConnectionSidebarCollapsed] = useState(
     () => localStorage.getItem(CONNECTION_SIDEBAR_COLLAPSED_KEY) === 'true',
   );
+  const toggleSshConnections = () => {
+    if (connectionSidebarCollapsed) {
+      setConnectionSidebarCollapsed(false); setSshSectionCollapsed(false);
+    } else setSshSectionCollapsed(value => !value);
+  };
   const [sessions, setSessions] = useState(() => loadTerminalSessions(backendUrl));
   const sessionsRef = useRef(sessions);
   sessionsRef.current = sessions;
@@ -169,8 +172,8 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
   const [agentLoadAttempt, setAgentLoadAttempt] = useState(0);
   const [chatSessions, setChatSessions] = useState<ClientChatSession[]>([]);
   const [activeChatSessionId, setActiveChatSessionId] = useState('');
+  const [draftExecutionPolicy,setDraftExecutionPolicy]=useState<ExecutionPolicy['mode']>('confirm');
   const contextStatus=contextSnapshot?.sessionId===activeChatSessionId&&contextSnapshot?.agentId===selectedAgent?.agentId?contextSnapshot.status:null;
-  const [historyOpen, setHistoryOpen] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyLoadingId, setHistoryLoadingId] = useState('');
   const [historyError, setHistoryError] = useState('');
@@ -179,9 +182,6 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
   const [dialog, setDialog] = useState<Dialog>(null);
   const [backendSettingsOpen, setBackendSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<RustSettingsSection>('general');
-  const [uploadOpen, setUploadOpen] = useState(false);
-  const [uploadQueue] = useState(() => new FileUploadQueue());
-  useEffect(() => { uploadQueue.activate(); return () => uploadQueue.deactivate(); }, [uploadQueue]);
   useEffect(() => { if (updateSettingsRequested) {setSettingsSection('about');setBackendSettingsOpen(true);} }, [updateSettingsRequested]);
   const [attachmentPreviews] = useState(() => new AttachmentPreviews());
   const [chatDraft] = useState(() => new ChatAttachmentDraft(attachmentPreviews));
@@ -437,6 +437,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     chatVersion.current += 1; historySelection.current += 1; historyRefreshVersion.current += 1;
     chatSessionId.current = ''; chatTarget.current = null; setCanonicalHistory(null);
     setActiveChatSessionId(''); setChatSessions([]); setHistoryMore(''); setHistoryLoadingId('');
+    setDraftExecutionPolicy('confirm');
     chatDraft.clear(); replaceMessages([]);
   }, [selectedAgent?.agentId, chatDraft, replaceMessages]);
   useEffect(() => () => chatAbort.current?.abort(), []);
@@ -1006,9 +1007,10 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     setNavigation('命令');
     if (name === '命令') setConnectionSidebarCollapsed(false);
   };
-  // Tools are available automatically in a connected server conversation. The
-  // persisted server scope, rather than the active terminal tab, owns the target.
-  const executionEnabled=rustBuiltin&&!!selectedAgent?.toolsAvailable
+  // General tools do not depend on SSH. Only SSH registration/binding requires
+  // a connected, persisted server scope rather than the active terminal tab.
+  const toolsEnabled=rustBuiltin&&!!selectedAgent?.toolsAvailable;
+  const sshExecutionEnabled=toolsEnabled
     &&canonicalHistory?.session.scope?.kind==='server'
     &&!!executionTerminal(canonicalHistory.session,sessions,canonicalHistory.session.task?.target?.terminalSessionId??'');
   const sendMessage = async (text: string, selectedAttachments: ChatAttachment[] = []): Promise<boolean> => {
@@ -1021,8 +1023,8 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     const currentSession = active;
     const client = currentSession ? terminalClients.current.get(currentSession.id) : undefined;
     const scopeRuntime = activeProject ? sessions.find(item=>item.terminalSessionId===projectTerminalId && isSessionConnected(item)) : scopeTerminal(canonicalHistory?.session,sessions,currentSession);
-    const toolTerminal = executionEnabled ? executionTerminal(canonicalHistory?.session, sessionsRef.current, canonicalHistory?.session.task?.target?.terminalSessionId??'') : undefined;
-    let terminalSessionId = executionEnabled ? toolTerminal?.terminalSessionId ?? '' : rustBuiltin
+    const toolTerminal = sshExecutionEnabled ? executionTerminal(canonicalHistory?.session, sessionsRef.current, canonicalHistory?.session.task?.target?.terminalSessionId??'') : undefined;
+    let terminalSessionId = sshExecutionEnabled ? toolTerminal?.terminalSessionId ?? '' : rustBuiltin
       ? canonicalHistory?.session.scope?.kind === 'server' ? scopeRuntime?.terminalSessionId ?? ''
         : canonicalHistory?.session.task?.target?.terminalSessionId ?? ''
       : currentSession?.kind === 'ssh' && isSessionConnected(currentSession)
@@ -1206,24 +1208,31 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
 
     try {
       let executionSession=canonicalHistory?.session;
-      let useExecution=executionEnabled;
+      const useExecution=toolsEnabled;
+      let useSshExecution=sshExecutionEnabled;
       if (!chatSessionId.current) {
         if(activeProject){
           if(!scopeRuntime)throw new Error('请先连接此项目对应的 SSH 终端，再发送消息。');
           executionSession=await agentApi.projectChat(activeProject.id,selectedAgent.agentId,scopeRuntime.terminalSessionId);
           if (controller.signal.aborted || stopPending.current || version !== chatVersion.current) return false;
+          // The same conversation preference is saved before any tool turn.
+          if(draftExecutionPolicy!=='confirm'){
+            const policy=await agentApi.executionPolicy(selectedAgent.agentId,executionSession.id);
+            await agentApi.setExecutionPolicy(selectedAgent.agentId,executionSession.id,{mode:draftExecutionPolicy,revision:policy.revision});
+            if(controller.signal.aborted||stopPending.current||version!==chatVersion.current)return false;
+          }
           chatSessionId.current=executionSession.id;setActiveChatSessionId(executionSession.id);
           setCanonicalHistory({session:executionSession,turns:[],hasMore:false,nextAfter:0});
-          terminalSessionId=scopeRuntime.terminalSessionId;useExecution=!!selectedAgent.toolsAvailable;
+          terminalSessionId=scopeRuntime.terminalSessionId;useSshExecution=!!selectedAgent.toolsAvailable;
         }else{
-        const created = await agentApi.createSession(selectedAgent.agentId, controller.signal);
+        const created = await agentApi.createSession(selectedAgent.agentId, controller.signal, draftExecutionPolicy);
         if (!created?.sessionId) throw new Error('应用未返回 Agent 会话 ID');
         if (controller.signal.aborted || version !== chatVersion.current) return false;
         chatSessionId.current = created.sessionId;
         setActiveChatSessionId(created.sessionId);
         }
       }
-      if (useExecution) {
+      if (useSshExecution) {
         const session = await prepareExecutionBinding(executionSession, toolTerminal??scopeRuntime,
           (sessionId, terminalId) => agentApi.bindExecution(selectedAgent.agentId, sessionId, terminalId));
         if (controller.signal.aborted || stopPending.current || version !== chatVersion.current) return false;
@@ -1359,7 +1368,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     chatTarget.current = null;
     setCanonicalHistory(null);
     setActiveChatSessionId('');
-    setHistoryOpen(false);
+    setDraftExecutionPolicy('confirm');
     setHistoryLoadingId('');
     chatting.current = false;
     setChatBusy(false);
@@ -1388,7 +1397,6 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
       chatTarget.current = nativeHistory?.session.task?.target ?? null;
       setActiveChatSessionId(sessionId);
       replaceMessages(history);
-      setHistoryOpen(false);
       return true;
     } catch (error) {
       if (selection === historySelection.current) {
@@ -1523,7 +1531,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     finally{scopeSwitchRef.current=false;setScopeSwitching(false);}
   };
   return <div style={{ '--terminal-dock-width': `${terminalWidth}%`, '--command-width': `${commandWidth}px`, '--connection-sidebar-width': `${connectionSidebarWidth}px` } as CSSProperties} className={`app-shell agent-desktop ${terminalDockCollapsed && !agentCollapsed ? 'terminal-dock-collapsed' : ''} ${agentCollapsed ? 'agent-collapsed' : ''} ${navCollapsed ? 'nav-collapsed' : ''} ${connectionSidebarCollapsed ? 'host-sidebar-collapsed' : ''} ${navigation === '连接' ? 'connections-view' : 'terminal-view'} ${backendSettingsOpen ? 'settings-view' : ''}`}>
-    <AppHeader notify={notify} theme={theme} setTheme={setTheme} onUpload={() => setUploadOpen(true)} />
+    <AppHeader notify={notify} theme={theme} setTheme={setTheme} />
     <ActivityBar active={navigation} onSelect={name => { setBackendSettingsOpen(false); clearUpdateSettingsRequest(); navigate(name); }} onSettings={() => { setModelSettingsRequested(false); clearUpdateSettingsRequest(); setBackendSettingsOpen(value => !value); }} settingsOpen={backendSettingsOpen} collapsed={navCollapsed} toggleCollapsed={() => setNavCollapsed(value => !value)} settingsSection={settingsSection} onSettingsSection={section=>{setSettingsSection(section);setModelSettingsRequested(false);clearUpdateSettingsRequest();setBackendSettingsOpen(true);}} />
     {backendSettingsOpen && <BackendSettingsDialog currentUrl={backendUrl}
       section={settingsSection}
@@ -1546,7 +1554,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
           newChat={p=>newProjectChat(p)} openChat={(chat,p)=>void openProjectChat(chat,p)}
           servers={()=>{setSshSectionCollapsed(false);setConnectionSidebarCollapsed(false);setBackendSettingsOpen(false);}}/>
       </section>
-      <ConnectionSidebar connections={{ ...connections, remove: removeHost }} sessions={sessions} connectingHostIds={connectingHostIds} activeHostId={active?.kind === 'ssh' ? active.connectionId : undefined} activeSessionId={activeId} terminal={id => {setTerminalDockCollapsed(false);selectHost(id);}} cancelConnection={cancelHostConnection} activate={id => {setTerminalDockCollapsed(false);activateTerminalFromSidebar(id);}} create={openNewConnection} collapsed={sshSectionCollapsed} toggleCollapsed={() => setSshSectionCollapsed(value => !value)} embedded />
+      <ConnectionSidebar connections={{ ...connections, remove: removeHost }} sessions={sessions} connectingHostIds={connectingHostIds} activeHostId={active?.kind === 'ssh' ? active.connectionId : undefined} activeSessionId={activeId} terminal={id => {setTerminalDockCollapsed(false);selectHost(id);}} cancelConnection={cancelHostConnection} activate={id => {setTerminalDockCollapsed(false);activateTerminalFromSidebar(id);}} create={openNewConnection} collapsed={sshSectionCollapsed} toggleCollapsed={toggleSshConnections} embedded />
     </aside>
     <PanelDivider value={connectionSidebarWidth} change={setConnectionSidebarWidth} side="left" unit="pixels"
       min={220} max={360} defaultValue={window.innerWidth <= 1280 ? 240 : 280} reservePixels={704}
@@ -1556,7 +1564,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     <main id="terminal-dock-content" hidden={navigation !== '命令'} className={`central-workspace ${!active ? 'no-session' : ''} ${commandCollapsed ? 'command-collapsed' : ''}`}>
       <TerminalWorkspace
         agentTerminalId={rustBuiltin?agentBoundTerminalId(canonicalHistory?.session,activeProject?projectTerminalId:'',sessions):undefined}
-        dockControls={<><span><Icon name="terminal" size={16}/>SSH 终端</span><div><button type="button" className="terminal-return-chat" aria-label="展开智能体对话" onClick={() => setAgentCollapsed(false)}><Icon name="bot" size={15}/></button><button type="button" aria-label={terminalDockCollapsed ? '展开终端面板' : '收起终端面板'} aria-expanded={!terminalDockCollapsed} onClick={() => {setTerminalDockCollapsed(value => !value);setAgentCollapsed(false);}}><Icon name={terminalDockCollapsed ? 'left' : 'right'} size={16}/></button></div></>}
+        dockControls={<><span><Icon name="terminal" size={16}/>SSH 终端</span><div><button type="button" className="terminal-return-chat" aria-label="展开智能体对话" title="展开智能体对话" aria-controls="agent-panel-content" aria-expanded={false} onClick={() => setAgentCollapsed(false)}><Icon name="bot" size={15}/><span>展开对话</span></button><button type="button" aria-label={terminalDockCollapsed ? '展开终端面板' : '收起终端面板'} aria-expanded={!terminalDockCollapsed} onClick={() => {setTerminalDockCollapsed(value => !value);setAgentCollapsed(false);}}><Icon name={terminalDockCollapsed ? 'left' : 'right'} size={16}/></button></div></>}
         commandControls={<TerminalCommandBar mode={commandMode} changeMode={mode => {
           setCommandMode(mode); setBroadcastResult('');
           if (mode === 'selected' && commandMode === 'single' && activeId) setCommandTargetIds(previous => previous.length ? previous : [activeId]);
@@ -1649,8 +1657,10 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     </main>
     <>
     <PanelDivider value={terminalWidth} change={setTerminalWidth} min={24} max={75} defaultValue={34} minPixels={320} reservePixels={360} reserveWidthSelectors=".activity-bar, .workspace-sidebar"
+      collapseOpposite={() => setAgentCollapsed(true)} oppositeCollapseLabel="Agent 对话"
       controls="terminal-dock-content" label="调整对话与终端宽度" collapseLabel="终端面板" collapsed={agentCollapsed || terminalDockCollapsed} collapse={() => setTerminalDockCollapsed(true)} />
     <AgentPanel memoryScope={rustBuiltin?{agentId:selectedAgent?.agentId??'',sessionId:activeChatSessionId,...(!activeChatSessionId&&activeProject?{projectId:activeProject.id}:{})}:undefined} ref={agentComposer} chatDraft={chatDraft} draftScope={chatVersion.current} onApprovalChange={onApprovalChange}
+      sshConnections={{open: !connectionSidebarCollapsed && !sshSectionCollapsed, toggle: toggleSshConnections}}
       composerProject={rustBuiltin?{project:activeProject,projects:chatProjects,locked:projectLocked,
         create:()=>new Promise<void>(resolve=>{projectCreateFinished.current=resolve;setProjectCreateRequest(value=>value+1);}),
         select:async id=>{
@@ -1658,10 +1668,12 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
           if(id&&!project){notify('此 SSH 项目已不可用，请刷新对话历史后重试。','error');return;}
           await newProjectChat(project??null);
         }}:undefined}
-      execution={rustBuiltin&&selectedAgent&&activeChatSessionId&&canonicalHistory&&(canonicalHistory.session.scope?.kind==='server'||canonicalHistory.session.task?.status==='active')?{
-        agentId:selectedAgent.agentId,sessionId:activeChatSessionId,enabled:executionEnabled,available:!!selectedAgent.toolsAvailable,
-        connected:activeProject?projectConnected:chatTargetState.connected,locked:chatStopping||!!historyLoadingId||scopeSwitching,
-        target:canonicalHistory.session.scope?.identity,terminalId:canonicalHistory.session.task?.target?.terminalSessionId,taskId:canonicalHistory.session.task?.id,
+      execution={rustBuiltin&&selectedAgent?{
+        agentId:selectedAgent.agentId,sessionId:activeChatSessionId,enabled:sshExecutionEnabled,available:!!selectedAgent.toolsAvailable,
+        connected:activeProject?projectConnected:chatTargetState.connected,locked:chatStopping||!!historyLoadingId||scopeSwitching||(!activeChatSessionId&&chatBusy),
+        server:!!activeProject||canonicalHistory?.session.scope?.kind==='server',
+        ...(!activeChatSessionId?{draftPolicy:{mode:draftExecutionPolicy,select:setDraftExecutionPolicy}}:{}),
+        target:canonicalHistory?.session.scope?.identity,terminalId:canonicalHistory?.session.task?.target?.terminalSessionId,taskId:canonicalHistory?.session.task?.id,
         hidden:agentCollapsed,
       }:undefined}
       contextStatus={contextStatus} contextError={contextError} refreshContext={()=>setContextReload(value=>value+1)}
@@ -1682,14 +1694,12 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
       stopRecovered={stopRecoveredChat}
       agentAvailability={{ ready: !!selectedAgent && agentModels.some(item=>item.agentId===selectedAgent.agentId) && !agentLoading && !agentLoadError, loading: agentLoading, error: agentLoadError, retry: () => setAgentLoadAttempt(attempt => attempt + 1) }}
       history={{
-        external: rustBuiltin,
+        external: true,
 
-        sessions: chatSessions, activeSessionId: activeChatSessionId, open: historyOpen,
+        sessions: chatSessions, activeSessionId: activeChatSessionId, open: !connectionSidebarCollapsed,
         loading: historyLoading, loadingSessionId: historyLoadingId, error: historyError,
         toggle: () => {
-          if (rustBuiltin) {setConnectionSidebarCollapsed(value => !value);return;}
-          if (!historyOpen && selectedAgent) void refreshChatSessions(selectedAgent.agentId);
-          setHistoryOpen(value => !value);
+          setConnectionSidebarCollapsed(value => !value);
         },
         refresh: () => {setProjectRevision(v=>v+1);if (selectedAgent) void refreshChatSessions(selectedAgent.agentId);},
         select: sessionId => { void selectChatSession(sessionId); },
@@ -1698,7 +1708,6 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     </>
     {fileWindows.map(item => <SessionFiles key={item.connectionId} connectionId={item.connectionId} title={item.title} visible={!backendSettingsOpen && visibleFiles === item.connectionId} minimize={() => setVisibleFiles('')} remove={() => { setFileWindows(previous => previous.filter(window => window.connectionId !== item.connectionId)); setVisibleFiles(current => current === item.connectionId ? '' : current); }} copy={copy} notify={notify} registerAppCloseCleanup={registerAppCloseCleanup} />)}
     {toast && <NotificationToast key={toast.id} notice={toast} close={dismissNotice} />}
-    {uploadOpen && <FileUploadDialog queue={uploadQueue} close={() => setUploadOpen(false)} />}
     {dialog === 'command' && <AddCommandDialog close={closeDialog} categories={[...new Set(commands.map(command => command.category))]} save={async command => {
       const next = [...commands, command];
       await saveClientCommands(next);

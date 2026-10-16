@@ -4,7 +4,7 @@ test-rust-ui 分支接入内置 Rust 后端，当前为 ShellPilot Rust Preview 
 
 安装包将 React/Tauri 界面与 shellpilot_server 库编译为同一个 Windows 程序，无需另启 server 或安装 Java/MySQL。首次启动创建独立数据和设置；内置功能全部使用 IPC，不启动本地 HTTP 服务，不占用本机监听端口。
 
-详见 RUST_PREVIEW_INSTALL.md。当前支持 SSH 连接配置与终端、本地 CMD、SFTP 文件管理/上传下载，以及本地文件与附件存储。顶部“文件与附件”支持已存历史、原生保存、删除和容量查看，设置页可调整附件策略。AI 对话、模型附件处理及 Agent 工具仍待阶段 5 迁移。
+详见 RUST_PREVIEW_INSTALL.md。当前支持 SSH 连接配置与终端、本地 CMD、SFTP 文件管理/上传下载，以及对话附件存储、预览和原生保存。附件通过对话输入框添加，顶栏独立文件管理入口已移除；设置页可调整附件策略。
 
 桌面模式运行 `npm run tauri dev`，功能通过应用内部 IPC 完成；普通浏览器只预览界面，不访问外部后端。
 

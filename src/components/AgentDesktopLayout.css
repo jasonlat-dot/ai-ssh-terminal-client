@@ -2,6 +2,7 @@
 .app-shell.agent-desktop {
   --host-sidebar-width: var(--connection-sidebar-width, 280px);
   grid-template-columns: var(--rail) var(--host-sidebar-width) minmax(340px, 1fr) 6px minmax(320px, var(--terminal-dock-width, 34%));
+  transition: grid-template-columns var(--nav-transition-duration) var(--nav-transition-easing), grid-template-rows var(--nav-transition-duration) var(--nav-transition-easing);
 }
 .agent-desktop > .workspace-sidebar {
   grid-column: 2; grid-row: 2; display: flex; flex-direction: column; gap: 12px;
@@ -59,29 +60,95 @@
   border: 1px solid var(--line); border-radius: 12px; background: var(--panel); overflow: hidden;
 }
 .agent-desktop > .central-workspace .command-shelf { display: block; grid-column: 1; grid-row: 2; min-height: 0; margin: 0; }
-.agent-desktop .command-shelf-inner { border: 0; border-top: 1px solid var(--line); border-radius: 0; }
+.agent-desktop .command-shelf-inner {
+  display: flex; flex-direction: column; height: 100%; min-width: 0; min-height: 0;
+  padding: 10px 12px; overflow: hidden;
+  border: 0; border-top: 1px solid var(--line); border-radius: 0;
+}
+.agent-desktop .command-shelf-inner > .section-heading { flex: 0 0 auto; min-width: 0; min-height: 30px; margin-bottom: 6px; }
+.agent-desktop .command-library-heading small { display: none; }
+.agent-desktop .command-categories {
+  position: static; display: flex; flex: 0 0 auto; flex-wrap: nowrap; gap: 6px;
+  min-width: 0; height: auto; margin: 0 0 6px; padding: 2px 0 5px;
+  overflow-x: auto; overflow-y: hidden; scrollbar-width: thin;
+}
+.agent-desktop .command-categories > button {
+  display: inline-flex; flex: 0 0 auto; align-items: center; gap: 5px;
+  min-height: 30px; padding: 4px 8px; border-radius: 7px; white-space: nowrap;
+}
+.agent-desktop .command-categories .command-category-icon { width: 18px; height: 18px; border-radius: 5px; }
+.agent-desktop .command-list-heading { flex: 0 0 auto; min-width: 0; padding: 0 2px 5px; }
+.agent-desktop .command-list {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
+  grid-auto-rows: max-content; align-content: start; flex: 1 1 0; min-height: 0; min-width: 0;
+  gap: 6px; overflow: auto; padding: 6px 0; scrollbar-width: thin;
+}
+.agent-desktop .command-row { min-width: 0; min-height: 58px; padding: 6px; border: 1px solid var(--line); border-radius: 8px; gap: 4px; }
+.agent-desktop .command-row > .command-fill { min-width: 0; gap: 3px 7px; text-align: left; }
+.agent-desktop .command-fill .command-name { font-size: 12px; }
+.agent-desktop .command-fill code { font-size: 11px; line-height: 1.5; }
+.agent-desktop .command-row > .icon-button, .agent-desktop .command-row > .run-command { flex-shrink: 0; }
 .agent-desktop > .central-workspace.command-collapsed .command-shelf { display: none; }
-.agent-desktop > .central-workspace:not(.no-session):not(.command-collapsed) { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(140px, 30%); }
+.agent-desktop > .central-workspace:not(.no-session):not(.command-collapsed) { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(200px, 30%); }
 .agent-desktop > .central-workspace .command-panel-divider { display: none; }
 .terminal-dock-heading { flex-shrink: 0; min-height: 48px; justify-content: space-between; padding: 8px 12px; border-bottom: 1px solid var(--line); color: var(--text); }
 .terminal-dock-heading > span { font-weight: 650; font-size: 13px; }
 .terminal-dock-heading .terminal-return-chat { display: none; }
+.agent-desktop .terminal-dock-heading .terminal-return-chat,
+.agent-desktop .terminal-toolbar .terminal-files-toggle,
+.agent-desktop .terminal-toolbar .terminal-command-toggle,
+.agent-desktop .terminal-toolbar .terminal-agent-toggle {
+  width: auto; height: 30px; min-width: 0; flex-shrink: 0; gap: 6px; padding: 4px 9px;
+  border: 1px solid var(--line); border-radius: 7px;
+  color: var(--theme-text-strong); background: var(--theme-panel); white-space: nowrap;
+}
+.agent-desktop .terminal-toolbar .terminal-agent-toggle,
+.agent-desktop .terminal-toolbar .terminal-files-toggle,
+.agent-desktop .terminal-toolbar .terminal-command-toggle { display: inline-flex; }
+.agent-desktop .terminal-toolbar .terminal-files-toggle:hover:not(:disabled),
+.agent-desktop .terminal-toolbar .terminal-command-toggle:hover,
+.agent-desktop .terminal-toolbar .terminal-agent-toggle:hover:not(:disabled),
+.agent-desktop .terminal-dock-heading .terminal-return-chat:hover {
+  color: var(--ui-accent); border-color: var(--ui-accent); background: var(--theme-hover);
+}
+.agent-desktop.agent-collapsed .terminal-dock-heading .terminal-return-chat,
+.agent-desktop .terminal-toolbar .terminal-files-toggle.selected,
+.agent-desktop .terminal-toolbar .terminal-command-toggle.selected,
+.agent-desktop.agent-collapsed .terminal-toolbar .terminal-agent-toggle {
+  color: var(--ui-highlight-text); border-color: var(--ui-accent); background: var(--ui-highlight-bg);
+}
 .agent-desktop .terminal-tab-strip { min-width: 0; }
-.agent-desktop .terminal-tabs { min-width: 0; padding-left: 4px; }
+.app-shell.agent-desktop .terminal-tabs { min-width: 0; padding-left: 4px; }
+.app-shell.agent-desktop.host-sidebar-collapsed .terminal-tabs { padding-left: 4px; }
 .agent-desktop > .panel-divider:not(.connection-panel-divider) { grid-column: 4; grid-row: 2; }
 .agent-desktop > .connection-panel-divider { margin-right: -2px; }
-.agent-desktop.host-sidebar-collapsed { --host-sidebar-width: 40px; }
-.agent-desktop.host-sidebar-collapsed .workspace-sidebar { padding-inline: 4px; gap: 0; }
-.agent-desktop.host-sidebar-collapsed .workspace-sidebar-heading { padding: 0; }
+.agent-desktop.host-sidebar-collapsed { --host-sidebar-width: 0px; }
+.agent-desktop.host-sidebar-collapsed > .workspace-sidebar {
+  display: flex; position: relative; z-index: 4; align-self: start;
+  width: 36px; min-height: 0; height: 44px; padding: 10px 3px 4px; gap: 0;
+  overflow: visible; background: transparent;
+}
+.agent-desktop.host-sidebar-collapsed .workspace-sidebar-heading {
+  width: 30px; min-height: 30px; padding: 0;
+  border-radius: 8px; background: var(--bg);
+}
+.agent-desktop.host-sidebar-collapsed .conversation-card > header { padding-inline-start: 48px; }
 .agent-desktop.host-sidebar-collapsed .workspace-sidebar-heading > span,
 .agent-desktop.host-sidebar-collapsed .workspace-conversations,
 .agent-desktop.host-sidebar-collapsed .workspace-sidebar > .host-sidebar { display: none; }
 .app-shell.agent-desktop.agent-collapsed { grid-template-columns: var(--rail) var(--host-sidebar-width) minmax(0, 1fr) 0 0; }
 .agent-desktop.agent-collapsed > .central-workspace { grid-column: 3 / -1; }
 .agent-desktop.agent-collapsed .terminal-return-chat { display: inline-flex; }
-.app-shell.agent-desktop.terminal-dock-collapsed { grid-template-columns: var(--rail) var(--host-sidebar-width) minmax(0, 1fr) 0 46px; }
-.agent-desktop.terminal-dock-collapsed > .central-workspace { margin-right: 6px; }
-.agent-desktop.terminal-dock-collapsed .terminal-workspace > :not(.terminal-dock-heading) { display: none; }
+.app-shell.agent-desktop.terminal-dock-collapsed { grid-template-columns: var(--rail) var(--host-sidebar-width) minmax(0, 1fr) 0px minmax(46px, 46px); }
+.agent-desktop .terminal-workspace { overflow: hidden; }
+.agent-desktop .terminal-workspace > :not(.terminal-dock-heading) {
+  opacity: 1; visibility: visible;
+  transition: opacity var(--nav-transition-duration) var(--nav-transition-easing), visibility 0s;
+}
+.agent-desktop.terminal-dock-collapsed .terminal-workspace > :not(.terminal-dock-heading) {
+  opacity: 0; visibility: hidden; pointer-events: none;
+  transition: opacity var(--nav-transition-duration) var(--nav-transition-easing), visibility 0s var(--nav-transition-duration);
+}
 .agent-desktop.terminal-dock-collapsed > .central-workspace { grid-template-rows: minmax(0, 1fr); }
 .agent-desktop.terminal-dock-collapsed .command-shelf { display: none; }
 .agent-desktop.terminal-dock-collapsed .terminal-dock-heading { padding: 8px 2px; justify-content: center; border: 0; }
@@ -111,10 +178,11 @@
   .agent-desktop .new-agent-session strong { display: none; }
 }
 @media (max-width: 1050px) {
-  .app-shell.agent-desktop:not(.agent-collapsed):not(.terminal-dock-collapsed) { grid-template-columns: var(--rail) var(--host-sidebar-width) minmax(0, 1fr); grid-template-rows: 54px minmax(300px, 1fr) minmax(240px, 38%); }
-  .agent-desktop:not(.agent-collapsed):not(.terminal-dock-collapsed) > .workspace-sidebar { grid-row: 2 / 4; }
-  .agent-desktop:not(.agent-collapsed):not(.terminal-dock-collapsed) > .agent-panel { grid-column: 3; margin-right: 10px; }
-  .agent-desktop:not(.agent-collapsed):not(.terminal-dock-collapsed) > .central-workspace { grid-column: 3; grid-row: 3; margin-top: 0; }
+  .app-shell.agent-desktop:not(.agent-collapsed) { grid-template-columns: var(--rail) var(--host-sidebar-width) minmax(0, 1fr) 0px minmax(0px, 0px); grid-template-rows: 54px minmax(300px, 1fr) minmax(240px, 38%); }
+  .app-shell.agent-desktop.terminal-dock-collapsed { grid-template-rows: 54px minmax(300px, 1fr) minmax(46px, 46px); }
+  .agent-desktop:not(.agent-collapsed) > .workspace-sidebar { grid-row: 2 / 4; }
+  .agent-desktop:not(.agent-collapsed) > .agent-panel { grid-column: 3; margin-right: 10px; }
+  .agent-desktop:not(.agent-collapsed) > .central-workspace { grid-column: 3; grid-row: 3; margin-top: 0; }
   .agent-desktop > .panel-divider:not(.connection-panel-divider) { display: none; }
   .agent-desktop .terminal-dock-heading { min-height: 36px; padding-block: 3px; }
   .rust-settings .settings-topbar-title p { white-space: normal; }
@@ -131,5 +199,8 @@
   .rust-settings .settings-content.rust-model-content { padding: 12px; }
 }
 @media (prefers-reduced-motion: reduce) {
+  .app-shell.agent-desktop,
+  .agent-desktop .terminal-workspace > :not(.terminal-dock-heading),
   .workspace-sidebar-toggle, .terminal-dock-heading button { transition: none; }
+  .agent-desktop.terminal-dock-collapsed .terminal-workspace > :not(.terminal-dock-heading) { transition: none; }
 }

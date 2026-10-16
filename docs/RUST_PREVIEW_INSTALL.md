@@ -9,14 +9,14 @@
 2. 打开 ShellPilot-Rust-Preview，本地工作区自动初始化，功能通过 IPC 在应用内运行，不监听本机 HTTP 端口；不需要 Java、MySQL、Node 或 Rust 开发工具。
 3. 添加 SSH 连接，输入密码或私钥。默认开启主机密钥检查，需要目标服务器匹配的 known_hosts 公钥记录。
 4. SSH 终端支持原始输入、多窗口/分屏、命令库及本地 CMD。文件夹按钮打开双栏 SFTP 文件管理，支持目录/普通文件操作、上传下载、进度、取消和失败重试。
-5. 顶部“文件与附件”支持本机附件上传，无需 SSH；在“已存文件”中查看历史、打开系统保存对话框、确认删除。
+5. 通过对话输入框添加本机附件，无需 SSH；消息中的文件可预览或下载。顶栏独立“文件与附件”入口已移除。
 6. “客户端设置”支持工作区初始化/停止/重新初始化、数据目录、自动初始化，以及附件启用、容量与保留天数。
 
 附件默认单文件最多 20 MiB、总容量 1 GiB、长期保留；本地附件无需 HTTP 下载链接。
-支持 png/jpg/jpeg/webp/pdf/txt/log/csv/json/yaml/yml/md/docx/xlsx。上传中断后文件可能已保存，重试需手动操作；移除上传记录只移除本地行，删除已存文件需明确确认。
+支持 png/jpg/jpeg/webp/pdf/txt/log/csv/json/yaml/yml/md/docx/xlsx。上传中断后文件可能已保存，重试需手动操作；移除草稿附件只取消该草稿中的引用。
 
 保留天数 0 表示长期保留，正数按创建时间清理，包括此前已存文件。
-设置保存后需重新初始化工作区。此操作会断开 SSH/SFTP，旧实例的附件引用失效，在已存文件列表重新读取即可。
+设置保存后需重新初始化工作区。此操作会断开 SSH/SFTP；如旧实例附件引用失效，可重新附加文件，已有消息的内容预览使用会话快照。
 数据目录变更不会搬迁数据；默认 SQLite 与 attachments 位于：
 %LOCALAPPDATA%\com.jasonlat.shellpilot.rust-preview\backend-data。
 旧配置自动补齐附件默认值，本轮沿用同一份 Rust Preview 数据；serverPort/downloadLinkMinutes 不再使用。

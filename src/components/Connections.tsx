@@ -37,11 +37,11 @@ export function ConnectionSidebar({ connections, sessions, connectingHostIds, ac
       <div className="host-sidebar-heading-actions">
         <IconButton icon="plus" className="host-sidebar-add" label="添加 SSH 连接" disabled={connections.busy} onClick={create} />
         <IconButton icon="refresh" className="host-sidebar-refresh" label="刷新连接列表" disabled={connections.busy} onClick={() => connections.refresh()} />
-        <IconButton icon={embedded ? collapsed ? 'down' : 'up' : collapsed ? 'right' : 'left'} className="host-sidebar-collapse" label={collapsed ? '展开连接列表' : '收起连接列表'} aria-expanded={!collapsed} onClick={toggleCollapsed} />
+        <IconButton icon={embedded ? collapsed ? 'up' : 'down' : collapsed ? 'right' : 'left'} className="host-sidebar-collapse" label={collapsed ? '展开连接列表' : '收起连接列表'} aria-controls="ssh-connection-list" aria-expanded={!collapsed} onClick={toggleCollapsed} />
       </div>
     </header>
     <label className="sidebar-host-search"><Icon name="search" size={14} /><input value={query} onChange={event => setQuery(event.target.value)} placeholder="搜索连接" aria-label="搜索 SSH 连接" /></label>
-    <div className="sidebar-host-list">
+    <div className="sidebar-host-list" id="ssh-connection-list">
       {hosts.map(host => {
         const hostSessions = sessions.filter(session => session.connectionId === host.id);
         const connectedCount = hostSessions.filter(isSessionConnected).length;

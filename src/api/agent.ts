@@ -297,8 +297,8 @@ export const agentApi = {
   steer:(agentId:string,sessionId:string,expectedRequestId:string,id:string,message:string)=>request<AgentSteer>('steer','POST',{agentId,sessionId,expectedRequestId,id,message,userId:sshUserId}),
   userId: sshUserId,
   list: (signal?: AbortSignal) => request<AgentConfig[]>('query_ai_agent_config_list', 'GET', undefined, signal, { userId: sshUserId }),
-  createSession: (agentId: string, signal?: AbortSignal) => request<{ sessionId: string }>(
-    'create_session', 'POST', { agentId, userId: sshUserId }, signal,
+  createSession: (agentId: string, signal?: AbortSignal, approvalMode?: ExecutionPolicy['mode']) => request<{ sessionId: string }>(
+    'create_session', 'POST', { agentId, userId: sshUserId, ...(approvalMode?{approvalMode}:{}) }, signal,
   ),
   serverScope: (agentId:string,rootId:string,terminalSessionId:string,newTask=false,signal?:AbortSignal) =>
     request<AgentSession>('server_scope','POST',{agentId,userId:sshUserId,rootId,terminalSessionId,newTask},signal),

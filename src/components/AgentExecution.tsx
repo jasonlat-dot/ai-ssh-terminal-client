@@ -8,11 +8,11 @@ import './AgentExecution.css';
 const approvalModes=[
   {mode:'confirm',label:'请求批准',description:'需要授权的工具操作由你确认',icon:'user'},
   {mode:'auto',label:'帮我批准',description:'独立审查工具操作，风险或不明确时由你确认',icon:'shield'},
-  {mode:'fullAccess',label:'完全访问权限',description:'当前任务的工具操作不再请求批准',icon:'alert'},
+  {mode:'fullAccess',label:'完全访问权限',description:'工具操作不再请求批准',icon:'alert'},
 ] as const;
 const policyLabel=(policy:ExecutionPolicy|null)=>policy?.mode==='deny'?'已禁止执行':approvalModes.find(item=>item.mode===policy?.mode)?.label??'读取权限…';
 
-export function ExecutionPolicyMenu({policy,disabled,error,retry,select}:{policy:ExecutionPolicy|null;disabled:boolean;error?:string;retry:()=>void;select:(mode:ExecutionPolicy['mode'])=>void}){
+export function ExecutionPolicyMenu({policy,disabled,error,retry,select,scopeLabel='当前对话'}:{policy:ExecutionPolicy|null;disabled:boolean;error?:string;retry:()=>void;select:(mode:ExecutionPolicy['mode'])=>void;scopeLabel?:string}){
   const [open,setOpen]=useState(false);const root=useRef<HTMLDivElement>(null);
   useEffect(()=>{if(disabled)setOpen(false);},[disabled]);
   useEffect(()=>{
@@ -34,19 +34,20 @@ export function ExecutionPolicyMenu({policy,disabled,error,retry,select}:{policy
       }
     }}>
     <button type="button" className="execution-policy-trigger" aria-label="工具审核边界" aria-haspopup="menu" aria-expanded={open}
-      disabled={disabled} onClick={()=>setOpen(value=>!value)} title="设置当前任务的工具审核边界"><Icon name={policy?.mode==='fullAccess'?'alert':'shield'} size={15}/><span>{policy?policyLabel(policy):error?'权限读取失败':'读取权限…'}</span><Icon name="down" size={11}/></button>
+      disabled={disabled} onClick={()=>setOpen(value=>!value)} title={`设置${scopeLabel}的工具审核边界`}><Icon name={policy?.mode==='fullAccess'?'alert':'shield'} size={15}/><span>{policy?policyLabel(policy):error?'权限读取失败':'读取权限…'}</span><Icon name="down" size={11}/></button>
     <div className="execution-policy-menu" role="menu" aria-label="工具审核边界选项" inert={!open}>
       <p className="execution-policy-heading">如何批准工具操作？</p>
       {approvalModes.map(item=><button type="button" role="menuitemradio" aria-checked={policy?.mode===item.mode} key={item.mode} disabled={disabled||!policy}
         className={item.mode==='fullAccess'?'is-dangerous':''} onClick={()=>{setOpen(false);select(item.mode);}}>
         <Icon name={item.icon} size={17}/><span><strong>{item.label}</strong><small>{item.description}</small></span>{policy?.mode===item.mode&&<Icon name="check" size={16}/>}</button>)}
-      <p className="execution-policy-footnote">适用于当前任务的工具操作 · 各工具仍受其访问边界约束</p>
+      <p className="execution-policy-footnote">适用于{scopeLabel}的工具操作 · 各工具仍受其访问边界约束</p>
     </div>
     {error&&<p className="execution-policy-error" role="alert">{error}<button type="button" onClick={retry}>重试</button></p>}
   </div>;
 }
 
-export type ExecutionScope={agentId:string;sessionId:string;enabled:boolean;available:boolean;connected:boolean;locked:boolean;hidden?:boolean;
+export type ExecutionScope={agentId:string;sessionId:string;enabled:boolean;available:boolean;connected:boolean;locked:boolean;hidden?:boolean;server?:boolean;
+  draftPolicy?:{mode:ExecutionPolicy['mode'];select:(mode:ExecutionPolicy['mode'])=>void};
   target?:{host:string;port:number;username:string;hostKey:string}|null;terminalId?:string;taskId?:string};
 export const ExecutionContext=createContext<{agentId:string;sessionId:string}|null>(null);
 const states:Record<ExecutionReceipt['state'],string>={pending:'等待确认',approved:'已批准，等待准入',denied:'已拒绝',cancelled:'已取消',expired:'已过期',admitted:'已准入，可能执行',completed:'执行已返回',notSent:'未发送',unknown:'结果未知，请先核查'};
@@ -162,6 +163,8 @@ export function AgentExecution({scope,approvalTarget,policyTarget,onPendingChang
   const [reload,setReload]=useState(0);const alive=useRef(true);const loadedOlder=useRef(false);
   const [policyError,setPolicyError]=useState('');
   const policyScope=useRef('');
+  const serverScope=scope.server??!!(scope.target||scope.taskId||scope.terminalId);
+  const draftPolicy=!scope.sessionId?scope.draftPolicy:undefined;
   const waiting=receipts.filter(receipt=>receipt.state==='pending'&&receipt.expiresAt>Date.now());
   // Auto-review runs before a human approval is requested. Do not replace the
   // composer with an approval card for a command the reviewer is still checking.
@@ -171,7 +174,7 @@ export function AgentExecution({scope,approvalTarget,policyTarget,onPendingChang
   useEffect(()=>{onApprovalChange?.(scope.sessionId,pending.length>0);return()=>onApprovalChange?.(scope.sessionId,false);},[scope.sessionId,pending.length>0,onApprovalChange]);
   useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
   useEffect(()=>{
-    if(scope.hidden)return;
+    if(scope.hidden||!scope.sessionId)return;
     let cancelled=false;const controller=new AbortController();let timer:ReturnType<typeof setTimeout>;
     const poll=async()=>{
       try{const list=await agentApi.executionRequests(scope.agentId,scope.sessionId,'',controller.signal);
@@ -185,16 +188,16 @@ export function AgentExecution({scope,approvalTarget,policyTarget,onPendingChang
     void poll();return()=>{cancelled=true;controller.abort();clearTimeout(timer);};
   },[scope.agentId,scope.sessionId,scope.hidden,reload,approvalTarget]);
   useEffect(()=>{
-    const key=JSON.stringify([scope.agentId,scope.sessionId,scope.taskId,scope.terminalId]);
+    const key=JSON.stringify([scope.agentId,scope.sessionId]);
     if(policyScope.current!==key){policyScope.current=key;setPolicy(null);}
     setPolicyError('');
-    if(!scope.taskId&&!scope.terminalId)return;
+    if(!scope.sessionId)return;
     let cancelled=false;
     void agentApi.executionPolicy(scope.agentId,scope.sessionId)
       .then(value=>{if(!cancelled)setPolicy(value);})
       .catch(error=>{if(!cancelled)setPolicyError(error instanceof Error?error.message:'审核边界读取失败');});
     return()=>{cancelled=true;};
-  },[scope.agentId,scope.sessionId,scope.taskId,scope.terminalId,reload]);
+  },[scope.agentId,scope.sessionId,reload]);
   const act=async(id:string,decision:'approveOnce'|'approveTaskCommand'|'deny'|'cancel'|'revoke')=>{
     if(action)return;setAction(id);setError('');
     try{await agentApi.executionDecision(scope.agentId,scope.sessionId,id,decision);if(alive.current&&decision==='revoke')setReceipts(old=>old.map(r=>r.id===id&&r.grant?{...r,grant:{...r.grant,revoked:true}}:r));}
@@ -213,17 +216,18 @@ export function AgentExecution({scope,approvalTarget,policyTarget,onPendingChang
     catch(e){if(alive.current)setError(e instanceof Error?e.message:'读取失败');}
     finally{if(alive.current)setAction('');}
   };
-  const policyMenu=<ExecutionPolicyMenu policy={policy} disabled={scope.locked||!!action||!scope.available||!policy} error={policyError} retry={()=>setReload(value=>value+1)} select={mode=>void changePolicy(mode)}/>;
-  return <section className="agent-execution" aria-label="工具执行权限">
+  const visiblePolicy=draftPolicy?{mode:draftPolicy.mode,revision:0}:policy;
+  const policyMenu=<ExecutionPolicyMenu policy={visiblePolicy} disabled={scope.locked||!!action||!visiblePolicy} error={policyError} retry={()=>setReload(value=>value+1)} select={mode=>draftPolicy?draftPolicy.select(mode):void changePolicy(mode)}/>;
+  return <section className="agent-execution" aria-label="工具执行权限" hidden={!scope.target&&!(serverScope&&!scope.available)&&!reviewing&&!expanded&&!error}>
     {scope.target&&<div className="execution-target">固定目标 {scope.target.username}@{scope.target.host}:{scope.target.port}{scope.connected?'':' · 已断开'}
       {scope.terminalId&&<details><summary>查看绑定身份</summary><span>终端 {scope.terminalId}</span><code>{scope.target.hostKey}</code></details>}</div>}
-    {!scope.available&&<p>当前工具执行链支持 Chat Completions；Responses 工具调用尚未接入。</p>}
+    {!scope.available&&serverScope&&<p>当前工具执行链支持 Chat Completions；Responses 工具调用尚未接入。</p>}
     {scope.available&&scope.target&&!scope.connected&&<p>重连此对话绑定的服务器后，SSH 工具将自动可用；当前仍可讨论历史记录。</p>}
     {reviewing&&<p className="execution-review-note" role="status"><Icon name="shield" size={13}/>正在独立审查工具操作…</p>}
     {expanded&&<div className="execution-history">
       <div className="execution-actions"><button type="button" disabled={!!action} onClick={()=>setReload(v=>v+1)}>刷新状态</button>
         {policy&&<button type="button" disabled={!!action} onClick={()=>void changePolicy(policy.mode==='deny'?'confirm':'deny')}>{policy.mode==='deny'?'恢复逐条确认':'禁止后续执行并撤销授权'}</button>}</div>
-      {policy?.mode==='deny'&&<p>本任务已禁止执行；恢复后仍需逐条确认。</p>}
+      {policy?.mode==='deny'&&<p>本对话已禁止工具执行；恢复后仍需按审核设置处理。</p>}
       {!receipts.length&&!error&&<p>暂无命令记录。模型提出的操作将按当前审核设置处理。</p>}
       {receipts.filter(receipt=>!approvalTarget||!pending.some(item=>item.id===receipt.id)).map(receipt=><ApprovalCard key={receipt.id} receipt={receipt} disabled={!!action} act={(id,decision)=>void act(id,decision)}/>)}
       {more&&receipts.length<500&&<button type="button" disabled={!!action} onClick={()=>void loadMore()}>加载更早记录</button>}
