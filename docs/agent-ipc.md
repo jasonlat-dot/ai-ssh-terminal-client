@@ -45,3 +45,15 @@ schema 10 增加 agent_projects / agent_project_chats。GET agent/projects 与 G
 POST agent/create_project 接受 userId/name/connectionId，检查保存连接所有权并记录创建时的地址/端口/用户快照。POST agent/project_terminal 接受 userId/projectId/terminalSessionId，从 TerminalManager 检查实际 SSH 身份并绑定/校验项目；不会创建聊天。POST agent/project_chat 额外接受 agentId，核对模型与项目/实际身份后，在同一事务创建独立 server scope 和项目归属。
 
 前端历史点击始终 load 原 sessionId/agentId，再自动连接/原生验证；只有显式“新对话”调用 project_chat。项目聊天无需依赖普通根会话列表，可跨重启恢复。不同项目/模型聊天的日志与整理窗口不合并。旧 scopes 接口保留兼容基础回归；用户已撤销项目侧栏/最左图标导航；项目归组和恢复现在放在原 Agent“历史”弹层。完整验证与里程碑只维护 AGENT_PROGRESS.md。
+
+
+## 长期记忆
+
+`agent/memories` 的 GET 使用 userId，以及可选的 agentId/sessionId 或 projectId；POST 使用同样范围和 `memory`（id/revision/title/content/kind/scope/enabled）；DELETE 使用同样范围和 id/revision。已有对话仍核对用户/模型/会话归属；没有 sessionId 时，可直接管理全局记忆，或按当前用户持有的 projectId 读取项目的已确认身份，不能同时指定会话和项目。未绑定身份的项目只允许全局记忆。不要求模型配置或创建会话。来源、时间及服务器身份由原生侧生成，不接收客户端提供的目标或来源；无会话来源的 sessionId/agentId 为空，项目来源附加 projectId，兼容既有来源 JSON。
+
+界面入口与使用范围见 [agent-memory.md](agent-memory.md)。版本冲突返回 `AGENT_MEMORY_CHANGED`，无效内容返回 `AGENT_MEMORY_INVALID`。三个操作只管理用户确认的长期记录，不修改任务、检查点或执行批准。
+
+
+## 历史对话标题
+
+POST `agent/rename_chat` 接受 agentId/userId/sessionId/title，核对原会话用户与模型归属，将去掉首尾空白的 1–80 字符标题保存在 schema 19 的 agent_chat_titles。历史列表优先使用手工标题，未改名时继续使用首条消息摘要；不改写消息、任务、检查点、排序或创建时间，后续新消息也不会覆盖手工标题。删除聊天同时清理标题元数据。仅使用原生派发，不新增 HTTP 入口。

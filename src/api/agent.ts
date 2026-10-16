@@ -38,6 +38,10 @@ export type AgentChatRequest = {
   attachments?: { fileId: string }[];
   executionEnabled?: boolean;
 };
+export type AgentMemoryWrite={id:string;revision:number;title:string;content:string;kind:'preference'|'procedure';scope:'global'|'server';enabled:boolean};
+export type AgentMemoryTarget={connectionId:string;identity:NonNullable<AgentScope['identity']>};
+export type AgentMemory=AgentMemoryWrite&{target:AgentMemoryTarget|null;source:{kind:'userConfirmed';sessionId:string;agentId:string;projectId?:string};createdAt:number;updatedAt:number};
+export type AgentMemories={target:AgentMemoryTarget|null;items:(AgentMemory&{applicable:boolean})[]};
 export type AgentTurnState = 'running'|'completed'|'cancelled'|'failed'|'interrupted';
 export type AgentProject = {id:string;name:string;connectionId:string;identity:AgentScope["identity"];profile?:{host:string;port:number;username:string}|null};
 export type ProjectChat = {sessionId:string;agentId:string;title:string;createdAt:number;running?:boolean;awaitingApproval?:boolean};
@@ -303,6 +307,7 @@ export const agentApi = {
   projects: () => request<AgentProject[]>('projects','GET',undefined,undefined,{userId:sshUserId}),
   createProject: (name:string,connectionId:string) => request<AgentProject>('create_project','POST',{name,connectionId,userId:sshUserId}),
   projectChats: (projectId='',after='') => request<ProjectChats>('project_chats','GET',undefined,undefined,{userId:sshUserId,projectId,after}),
+  renameChat:(agentId:string,sessionId:string,title:string)=>request<void>('rename_chat','POST',{agentId,sessionId,title,userId:sshUserId}),
   deleteChat:(agentId:string,sessionId:string)=>request<void>('delete_chat','POST',{agentId,sessionId,userId:sshUserId}),
   deleteProject:(projectId:string)=>request<void>('delete_project','POST',{projectId,userId:sshUserId}),
   projectTerminal: (projectId:string,terminalSessionId:string) => request<AgentProject>('project_terminal','POST',{projectId,terminalSessionId,userId:sshUserId}),
@@ -328,5 +333,8 @@ export const agentApi = {
   setExecutionPolicy:(agentId:string,sessionId:string,policy:ExecutionPolicy)=>request<ExecutionPolicy>('execution_policy','POST',{agentId,sessionId,userId:sshUserId,...policy}),
   executionOutput:(agentId:string,sessionId:string,outputId:string,offset=0)=>request<OutputRange>('execution_output','GET',undefined,undefined,{agentId,sessionId,userId:sshUserId,outputId,offset:String(offset),limit:'4096'}),
   attachment:(agentId:string,sessionId:string,fileId:string)=>request<{reference:{fileName:string;kind:string;pages:number|null;width:number|null;height:number|null};text:string|null;imageUrl:string|null}>('attachment','GET',undefined,undefined,{agentId,sessionId,fileId,userId:sshUserId}),
+  memories:(agentId:string,sessionId:string,projectId?:string)=>request<AgentMemories>('memories','GET',undefined,undefined,{agentId,sessionId,userId:sshUserId,...(projectId?{projectId}:{})}),
+  saveMemory:(agentId:string,sessionId:string,memory:AgentMemoryWrite,projectId?:string)=>request<AgentMemory>('memories','POST',{agentId,sessionId,userId:sshUserId,memory,...(projectId?{projectId}:{})}),
+  deleteMemory:(agentId:string,sessionId:string,id:string,revision:number,projectId?:string)=>request<null>('memories','DELETE',{agentId,sessionId,userId:sshUserId,id,revision,...(projectId?{projectId}:{})}),
   chatStream,
 };

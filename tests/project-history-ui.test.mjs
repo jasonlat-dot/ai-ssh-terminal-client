@@ -321,3 +321,23 @@ test('Composer creation requests open the existing project dialog and cancellati
  const modal=ui.find(n=>n.type==='modal'&&n.props.title==='新建服务器项目');assert.ok(modal);modal.props.onClose();ui.render();assert.equal(finished,1);
  assert.equal(ui.find(n=>n.type==='modal'&&n.props.title==='新建服务器项目'),undefined);
 });
+
+test('An idle selected chat can be deleted despite a stale running list entry, and clears only after confirmation',async()=>{
+ const ui=harness();await ui.settle();const calls=[],removed=[];
+ ui.api.projectChats=async id=>({items:id===p.id?[{...a,running:true}]:id===q.id?[b]:[g],nextAfter:null});
+ ui.props.project=p;ui.props.sessionId=a.sessionId;ui.props.activeRunning=false;ui.props.revision='stale-running';ui.props.deleted=chat=>removed.push(chat);
+ ui.api.deleteChat=async(...args)=>{calls.push(args);};ui.render();await ui.settle();
+ assert.equal(ui.button('删除对话：'+a.title).props.disabled,false);ui.button('删除对话：'+a.title).props.onClick();ui.render();assert.equal(calls.length,0);
+ const confirm=ui.find(n=>n.props.className==='project-confirm-delete');assert.equal(confirm.props.disabled,false);confirm.props.onClick();await ui.settle();assert.deepEqual(calls,[[a.agentId,a.sessionId]]);assert.equal(removed[0].sessionId,ui.props.sessionId);assert.equal(ui.find(n=>n.type==='modal'),undefined);
+});
+test('Live generation blocks deletion even with a stale idle list, including a confirmation already open',async()=>{
+ const ui=harness();await ui.settle();let calls=0;ui.api.deleteChat=async()=>{calls++;};
+ ui.props.sessionId=a.sessionId;ui.props.activeRunning=true;ui.render();assert.equal(ui.button('删除对话：'+a.title).props.disabled,true);ui.button('删除对话：'+a.title).props.onClick();ui.render();assert.equal(ui.find(n=>n.type==='modal'),undefined);
+ ui.props.activeRunning=false;ui.render();ui.button('删除对话：'+a.title).props.onClick();ui.render();assert.ok(ui.find(n=>n.type==='modal'));
+ ui.props.activeRunning=true;ui.render();const confirm=ui.find(n=>n.props.className==='project-confirm-delete');assert.equal(confirm.props.disabled,true);confirm.props.onClick();await ui.settle();assert.equal(calls,0);
+});
+test('Deletion confirmation rechecks refreshed background chat state rather than its opening snapshot',async()=>{
+ const ui=harness();await ui.settle();let calls=0;ui.api.deleteChat=async()=>{calls++;};ui.button('删除对话：'+a.title).props.onClick();ui.render();
+ ui.api.projectChats=async id=>({items:id===p.id?[{...a,running:true}]:[],nextAfter:null});ui.props.revision='became-running';ui.render();await ui.settle();
+ const confirm=ui.find(n=>n.props.className==='project-confirm-delete');assert.equal(confirm.props.disabled,true);confirm.props.onClick();await ui.settle();assert.equal(calls,0);
+});

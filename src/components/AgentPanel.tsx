@@ -7,6 +7,7 @@ import type { ClientChatSession } from '../state/clientChatHistory';
 import type { AgentConfig, AgentProject } from '../api/agent';
 import type { AgentContextStatus as ContextStatus } from '../api/agentContext';
 import { AgentContextStatus } from './AgentContextStatus';
+import { AgentMemoryButton,type MemoryScope } from './AgentMemory';
 import type { ChatAttachment, ChatAgentActivity, ChatMessage, ChatToolActivity, ChatTextExcerpt, Host } from '../types';
 import { AccentIcon, Badge, Icon } from './Ui';
 import { CopyMarkdownButton } from './CopyMarkdownButton';
@@ -180,7 +181,8 @@ function sessionTime(value: ClientChatSession['updatedAt']): string {
 }
 
 export type AgentComposerHandle = { addText: (text: string, source: ChatTextExcerpt['source']) => boolean };
-export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localTerminal, targetLabel, scopeControls, composerProject, messages, busy, stopping, send, steer, stop, clear, disabled, agentAvailability, history, collapsed, models, selectedModel, selectModel, openModelSettings, recoveredRunning, stopRecovered, refreshCurrent, contextStatus=null, contextError, refreshContext, execution, onApprovalChange }: {
+export function AgentPanel({ ref, memoryScope, chatDraft, draftScope, host, connected, localTerminal, targetLabel, scopeControls, composerProject, messages, busy, stopping, send, steer, stop, clear, disabled, agentAvailability, history, collapsed, models, selectedModel, selectModel, openModelSettings, recoveredRunning, stopRecovered, refreshCurrent, contextStatus=null, contextError, refreshContext, execution, onApprovalChange }: {
+  memoryScope?: MemoryScope;
   execution?: ExecutionScope;
   onApprovalChange?:(sessionId:string,pending:boolean)=>void;
   ref?: Ref<AgentComposerHandle>;
@@ -559,6 +561,7 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
           <AgentAvatar compact />
           <span><h3>智能体对话</h3><small title={targetLabel}><i className={`status-dot ${scopeControls?.general ? 'general' : connected ? '' : 'offline'}`} />{targetLabel ?? (localTerminal ? '本地 CMD · 未绑定' : host?.name ?? '尚未选择服务器')}</small></span>
         </div>
+        {memoryScope&&<AgentMemoryButton key={`${draftScope}:${memoryScope.agentId}:${memoryScope.sessionId}:${memoryScope.projectId??''}`} scope={memoryScope}/>}
         <button type="button" className="agent-history-button" aria-label={history.external ? '切换会话侧栏' : '历史会话'} aria-expanded={history.external ? undefined : history.open}
           aria-controls={history.external ? 'workspace-sidebar-content' : 'agent-history-list'} onClick={history.toggle} disabled={!history.external && (disabled || busy || !agentAvailability.ready)}>
           <Icon name="history" size={16} /><span>历史</span>

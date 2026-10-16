@@ -2359,3 +2359,268 @@ fn attachment_input_clipboard_images_reject_invalid_dimensions_and_buffers() {
     assert!(attachment_input::encode_clipboard_image(16384, 16384, &[]).is_err());
     assert!(attachment_input::encode_clipboard_image(2, 2, &[0; 4]).is_err());
 }
+
+#[tokio::test]
+async fn memory_dispatch_has_native_owner_revision_and_provenance_checks() {
+    let (_dir, services) = services().await;
+    save_test_model(&services, "http://127.0.0.1:1/v1/".into());
+    let created = dispatch(
+        services.clone(),
+        "agent/create_session",
+        "POST",
+        json!({"agentId":"model","userId":"default"}),
+        Value::Null,
+    )
+    .await
+    .unwrap();
+    let scope = json!({"agentId":"model","userId":"default","sessionId":created["sessionId"]});
+    let memory = json!({"id":uuid::Uuid::new_v4().to_string(),"revision":0,"title":"语言偏好","content":"中文回答","kind":"preference","scope":"global","enabled":true});
+    let mut body = scope.clone();
+    body["memory"] = memory.clone();
+    let saved = dispatch(
+        services.clone(),
+        "agent/memories",
+        "POST",
+        body.clone(),
+        Value::Null,
+    )
+    .await
+    .unwrap();
+    assert_eq!(saved["source"]["sessionId"], scope["sessionId"]);
+    assert_eq!(saved["revision"], 1);
+    assert_eq!(
+        dispatch(
+            services.clone(),
+            "agent/memories",
+            "POST",
+            body.clone(),
+            Value::Null
+        )
+        .await
+        .unwrap_err()
+        .code,
+        "AGENT_MEMORY_CHANGED"
+    );
+    let list = dispatch(
+        services.clone(),
+        "agent/memories",
+        "GET",
+        Value::Null,
+        scope.clone(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(list["items"].as_array().unwrap().len(), 1);
+    let mut foreign = scope.clone();
+    foreign["userId"] = json!("other");
+    assert_eq!(
+        dispatch(
+            services.clone(),
+            "agent/memories",
+            "GET",
+            Value::Null,
+            foreign
+        )
+        .await
+        .unwrap_err()
+        .code,
+        "AGENT_NOT_FOUND"
+    );
+    body["memory"]["target"] = json!({"host":"spoofed"});
+    assert_eq!(
+        dispatch(
+            services.clone(),
+            "agent/memories",
+            "POST",
+            body,
+            Value::Null
+        )
+        .await
+        .unwrap_err()
+        .status,
+        400
+    );
+    let mut deletion = scope;
+    deletion["id"] = saved["id"].clone();
+    deletion["revision"] = saved["revision"].clone();
+    dispatch(
+        services.clone(),
+        "agent/memories",
+        "DELETE",
+        deletion.clone(),
+        Value::Null,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        dispatch(services, "agent/memories", "GET", Value::Null, deletion)
+            .await
+            .unwrap()["items"],
+        json!([])
+    );
+}
+
+#[tokio::test]
+async fn memory_dispatch_before_chat_needs_no_model_and_keeps_history_empty() {
+    let (_dir, services) = services().await;
+    let scope = json!({"userId":"default"});
+    let memory = json!({"id":uuid::Uuid::new_v4().to_string(),"revision":0,"title":"语言偏好","content":"中文回答","kind":"preference","scope":"global","enabled":true});
+    let mut body = scope.clone();
+    body["memory"] = memory;
+    let saved = dispatch(
+        services.clone(),
+        "agent/memories",
+        "POST",
+        body,
+        Value::Null,
+    )
+    .await
+    .unwrap();
+    assert_eq!(saved["source"]["sessionId"], "");
+    assert_eq!(saved["source"]["agentId"], "");
+    let list = dispatch(
+        services.clone(),
+        "agent/memories",
+        "GET",
+        Value::Null,
+        scope.clone(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(list["items"].as_array().unwrap().len(), 1);
+    assert_eq!(list["items"][0]["applicable"], true);
+    assert!(list["target"].is_null());
+    let foreign = dispatch(
+        services.clone(),
+        "agent/memories",
+        "GET",
+        Value::Null,
+        json!({"userId":"other"}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(foreign["items"], json!([]));
+    assert_eq!(
+        dispatch(
+            services.clone(),
+            "agent/memories",
+            "GET",
+            Value::Null,
+            json!({"userId":"default","projectId":"missing"})
+        )
+        .await
+        .unwrap_err()
+        .code,
+        "AGENT_NOT_FOUND"
+    );
+    assert_eq!(
+        dispatch(
+            services.clone(),
+            "agent/memories",
+            "GET",
+            Value::Null,
+            json!({"userId":"default","projectId":42})
+        )
+        .await
+        .unwrap_err()
+        .status,
+        400
+    );
+    let repo = shellpilot_server::agent::Repository::new(services.store.clone());
+    assert!(repo
+        .project_chats("default", None, "")
+        .unwrap()
+        .items
+        .is_empty());
+    let mut deletion = scope;
+    deletion["id"] = saved["id"].clone();
+    deletion["revision"] = saved["revision"].clone();
+    dispatch(
+        services.clone(),
+        "agent/memories",
+        "DELETE",
+        deletion.clone(),
+        Value::Null,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        dispatch(services, "agent/memories", "GET", Value::Null, deletion)
+            .await
+            .unwrap()["items"],
+        json!([])
+    );
+}
+
+#[tokio::test]
+async fn rename_chat_dispatch_persists_owned_title_without_rewriting_messages() {
+    use shellpilot_server::agent::{Payload, Repository};
+    let (_dir, services) = services().await;
+    let repo = Repository::new(services.store.clone());
+    let chat = repo
+        .create_general_session("original-model", "default")
+        .unwrap();
+    repo.append(
+        &chat.id,
+        "default",
+        0,
+        "message",
+        Payload::UserMessage {
+            text: "原消息".into(),
+        },
+    )
+    .unwrap();
+    let body = json!({"agentId":"original-model","userId":"default","sessionId":chat.id,"title":"  Docker 排查  "});
+    dispatch(
+        services.clone(),
+        "agent/rename_chat",
+        "POST",
+        body.clone(),
+        Value::Null,
+    )
+    .await
+    .unwrap();
+    let list = dispatch(
+        services.clone(),
+        "agent/project_chats",
+        "GET",
+        Value::Null,
+        json!({"userId":"default"}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(list["items"][0]["title"], "Docker 排查");
+    assert_eq!(repo.events(&chat.id, "default", 0, 200).unwrap().len(), 1);
+    for field in ["agentId", "userId"] {
+        let mut foreign = body.clone();
+        foreign[field] = json!("wrong");
+        assert_eq!(
+            dispatch(
+                services.clone(),
+                "agent/rename_chat",
+                "POST",
+                foreign,
+                Value::Null
+            )
+            .await
+            .unwrap_err()
+            .code,
+            "AGENT_NOT_FOUND"
+        );
+    }
+    let mut invalid = body;
+    invalid["title"] = json!(" ");
+    assert_eq!(
+        dispatch(
+            services.clone(),
+            "agent/rename_chat",
+            "POST",
+            invalid,
+            Value::Null
+        )
+        .await
+        .unwrap_err()
+        .status,
+        400
+    );
+}

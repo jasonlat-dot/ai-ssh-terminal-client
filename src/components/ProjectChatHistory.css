@@ -69,15 +69,31 @@
 .project-actions-menu .ui-select-option.is-active { color:var(--red,#c7474a); background:color-mix(in srgb,var(--red,#c7474a) 7%,transparent); }
 .workspace-conversations .project-chat-list { padding: 0; margin: 0; }
 .workspace-conversations .project-chat-entry { position:relative; }
-.workspace-conversations .project-chat-entry .project-chat-row { padding-right:32px; }
-.workspace-conversations .project-chat-delete {
-  position:absolute; right:5px; top:50%; transform:translateY(-50%); display:flex; align-items:center; justify-content:center;
-  width:25px; height:25px; padding:0; border:0; border-radius:5px; opacity:0; background:transparent; color:var(--history-muted);
+.workspace-conversations .project-chat-entry .project-chat-row { padding-right:10px; }
+.workspace-conversations .project-chat-entry:is(:hover,:has(:focus-visible)) .project-chat-row { padding-right:62px; }
+.workspace-conversations .project-chat-actions {
+  position:absolute; right:5px; top:50%; transform:translateY(-50%); display:flex; align-items:center; gap:1px;
+  opacity:0; pointer-events:none; transition:opacity .12s ease;
 }
-.workspace-conversations .project-chat-entry:is(:hover,:focus-within) .project-chat-delete { opacity:1; }
+.workspace-conversations .project-chat-entry:is(:hover,:has(:focus-visible)) .project-chat-actions { opacity:1; pointer-events:auto; }
+.workspace-conversations .project-chat-actions button {
+  display:flex; align-items:center; justify-content:center; width:25px; height:25px; padding:0;
+  border:0; border-radius:5px; background:transparent; color:var(--history-muted);
+  transition:background-color .12s ease,color .12s ease;
+}
+.workspace-conversations .project-chat-edit:hover:not(:disabled) { background:var(--history-hover); color:var(--theme-accent-text); }
 .workspace-conversations .project-chat-delete:hover:not(:disabled) { background:color-mix(in srgb,var(--red,#c7474a) 10%,transparent); color:var(--red,#c7474a); }
-.workspace-conversations .project-chat-delete:disabled { opacity:0; }
-.workspace-conversations .project-chat-entry:is(:hover,:focus-within) .project-chat-delete:disabled { opacity:.35; }
+.workspace-conversations .project-chat-actions button:active:not(:disabled),
+.project-delete-dialog button:active:not(:disabled), .project-rename-dialog button:active:not(:disabled) { transform:none; }
+.workspace-conversations .project-chat-actions button:disabled { opacity:.35; }
+.project-rename-dialog { max-width:420px; }
+.project-rename-dialog form { display:flex; flex-direction:column; padding:20px 22px; }
+.project-rename-dialog label { display:flex; flex-direction:column; gap:8px; font-size:13px; }
+.project-rename-dialog input { width:100%; min-width:0; padding:9px 11px; border:1px solid var(--line-strong); border-radius:8px; background:var(--theme-panel); color:var(--theme-text-strong); }
+.project-rename-dialog input:focus-visible { outline:2px solid var(--ui-accent); outline-offset:2px; }
+.project-rename-hint { margin:8px 0 0; font-size:11px; color:var(--theme-text-muted); }
+.project-rename-dialog footer { display:flex; justify-content:flex-end; gap:8px; padding-top:20px; }
+.project-rename-dialog footer button { min-height:32px; padding:6px 14px; border-radius:7px; }
 .project-delete-dialog { max-width:420px; }
 .project-delete-dialog > p { margin:12px 22px; color:var(--theme-text-muted); font-size:13px; line-height:1.7; }
 .project-delete-dialog > .project-delete-title { color:var(--theme-text-strong); font-size:14px; font-weight:500; overflow-wrap:anywhere; }
@@ -168,7 +184,7 @@
   animation:history-title-pan var(--history-title-duration,4s) linear .5s infinite alternate;
 }
 @keyframes history-title-pan {
-  0%,12% { transform:translateX(0); }
+  0% { transform:translateX(0); }
   88%,100% { transform:translateX(var(--history-title-shift,0px)); }
 }
 .workspace-conversations .project-chat-row:hover:not(:disabled),
@@ -203,11 +219,10 @@
 @media (prefers-reduced-motion: reduce) {
   .workspace-conversations .project-chat-awaiting i,
   .workspace-conversations .project-chat-running i { animation:none; }
-  .workspace-conversations button, .workspace-conversations .project-disclosure svg { transition: none; }
+  .workspace-conversations button, .workspace-conversations .project-disclosure svg, .workspace-conversations .project-chat-actions { transition: none; }
   .workspace-conversations .project-chat-row[data-title-overflow='true']:is(:hover,:focus-visible) .project-chat-title-text { animation:none; }
   .workspace-conversations .project-chat-row[data-title-overflow='true']:is(:hover,:focus-visible) .project-chat-title { text-overflow:ellipsis; }
 }
-@media (hover:none) { .workspace-conversations .project-chat-delete { opacity:1; } }
 
 /* The preview is portaled out of the scrolling sidebar so it never gets clipped. */
 .history-preview {

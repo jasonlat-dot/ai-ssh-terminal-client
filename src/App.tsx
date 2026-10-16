@@ -1537,7 +1537,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
       <header className="workspace-sidebar-heading"><span><Icon name="sidebar" size={16}/><strong>工作区</strong></span><button type="button" className="workspace-sidebar-toggle" aria-label={connectionSidebarCollapsed ? '展开工作区侧栏' : '收起工作区侧栏'} aria-expanded={!connectionSidebarCollapsed} onClick={() => setConnectionSidebarCollapsed(value => !value)}><Icon name={connectionSidebarCollapsed ? 'right' : 'left'} size={16}/></button></header>
       <section className="workspace-conversations" aria-label="Agent 会话">
         <header className="workspace-section-heading workspace-history-heading"><h2>对话</h2></header>
-        <ProjectChatHistory hosts={hosts} project={activeProject} sessionId={activeChatSessionId} approvalState={approvalState} activeRunning={chatBusy||recoveredRunning}
+        <ProjectChatHistory hosts={hosts} project={activeProject} sessionId={activeChatSessionId} approvalState={approvalState} activeRunning={chatBusy||chatStopping||recoveredRunning}
           projectsChanged={setChatProjects} createRequest={projectCreateRequest}
           creationFinished={()=>{const finish=projectCreateFinished.current;projectCreateFinished.current=null;finish?.();}}
           deleted={chat=>{if(chatSessionId.current===chat.sessionId){clearChat();setActiveProject(null);setProjectTerminalId('');}setProjectRevision(value=>value+1);}}
@@ -1650,7 +1650,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     <>
     <PanelDivider value={terminalWidth} change={setTerminalWidth} min={24} max={75} defaultValue={34} minPixels={320} reservePixels={360} reserveWidthSelectors=".activity-bar, .workspace-sidebar"
       controls="terminal-dock-content" label="调整对话与终端宽度" collapseLabel="终端面板" collapsed={agentCollapsed || terminalDockCollapsed} collapse={() => setTerminalDockCollapsed(true)} />
-    <AgentPanel ref={agentComposer} chatDraft={chatDraft} draftScope={chatVersion.current} onApprovalChange={onApprovalChange}
+    <AgentPanel memoryScope={rustBuiltin?{agentId:selectedAgent?.agentId??'',sessionId:activeChatSessionId,...(!activeChatSessionId&&activeProject?{projectId:activeProject.id}:{})}:undefined} ref={agentComposer} chatDraft={chatDraft} draftScope={chatVersion.current} onApprovalChange={onApprovalChange}
       composerProject={rustBuiltin?{project:activeProject,projects:chatProjects,locked:projectLocked,
         create:()=>new Promise<void>(resolve=>{projectCreateFinished.current=resolve;setProjectCreateRequest(value=>value+1);}),
         select:async id=>{

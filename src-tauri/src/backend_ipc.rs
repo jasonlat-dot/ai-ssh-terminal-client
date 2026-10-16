@@ -65,6 +65,14 @@ fn text<'a>(params: &'a Value, name: &str) -> Result<&'a str> {
         .filter(|v| !v.is_empty() && v.len() <= 256 * 1024)
         .ok_or_else(|| Error::invalid(format!("缺少或无效的 {name}")))
 }
+fn memory_view(params: &Value) -> Result<shellpilot_server::agent::memory::View> {
+    serde_json::from_value(json!({
+        "agentId":params.get("agentId").cloned().unwrap_or(json!("")),
+        "sessionId":params.get("sessionId").cloned().unwrap_or(json!("")),
+        "projectId":params.get("projectId").cloned().unwrap_or(json!("")),
+    }))
+    .map_err(|_| Error::invalid("记忆管理范围无效"))
+}
 fn number(params: &Value, name: &str, default: u64) -> Result<u64> {
     if params[name].is_null() {
         return Ok(default);
@@ -248,6 +256,19 @@ pub async fn dispatch(
                 .await
                 .map_err(agent_error)?,
         ),
+        ("POST", "agent/rename_chat") => {
+            services
+                .agent
+                .rename_chat(
+                    text(&body, "agentId")?.into(),
+                    text(&body, "userId")?.into(),
+                    text(&body, "sessionId")?.into(),
+                    text(&body, "title")?.into(),
+                )
+                .await
+                .map_err(agent_error)?;
+            Ok(json!(null))
+        }
         ("POST", "agent/delete_chat") => {
             services
                 .agent
@@ -416,6 +437,37 @@ pub async fn dispatch(
                 .await
                 .map_err(agent_error)?,
         ),
+        ("GET", "agent/memories") => value(
+            services
+                .agent
+                .memories(text(&params, "userId")?.into(), memory_view(&params)?)
+                .await
+                .map_err(agent_error)?,
+        ),
+        ("POST", "agent/memories") => {
+            let input = serde_json::from_value(body["memory"].clone())
+                .map_err(|_| Error::invalid("记忆内容格式无效"))?;
+            value(
+                services
+                    .agent
+                    .save_memory(text(&body, "userId")?.into(), memory_view(&body)?, input)
+                    .await
+                    .map_err(agent_error)?,
+            )
+        }
+        ("DELETE", "agent/memories") => {
+            services
+                .agent
+                .delete_memory(
+                    text(&body, "userId")?.into(),
+                    memory_view(&body)?,
+                    text(&body, "id")?.into(),
+                    number(&body, "revision", 0)?,
+                )
+                .await
+                .map_err(agent_error)?;
+            Ok(json!(null))
+        }
         ("GET", "agent/attachment") => value(
             services
                 .agent

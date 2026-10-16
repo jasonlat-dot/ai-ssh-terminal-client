@@ -34,6 +34,8 @@ export function ProjectChatHistory({hosts,project,sessionId,locked,revision,newC
  const [error,setError]=useState('');const [loading,setLoading]=useState(false);
  const [expanded,setExpanded]=useState<Set<string>>(()=>new Set(['']));
  const [visibleCounts,setVisibleCounts]=useState<Record<string,number>>({});
+ const [renameTarget,setRenameTarget]=useState<ProjectChat|null>(null),[renameTitle,setRenameTitle]=useState(''),[renameError,setRenameError]=useState(''),[renaming,setRenaming]=useState(false);
+ const renamePending=useRef(false);
  const [deleteTarget,setDeleteTarget]=useState<ProjectChat|null>(null);
  const [deleting,setDeleting]=useState(false);const [deleteError,setDeleteError]=useState('');
  const [removeTarget,setRemoveTarget]=useState<AgentProject|null>(null);
@@ -61,7 +63,7 @@ export function ProjectChatHistory({hosts,project,sessionId,locked,revision,newC
   if(immediate||preview)show();else previewTimers.current.open=window.setTimeout(show,400);
  };
  const leavePreview=()=>{cancelPreviewTimers();previewTimers.current.close=window.setTimeout(closePreview,120);};
- useEffect(()=>{closePreview();},[revision,reload,creating,deleteTarget,removeTarget]);
+ useEffect(()=>{closePreview();},[revision,reload,creating,deleteTarget,removeTarget,renameTarget]);
  useEffect(()=>()=>cancelPreviewTimers(),[]);
  useLayoutEffect(()=>{
   if(!preview||!previewCard.current)return;
@@ -109,6 +111,8 @@ export function ProjectChatHistory({hosts,project,sessionId,locked,revision,newC
   }catch(cause){if(current===version.current)setError(cause instanceof Error?cause.message:'加载历史失败');}
   finally{if(current===version.current)setLoading(false);}
  };
+ const currentChats=new Map(Object.values(histories).flatMap(page=>page.items).map(chat=>[chat.sessionId,chat]));
+ const isRunning=(chat:ProjectChat)=>chat.sessionId===sessionId&&activeRunning!==undefined?activeRunning:!!(currentChats.get(chat.sessionId)??chat).running;
  const rows=(p:AgentProject|null)=>{
   const id=p?.id??'',page=histories[id],items=page?.items??[],count=visibleCounts[id]??PREVIEW_ROWS;
   const activeIndex=items.findIndex(chat=>chat.sessionId===sessionId);
@@ -117,7 +121,7 @@ export function ProjectChatHistory({hosts,project,sessionId,locked,revision,newC
    ? [...items.slice(0,count-1),items[activeIndex]] : items.slice(0,count);
   return <div className="project-chat-list" id={'project-chats-'+(id||'general')}>
   {visible.map(chat=>{const awaiting=approvalState?.sessionId===chat.sessionId?approvalState.pending:!!chat.awaitingApproval;
-   const running=chat.sessionId===sessionId&&activeRunning!==undefined?activeRunning:!!chat.running;
+   const running=isRunning(chat);
    return <div className="project-chat-entry" key={chat.sessionId}
     onPointerEnter={event=>{if(event.pointerType==='touch')return;const row=event.currentTarget.querySelector<HTMLButtonElement>('.project-chat-row');if(row)showPreview(chat,p,row);}}
     onPointerLeave={leavePreview}><button type="button"
@@ -126,10 +130,13 @@ export function ProjectChatHistory({hosts,project,sessionId,locked,revision,newC
    aria-describedby={preview?.chat.sessionId===chat.sessionId?previewId:undefined}
    onPointerEnter={event=>measureTitleOverflow(event.currentTarget)} onFocus={event=>{measureTitleOverflow(event.currentTarget);showPreview(chat,p,event.currentTarget,true);}}
    onBlur={leavePreview} onClick={()=>{closePreview();openChat(chat,p);}}><span className="project-chat-title"><span className="project-chat-title-text">{chat.title||'新对话'}</span></span>{awaiting?<span className="project-chat-awaiting" role="status" aria-label="等待审批"><span>等待审批</span><i aria-hidden="true"/></span>:running?<span className="project-chat-running" role="status" aria-label="对话进行中"><i aria-hidden="true"/></span>:null}</button>
+   <div className="project-chat-actions">
+   <button type="button" className="project-chat-edit" aria-label={'修改对话标题：'+(chat.title||'新对话')} title="修改对话标题" disabled={locked||running||deleting||renaming}
+    onClick={()=>{if(locked||isRunning(chat)||deleting||renaming)return;closePreview();setRenameError('');setRenameTitle(chat.title||'新对话');setRenameTarget(chat);}}><Icon name="edit" size={14}/></button>
    <button type="button" className="project-chat-delete" aria-label={'删除对话：'+(chat.title||'新对话')}
-    title={locked||chat.running?'对话进行中，暂不能删除':'删除对话及聊天记录'} disabled={locked||!!chat.running||deleting}
-    onClick={()=>{if(locked||chat.running||deleting)return;setDeleteError('');setDeleteTarget(chat);}}><Icon name="trash" size={14}/></button>
-   </div>;})}
+    title={locked||running?'对话进行中或正在切换，请稍后删除':'删除对话及聊天记录'} disabled={locked||running||deleting||renaming}
+    onClick={()=>{if(locked||isRunning(chat)||deleting||renaming)return;setDeleteError('');setDeleteTarget(chat);}}><Icon name="trash" size={14}/></button>
+   </div></div>;})}
   {!loading && !(histories[p?.id??'']?.items.length) && <p className="project-empty">暂无对话</p>}
   {(items.length>visible.length||page?.nextAfter||count>PREVIEW_ROWS)&&<div className="project-list-actions">
    {(items.length>visible.length||page?.nextAfter)&&<button type="button" className="project-more" disabled={loading}
@@ -186,13 +193,31 @@ export function ProjectChatHistory({hosts,project,sessionId,locked,revision,newC
       }).catch(cause=>setRemoveError(cause instanceof Error?cause.message:'移除项目失败，请重试。')).finally(()=>setRemoving(false));
     }}>{removing?'正在移除…':'移除项目'}</button></footer>
   </Modal>}
+  {renameTarget&&<Modal title="修改对话标题" className="project-rename-dialog" dismissDisabled={renaming} onClose={()=>setRenameTarget(null)}>
+   <form onSubmit={event=>{
+    event.preventDefault();if(locked||isRunning(renameTarget)||renaming||renamePending.current)return;
+    const title=renameTitle.trim();
+    if(!title||[...title].length>80||/[\u0000-\u001f\u007f-\u009f]/.test(title)){setRenameError('标题需为 1–80 个字符，不能包含换行。');return;}
+    const target=renameTarget;renamePending.current=true;setRenaming(true);setRenameError('');
+    void agentApi.renameChat(target.agentId,target.sessionId,title).then(()=>{
+      version.current++;setLoading(false);
+      setHistories(old=>Object.fromEntries(Object.entries(old).map(([key,page])=>[key,{...page,items:page.items.map(chat=>chat.sessionId===target.sessionId?{...chat,title}:chat)}])));
+      setRenameTarget(null);
+    }).catch(cause=>setRenameError(cause instanceof Error?cause.message:'修改标题失败，请重试。')).finally(()=>{renamePending.current=false;setRenaming(false);});
+   }}>
+    <label>对话标题<input autoFocus aria-label="对话标题" value={renameTitle} maxLength={160} disabled={renaming} onChange={event=>setRenameTitle(event.target.value)}/></label>
+    <p className="project-rename-hint">最多 80 个字符</p>
+    {renameError&&<p role="alert" className="project-sidebar-error">{renameError}</p>}
+    <footer><button type="button" className="outlined-button" disabled={renaming} onClick={()=>setRenameTarget(null)}>取消</button><button type="submit" className="primary-button" disabled={locked||isRunning(renameTarget)||renaming}>{renaming?'正在保存…':'保存'}</button></footer>
+   </form>
+  </Modal>}
   {deleteTarget&&<Modal title="删除对话？" className="project-delete-dialog" dismissDisabled={deleting} onClose={()=>setDeleteTarget(null)}>
    <p className="project-delete-title">{deleteTarget.title||'新对话'}</p>
    <p>这条对话的聊天内容、命令记录和工具输出将一并删除，无法恢复。</p>
    {deleteError&&<p role="alert" className="project-sidebar-error">{deleteError}</p>}
    <footer><button type="button" disabled={deleting} onClick={()=>setDeleteTarget(null)}>取消</button>
-    <button type="button" className="project-confirm-delete" disabled={locked||!!deleteTarget.running||deleting} onClick={()=>{
-      if(locked||deleteTarget.running||deleting)return;
+    <button type="button" className="project-confirm-delete" disabled={locked||isRunning(deleteTarget)||deleting} onClick={()=>{
+      if(locked||isRunning(deleteTarget)||deleting)return;
       const target=deleteTarget;setDeleting(true);setDeleteError('');
       void agentApi.deleteChat(target.agentId,target.sessionId).then(()=>{
         setDeleteTarget(null);setReload(v=>v+1);deleted?.(target);

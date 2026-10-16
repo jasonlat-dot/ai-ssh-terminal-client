@@ -371,3 +371,17 @@ test('Native picker and clipboard report preparation and completion for the matc
  assert.equal(failures.length,0);assert.equal(files.length,2);assert.equal(progress.length,4);
  assert.deepEqual(progress.map(item=>[item.id,!!item.finished]),[['upload-one',false],['upload-one',true],['upload-one',false],['upload-one',true]]);
 });
+
+test('Long-term memory CRUD is owner/model/session scoped and uses native IPC',async()=>{
+ const requests:any[]=[];harness((command,args)=>{assert.equal(command,'builtin_request');requests.push(args.request);return Promise.resolve(null);});
+ const memory={id:'00000000-0000-4000-8000-000000000002',revision:0,title:'偏好',content:'中文回答',kind:'preference' as const,scope:'global' as const,enabled:true};
+ await agentApi.memories('model','chat');await agentApi.saveMemory('model','chat',memory);await agentApi.deleteMemory('model','chat',memory.id,1);
+ assert.ok(requests.every(r=>r.endpoint==='agent/memories'));assert.deepEqual(requests.map(r=>r.method),['GET','POST','DELETE']);assert.deepEqual(requests[0].params,{agentId:'model',sessionId:'chat',userId:'default'});assert.deepEqual(requests[1].body,{agentId:'model',sessionId:'chat',userId:'default',memory});assert.deepEqual(requests[2].body,{agentId:'model',sessionId:'chat',userId:'default',id:memory.id,revision:1});
+});
+
+test('Blank-chat memory management uses native global/project scopes without creating a chat',async()=>{
+ const requests:any[]=[];harness((command,args)=>{assert.equal(command,'builtin_request');requests.push(args.request);return Promise.resolve(null);});
+ const memory={id:crypto.randomUUID(),revision:0,title:'偏好',content:'中文',kind:'preference' as const,scope:'global' as const,enabled:true};
+ await agentApi.memories('','');await agentApi.memories('','','project');await agentApi.saveMemory('','',memory,'project');await agentApi.deleteMemory('','',memory.id,1,'project');
+ assert.ok(requests.every(r=>r.endpoint==='agent/memories'));assert.deepEqual(requests[0].params,{agentId:'',sessionId:'',userId:'default'});assert.equal(requests[1].params.projectId,'project');assert.equal(requests[2].body.projectId,'project');assert.equal(requests[3].body.projectId,'project');
+});
