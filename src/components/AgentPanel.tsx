@@ -181,8 +181,9 @@ function sessionTime(value: ClientChatSession['updatedAt']): string {
 }
 
 export type AgentComposerHandle = { addText: (text: string, source: ChatTextExcerpt['source']) => boolean };
-export function AgentPanel({ ref, memoryScope, sshConnections, chatDraft, draftScope, host, connected, localTerminal, targetLabel, scopeControls, composerProject, messages, busy, stopping, send, steer, stop, clear, disabled, agentAvailability, history, collapsed, models, selectedModel, selectModel, openModelSettings, recoveredRunning, stopRecovered, refreshCurrent, contextStatus=null, contextError, refreshContext, execution, onApprovalChange }: {
+export function AgentPanel({ ref, memoryScope, onMemoryNotice, sshConnections, chatDraft, draftScope, host, connected, localTerminal, targetLabel, scopeControls, composerProject, messages, busy, stopping, send, steer, stop, clear, disabled, agentAvailability, history, collapsed, models, selectedModel, selectModel, openModelSettings, recoveredRunning, stopRecovered, refreshCurrent, contextStatus=null, contextError, refreshContext, execution, onApprovalChange }: {
   memoryScope?: MemoryScope;
+  onMemoryNotice?: (message: string) => void;
   sshConnections?: { open: boolean; toggle: () => void };
   execution?: ExecutionScope;
   onApprovalChange?:(sessionId:string,pending:boolean)=>void;
@@ -562,7 +563,7 @@ export function AgentPanel({ ref, memoryScope, sshConnections, chatDraft, draftS
           <AgentAvatar compact />
           <span><h3>智能体对话</h3><small title={targetLabel}><i className={`status-dot ${scopeControls?.general ? 'general' : connected ? '' : 'offline'}`} />{targetLabel ?? (localTerminal ? '本地 CMD · 未绑定' : host?.name ?? '尚未选择服务器')}</small></span>
         </div>
-        {memoryScope&&<AgentMemoryButton key={`${draftScope}:${memoryScope.agentId}:${memoryScope.sessionId}:${memoryScope.projectId??''}`} scope={memoryScope}/>}
+        {memoryScope&&<AgentMemoryButton key={`${draftScope}:${memoryScope.agentId}:${memoryScope.sessionId}:${memoryScope.projectId??''}`} scope={memoryScope} onNotice={onMemoryNotice}/>}
         <button type="button" className="agent-history-button" aria-label={history.external ? '切换会话侧栏' : '历史会话'} aria-expanded={history.open}
           aria-controls={history.external ? 'workspace-sidebar-content' : 'agent-history-list'} onClick={history.toggle} disabled={!history.external && (disabled || busy || !agentAvailability.ready)}>
           <Icon name="history" size={16} /><span>历史</span>

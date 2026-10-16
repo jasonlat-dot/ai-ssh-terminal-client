@@ -179,11 +179,11 @@ export function ProjectChatHistory({hosts,project,sessionId,locked,revision,newC
      <button type="button" className="project-general-toggle" aria-expanded={expanded.has('')} aria-controls="project-chats-general" onClick={()=>setExpanded(old=>{const next=new Set(old);if(next.has(''))next.delete('');else next.add('');return next;})}><Icon name="history" size={16}/><span>未分组对话</span><Icon name={expanded.has('')?'down':'right'} size={12}/></button>
     </div>{expanded.has('')&&rows(null)}</section>
    </nav>
-  {removeTarget&&<Modal title="移除项目？" className="project-delete-dialog" dismissDisabled={removing} onClose={()=>setRemoveTarget(null)}>
+  {removeTarget&&createPortal(<Modal title="移除项目？" className="project-delete-dialog" dismissDisabled={removing} onClose={()=>setRemoveTarget(null)}>
    <p className="project-delete-title">{removeTarget.name}</p>
    <p>仅移除项目分组。已有聊天、命令记录和工具输出都会保留，可在“未分组对话”中继续查看。服务器配置和对话的服务器绑定不会改变。</p>
    {removeError&&<p role="alert" className="project-sidebar-error">{removeError}</p>}
-   <footer><button type="button" disabled={removing} onClick={()=>setRemoveTarget(null)}>取消</button>
+   <footer><button type="button" data-autofocus disabled={removing} onClick={()=>setRemoveTarget(null)}>取消</button>
     <button type="button" className="project-confirm-delete" disabled={locked||removing||!!histories[removeTarget.id]?.items.some(chat=>chat.running)} onClick={()=>{
       if(locked||removing||histories[removeTarget.id]?.items.some(chat=>chat.running))return;
       const target=removeTarget;setRemoving(true);setRemoveError('');
@@ -192,7 +192,7 @@ export function ProjectChatHistory({hosts,project,sessionId,locked,revision,newC
         setProjects(next);projectsChanged?.(next);setRemoveTarget(null);removed?.(target);setReload(value=>value+1);
       }).catch(cause=>setRemoveError(cause instanceof Error?cause.message:'移除项目失败，请重试。')).finally(()=>setRemoving(false));
     }}>{removing?'正在移除…':'移除项目'}</button></footer>
-  </Modal>}
+  </Modal>,document.body)}
   {renameTarget&&<Modal title="修改对话标题" className="project-rename-dialog" dismissDisabled={renaming} onClose={()=>setRenameTarget(null)}>
    <form onSubmit={event=>{
     event.preventDefault();if(locked||isRunning(renameTarget)||renaming||renamePending.current)return;
@@ -211,11 +211,11 @@ export function ProjectChatHistory({hosts,project,sessionId,locked,revision,newC
     <footer><button type="button" className="outlined-button" disabled={renaming} onClick={()=>setRenameTarget(null)}>取消</button><button type="submit" className="primary-button" disabled={locked||isRunning(renameTarget)||renaming}>{renaming?'正在保存…':'保存'}</button></footer>
    </form>
   </Modal>}
-  {deleteTarget&&<Modal title="删除对话？" className="project-delete-dialog" dismissDisabled={deleting} onClose={()=>setDeleteTarget(null)}>
+  {deleteTarget&&createPortal(<Modal title="删除对话？" className="project-delete-dialog" dismissDisabled={deleting} onClose={()=>setDeleteTarget(null)}>
    <p className="project-delete-title">{deleteTarget.title||'新对话'}</p>
    <p>这条对话的聊天内容、命令记录和工具输出将一并删除，无法恢复。</p>
    {deleteError&&<p role="alert" className="project-sidebar-error">{deleteError}</p>}
-   <footer><button type="button" disabled={deleting} onClick={()=>setDeleteTarget(null)}>取消</button>
+   <footer><button type="button" data-autofocus disabled={deleting} onClick={()=>setDeleteTarget(null)}>取消</button>
     <button type="button" className="project-confirm-delete" disabled={locked||isRunning(deleteTarget)||deleting} onClick={()=>{
       if(locked||isRunning(deleteTarget)||deleting)return;
       const target=deleteTarget;setDeleting(true);setDeleteError('');
@@ -223,7 +223,7 @@ export function ProjectChatHistory({hosts,project,sessionId,locked,revision,newC
         setDeleteTarget(null);setReload(v=>v+1);deleted?.(target);
       }).catch(cause=>setDeleteError(cause instanceof Error?cause.message:'删除失败，请重试。')).finally(()=>setDeleting(false));
     }}>{deleting?'正在删除…':'删除对话'}</button></footer>
-  </Modal>}
+  </Modal>,document.body)}
   {creating&&<Modal title="新建服务器项目" className="project-create-dialog" dismissDisabled={saving} onClose={cancelCreate}>
    <form className="project-create-form" onSubmit={event=>{event.preventDefault();if(saving||!connection||!name.trim())return;setSaving(true);setError('');
     void agentApi.createProject(name.trim(),connection).then(async p=>{setCreating(false);setReload(v=>v+1);await newChat(p);creationFinished?.();}).catch(cause=>setError(cause instanceof Error?cause.message:'新建项目失败')).finally(()=>setSaving(false));}}>

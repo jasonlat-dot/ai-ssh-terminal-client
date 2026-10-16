@@ -19,7 +19,7 @@ const settle = () => new Promise(setImmediate);
 
 function harness(overrides = {}, scope = { agentId: '', sessionId: '' }, component = 'AgentMemoryDialog') {
   const slots = [], pendingEffects = [], cleanups = new Map(); let cursor = 0, tree;
-  const calls = { lists: [], saves: [], deletes: [] };
+  const calls = { lists: [], saves: [], deletes: [], notices: [] };
   const api = {
     projects: async () => [{ id: 'p', name: '测试服务器', identity, connectionId: 'ssh' }],
     memories: async () => ({ target: null, items: [] }),
@@ -53,7 +53,7 @@ function harness(overrides = {}, scope = { agentId: '', sessionId: '' }, compone
     throw new Error(`Unexpected import ${name}`);
   } });
   vm.runInContext(compiled, context);
-  function render() { cursor = 0; tree = context.exports[component]({ scope, onClose() {} }); while (pendingEffects.length) pendingEffects.shift()(); return tree; }
+  function render() { cursor = 0; tree = context.exports[component]({ scope, onClose() {}, onNotice: message => calls.notices.push(message) }); while (pendingEffects.length) pendingEffects.shift()(); return tree; }
   const find = predicate => all(tree).find(predicate);
   const button = label => find(node => node.type === 'button' && text(node) === label);
   render();
@@ -72,13 +72,15 @@ test('记忆入口在空白对话可用，打开时使用 Portal，不创建聊�
 
 test('空白范围可保存全局记忆，发送可编辑字段且使用原生返回的版本', async () => {
   const h = harness(); await settle(); h.render(); h.button('新建记忆').props.onClick(); h.render();
-  assert.deepEqual(Array.from(h.find(node => node.props.label === '生效范围').props.options, option => option.value), ['global']);
+  assert.deepEqual(Array.from(h.find(node => node.props.label === '生效范围').props.options, option => option.value), ['global', 'project:p']);
+  assert.equal(h.find(node => node.props.label === '生效范围').props.value, 'global');
   h.input('记忆标题', ' 偏好 '); h.input('记忆内容', ' 中文回答 '); h.submit();
   await settle(); h.render();
   const [agent, chat, input, project] = h.calls.saves[0];
   assert.equal(agent, ''); assert.equal(chat, ''); assert.equal(project, undefined);
   assert.deepEqual(Object.keys(input).sort(), ['content', 'enabled', 'id', 'kind', 'revision', 'scope', 'title']);
   assert.equal(input.title, '偏好'); assert.equal(input.content, '中文回答'); assert.equal(input.revision, 0);
+  assert.match(h.calls.notices[0], /已添加长期记忆/);
   assert.match(h.text(), /偏好/); assert.equal(h.find(node => node.type === 'form'), undefined);
 });
 
@@ -127,15 +129,63 @@ test('版本冲突保留编辑文字，刷新后保留文字并采用新版本',
   assert.equal(h.calls.saves[1][2].revision, 7); assert.equal(h.calls.saves[1][2].content, '保留的输入');
 });
 
-test('其他服务器记录不可编辑，删除需要确认且使用返回版本', async () => {
+test('身份不匹配的服务器记录不可编辑，删除需要确认且使用返回版本', async () => {
   const foreign = { ...base, id: 'foreign', title: '其他服务器', scope: 'server', target, applicable: false };
-  const h = harness({ memories: async () => ({ target: null, items: [base, foreign] }) });
-  await settle(); h.render(); h.find(node => node.type === 'input' && node.props.type === 'checkbox').props.onChange({ target: { checked: true } }); h.render();
+  const h = harness({ projects: async () => [], memories: async () => ({ target: null, items: [base, foreign] }) });
+  await settle(); h.render();
   assert.equal(h.find(node => node.props['aria-label'] === '编辑记忆：其他服务器').props.disabled, true);
   h.find(node => node.props['aria-label'] === '删除记忆：日志位置').props.onClick(); h.render();
+  assert.ok(h.find(node => node.type === 'modal' && node.props.title === '删除长期记忆？'));
+  assert.equal(h.find(node => node.type === 'modal' && node.props.title === '长期记忆').props.active, false);
   assert.equal(h.calls.deletes.length, 0); h.button('确认删除').props.onClick(); await settle(); h.render();
-  assert.deepEqual(h.calls.deletes[0], ['', '', 'memory', 3, undefined]);
+  assert.deepEqual(h.calls.deletes[0], ['', '', 'memory', 3]);
+  assert.match(h.calls.notices[0], /已删除长期记忆/);
   assert.doesNotMatch(h.text(), /日志位置/);
+});
+
+test('普通对话可筛选并编辑其他服务器项目，保存时只提交该项目上下文', async () => {
+  const server = { ...base, id: 'server-memory', title: 'WSL 目录', scope: 'server', target, applicable: false };
+  const h = harness({ memories: async () => ({ target: null, items: [base, server] }),
+    saveMemory: async (_agent, _session, input) => ({ ...server, ...input, revision: input.revision + 1 }),
+  }, { agentId: 'general-model', sessionId: 'general-chat' });
+  await settle(); h.render();
+  h.find(node => node.props.label === '筛选生效范围').props.onChange('project:p'); h.render();
+  assert.equal(h.find(node => node.props['aria-label'] === '编辑记忆：日志位置'), undefined);
+  const edit = h.find(node => node.props['aria-label'] === '编辑记忆：WSL 目录');
+  assert.equal(edit.props.disabled, false); edit.props.onClick(); h.render();
+  assert.equal(h.find(node => node.props.label === '生效范围').props.value, 'project:p');
+  h.input('记忆内容', '/srv/wsl'); h.submit(); await settle(); h.render();
+  const [agent, session, input, project] = h.calls.saves[0];
+  assert.equal(agent, ''); assert.equal(session, ''); assert.equal(project, 'p');
+  assert.equal(input.scope, 'server'); assert.equal(input.content, '/srv/wsl'); assert.equal(input.revision, 3);
+  assert.equal('target' in input, false); assert.equal('source' in input, false);
+});
+
+test('服务器记忆改为全局时仍使用原服务器项目验证归属', async () => {
+  const server = { ...base, title: 'WSL 目录', scope: 'server', target, applicable: false };
+  const h = harness({ memories: async () => ({ target: null, items: [server] }) });
+  await settle(); h.render(); h.find(node => node.props['aria-label'] === '编辑记忆：WSL 目录').props.onClick(); h.render();
+  h.find(node => node.props.label === '生效范围').props.onChange('global'); h.render(); h.submit(); await settle();
+  assert.equal(h.calls.saves[0][2].scope, 'global'); assert.equal(h.calls.saves[0][3], 'p');
+  assert.equal(h.calls.saves[0][1], '');
+});
+
+test('分页只显示当前页，搜索与状态筛选回到第一页', async () => {
+  const records = Array.from({ length: 9 }, (_, index) => ({ ...base, id: `memory-${index}`, title: `记录${index}`, enabled: index !== 0 }));
+  const h = harness({ memories: async () => ({ target: null, items: records }) });
+  await settle(); h.render();
+  assert.ok(h.find(node => node.props['aria-label'] === '编辑记忆：记录0'));
+  assert.equal(h.find(node => node.props['aria-label'] === '编辑记忆：记录8'), undefined);
+  h.button('下一页').props.onClick(); h.render();
+  assert.ok(h.find(node => node.props['aria-label'] === '编辑记忆：记录8'));
+  assert.equal(h.find(node => node.props['aria-label'] === '编辑记忆：记录0'), undefined);
+  h.input('搜索记忆', '记录0');
+  assert.ok(h.find(node => node.props['aria-label'] === '编辑记忆：记录0'));
+  assert.equal(h.button('下一页').props.disabled, true);
+  h.find(node => node.props.label === '筛选启用状态').props.onChange('enabled'); h.render();
+  assert.equal(h.find(node => node.type === 'article'), undefined);
+  h.button('清除筛选').props.onClick(); h.render();
+  assert.ok(h.find(node => node.props['aria-label'] === '编辑记忆：记录0'));
 });
 
 test('读取失败可重试，UTF-8 超长内容在发送前拒绝，卸载后异步响应不写新范围', async () => {

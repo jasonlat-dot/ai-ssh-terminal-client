@@ -1548,8 +1548,8 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
         <ProjectChatHistory hosts={hosts} project={activeProject} sessionId={activeChatSessionId} approvalState={approvalState} activeRunning={chatBusy||chatStopping||recoveredRunning}
           projectsChanged={setChatProjects} createRequest={projectCreateRequest}
           creationFinished={()=>{const finish=projectCreateFinished.current;projectCreateFinished.current=null;finish?.();}}
-          deleted={chat=>{if(chatSessionId.current===chat.sessionId){clearChat();setActiveProject(null);setProjectTerminalId('');}setProjectRevision(value=>value+1);}}
-          removed={project=>{setChatProjects(old=>old.filter(item=>item.id!==project.id));if(activeProject?.id===project.id){setActiveProject(null);setProjectTerminalId('');}setProjectRevision(value=>value+1);}}
+          deleted={chat=>{if(chatSessionId.current===chat.sessionId){clearChat();setActiveProject(null);setProjectTerminalId('');}setProjectRevision(value=>value+1);notify(`已删除对话“${chat.title||'新对话'}”`,'success');}}
+          removed={project=>{setChatProjects(old=>old.filter(item=>item.id!==project.id));if(activeProject?.id===project.id){setActiveProject(null);setProjectTerminalId('');}setProjectRevision(value=>value+1);notify(`已移除项目“${project.name}”，聊天记录已保留`,'success');}}
           locked={projectLocked} revision={String(projectRevision)+':'+activeChatSessionId+':'+String(chatBusy)}
           newChat={p=>newProjectChat(p)} openChat={(chat,p)=>void openProjectChat(chat,p)}
           servers={()=>{setSshSectionCollapsed(false);setConnectionSidebarCollapsed(false);setBackendSettingsOpen(false);}}/>
@@ -1660,6 +1660,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
       collapseOpposite={() => setAgentCollapsed(true)} oppositeCollapseLabel="Agent 对话"
       controls="terminal-dock-content" label="调整对话与终端宽度" collapseLabel="终端面板" collapsed={agentCollapsed || terminalDockCollapsed} collapse={() => setTerminalDockCollapsed(true)} />
     <AgentPanel memoryScope={rustBuiltin?{agentId:selectedAgent?.agentId??'',sessionId:activeChatSessionId,...(!activeChatSessionId&&activeProject?{projectId:activeProject.id}:{})}:undefined} ref={agentComposer} chatDraft={chatDraft} draftScope={chatVersion.current} onApprovalChange={onApprovalChange}
+      onMemoryNotice={message=>notify(message,'success')}
       sshConnections={{open: !connectionSidebarCollapsed && !sshSectionCollapsed, toggle: toggleSshConnections}}
       composerProject={rustBuiltin?{project:activeProject,projects:chatProjects,locked:projectLocked,
         create:()=>new Promise<void>(resolve=>{projectCreateFinished.current=resolve;setProjectCreateRequest(value=>value+1);}),
