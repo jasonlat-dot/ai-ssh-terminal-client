@@ -44,7 +44,7 @@
 
 本地设置支持数据目录、自动初始化、附件启用、容量与保留天数。已移除监听端口、下载链接有效期；旧 `rust-backend.json` 中的 `serverPort`、`downloadLinkMinutes` 会被忽略，其余配置及数据继续沿用。重新初始化工作区会断开当前 SSH/SFTP 会话，不删除数据。
 
-附件大小、类型、容量、SHA256、数据库记录及中断清理共用后端原有规则。内置模式不通过 JavaScript 读取整份文件，也不把文件内容序列化为 IPC JSON。
+附件大小、类型、容量、SHA256、数据库记录及中断清理共用后端原有规则。原始文件上传/保存不通过 JavaScript 读取整份文件，也不把原始文件内容序列化为 IPC JSON。E1 的“查看发送内容”通过只读原生接口返回有大小上限的准备快照，供前台预览提取文字或缩放图片。
 
 ## 本机运行和验证
 
@@ -121,3 +121,20 @@ cargo test --manifest-path ../ai-ssh-terminal-server-rust/Cargo.toml
 切换终端页签不改变在途工具目标。SSH 命令使用同认证传输的独立无 PTY exec，不继承可见终端目录；停止生成不保证终止远端进程，admitted/unknown 均须先核查。禁用工具后仍可用文字讨论历史证据；断开 SSH 不影响已保存输出的读取。
 
 前台验证入口：模型设置 → 高级参数 → 函数工具能力；选择项目/服务器聊天并连接对应服务器 → 启用 SSH 工具 → 发送任务 → 审批与记录中确认/拒绝 → 查看工具结果及原始输出。当前不提供本地 shell、附件、多 Agent 或 Responses 工具调用。所有阶段验证结果与实际 GUI 限制统一以 Rust 仓库 docs/AGENT_PROGRESS.md 为准。
+
+
+## E1：聊天附件
+
+聊天提交仅携带附件 fileId。Rust 通过同一文件服务校验上传归属及摘要，并生成会话内不可变快照；Chat Completions 与 Responses 分别使用原生媒体输入，不发送 ipc:// 文件引用给供应商。历史返回附件元数据。GET agent/attachment 要求 agentId/userId/sessionId/fileId，只读返回已关联该会话的 reference 与 text/imageUrl，不调用模型或 SSH。系统选择器的可选 chatOnly/chatLimit 参数限制聊天类型、数量和大小，不改变通用“文件与附件”入口。
+
+图片能力、PDF 文字提取范围和前台操作见 agent-model-settings.md；验证统一记录于 Rust docs/AGENT_PROGRESS.md。上述 D5 节的手动启用开关及独立 exec 说明属于历史状态，当前执行模式见最新进度。
+
+
+### E1 图片缩略图与剪贴板导入
+
+`builtin_clipboard_upload(backendUrl,onEvent,chatLimit,chatBytes)` 仅由输入框粘贴动作调用。原生读取剪贴板：Windows CF_HDROP 文件列表优先，其次图片、文字；文件在原生打开并经过聊天白名单、剩余数量和字节预检，图片编码为 PNG 后复用文件存储。返回普通文字或通过 Channel 返回文件引用，浏览器不传本机文件路径/原文件字节。Ctrl+V 和菜单粘贴共用该入口，导入过程阻止漏发附件，迟到事件按草稿范围丢弃。
+
+聊天模式下 `builtin_pick_upload` 与粘贴上传事件为图片附带临时 previewUrl；该值是受限缩放 JPEG，不写入历史元数据。`builtin_attachment_preview(backendUrl,fileId)` 仅按当前实例的本地用户文件记录生成草稿缩略图，不接受路径/地址；历史仍通过 agent/attachment 按原会话读取准备快照。图片预览复用 Rust Agent 的 image_preview 解码/尺寸/编码限制，原生预览并发为 2。此接口与模型/SSH 调用无关。
+
+
+聊天附件原生导入的 Channel 增加 `preparing` 事件（id、fileName、size），在整批预检成功后、存储上传前逐文件发送；`uploaded` 使用相同临时 id 关联完成。聊天系统选择器与复制文件复用同一预检/导入流程。前端据此呈现逐文件圆形准备指示，成功、失败、取消/普通文字粘贴完成时清理临时卡片，旧草稿范围的迟到进度不进入新会话。准备事件不携带文件正文或可执行路径，也不代表字节百分比。

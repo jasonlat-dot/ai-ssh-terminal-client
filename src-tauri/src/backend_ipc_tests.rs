@@ -154,9 +154,20 @@ async fn delete_project_dispatch_preserves_chats_and_ssh_configuration() {
     .await
     .unwrap();
     assert!(repo.projects("default").unwrap().is_empty());
-    assert_eq!(repo.session(&chat.id, "default").unwrap().scope.unwrap().origin_terminal_id.as_deref(),Some("terminal"));
-    assert_eq!(repo.events(&chat.id,"default",0,200).unwrap().len(),1);
-    assert_eq!(repo.project_chats("default",None,"").unwrap().items[0].session_id,chat.id);
+    assert_eq!(
+        repo.session(&chat.id, "default")
+            .unwrap()
+            .scope
+            .unwrap()
+            .origin_terminal_id
+            .as_deref(),
+        Some("terminal")
+    );
+    assert_eq!(repo.events(&chat.id, "default", 0, 200).unwrap().len(), 1);
+    assert_eq!(
+        repo.project_chats("default", None, "").unwrap().items[0].session_id,
+        chat.id
+    );
     assert!(services.store.get("saved-server").is_ok());
 }
 
@@ -2012,6 +2023,7 @@ async fn d5_native_channel_waits_for_human_approval_executes_bound_ssh_and_resto
         }
         assert_eq!(body["tools"].as_array().unwrap().len(),2);
         assert_eq!(body["stream"],true);
+        assert!(body["messages"].to_string().contains("E1-native-evidence"));
         let index=count.fetch_add(1,Ordering::SeqCst);
         if index==0 {
             // Compatibility: this first response ignores stream=true and sends JSON once.
@@ -2057,7 +2069,17 @@ async fn d5_native_channel_waits_for_human_approval_executes_bound_ssh_and_resto
         bound["task"]["target"]["terminalSessionId"],
         terminal.session_id
     );
-    let request:shellpilot_server::agent::chat::Request=serde_json::from_value(json!({"requestId":"ipc-d5-turn","agentId":"model","userId":"default","sessionId":id,"terminalSessionId":terminal.session_id,"message":"查看日志"})).unwrap();
+    let attachment = services
+        .files
+        .clone()
+        .upload_reader(
+            "evidence.txt".into(),
+            "text/plain".into(),
+            std::io::Cursor::new(b"E1-native-evidence".to_vec()),
+        )
+        .await
+        .unwrap();
+    let request:shellpilot_server::agent::chat::Request=serde_json::from_value(json!({"requestId":"ipc-d5-turn","agentId":"model","userId":"default","sessionId":id,"terminalSessionId":terminal.session_id,"message":"查看日志","attachments":[{"fileId":attachment.file_id}]})).unwrap();
     let params = json!({"agentId":"model","userId":"default","sessionId":id});
     let sub = subscription();
     let stream = sub.clone();
@@ -2094,7 +2116,7 @@ async fn d5_native_channel_waits_for_human_approval_executes_bound_ssh_and_resto
     }).await.unwrap();
     run.await.unwrap().unwrap();
     assert!(tool_call && tool_result && done);
-    assert_eq!(text,"先查看日志\n\n已读取绑定服务器日志");
+    assert_eq!(text, "先查看日志\n\n已读取绑定服务器日志");
     assert_eq!(fixture.stats.execs.lock().unwrap().len(), 1);
     let history = dispatch(
         services.clone(),
@@ -2106,10 +2128,24 @@ async fn d5_native_channel_waits_for_human_approval_executes_bound_ssh_and_resto
     .await
     .unwrap();
     assert_eq!(history["turns"][0]["state"], "completed");
-    assert_eq!(history["turns"][0]["resultText"],"先查看日志\n\n已读取绑定服务器日志");
-    let raw=shellpilot_server::agent::Repository::new(services.store.clone()).events(&id,"default",0,200).unwrap();
-    let replies=raw.iter().filter_map(|event|if let shellpilot_server::agent::Payload::AssistantMessage{text}=&event.payload{Some(text.as_str())}else{None}).collect::<Vec<_>>();
-    assert_eq!(replies,vec!["先查看日志","已读取绑定服务器日志"]);
+    assert_eq!(
+        history["turns"][0]["resultText"],
+        "先查看日志\n\n已读取绑定服务器日志"
+    );
+    let raw = shellpilot_server::agent::Repository::new(services.store.clone())
+        .events(&id, "default", 0, 200)
+        .unwrap();
+    let replies = raw
+        .iter()
+        .filter_map(|event| {
+            if let shellpilot_server::agent::Payload::AssistantMessage { text } = &event.payload {
+                Some(text.as_str())
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(replies, vec!["先查看日志", "已读取绑定服务器日志"]);
     let result = &history["turns"][0]["toolEvents"][1]["payload"];
     let output = result["outputs"]
         .as_array()
@@ -2135,11 +2171,30 @@ async fn d5_native_channel_waits_for_human_approval_executes_bound_ssh_and_resto
         bytes,
         (65534..66046).map(|i| (i % 251) as u8).collect::<Vec<_>>()
     );
+    let preview = dispatch(
+        services.clone(),
+        "agent/attachment",
+        "GET",
+        Value::Null,
+        json!({"agentId":"model","userId":"default","sessionId":id,"fileId":attachment.file_id}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(preview["text"], "E1-native-evidence");
+    assert!(dispatch(services.clone(),"agent/attachment","GET",Value::Null,json!({"agentId":"wrong-model","userId":"default","sessionId":id,"fileId":attachment.file_id})).await.is_err());
     // A second tool-enabled turn is cancelled while its provider is still streaming.
-    let mut cancelled=request.clone();cancelled.request_id="ipc-d5-stream-cancel".into();
-    let cancel_sub=subscription();let ack=cancel_sub.clone();
-    let (tx,mut frames)=tokio::sync::mpsc::unbounded_channel();
-    let cancelled_run=tokio::spawn(agent_stream_mode(services.clone(),cancelled,cancel_sub.clone(),true,move|frame|tx.send(frame).map_err(|_|())));
+    let mut cancelled = request.clone();
+    cancelled.request_id = "ipc-d5-stream-cancel".into();
+    let cancel_sub = subscription();
+    let ack = cancel_sub.clone();
+    let (tx, mut frames) = tokio::sync::mpsc::unbounded_channel();
+    let cancelled_run = tokio::spawn(agent_stream_mode(
+        services.clone(),
+        cancelled,
+        cancel_sub.clone(),
+        true,
+        move |frame| tx.send(frame).map_err(|_| ()),
+    ));
     tokio::time::timeout(Duration::from_secs(8),async{
         loop{let frame=frames.recv().await.unwrap();let sequence=frame["sequence"].as_u64().unwrap();
             if frame["payload"]["event"]=="error"{assert_eq!(frame["payload"]["code"],"AGENT_CANCELLED");break;}
@@ -2149,11 +2204,15 @@ async fn d5_native_channel_waits_for_human_approval_executes_bound_ssh_and_resto
             }
         }
     }).await.unwrap();
-    assert_eq!(cancelled_run.await.unwrap().unwrap_err().code,"AGENT_CANCELLED");
-    let retained=b5_history(services.clone(),&id).await;
-    assert_eq!(retained["turns"][1]["partialText"],"未完成的部分回复");
-    assert_eq!(retained["turns"][1]["state"],"cancelled");assert!(retained["turns"][1]["resultText"].is_null());
-    assert_eq!(fixture.stats.execs.lock().unwrap().len(),1);
+    assert_eq!(
+        cancelled_run.await.unwrap().unwrap_err().code,
+        "AGENT_CANCELLED"
+    );
+    let retained = b5_history(services.clone(), &id).await;
+    assert_eq!(retained["turns"][1]["partialText"], "未完成的部分回复");
+    assert_eq!(retained["turns"][1]["state"], "cancelled");
+    assert!(retained["turns"][1]["resultText"].is_null());
+    assert_eq!(fixture.stats.execs.lock().unwrap().len(), 1);
     services.terminals.shutdown().await;
     let mut offline = request.clone();
     offline.request_id = "ipc-d5-offline".into();
@@ -2194,4 +2253,109 @@ async fn d5_native_channel_waits_for_human_approval_executes_bound_ssh_and_resto
     .await
     .unwrap();
     services.shutdown().await;
+}
+
+#[tokio::test]
+async fn attachment_input_clipboard_image_uploads_native_bytes_and_returns_a_bounded_preview() {
+    let (_dir, services) = services().await;
+    let bytes =
+        attachment_input::encode_clipboard_image(2, 1, &[255, 0, 0, 255, 0, 255, 0, 255]).unwrap();
+    assert!(bytes.starts_with(b"\x89PNG"));
+    let mut events = vec![];
+    attachment_input::upload_image(&services, bytes.clone(), 4, 20_000_000, |event| {
+        events.push(event);
+        Ok(())
+    })
+    .await
+    .unwrap();
+    assert_eq!(events.len(), 2);
+    assert_eq!(events[0]["type"], "preparing");
+    assert_eq!(events[1]["type"], "uploaded");
+    assert_eq!(events[0]["id"], events[1]["id"]);
+    let file = &events[1]["file"];
+    assert_eq!(file["size"], bytes.len());
+    assert!(file["previewUrl"]
+        .as_str()
+        .unwrap()
+        .starts_with("data:image/jpeg;base64,"));
+    let id = file["fileId"].as_str().unwrap();
+    let (_, mut source) = services.files.open_attachment(id).await.unwrap();
+    let mut stored = vec![];
+    tokio::io::AsyncReadExt::read_to_end(&mut source, &mut stored)
+        .await
+        .unwrap();
+    assert_eq!(stored, bytes);
+    assert_eq!(
+        attachment_input::preview(&services, id).await.unwrap(),
+        file["previewUrl"]
+    );
+    services.files.delete(id).await.unwrap();
+    assert!(attachment_input::preview(&services, id).await.is_err());
+}
+#[tokio::test]
+async fn attachment_input_copied_files_validate_the_entire_batch_before_uploading() {
+    let (dir, services) = services().await;
+    let text = dir.path().join("复制文件.txt");
+    let image = dir.path().join("截图.png");
+    let office = dir.path().join("unsupported.docx");
+    std::fs::write(&text, b"copied evidence").unwrap();
+    std::fs::write(
+        &image,
+        attachment_input::encode_clipboard_image(1, 1, &[1, 2, 3, 255]).unwrap(),
+    )
+    .unwrap();
+    std::fs::write(&office, b"office").unwrap();
+    let mut events = vec![];
+    assert!(attachment_input::upload_paths(
+        &services,
+        vec![text.clone(), office],
+        4,
+        20_000_000,
+        |event| {
+            events.push(event);
+            Ok(())
+        }
+    )
+    .await
+    .is_err());
+    assert!(events.is_empty());
+    assert_eq!(services.files.stats().await.unwrap().file_count, 0);
+    assert!(attachment_input::upload_paths(
+        &services,
+        vec![text.clone(), image.clone()],
+        1,
+        20_000_000,
+        |_| Ok(())
+    )
+    .await
+    .is_err());
+    assert!(
+        attachment_input::upload_paths(&services, vec![text.clone()], 4, 2, |_| Ok(()))
+            .await
+            .is_err()
+    );
+    attachment_input::upload_paths(&services, vec![text, image], 4, 20_000_000, |event| {
+        events.push(event);
+        Ok(())
+    })
+    .await
+    .unwrap();
+    assert_eq!(events.len(), 4);
+    assert_eq!(events[0]["type"], "preparing");
+    assert_eq!(events[1]["type"], "preparing");
+    assert_eq!(events[0]["id"], events[2]["id"]);
+    assert_eq!(events[1]["id"], events[3]["id"]);
+    assert_eq!(events[2]["file"]["fileName"], "复制文件.txt");
+    assert!(events[2]["file"]["previewUrl"].is_null());
+    assert!(events[3]["file"]["previewUrl"]
+        .as_str()
+        .unwrap()
+        .starts_with("data:image/jpeg;base64,"));
+}
+#[test]
+fn attachment_input_clipboard_images_reject_invalid_dimensions_and_buffers() {
+    assert!(attachment_input::encode_clipboard_image(0, 1, &[]).is_err());
+    assert!(attachment_input::encode_clipboard_image(16385, 1, &[]).is_err());
+    assert!(attachment_input::encode_clipboard_image(16384, 16384, &[]).is_err());
+    assert!(attachment_input::encode_clipboard_image(2, 2, &[0; 4]).is_err());
 }

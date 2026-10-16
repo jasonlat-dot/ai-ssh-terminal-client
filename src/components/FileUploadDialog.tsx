@@ -140,7 +140,7 @@ export function FileUploadDialog({ queue, close }: { queue: FileUploadQueue; clo
         </li>)}</ul>
         {!busy && !stored.length && <p className="file-upload-intro">此页没有已存储附件。</p>}
         <div className="upload-item-actions"><button type="button" className="outlined-button" disabled={busy || offset === 0} onClick={() => setOffset(value => Math.max(0, value - 20))}>上一页</button><button type="button" className="outlined-button" disabled={busy || !hasMore} onClick={() => setOffset(value => value + 20)}>下一页</button></div>
-        {deleteTarget && <div className="file-delete-confirm" role="alert"><p>删除「{deleteTarget.fileName}」的存储文件？删除后将无法保存该附件。</p><button type="button" className="outlined-button" disabled={busy} onClick={() => void removeStored()}>确认删除</button><button type="button" className="outlined-button" disabled={busy} onClick={() => setDeleteTarget(null)}>取消</button></div>}
+        {deleteTarget && <div className="file-delete-confirm" role="alert"><p>删除「{deleteTarget.fileName}」的存储文件？删除后将无法保存该附件。</p>{rust && <p>已发送到聊天的内容仍会保留；如需一并清除，请删除相应对话。</p>}<button type="button" className="outlined-button" disabled={busy} onClick={() => void removeStored()}>确认删除</button><button type="button" className="outlined-button" disabled={busy} onClick={() => setDeleteTarget(null)}>取消</button></div>}
       </>}
     </div>
     <footer><p>{rust ? '上传记录里的移除只清理列表；已存储文件可删除并释放容量。' : '移除只清理此列表。'}</p><button type="button" className="outlined-button" onClick={close}>完成</button></footer>

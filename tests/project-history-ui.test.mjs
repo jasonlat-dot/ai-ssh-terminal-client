@@ -315,3 +315,9 @@ test('Previewing an ungrouped conversation keeps its real history and closes bef
  assert.equal(ui.actions[0][1].sessionId,g.sessionId);assert.equal(ui.actions[0][2],null);
 });
 
+
+test('Composer creation requests open the existing project dialog and cancellation completes the request',async()=>{
+ const ui=harness();await ui.settle();let finished=0;ui.props.creationFinished=()=>finished++;ui.props.createRequest=1;ui.render();ui.render();
+ const modal=ui.find(n=>n.type==='modal'&&n.props.title==='新建服务器项目');assert.ok(modal);modal.props.onClose();ui.render();assert.equal(finished,1);
+ assert.equal(ui.find(n=>n.type==='modal'&&n.props.title==='新建服务器项目'),undefined);
+});

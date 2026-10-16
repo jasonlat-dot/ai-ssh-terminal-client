@@ -2,7 +2,7 @@
 
 前端 `src/api/agent.ts` 已接通同进程 Rust Agent 服务：配置列表、创建会话和停止用 invoke；文本流式对话用 `builtin_agent_subscribe` Channel，逐帧调用 `builtin_agent_ack` 确认。事件继续使用既有 `text/done/error` 协议，不走 WebView HTTP 请求。
 
-B4 已启用基础文本 AI 面板与模型配置页面；C1–C4 已接入文字整理和宿主上下文重建，不会执行 SSH 命令或使用聊天附件。操作说明见 [agent-model-settings.md](agent-model-settings.md)。
+B4 已启用基础文本 AI 面板与模型配置页面；C1–C4 已接入文字整理和宿主上下文重建。D5 已接通原生 SSH 工具，E1 已接通系统文件选择、附件输入和已发送内容预览，最新状态以 Rust AGENT_PROGRESS.md 为准。操作说明见 [agent-model-settings.md](agent-model-settings.md)。
 
 完整接口与边界见兄弟 Rust 工程的 [AGENT_CHAT.md](../../ai-ssh-terminal-server-rust/docs/AGENT_CHAT.md)，进度与 B4 续接入口见 [AGENT_PROGRESS.md](../../ai-ssh-terminal-server-rust/docs/AGENT_PROGRESS.md)。
 

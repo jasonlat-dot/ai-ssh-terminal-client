@@ -21,6 +21,7 @@ tauri-build = { version = "2", features = [] }
 shellpilot-server = { path = "../../ai-ssh-terminal-server-rust" }
 axum = "0.8"
 rfd = "0.15"
+image = { version = "0.25.10", default-features = false, features = ["png"] }
 uuid = { version = "1", features = ["v4"] }
 chrono = "0.4"
 tauri = { version = "2", features = [] }
@@ -40,7 +41,7 @@ dunce = "1.0.5"
 
 # Windows APIs used by local terminal/process handling.
 [target.'cfg(target_os = "windows")'.dependencies]
-windows = { version = "0.61.3", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading"] }
+windows = { version = "0.61.3", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_System_DataExchange", "Win32_UI_Shell"] }
 
 [dev-dependencies]
 uuid = { version = "1", features = ["v4"] }

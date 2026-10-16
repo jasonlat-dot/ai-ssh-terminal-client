@@ -48,6 +48,8 @@ pub fn run() {
             backend_ipc::builtin_terminal_unsubscribe,
             backend_ipc::builtin_terminal_ack,
             backend_ipc::builtin_pick_upload,
+            backend_ipc::builtin_clipboard_upload,
+            backend_ipc::builtin_attachment_preview,
             backend_ipc::builtin_save_attachment,
             client_update::client_update_status,
             client_update::prepare_client_update,

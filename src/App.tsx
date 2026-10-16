@@ -154,6 +154,8 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
   const [chatProjects,setChatProjects]=useState<AgentProject[]>([]);
   const [projectTerminalId,setProjectTerminalId]=useState('');
   const [projectRevision,setProjectRevision]=useState(0);
+  const [projectCreateRequest,setProjectCreateRequest]=useState(0);
+  const projectCreateFinished=useRef<(()=>void)|null>(null);
   const [approvalState,setApprovalState]=useState<{sessionId:string;pending:boolean}>();
   const onApprovalChange=useCallback((sessionId:string,pending:boolean)=>{
     setApprovalState(previous=>!pending&&previous?.sessionId!==sessionId?previous:
@@ -1014,7 +1016,6 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     if (chatting.current || stopPending.current || scopeSwitchRef.current || historyLoadingId || recoveredRunning || agentLoading || agentLoadError) return false;
     // Fix this turn's references before any session creation or network await.
     const attachments = selectedAttachments.map(file => ({ ...file }));
-    if (rustBuiltin && attachments.length) { notify('聊天附件尚未接入，请发送纯文本。', 'error'); return false; }
     const invalid = validateChatContent(text, attachments);
     if (invalid) { notify(invalid, 'error'); return false; }
     const currentSession = active;
@@ -1537,11 +1538,12 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
       <section className="workspace-conversations" aria-label="Agent 会话">
         <header className="workspace-section-heading workspace-history-heading"><h2>对话</h2></header>
         <ProjectChatHistory hosts={hosts} project={activeProject} sessionId={activeChatSessionId} approvalState={approvalState} activeRunning={chatBusy||recoveredRunning}
-          projectsChanged={setChatProjects}
+          projectsChanged={setChatProjects} createRequest={projectCreateRequest}
+          creationFinished={()=>{const finish=projectCreateFinished.current;projectCreateFinished.current=null;finish?.();}}
           deleted={chat=>{if(chatSessionId.current===chat.sessionId){clearChat();setActiveProject(null);setProjectTerminalId('');}setProjectRevision(value=>value+1);}}
           removed={project=>{setChatProjects(old=>old.filter(item=>item.id!==project.id));if(activeProject?.id===project.id){setActiveProject(null);setProjectTerminalId('');}setProjectRevision(value=>value+1);}}
           locked={projectLocked} revision={String(projectRevision)+':'+activeChatSessionId+':'+String(chatBusy)}
-          newChat={p=>void newProjectChat(p)} openChat={(chat,p)=>void openProjectChat(chat,p)}
+          newChat={p=>newProjectChat(p)} openChat={(chat,p)=>void openProjectChat(chat,p)}
           servers={()=>{setSshSectionCollapsed(false);setConnectionSidebarCollapsed(false);setBackendSettingsOpen(false);}}/>
       </section>
       <ConnectionSidebar connections={{ ...connections, remove: removeHost }} sessions={sessions} connectingHostIds={connectingHostIds} activeHostId={active?.kind === 'ssh' ? active.connectionId : undefined} activeSessionId={activeId} terminal={id => {setTerminalDockCollapsed(false);selectHost(id);}} cancelConnection={cancelHostConnection} activate={id => {setTerminalDockCollapsed(false);activateTerminalFromSidebar(id);}} create={openNewConnection} collapsed={sshSectionCollapsed} toggleCollapsed={() => setSshSectionCollapsed(value => !value)} embedded />
@@ -1650,6 +1652,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
       controls="terminal-dock-content" label="调整对话与终端宽度" collapseLabel="终端面板" collapsed={agentCollapsed || terminalDockCollapsed} collapse={() => setTerminalDockCollapsed(true)} />
     <AgentPanel ref={agentComposer} chatDraft={chatDraft} draftScope={chatVersion.current} onApprovalChange={onApprovalChange}
       composerProject={rustBuiltin?{project:activeProject,projects:chatProjects,locked:projectLocked,
+        create:()=>new Promise<void>(resolve=>{projectCreateFinished.current=resolve;setProjectCreateRequest(value=>value+1);}),
         select:async id=>{
           const project=id?chatProjects.find(item=>item.id===id):null;
           if(id&&!project){notify('此 SSH 项目已不可用，请刷新对话历史后重试。','error');return;}

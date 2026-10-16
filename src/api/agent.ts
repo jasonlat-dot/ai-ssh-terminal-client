@@ -49,6 +49,7 @@ export type AgentSession = { scope?:AgentScope|null; id:string;agentId:string;us
 }|null;checkpointId?:string|null };
 export type AgentTurn = {
   inputs?: AgentSteer[];
+  attachments?: {fileId:string;fileName:string;contentType:string;size:number;sha256:string;kind:string;pages:number|null;width:number|null;height:number|null}[];
   requestId:string;message:string;target:{connectionId:string;terminalSessionId:string}|null;state:AgentTurnState;
   partialText:string;resultText:string|null;errorCode:string|null;usage:{prompt_tokens:number;completion_tokens:number;total_tokens:number}|null;
   cursor:number;createdAt:number;updatedAt:number;
@@ -326,5 +327,6 @@ export const agentApi = {
   executionPolicy:(agentId:string,sessionId:string)=>request<ExecutionPolicy>('execution_policy','GET',undefined,undefined,{agentId,sessionId,userId:sshUserId}),
   setExecutionPolicy:(agentId:string,sessionId:string,policy:ExecutionPolicy)=>request<ExecutionPolicy>('execution_policy','POST',{agentId,sessionId,userId:sshUserId,...policy}),
   executionOutput:(agentId:string,sessionId:string,outputId:string,offset=0)=>request<OutputRange>('execution_output','GET',undefined,undefined,{agentId,sessionId,userId:sshUserId,outputId,offset:String(offset),limit:'4096'}),
+  attachment:(agentId:string,sessionId:string,fileId:string)=>request<{reference:{fileName:string;kind:string;pages:number|null;width:number|null;height:number|null};text:string|null;imageUrl:string|null}>('attachment','GET',undefined,undefined,{agentId,sessionId,fileId,userId:sshUserId}),
   chatStream,
 };

@@ -41,3 +41,8 @@ test('D5 restored tool records retain paired failure and unknown output referenc
   assert.equal(segments[0].type,'tool');if(segments[0].type==='tool'){assert.equal(segments[0].tool.status,'error');assert.match(segments[0].tool.output!,/output/);assert.equal(segments[0].tool.command,'check');}
   assert.equal(segments[1].type,'tool');if(segments[1].type==='tool'){assert.equal(segments[1].tool.status,'unknown');assert.equal(segments[1].tool.command,'next');}
 });
+
+test('Native history restores attachment references without inline media or session substitution',()=>{
+ const t=turn('completed');t.attachments=[{fileId:'immutable-file',fileName:'manual.pdf',size:100,contentType:'application/pdf',sha256:'digest',kind:'pdfText',pages:2,width:null,height:null}];
+ const [message]=turnMessages([t]);assert.equal(message.attachments?.[0].fileId,'immutable-file');assert.equal(message.attachments?.[0].fileName,'manual.pdf');assert.equal(message.attachments?.[0].previewUrl,undefined);
+});

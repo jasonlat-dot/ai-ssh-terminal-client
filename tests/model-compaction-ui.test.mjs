@@ -6,9 +6,10 @@ import ts from 'typescript';
 import {newModelConfig} from '../src/api/models.ts';
 import {chatErrorGuidance} from '../src/api/chatErrors.ts';
 
-function settings() {
+function settings(legacyVision) {
   const profile={id:'stable-profile',displayName:'日常模型',revision:7,config:{...newModelConfig(),baseUrl:'https://example.test/v1/',model:'text'},
     apiKeyConfigured:true,ready:true};
+  if (legacyVision !== undefined) profile.config.capabilities.vision=legacyVision;
   const slots=[],effects=[],saved=[];let cursor=0,tree;
   const props={changed(){},locked:false};
   const hooks={
@@ -161,4 +162,14 @@ test('更换 API 地址不能携带旧密钥，输入替换密钥后才可保存
   assert.equal(ui.saved[0][2].baseUrl,'https://other.example/v1/');
   assert.equal(ui.saved[0][3].action,'set');
   assert.equal(ui.saved[0][3].value,'fake-new-service-key');
+});
+
+test('Image input defaults on without a switch and legacy opt-out saves enabled',async()=>{
+ assert.equal(newModelConfig().capabilities.vision,true);
+ const h=settings(false);h.render();await h.settle();
+ h.find(n=>n.props.className==='model-advanced-toggle').props.onClick();h.render();
+ assert.equal(h.find(n=>n.props.label==='模型支持图片理解'),undefined);
+ h.find(n=>n.type==='form').props.onSubmit({preventDefault(){}});await h.settle();
+ assert.equal(h.saved[0][2].capabilities.vision,true);
+ assert.equal(h.saved[0][2].capabilities.toolCalls,true);
 });

@@ -25,6 +25,7 @@ export function chatErrorGuidance(code?: string): string {
     case 'MODEL_INCOMPLETE':
     case 'MODEL_PROTOCOL_FAILED': return '模型未返回完整回复，已有文本已保留；请检查兼容接口后手动重试。';
     case 'CHAT_CONTENT_REQUIRED': return '请输入文字或附加文件后重新发送。';
+    case 'AGENT_ATTACHMENT_INVALID':
     case 'CHAT_ATTACHMENT_INVALID': return '请移除无效或重复附件，重新选择文件或再次附加。';
     case 'CHAT_ATTACHMENT_FORBIDDEN': return '当前账户无权使用此附件，请移除并上传自己的文件。';
     case 'CHAT_ATTACHMENT_LIMIT': return '请减少附件数量、总大小或文本内容后重试。';

@@ -33,7 +33,8 @@ export function ModelSettings({ changed, locked = false }: { changed?: () => voi
     return () => { active = false; };
   }, []);
   const select = (profile: ModelProfile | null) => {
-    setEditing(profile); setDisplayName(profile?.displayName ?? profile?.id ?? ''); setConfig(profile?.config ?? newModelConfig());
+    setEditing(profile); setDisplayName(profile?.displayName ?? profile?.id ?? ''); const next = profile?.config ?? newModelConfig();
+    setConfig({...next, capabilities: {...next.capabilities, toolCalls: true, vision: true}});
     setKey(''); setError(''); setNotice(''); setConfirmDelete(false); setAdvanced(false);
   };
   const field = <K extends keyof ModelConfig>(name: K, value: ModelConfig[K]) => setConfig(c => ({ ...c, [name]: value }));

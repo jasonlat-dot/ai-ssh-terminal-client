@@ -249,3 +249,9 @@
   font-weight:max(600,var(--weight-body,400));
   font-synthesis:weight;
 }
+
+/* Compact dark hover hints, shared by composer attachment and message restore. */
+.agent-action-tooltip { position:fixed; z-index:calc(var(--ui-popover-layer,1000) + 1); max-width:calc(100vw - 16px); box-sizing:border-box; padding:6px 12px; border:1px solid #ffffff12; border-radius:10px; background:#242628; color:#f5f5f5; box-shadow:0 5px 16px #00000030; font-family:var(--font-ui); font-size:12px; font-weight:600; line-height:1.5; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; pointer-events:none; -webkit-font-smoothing:antialiased; }
+
+.chat-message-meta .chat-message-time { border-radius:3px; cursor:default; }
+.chat-message-meta .chat-message-time:focus-visible { outline:2px solid var(--ui-accent); outline-offset:3px; }

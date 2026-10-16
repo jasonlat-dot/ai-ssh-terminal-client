@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { afterEach,test } from 'node:test';
 import { agentApi,type AgentStreamEvent } from '../src/api/agent.ts';
 import { ChatRequestError } from '../src/api/chatErrors.ts';
+import { pickNativeAttachments, pasteNativeAttachments, readNativeAttachmentPreview } from '../src/api/files.ts';
 import { modelApi, newModelConfig } from '../src/api/models.ts';
 import { adoptBundledBackendUrl,BUILTIN_ENDPOINT } from '../src/config/backend.ts';
 
@@ -332,4 +333,41 @@ test('D5 human approval, binding and byte reads use owner/session scoped IPC onl
 test('D5 invalid native tool frames are rejected before rendering and cancel only their subscription',async()=>{
   let cancelled=false;harness((command,args)=>{if(command==='builtin_cancel')cancelled=true;if(command==='builtin_agent_subscribe')args.onEvent.onmessage({sequence:1,payload:{event:'tool_result',toolCallId:'x',status:'success',content:{fake:true}}});return Promise.resolve();});
   await assert.rejects(agentApi.chatStream({...body,executionEnabled:true},()=>assert.fail('invalid result must not render')),error=>error instanceof ChatRequestError&&error.code==='MODEL_PROTOCOL_FAILED');assert.equal(cancelled,true);
+});
+
+test('Clipboard ingestion and image previews use the pinned native runtime without IPC file paths or original bytes',async()=>{
+ const calls:any[]=[],files:any[]=[];
+ harness((command,args)=>{
+   calls.push({command,args});
+   if(command==='builtin_clipboard_upload'){
+     args.onEvent.onmessage({type:'uploaded',file:{fileId:'native-image',fileName:'shot.png',contentType:'image/png',size:10,previewUrl:'data:image/jpeg;base64,thumbnail'}});
+     return Promise.resolve(null);
+   }
+   if(command==='builtin_attachment_preview')return Promise.resolve('data:image/jpeg;base64,preview');
+   throw new Error(command);
+ });
+ assert.equal(await pasteNativeAttachments(file=>files.push(file),2,1000),null);
+ assert.equal(files[0].previewUrl,'data:image/jpeg;base64,thumbnail');
+ assert.equal(calls[0].args.backendUrl,identity);assert.equal(calls[0].args.chatLimit,2);assert.equal(calls[0].args.chatBytes,1000);
+ assert.equal('path' in calls[0].args,false);assert.equal('bytes' in calls[0].args,false);
+ assert.equal(await readNativeAttachmentPreview('native-image'),'data:image/jpeg;base64,preview');
+ assert.deepEqual(calls[1].args,{backendUrl:identity,fileId:'native-image'});
+});
+test('Native clipboard errors expose the actionable message instead of an opaque IPC object',async()=>{
+ harness(()=>Promise.reject({message:'附件原始大小合计不能超过 20 MB',code:'S0002'}));
+ await assert.rejects(pasteNativeAttachments(()=>{},4,20_000_000),/20 MB/);
+ await assert.rejects(pickNativeAttachments(()=>{},()=>{},true,4),/20 MB/);
+});
+
+test('Native picker and clipboard report preparation and completion for the matching file without treating progress as an error',async()=>{
+ const progress:any[]=[],files:any[]=[],failures:string[]=[];
+ harness((_command,args)=>{
+  args.onEvent.onmessage({type:'preparing',id:'upload-one',fileName:'manual.pdf',size:20});
+  args.onEvent.onmessage({type:'uploaded',id:'upload-one',file:{fileId:'stored',fileName:'manual.pdf',size:20,contentType:'application/pdf'}});
+  return Promise.resolve(null);
+ });
+ await pickNativeAttachments(file=>files.push(file),message=>failures.push(message),true,4,value=>progress.push(value));
+ await pasteNativeAttachments(file=>files.push(file),4,20_000_000,value=>progress.push(value));
+ assert.equal(failures.length,0);assert.equal(files.length,2);assert.equal(progress.length,4);
+ assert.deepEqual(progress.map(item=>[item.id,!!item.finished]),[['upload-one',false],['upload-one',true],['upload-one',false],['upload-one',true]]);
 });

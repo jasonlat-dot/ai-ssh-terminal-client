@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
-import type { PointerEvent as ReactPointerEvent, Ref, ReactNode } from 'react';
+import type { PointerEvent as ReactPointerEvent, Ref, ReactNode, HTMLAttributes } from 'react';
 import { createPortal } from 'react-dom';
 import { MarkdownMessage } from './MarkdownMessage';
 import agentRobotAvatar from '../assets/agent-robot-avatar.png';
@@ -12,24 +12,25 @@ import { AccentIcon, Badge, Icon } from './Ui';
 import { CopyMarkdownButton } from './CopyMarkdownButton';
 import { CopyTextButton } from './CopyTextButton';
 import { Select } from './Select';
+import { ComposerProjectPicker } from './ComposerProjectPicker';
 import { ChatAttachmentDraft, chatAttachmentPolicy, isLongChatText, pastedFiles, insertPastedText, validateChatContent } from '../state/chatAttachments';
 import { DraftAttachments, MessageAttachments } from './ChatAttachments';
+import { type NativeAttachmentProgress, pickNativeAttachments, pasteNativeAttachments } from '../api/files';
 import { chatErrorGuidance } from '../api/chatErrors';
 import { AgentExecution, ExecutionContext, NativeToolOutput, type ExecutionScope } from './AgentExecution';
 import { agentToMarkdown, messageToMarkdown, toolToMarkdown } from '../state/chatMarkdown';
+import { messageTime } from '../state/messageTime';
 import { transcriptBlocks, activitySummary, type ActivitySegment } from '../state/agentTranscript';
 
 function AgentAvatar({ compact = false }: { compact?: boolean }) {
   return <span className={`agent-avatar ${compact ? 'compact' : ''}`}><img src={agentRobotAvatar} alt="Agent 机器人" /></span>;
 }
 
-function MessageTime({ timestamp }: { timestamp?: number }) {
-  if (!timestamp || !Number.isFinite(timestamp)) return null;
-  const date = new Date(timestamp);
-  if (Number.isNaN(date.getTime())) return null;
-  return <time className="chat-message-time" dateTime={date.toISOString()} title={date.toLocaleString()}>
-    {date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })}
-  </time>;
+type TimeHint = Pick<HTMLAttributes<HTMLElement>, 'onMouseEnter'|'onMouseLeave'|'onFocus'|'onBlur'|'aria-describedby'>;
+function MessageTime({ timestamp, now, hint }: { timestamp?: number; now: number; hint:(text:string)=>TimeHint }) {
+  const value = messageTime(timestamp, now);
+  if (!value) return null;
+  return <time className="chat-message-time" dateTime={value.iso} tabIndex={0} {...hint(value.full)}>{value.label}</time>;
 }
 
 function ToolActivity({ tool, copyable }: { tool: ChatToolActivity; copyable: boolean }) {
@@ -189,7 +190,7 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
   connected: boolean;
   localTerminal: boolean;
   targetLabel?: string;
-  composerProject?: {project:AgentProject|null;projects:AgentProject[];locked:boolean;select:(projectId:string)=>Promise<void>};
+  composerProject?: {project:AgentProject|null;projects:AgentProject[];locked:boolean;select:(projectId:string)=>Promise<void>;create?:()=>Promise<void>};
   scopeControls?: {value:string;options:{value:string;label:string}[];select:(id:string)=>void;useServer:(newTask:boolean)=>void;
     serverAvailable:boolean;serverName:string;locked:boolean;serverTask:boolean;general?:boolean};
   messages: ChatMessage[];
@@ -207,6 +208,56 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
   contextStatus?: ContextStatus|null; contextError?:string; refreshContext?:()=>void;
   recoveredRunning?: boolean; stopRecovered?: () => void; refreshCurrent?: () => void;
 }) {
+  const [messageNow,setMessageNow]=useState(()=>Date.now());
+  useEffect(()=>{
+    let timer:number|undefined;
+    const refresh=()=>{
+      const now=Date.now(),midnight=new Date(now);midnight.setHours(24,0,0,0);
+      setMessageNow(now);window.clearTimeout(timer);
+      timer=window.setTimeout(refresh,Math.max(1000,midnight.getTime()-now+25));
+    };
+    refresh();window.addEventListener('focus',refresh);
+    return()=>{window.clearTimeout(timer);window.removeEventListener('focus',refresh);};
+  },[]);
+  const [actionTooltip,setActionTooltip]=useState<{key:string;text:string;anchor:HTMLElement}|null>(null);
+  const [actionTooltipId]=useState(()=>`agent-action-tip-${crypto.randomUUID()}`);
+  const [actionTooltipPosition,setActionTooltipPosition]=useState<{left:number;top:number}|null>(null);
+  const actionTooltipRef=useRef<HTMLDivElement>(null);
+  const actionTooltipTimer=useRef<number|undefined>(undefined);
+  const cancelTooltipTimer=()=>{window.clearTimeout(actionTooltipTimer.current);actionTooltipTimer.current=undefined;};
+  const closeActionTooltip=()=>{cancelTooltipTimer();setActionTooltip(null);};
+  const showActionTooltip=(key:string,text:string,anchor:HTMLElement)=>{
+    cancelTooltipTimer();
+    if(!anchor.isConnected||anchor.matches(':disabled'))return;
+    setActionTooltipPosition(null);setActionTooltip({key,text,anchor});
+  };
+  const tooltipEvents=(key:string,text:string,blocked:boolean)=>({
+    'aria-describedby':actionTooltip?.key===key?actionTooltipId:undefined,
+    onMouseEnter:(event:{currentTarget:HTMLElement})=>{
+      if(blocked)return;
+      const anchor=event.currentTarget;
+      if(document.activeElement===anchor&&actionTooltip?.key===key)return;
+      closeActionTooltip();
+      actionTooltipTimer.current=window.setTimeout(()=>showActionTooltip(key,text,anchor),400);
+    },
+    onMouseLeave:(event:{currentTarget:HTMLElement})=>{cancelTooltipTimer();if(document.activeElement!==event.currentTarget)closeActionTooltip();},
+    onFocus:(event:{currentTarget:HTMLElement})=>{if(!blocked)showActionTooltip(key,text,event.currentTarget);},
+    onBlur:closeActionTooltip,
+  });
+  useLayoutEffect(()=>{
+    if(!actionTooltip)return;
+    const tip=actionTooltipRef.current;if(!tip)return;
+    if(!actionTooltip.anchor.isConnected){closeActionTooltip();return;}
+    const rect=actionTooltip.anchor.getBoundingClientRect(),box=tip.getBoundingClientRect();
+    const top=rect.top>=box.height+8?rect.top-box.height-8:rect.bottom+8;
+    setActionTooltipPosition({left:Math.max(8,Math.min(rect.left+(rect.width-box.width)/2,window.innerWidth-box.width-8)),top:Math.max(8,Math.min(top,window.innerHeight-box.height-8))});
+  },[actionTooltip]);
+  useEffect(()=>{
+    // Listen while a hint is still pending, so Escape/scroll also cancel its timer.
+    const close=closeActionTooltip,key=(event:KeyboardEvent)=>{if(event.key==='Escape')close();};
+    window.addEventListener('keydown',key);window.addEventListener('scroll',close,true);window.addEventListener('resize',close);window.addEventListener('blur',close);
+    return()=>{cancelTooltipTimer();window.removeEventListener('keydown',key);window.removeEventListener('scroll',close,true);window.removeEventListener('resize',close);window.removeEventListener('blur',close);};
+  },[]);
   const [draft, setDraft] = useState('');
   const [attachmentError, setAttachmentError] = useState('');
   const [sending, setSending] = useState(false);
@@ -230,14 +281,17 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
   const projectSelectionLocked=busy||stopping||sending||!!recoveredRunning||projectSelecting||!!queue.length||!!composerProject?.locked;
   const lastMessage = messages[messages.length - 1];
   const railMessages = messages.filter(message => message.role === 'user');
-  const notReady = attachments.some(item => item.status !== 'success');
+  const [pickingAttachment,setPickingAttachment]=useState(false);
+  useEffect(()=>closeActionTooltip(),[draftScope,locked,editingLocked,pickingAttachment,collapsed]);
+  const nativeInputBusy = useRef(false);
+  const [pendingNative,setPendingNative]=useState<NativeAttachmentProgress[]>([]);
+  const nativeProgress=(scope:number,value:NativeAttachmentProgress)=>{
+    if(scopeRef.current!==scope)return;
+    setPendingNative(current=>value.finished?current.filter(item=>item.id!==value.id):[...current.filter(item=>item.id!==value.id&&item.id!=='clipboard-reading'),value]);
+  };
+  const notReady = pickingAttachment || attachments.some(item => item.status !== 'success');
   const addFiles = (files: File[]) => {
     try { chatDraft.add(files); setAttachmentError(''); }
-    catch (error) { setAttachmentError((error as Error).message); }
-  };
-  const attachFiles = (files: ChatAttachment[]) => {
-    if (editingLocked) return;
-    try { chatDraft.attach(files); setAttachmentError(''); textareaRef.current?.focus(); }
     catch (error) { setAttachmentError((error as Error).message); }
   };
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -252,6 +306,22 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
   const previewCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const followOutputRef = useRef(true);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const pasteNative = (field: HTMLTextAreaElement) => {
+    if (editingLocked || nativeInputBusy.current) return;
+    nativeInputBusy.current=true;setPickingAttachment(true);setAttachmentError('');
+    const scope=draftScope, original=field.value, start=field.selectionStart, end=field.selectionEnd;
+    const pending=chatDraft.getSnapshot();
+    setPendingNative([{id:'clipboard-reading',fileName:'正在读取剪贴板',size:0}]);
+    void pasteNativeAttachments(file=>{
+      if(scopeRef.current!==scope)return;
+      try{chatDraft.attach([file]);}catch(error){setAttachmentError((error as Error).message);}
+    },4-pending.length,Math.max(0,20_000_000-pending.reduce((sum,item)=>sum+item.size,0)),value=>nativeProgress(scope,value)).then(text=>{
+      if(scopeRef.current!==scope||text===null)return;
+      setDraft(current=>current===original?insertPastedText(current,text,start,end).text:current+text);
+      requestAnimationFrame(()=>{if(scopeRef.current===scope&&textareaRef.current?.value===insertPastedText(original,text,start,end).text){const cursor=start+text.length;textareaRef.current.setSelectionRange(cursor,cursor);}});
+    }).catch(error=>{if(scopeRef.current===scope)setAttachmentError(error instanceof Error?error.message:'粘贴失败');})
+      .finally(()=>{nativeInputBusy.current=false;setPickingAttachment(false);if(scopeRef.current===scope)setPendingNative([]);});
+  };
   useImperativeHandle(ref, () => ({ addText(text, source) {
     if (editingLocked || !text.trim()) return false;
     try {
@@ -268,7 +338,7 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
   const submit = async () => {
     if(projectSelectionDraft.current)return;
     if (!draft.trim() && !chatDraft.getSnapshot().length) return;
-    if (editingLocked || !agentAvailability.ready || notReady) return;
+    if (editingLocked || nativeInputBusy.current || !agentAvailability.ready || notReady) return;
     if(queue.length>=32){setAttachmentError('队列最多保留 32 条消息，请先处理已有消息。');return;}
     const scope = draftScope;
     try {
@@ -444,7 +514,7 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
     textarea.style.overflowY = textarea.scrollHeight > 180 ? 'auto' : 'hidden';
   }, [draft]);
 
-  useEffect(() => { setDraft(projectSelectionDraft.current?.text??''); setAttachmentError(''); setSending(false); sendingRef.current = false;setQueue([]);setQueuePaused(false);queueAction.current=false;setApprovalPending(false); }, [draftScope]);
+  useEffect(() => { setDraft(projectSelectionDraft.current?.text??''); setAttachmentError(''); setSending(false); sendingRef.current = false;setQueue([]);setQueuePaused(false);queueAction.current=false;setApprovalPending(false);setPendingNative([]); }, [draftScope]);
   useEffect(()=>{
     if(!projectSelecting&&projectSelectionDraft.current){
       setDraft(projectSelectionDraft.current.text);projectSelectionDraft.current=null;
@@ -460,6 +530,14 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
     finally{setProjectSelecting(false);setProjectSelectionVersion(value=>value+1);}
   };
 
+  const createProject=async()=>{
+    if(!composerProject?.create||projectSelectionLocked||projectSelectionDraft.current||messages.length)return;
+    projectSelectionDraft.current={text:draft};setProjectSelecting(true);setAttachmentError('');
+    try{await composerProject.create();}
+    catch(error){setAttachmentError(error instanceof Error?error.message:'新建项目失败，请重试。');}
+    finally{setProjectSelecting(false);setProjectSelectionVersion(value=>value+1);}
+  };
+
   useEffect(() => {
     const handleShortcut = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 'o') {
@@ -472,7 +550,9 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
     return () => window.removeEventListener('keydown', handleShortcut);
   }, [clear]);
 
-  return <ExecutionContext.Provider value={execution?{agentId:execution.agentId,sessionId:execution.sessionId}:null}><aside className={`agent-panel conversation-only ${collapsed ? 'collapsed' : ''}`}>
+  return <ExecutionContext.Provider value={execution?{agentId:execution.agentId,sessionId:execution.sessionId}:null}>
+    {actionTooltip&&createPortal(<div ref={actionTooltipRef} id={actionTooltipId} role="tooltip" className="agent-action-tooltip" style={actionTooltipPosition??{visibility:'hidden'}}>{actionTooltip.text}</div>,document.body)}
+    <aside className={`agent-panel conversation-only ${collapsed ? 'collapsed' : ''}`}>
     <section className="conversation-card" id="agent-panel-content" aria-hidden={collapsed}>
       <header>
         <div className="conversation-title">
@@ -552,12 +632,14 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
 
         {messages.map((message, index) => message.role === 'user'
           ? <div className={`user-message-group${highlightedMessageId === message.id ? ' chat-message-jump-highlight' : ''}`} key={message.id} ref={node => { if (node) messageRefs.current.set(message.id, node); else messageRefs.current.delete(message.id); }}>
-            <div className="user-message">{message.text && <div>{message.text}</div>}{message.inputPending&&<small className="pending-input-note">补充已保存，尚未被当前轮接收；不会自动重新执行</small>}{!!message.attachments?.length && <MessageAttachments files={message.attachments} attach={attachFiles} disabled={locked} />}</div>
-            <div className="message-copy-actions chat-message-meta request"><button type="button" className="chat-restore-request" aria-label="恢复请求" title="恢复到输入框" disabled={locked} onClick={() => {
+            {!!message.attachments?.length && <MessageAttachments files={message.attachments} scope={models&&history.activeSessionId?{agentId:selectedModel??'',sessionId:history.activeSessionId}:undefined} />}
+            {(message.text || message.inputPending) && <div className="user-message">{message.text && <div>{message.text}</div>}{message.inputPending&&<small className="pending-input-note">补充已保存，尚未被当前轮接收；不会自动重新执行</small>}</div>}
+            <div className="message-copy-actions chat-message-meta request"><MessageTime timestamp={message.timestamp} now={messageNow} hint={text=>tooltipEvents(`message-time:${message.id}`,text,false)}/><button type="button" className="chat-restore-request" aria-label="恢复请求" {...tooltipEvents(`restore:${message.id}`,'恢复到输入框',locked)} disabled={locked} onClick={() => {
+              closeActionTooltip();
               if (draft.trim() || attachments.length) { setAttachmentError('请先清空当前草稿，再恢复这条请求。'); return; }
               try { chatDraft.attach(message.attachments ?? []); setDraft(message.text); setAttachmentError(''); textareaRef.current?.focus(); }
               catch (error) { setAttachmentError((error as Error).message); }
-            }}><Icon name="edit" size={14}/></button><MessageTime timestamp={message.timestamp}/><CopyMarkdownButton getText={() => messageToMarkdown(message)} label="复制请求（Markdown）" iconOnly /></div>
+            }}><Icon name="edit" size={14}/></button><CopyMarkdownButton getText={() => messageToMarkdown(message)} label="复制消息" iconOnly hint={{...tooltipEvents(`copy-message:${message.id}`,'复制消息',false),onActivate:()=>closeActionTooltip()}} /></div>
           </div>
           : <div className={`assistant-message ${message.error ? 'error' : ''} ${(busy || stopping) && index === messages.length - 1 ? 'active' : ''}${highlightedMessageId === message.id ? ' chat-message-jump-highlight' : ''}`} key={message.id} ref={node => { if (node) messageRefs.current.set(message.id, node); else messageRefs.current.delete(message.id); }}>
             <div className="assistant-main">
@@ -575,7 +657,7 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
               {message.error && <p className="chat-error-guidance">{chatErrorGuidance(message.errorCode)}</p>}
               {(busy || stopping) && index === messages.length - 1
                 ? <ReplyLoading message={message} stopping={stopping} compacting={contextStatus?.phase === 'running' && contextStatus.requestId === message.id} />
-                : <div className="message-copy-actions chat-message-meta response"><CopyMarkdownButton getText={() => messageToMarkdown(message)} label="复制回复（Markdown）" iconOnly /><MessageTime timestamp={message.timestamp}/></div>}
+                : <div className="message-copy-actions chat-message-meta response"><CopyMarkdownButton getText={() => messageToMarkdown(message)} label="复制回复" iconOnly hint={{...tooltipEvents(`copy-reply:${message.id}`,'复制回复',false),onActivate:()=>closeActionTooltip()}} /><MessageTime timestamp={message.timestamp} now={messageNow} hint={text=>tooltipEvents(`message-time:${message.id}`,text,false)}/></div>}
             </div>
           </div>)}
         {contextStatus?.phase === 'running' && !((busy || stopping) && lastMessage?.role === 'assistant' && lastMessage.id === contextStatus.requestId) &&
@@ -586,13 +668,10 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
 
     <div className="composer-dock" aria-hidden={collapsed}>
       {composerProject&&!approvalPending&&<div className="composer-project-strip">
-        <Icon name={composerProject.project?'folder':'edit'} size={16}/>
-        {!messages.length?<Select label="新对话连接" value={composerProject.project?.id??''}
-          displayValue={composerProject.project?.name??'文字对话'} className="composer-project-picker" menuMinWidth={280} menuClassName="composer-project-menu"
-          disabled={projectSelectionLocked} onChange={id=>void chooseProject(id)}
-          options={[{value:'',label:'文字对话',description:'不连接 SSH，仅进行文字交流'},...composerProject.projects.map(project=>({value:project.id,label:project.name,
-            description:project.identity?`${project.identity.username}@${project.identity.host}:${project.identity.port}`:'已创建的 SSH 项目'}))]}/>
-          :<span className="composer-project-label" title={composerProject.project?.name??'文字对话'}>{composerProject.project?.name??'文字对话'}</span>}
+        {!messages.length?<ComposerProjectPicker project={composerProject.project} projects={composerProject.projects} disabled={projectSelectionLocked}
+          onChange={id=>void chooseProject(id)} onCreate={composerProject.create?()=>void createProject():undefined}/>
+          :<><Icon name="folder" size={16}/><span className="composer-project-label" title={composerProject.project?.name??'文字对话'}>{composerProject.project?.name??'文字对话'}</span></>}
+        {!composerProject.project&&!messages.length&&<span className="composer-project-context"><Icon name="edit" size={15}/>文字对话</span>}
         {projectSelecting&&<span className="composer-project-status" role="status">正在切换…</span>}
       </div>}
       {!!queue.length&&<section className="composer-queue" aria-label="待发送消息"><div className="composer-queue-title">{queue.length} 条消息{queuePaused?' · 已暂停':' · 等待处理'}</div>{queue.map(item=><div className={`composer-queue-item is-${item.state}`} key={item.id}>
@@ -611,12 +690,12 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
         <span>{agentAvailability.loading ? '正在加载智能体，你可以先编辑草稿。' : agentAvailability.error || '智能体暂不可用，草稿可以继续编辑。'}</span>
         {!agentAvailability.loading && <button type="button" onClick={agentAvailability.retry}><Icon name="refresh" size={13} />重试加载</button>}
       </div>}
-      {!!attachments.length && <DraftAttachments items={attachments} draft={chatDraft} locked={editingLocked} report={setAttachmentError} />}
+      {(!!attachments.length||!!pendingNative.length) && <DraftAttachments pending={pendingNative} items={attachments} draft={chatDraft} locked={editingLocked} report={setAttachmentError} />}
       <div className="composer-input-row"><textarea ref={textareaRef} rows={1} aria-label="智能体任务输入" placeholder={busy?'继续输入，新消息将进入队列':'让思路沿着终端，走到答案'} value={draft} disabled={editingLocked} onChange={event => setDraft(event.target.value)}
         onPaste={event => {
+          if (models) { event.preventDefault(); pasteNative(event.currentTarget); return; }
           const files = pastedFiles(event.clipboardData);
           const text = event.clipboardData.getData('text/plain');
-          if (models) { if (files.length) { event.preventDefault(); setAttachmentError('聊天附件尚未接入，请直接粘贴纯文本。'); } return; }
           if (!files.length && !isLongChatText(text)) return;
           event.preventDefault();
           if (editingLocked) return;
@@ -631,14 +710,23 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
             setAttachmentError('');
           } catch (error) { setAttachmentError((error as Error).message); }
         }}
-        onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void submit(); } }} /></div>
+        onKeyDown={event => { if (models && !event.nativeEvent.isComposing && (event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 'v') { event.preventDefault(); pasteNative(event.currentTarget); return; } if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void submit(); } }} /></div>
       <div className="composer-bottom-bar">
-        <button type="button" className="composer-attach-button" aria-label="添加附件" disabled={editingLocked || !!models} onClick={() => attachmentInput.current?.click()} title={models ? '聊天附件尚未接入' : '选择图片、PDF 或文本文件'}><Icon name="plus" size={20} /></button>
+        <button type="button" className="composer-attach-button" aria-label="添加附件" {...tooltipEvents('attach','添加文件等内容',editingLocked||pickingAttachment||attachments.length>=4)} disabled={editingLocked || pickingAttachment || attachments.length>=4} onClick={() => {
+          closeActionTooltip();
+          if(!models){attachmentInput.current?.click();return;}
+          if(nativeInputBusy.current)return;nativeInputBusy.current=true;
+          const scope=draftScope;setPickingAttachment(true);setAttachmentError('');
+          void pickNativeAttachments(file=>{
+            if(scopeRef.current!==scope)return;
+            try{chatDraft.attach([file]);setAttachmentError('');}catch(error){setAttachmentError((error as Error).message);}
+          },message=>{if(scopeRef.current===scope)setAttachmentError(message);},true,4-chatDraft.getSnapshot().length,value=>nativeProgress(scope,value)).catch(error=>{if(scopeRef.current===scope)setAttachmentError(error instanceof Error?error.message:'附件选择失败');}).finally(()=>{nativeInputBusy.current=false;setPickingAttachment(false);if(scopeRef.current===scope)setPendingNative([]);});
+        }}><Icon name="plus" size={20} /></button>
         <input ref={attachmentInput} type="file" multiple tabIndex={-1} className="visually-hidden" aria-label="选择聊天附件" accept={chatAttachmentPolicy.extensions.map(ext => `.${ext}`).join(',')} onChange={event => {
           if (!editingLocked && event.target.files?.length) addFiles(Array.from(event.target.files));
           event.target.value = '';
         }} />
-        {!models && <span className="composer-attachment-note">{attachments.length}/4 · 合计 ≤ 20 MB</span>}
+        {!!attachments.length && <span className="composer-attachment-note">{attachments.length}/4 · 合计 ≤ 20 MB · 发送时解析</span>}
         {execution&&<div className="composer-policy-slot" ref={approvalPending?undefined:setPolicyTarget}/>}
         {models && <div className="agent-model-controls composer-model-controls">
           <div className="agent-model-picker"><Select label="对话模型" value={selectedModel ?? ''} disabled={busy || stopping || disabled || !models.length}
@@ -650,7 +738,7 @@ export function AgentPanel({ ref, chatDraft, draftScope, host, connected, localT
         {(busy||stopping)&&<button type="button" className="send-button stop-button" aria-label={stopping?'正在停止':'停止生成'} title="停止生成" onClick={()=>{setQueuePaused(true);stop();}} disabled={stopping}><Icon name="stop" size={16}/></button>}
         {(!(busy||stopping)||!!draft.trim()||attachments.length>0)&&<button type="submit" className="send-button" aria-label={busy||sending?'加入消息队列':'发送消息'} title={busy||sending?'加入队列，当前轮结束后自动发送':'发送消息'} disabled={(!draft.trim() && !attachments.length) || editingLocked || notReady || !agentAvailability.ready}><Icon name="arrowUp" size={20}/></button>}
       </div>
-      {(attachmentError || notReady) && <p className="composer-attachment-error" role="status">{attachmentError || (attachments.some(item => item.status === 'error') ? '附件上传失败，请重试或移除后再发送。' : '附件正在准备中，请等待上传完成。')}</p>}
+      {attachmentError && <p className="composer-attachment-error" role="status">{attachmentError}</p>}
     </form></div>
   </aside></ExecutionContext.Provider>;
 }

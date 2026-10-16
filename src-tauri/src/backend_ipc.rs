@@ -1,4 +1,6 @@
 //! Desktop adapter: calls application services directly, with no loopback HTTP requests.
+#[path = "attachment_input.rs"]
+mod attachment_input;
 use axum::response::IntoResponse;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -410,6 +412,18 @@ pub async fn dispatch(
                     text(&params, "agentId")?.into(),
                     text(&params, "userId")?.into(),
                     text(&params, "sessionId")?.into(),
+                )
+                .await
+                .map_err(agent_error)?,
+        ),
+        ("GET", "agent/attachment") => value(
+            services
+                .agent
+                .attachment(
+                    text(&params, "agentId")?.into(),
+                    text(&params, "userId")?.into(),
+                    text(&params, "sessionId")?.into(),
+                    text(&params, "fileId")?.into(),
                 )
                 .await
                 .map_err(agent_error)?,
@@ -899,16 +913,42 @@ pub async fn builtin_pick_upload(
     app: AppHandle,
     backend_url: String,
     on_event: Channel<Value>,
+    chat_only: Option<bool>,
+    chat_limit: Option<usize>,
 ) -> Result<()> {
     let services = services_for_url(&app, &backend_url)?;
+    let extensions: &[&str] = if chat_only.unwrap_or(false) {
+        &[
+            "png", "jpg", "jpeg", "webp", "pdf", "txt", "log", "csv", "json", "yaml", "yml", "md",
+        ]
+    } else {
+        shellpilot_server::files::model::EXTENSIONS
+    };
     let selected = rfd::AsyncFileDialog::new()
         .set_title("选择附件")
-        .add_filter("附件", shellpilot_server::files::model::EXTENSIONS)
+        .add_filter("附件", extensions)
         .pick_files()
         .await;
     let Some(selected) = selected else {
         return Ok(());
     };
+    if chat_only.unwrap_or(false) {
+        return attachment_input::upload_paths(
+            &services,
+            selected
+                .iter()
+                .map(|file| file.path().to_path_buf())
+                .collect(),
+            chat_limit.unwrap_or(4),
+            20_000_000,
+            |event| {
+                on_event
+                    .send(event)
+                    .map_err(|_| Error::unavailable("附件接收端已关闭"))
+            },
+        )
+        .await;
+    }
     for selected in selected {
         if services.stop.is_cancelled() {
             return Err(Error::unavailable("服务已停止"));
@@ -923,7 +963,14 @@ pub async fn builtin_pick_upload(
             .upload_reader(name.clone(), String::new(), file)
             .await;
         match result {
-            Ok(file) => on_event.send(json!({"type":"uploaded","file":file})),
+            Ok(file) => {
+                let event = if chat_only.unwrap_or(false) {
+                    attachment_input::uploaded_event(&services, file).await
+                } else {
+                    json!({"type":"uploaded","file":file})
+                };
+                on_event.send(event)
+            }
             Err(error) => {
                 on_event.send(json!({"type":"error","name":name,"message":error.message}))
             }
@@ -931,6 +978,46 @@ pub async fn builtin_pick_upload(
         .map_err(|_| Error::unavailable("附件接收端已关闭"))?;
     }
     Ok(())
+}
+#[tauri::command]
+pub async fn builtin_attachment_preview(
+    app: AppHandle,
+    backend_url: String,
+    file_id: String,
+) -> Result<String> {
+    let services = services_for_url(&app, &backend_url)?;
+    attachment_input::preview(&services, &file_id).await
+}
+#[tauri::command]
+pub async fn builtin_clipboard_upload(
+    app: AppHandle,
+    backend_url: String,
+    on_event: Channel<Value>,
+    chat_limit: usize,
+    chat_bytes: u64,
+) -> Result<Option<String>> {
+    let services = services_for_url(&app, &backend_url)?;
+    let input = tokio::task::spawn_blocking(move || attachment_input::read(&app, chat_limit))
+        .await
+        .map_err(|_| Error::unavailable("剪贴板读取线程不可用"))??;
+    let emit = |event| {
+        on_event
+            .send(event)
+            .map_err(|_| Error::unavailable("附件接收端已关闭"))
+    };
+    match input {
+        attachment_input::ClipboardInput::Files(paths) => {
+            attachment_input::upload_paths(&services, paths, chat_limit, chat_bytes, emit).await?
+        }
+        attachment_input::ClipboardInput::Image(bytes) => {
+            attachment_input::upload_image(&services, bytes, chat_limit, chat_bytes, emit).await?
+        }
+        attachment_input::ClipboardInput::Text(text) => return Ok(Some(text)),
+        attachment_input::ClipboardInput::Empty => {
+            return Err(Error::invalid("剪贴板中没有可粘贴的图片、文件或文字"))
+        }
+    }
+    Ok(None)
 }
 #[tauri::command]
 pub async fn builtin_save_attachment(

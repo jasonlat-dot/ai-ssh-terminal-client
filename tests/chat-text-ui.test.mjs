@@ -54,6 +54,7 @@ function composer({ upload = async file => result(file), send = async () => true
     if (name === 'react') return hooks;
     if (name === 'react/jsx-runtime') return { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) };
     if (name === '../state/chatAttachments') return api;
+    if (name === '../api/files') return { pickNativeAttachments: async()=>{} };
     if (name.endsWith('.png')) return 'robot.png';
     if (name === './Ui') return { AccentIcon: leaf, Badge: leaf, Icon: leaf };
     if (name === './Select') return { Select: leaf };
@@ -65,7 +66,7 @@ function composer({ upload = async file => result(file), send = async () => true
     if (name === '../api/chatErrors') return { chatErrorGuidance: () => '' };
     if (name === '../state/chatMarkdown') return {};
     throw new Error(name);
-  }, { requestAnimationFrame: callback => frames.push(callback), window: { addEventListener() {}, removeEventListener() {} } });
+  }, { requestAnimationFrame: callback => frames.push(callback), window: { addEventListener() {}, removeEventListener() {}, setTimeout() { return 1; }, clearTimeout() {} } });
   function find(predicate, node) {
     if (arguments.length === 1) node = tree;
     if (Array.isArray(node)) { for (const child of node) { const found = find(predicate, child); if (found) return found; } return; }
