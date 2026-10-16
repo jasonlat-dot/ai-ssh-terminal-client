@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { ChatAttachment } from '../types';
 import type { UploadItem } from '../state/fileUploads';
 import type { ChatAttachmentDraft } from '../state/chatAttachments';
 import { isImageAttachment, textExcerptLabel } from '../state/chatAttachments';
 import { formatFileSize } from '../config/fileUpload';
 import { DownloadButton } from './FileUploadDialog';
+import { CopyTextButton } from './CopyTextButton';
 import { Badge, Icon, IconButton, Modal, fileTone } from './Ui';
 import { agentApi } from '../api/agent';
 import { type NativeAttachmentProgress, readNativeAttachmentPreview } from '../api/files';
@@ -71,25 +73,38 @@ export function DraftAttachments({ items, pending=[], draft, locked, report }: {
   </li>)}</ul>;
 }
 export function MessageAttachments({ files, scope }: { files: ChatAttachment[]; scope?:AttachmentScope }) {
-  const [preview,setPreview]=useState<{id:string;key:string;name:string;loading:boolean;text?:string;imageUrl?:string;error?:string}|null>(null);
+  const [preview,setPreview]=useState<{id:string;key:string;name:string;size:number;pdf:boolean;loading:boolean;text?:string;imageUrl?:string;error?:string}|null>(null);
+  const [wrap,setWrap]=useState(false);
   useEffect(()=>setPreview(null),[scope?.sessionId,scope?.agentId]);
   const open=(file:ChatAttachment)=>{
     if(!scope)return;
     const key=JSON.stringify([scope.agentId,scope.sessionId,file.fileId]);
-    setPreview({id:file.fileId,key,name:file.fileName,loading:true});
+    const pdf=file.contentType==='application/pdf'||/\.pdf$/i.test(file.fileName);
+    setWrap(pdf);
+    setPreview({id:file.fileId,key,name:file.fileName,size:file.size,pdf,loading:true});
     void agentApi.attachment(scope.agentId,scope.sessionId,file.fileId).then(value=>setPreview(current=>current?.key===key?{...current,loading:false,text:value.text??undefined,imageUrl:value.imageUrl??undefined}:current)).catch(error=>setPreview(current=>current?.key===key?{...current,loading:false,error:error instanceof Error?error.message:'附件读取失败'}:current));
   };
   return <><div className="chat-message-attachments">
     {files.some(file=>isImageAttachment(file.fileName))&&<div className="chat-message-images">{files.filter(file=>isImageAttachment(file.fileName)).map(file=><AttachmentImage key={file.fileId} file={file} scope={scope}/>)}</div>}
-    {files.filter(file=>!isImageAttachment(file.fileName)).map((file, index) => <div className="chat-attachment" key={`${file.fileId}:${index}`}>
-    <Preview name={file.fileName} url={file.previewUrl} />
-    <div className="chat-attachment-body"><strong title={file.textExcerpt?.preview ?? file.fileName}>{file.textExcerpt?.preview || file.fileName}</strong><small>{file.textExcerpt ? `${textExcerptLabel(file.textExcerpt.source)} · ${file.textExcerpt.characters} 字符` : formatFileSize(file.size)}</small>
-      <div className="chat-attachment-actions">{scope&&<button type="button" onClick={()=>open(file)}>查看发送内容</button>}
-        {file.downloadUrl && file.urlExpiresAt !== undefined && <DownloadButton file={{ downloadUrl: file.downloadUrl, urlExpiresAt: file.urlExpiresAt }} />}
-      </div>
+    {files.filter(file=>!isImageAttachment(file.fileName)).map((file, index) => <div className="chat-attachment chat-message-file" key={`${file.fileId}:${index}`}>
+    <button type="button" className="chat-file-preview-button" aria-label={`查看文件 ${file.fileName}`} disabled={!scope} onClick={()=>open(file)}>
+      <Preview name={file.fileName} url={file.previewUrl} />
+      <span className="chat-attachment-body"><strong title={file.textExcerpt?.preview ?? file.fileName}>{file.textExcerpt?.preview || file.fileName}</strong><small>{file.textExcerpt ? `${textExcerptLabel(file.textExcerpt.source)} · ${file.textExcerpt.characters} 字符` : formatFileSize(file.size)}</small></span>
+    </button>
+    {file.downloadUrl && file.urlExpiresAt !== undefined && <div className="chat-attachment-actions"><DownloadButton file={{ downloadUrl: file.downloadUrl, urlExpiresAt: file.urlExpiresAt }} /></div>}
+  </div>)}</div>{preview&&createPortal(<Modal title={preview.name} onClose={()=>setPreview(null)} className="chat-document-dialog" wide>
+    <div className="chat-document-toolbar">
+      <div className="chat-document-info"><Icon name="file" size={15}/><span>{preview.pdf?'PDF 文本':'文本'}</span><span>{formatFileSize(preview.size)}</span>{preview.text!==undefined&&<span>{preview.text.length?preview.text.split(/\r\n|\r|\n/).length:0} 行</span>}</div>
+      {!preview.loading&&!preview.error&&preview.text!==undefined&&!preview.imageUrl&&<div className="chat-document-tools">
+        <button type="button" className="chat-document-wrap" aria-pressed={wrap} onClick={()=>setWrap(value=>!value)}>自动换行</button>
+        <CopyTextButton getText={()=>preview.text??''} label="复制全文" hint={{}}/>
+      </div>}
     </div>
-  </div>)}</div>{preview&&<Modal title={preview.name} onClose={()=>setPreview(null)} className="chat-attachment-dialog" wide>
-    <p className="chat-attachment-description">这是本次发送给模型的内容。图片可能已缩放；PDF 仅含提取文字，不包含图表和扫描识别。</p>
-    {preview.loading?<p role="status">正在读取附件…</p>:preview.error?<p role="alert">{preview.error}</p>:preview.imageUrl?<img src={preview.imageUrl} alt={preview.name}/>:<pre>{preview.text}</pre>}
-  </Modal>}</>;
+    <div className="chat-document-content" tabIndex={0} role="region" aria-label="文件内容" aria-busy={preview.loading}>
+      {preview.loading?<div className="chat-document-state" role="status"><span className="chat-document-spinner" aria-hidden="true"/><p>正在读取文件…</p></div>
+        :preview.error?<div className="chat-document-state"><Icon name="alert" size={26}/><p role="alert">{preview.error}</p><button type="button" className="outlined-button" onClick={()=>{const file=files.find(file=>file.fileId===preview.id);if(file)open(file);}}><Icon name="refresh" size={14}/>重新加载</button></div>
+        :preview.imageUrl?<img src={preview.imageUrl} alt={preview.name}/>:<pre className={wrap?'is-wrapped':undefined}>{preview.text}</pre>}
+    </div>
+    {preview.pdf&&<footer className="chat-document-note">PDF 提取文本，不包含图表和扫描识别内容。</footer>}
+  </Modal>,document.body)}</>;
 }
