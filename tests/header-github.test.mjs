@@ -14,6 +14,9 @@ function header({ tauri = false, fail = false } = {}) {
     if (name === 'react/jsx-runtime') return { jsx: node, jsxs: node };
     if (name === './Ui') return { Icon: () => null };
     if (name === './WindowControls') return { WindowControls: () => null };
+    if (name === './NavigationButton') return { NavigationButton: () => null };
+    if (name === '../config/settingsNavigation') return { settingsNavigation: [] };
+    if (name.endsWith('.css')) return {};
     if (name === '../state/appWindow') return { dragAppWindow() {} };
     if (name === '../state/runtime') return { isTauriRuntime: () => tauri };
     if (name === '@tauri-apps/plugin-opener') return { openUrl: url => {

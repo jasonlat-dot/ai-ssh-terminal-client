@@ -3,6 +3,7 @@ import type { ConnectionDraft } from '../api/ssh';
 import type { Host } from '../types';
 import type { useSshConnections } from '../state/useSshConnections';
 import { AccentIcon, Icon, Modal } from './Ui';
+import { notify } from '../state/notifications';
 
 export const blankSshConnection: Host = {
   id: '', name: '', address: '', user: 'root', port: 22,
@@ -45,7 +46,7 @@ export function SshConnectionDialog({ connections, initial = blankSshConnection,
     if (credentialsRequired && !(next.auth === 'key' ? next.privateKey?.trim() : next.password)) { setError(next.auth === 'key' ? '请填写私钥内容。' : '请填写 SSH 密码。'); return; }
     if (hosts.some(host => host.id !== next.id && host.address.toLowerCase() === next.address.toLowerCase() && (host.port ?? 22) === next.port && host.user === next.user)) { setError('已存在相同地址、端口和用户的连接。'); return; }
     const saved = await save(next);
-    if (saved) { onClose(); onSaved?.(saved); }
+    if (saved) { onClose(); notify(editing ? 'SSH 连接修改已保存。' : 'SSH 连接已添加。', 'success'); onSaved?.(saved); }
   };
 
   return <Modal title={editing ? '编辑 SSH 连接' : '新建 SSH 连接'} onClose={onClose} className="ssh-connection-modal" dismissDisabled={busy}>

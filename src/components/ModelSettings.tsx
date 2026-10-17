@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { ReactNode } from 'react';
 import { modelApi, newModelConfig } from '../api/models';
 import type { KeyChange, ModelConfig, ModelProfile } from '../api/models';
-import { AccentIcon, Badge, Icon, Toggle } from './Ui';
+import { AccentIcon, Badge, Icon, Modal, Toggle } from './Ui';
 import type { AccentTone, IconName } from './Ui';
 import { Select } from './Select';
 import { ModelNumberInput } from './ModelNumberInput';
+import { notify } from '../state/notifications';
 import './ModelSettings.css';
 
 function ModelField({ id, label, hint, children, wide = false, badge, icon, tone = 'blue' }: { id:string; label:string; hint?:string; children:ReactNode; wide?:boolean; badge?:string; icon?:IconName; tone?:AccentTone }) {
@@ -23,9 +25,7 @@ export function ModelSettings({ changed, locked = false }: { changed?: () => voi
   const [key, setKey] = useState('');
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [advanced, setAdvanced] = useState(false);
   useEffect(() => {
     let active = true;
     void modelApi.list().then(items => { if (active) { setProfiles(items); if (items[0]) select(items[0]); } })
@@ -35,7 +35,7 @@ export function ModelSettings({ changed, locked = false }: { changed?: () => voi
   const select = (profile: ModelProfile | null) => {
     setEditing(profile); setDisplayName(profile?.displayName ?? profile?.id ?? ''); const next = profile?.config ?? newModelConfig();
     setConfig({...next, capabilities: {...next.capabilities, toolCalls: true, vision: true}});
-    setKey(''); setError(''); setNotice(''); setConfirmDelete(false); setAdvanced(false);
+    setKey(''); setError(''); setConfirmDelete(false);
   };
   const field = <K extends keyof ModelConfig>(name: K, value: ModelConfig[K]) => setConfig(c => ({ ...c, [name]: value }));
   const protocol = (provider: ModelConfig['provider']) => {
@@ -49,7 +49,7 @@ export function ModelSettings({ changed, locked = false }: { changed?: () => voi
     finally { setBusy(false); }
   };
   const save = async () => {
-    setBusy(true); setError(''); setNotice('');
+    setBusy(true); setError('');
     try {
       if (!displayName.trim()) throw new Error('请输入配置名称。');
       const apiKey:KeyChange = key.trim() ? {action:'set',value:key.trim()} : {action:'keep'};
@@ -57,7 +57,7 @@ export function ModelSettings({ changed, locked = false }: { changed?: () => voi
         throw new Error('更换 API 地址时，请输入新密钥；无需密钥的服务请新建配置。');
       const saved = await modelApi.save(editing?.id ?? crypto.randomUUID(), editing?.revision ?? 0, config, apiKey, displayName.trim());
       select(saved); setProfiles(items => [...items.filter(p => p.id !== saved.id), saved].sort((a,b) => (a.displayName ?? a.id).localeCompare(b.displayName ?? b.id)));
-      setNotice(saved.ready ? '已保存，可返回终端选择此模型并发送消息。连接将在发送时验证。' : '已保存；需要配置 API Key 后才能对话。');
+      notify(saved.ready ? '模型配置已保存，连接将在发送消息时验证。' : '模型配置已保存；配置 API Key 后即可对话。', 'success');
       changed?.();
     } catch (e) { setError(e instanceof Error ? e.message : '保存失败'); }
     finally { setBusy(false); }
@@ -68,13 +68,13 @@ export function ModelSettings({ changed, locked = false }: { changed?: () => voi
     try {
       await modelApi.delete(editing.id, editing.revision);
       setProfiles(items => items.filter(p => p.id !== editing.id)); select(null);
-      setNotice('配置已删除，已有会话仍保留在本地数据库。'); changed?.();
+      notify('模型配置已删除，已有会话仍保留。', 'success'); changed?.();
     } catch (e) { setError(e instanceof Error ? e.message : '删除失败'); }
     finally { setBusy(false); }
   };
   const disabled = busy || locked;
   return <section className="model-settings" aria-label="模型设置">
-    <div className="model-workspace">
+    <div className="model-workspace" inert={confirmDelete}>
       <aside className="model-profiles" aria-label="模型配置列表">
         <div className="model-profiles-heading"><strong>我的模型</strong><span>{profiles.length}</span></div>
         <button type="button" className="model-create" disabled={disabled} onClick={() => select(null)}><Icon name="plus" size={15}/>新建配置</button>
@@ -88,7 +88,6 @@ export function ModelSettings({ changed, locked = false }: { changed?: () => voi
       <form className="model-editor" onSubmit={e => { e.preventDefault(); if (!disabled) void save(); }}>
         <div className="model-editor-scroll">
           {error && <div className="model-feedback error" role="alert"><Icon name="alert" size={16}/><span>{error}</span><button type="button" disabled={disabled} onClick={() => void reload()}>重新加载</button></div>}
-          {notice && <div className="model-feedback success" role="status"><Icon name="check" size={16}/><span>{notice}</span></div>}
           {locked && <div className="model-feedback" role="status"><Icon name="history" size={16}/><span>请等待回复结束或停止生成后再修改模型。</span></div>}
           <fieldset disabled={disabled}>
             <div className="model-form-columns"><div className="model-form-column">
@@ -118,30 +117,29 @@ export function ModelSettings({ changed, locked = false }: { changed?: () => voi
               <ModelField id="model-timeout" label="请求超时（秒）"><ModelNumberInput id="model-timeout" label="请求超时" kind="timeout" value={config.timeoutSeconds} disabled={disabled} onChange={value => field('timeoutSeconds', value)} /></ModelField>
               <ModelField id="model-response" label="最大响应（bytes）"><ModelNumberInput id="model-response" label="最大响应" kind="response" value={config.maxResponseBytes} disabled={disabled} onChange={value => field('maxResponseBytes', value)} /></ModelField>
             </div></section>
-            <section className={`model-form-section model-advanced ${advanced ? 'open' : ''}`}><button type="button" className="model-advanced-toggle" aria-expanded={advanced} aria-controls="model-advanced-fields" onClick={() => setAdvanced(value => !value)}><Icon name="settings" size={16}/><span><strong>高级参数</strong><small>请求限制与供应商兼容选项</small></span><Icon name={advanced ? 'up' : 'down'} size={15}/></button>
-              {advanced && <div id="model-advanced-fields" className="settings-fields-grid">
-                <div className="model-advanced-trio">
-                <ModelField id="model-safety" label="安全预留（tokens）"><input id="model-safety" className="settings-control" type="number" min={0} value={config.safetyReserve} onChange={e => field('safetyReserve', Number(e.target.value))} /></ModelField>
-                <ModelField id="model-compact" label="自动整理触发比例" badge="%" tone="blue" hint={config.provider === 'openAiResponses' && !config.remoteCompaction ? '启用供应商远端整理后，此比例用于触发。' : '接近此比例时整理较早对话，原始历史仍会保留。'}><input id="model-compact" className="settings-control" type="number" min={1} max={99} value={config.compactPercent} onChange={e => field('compactPercent', Number(e.target.value))} /></ModelField>
-                <ModelField id="model-temperature" label="Temperature" hint="留空则不发送"><input id="model-temperature" className="settings-control" type="number" min={0} max={2} step="0.1" value={config.temperature ?? ''} onChange={e => { field('temperature', e.target.value === '' ? null : Number(e.target.value)); field('capabilities', { ...config.capabilities, temperature: e.target.value !== '' }); }} /></ModelField>
+            <section className="model-form-section model-request-settings"><div className="model-section-title"><AccentIcon icon="settings" tone="blue" size={17}/><h4>请求参数</h4></div>
+              <div className="settings-fields-grid">
+                <div className="model-budget-trio">
+                <ModelField id="model-safety" label="安全预留（tokens）"><ModelNumberInput id="model-safety" label="安全预留" kind="safety" value={config.safetyReserve} disabled={disabled} onChange={value => field('safetyReserve', value)} /></ModelField>
+                <ModelField id="model-compact" label="自动整理触发比例" badge="%" tone="blue" hint={config.provider === 'openAiResponses' && !config.remoteCompaction ? '启用供应商远端整理后，此比例用于触发。' : '接近此比例时整理较早对话，原始历史仍会保留。'}><ModelNumberInput id="model-compact" label="自动整理触发比例" kind="compact" value={config.compactPercent} disabled={disabled} onChange={value => field('compactPercent', value)} /></ModelField>
+                <ModelField id="model-temperature" label="Temperature" hint="留空或选择默认时不发送"><ModelNumberInput id="model-temperature" label="Temperature" kind="temperature" value={config.temperature} disabled={disabled} onChange={value => setConfig(current => ({ ...current, temperature: value, capabilities: { ...current.capabilities, temperature: value !== null } }))} /></ModelField>
                 </div>
                 {config.provider === 'openAiResponses' && <div className="model-auth-toggle settings-field is-wide"><div><strong>供应商远端整理</strong><p>仅在供应商支持 responses/compact 时开启。完整窗口加密项保存在本机；切换模型、接口或密钥后需新建会话。关闭时按容量限制对话。</p></div><Toggle label="启用 Responses 远端整理" value={!!config.remoteCompaction} disabled={disabled} onChange={value => field('remoteCompaction', value)}/></div>}
-                <ModelField id="model-reasoning" label="推理强度" wide badge="REASONING" icon="bulb" tone="amber" hint="仅在供应商明确支持时设置；默认不发送此参数。">
-                  <Select id="model-reasoning" label="Reasoning effort" className="settings-control" value={config.reasoningEffort ?? ''} disabled={disabled} options={[{value:'',label:'不发送（默认）'},...(['none','minimal','low','medium','high','xhigh'] as const).map(value => ({value,label:value}))]} onChange={value => { field('reasoningEffort', (value || null) as ModelConfig['reasoningEffort']); field('capabilities', { ...config.capabilities, reasoningEffort: !!value }); }}/>
-                  <div className="model-reasoning-presets" aria-label="推理强度快捷选项">{([{value:'none',label:'关闭'},{value:'minimal',label:'极低'},{value:'low',label:'低'},{value:'medium',label:'中'},{value:'high',label:'高'},{value:'xhigh',label:'很高'}] as const).map(option => <button type="button" key={option.value} disabled={disabled} aria-pressed={config.reasoningEffort === option.value} onClick={() => {field('reasoningEffort', option.value);field('capabilities',{...config.capabilities,reasoningEffort:true});}}><span><strong>{option.label}</strong><small>{option.value}</small></span>{config.reasoningEffort === option.value && <Icon name="check" size={13}/>}</button>)}</div>
-                </ModelField>
-              </div>}
+              </div>
             </section>
             </div></div>
           </fieldset>
         </div>
         <footer className="model-editor-footer">
-          {confirmDelete && editing ? <div className="model-delete-confirm" role="alert"><span>删除“{editing.displayName ?? editing.id}”？历史会话会保留。</span><button type="button" className="model-danger-button" disabled={disabled} onClick={() => void remove()}>确认删除</button><button type="button" className="model-secondary-button" onClick={() => setConfirmDelete(false)}>取消</button></div> : <>
-            {editing && <button type="button" className="model-delete-button" disabled={disabled} onClick={() => setConfirmDelete(true)}><Icon name="trash" size={15}/>删除</button>}
+            {editing && <button type="button" className="model-delete-button" disabled={disabled} onClick={() => { setError(''); setConfirmDelete(true); }}><Icon name="trash" size={15}/>删除</button>}
             <span className="model-save-hint">保存后用于后续对话</span><button className="model-save-button" type="submit" disabled={disabled}><Icon name={busy ? 'refresh' : 'check'} size={16}/>{busy ? '处理中…' : '保存配置'}</button>
-          </>}
         </footer>
       </form>
     </div>
+    {confirmDelete && editing && createPortal(<Modal title="删除模型配置？" className="model-delete-dialog" dismissDisabled={busy} onClose={() => { if (!busy) setConfirmDelete(false); }}>
+      <strong>{editing.displayName ?? editing.id}</strong><p>此模型配置将被删除，已有历史会话会保留。</p>
+      {error && <p className="form-error" role="alert">{error}</p>}
+      <footer><button type="button" data-autofocus className="outlined-button" disabled={busy} onClick={() => setConfirmDelete(false)}>取消</button><button type="button" className="danger-button" disabled={disabled} onClick={() => void remove()}>{busy ? '正在删除…' : '确认删除'}</button></footer>
+    </Modal>, document.body)}
   </section>;
 }

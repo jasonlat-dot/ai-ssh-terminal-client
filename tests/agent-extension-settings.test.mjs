@@ -16,13 +16,14 @@ vm.runInContext(compile('../src/state/skillDirectories.ts'), skillsContext);
 const output = compile('../src/components/AgentExtensionSettings.tsx');
 const clone = value => JSON.parse(JSON.stringify(value));
 function harness(initial, options = {}) {
-  const slots = [], effects = [], saved = []; let cursor = 0;
+  const slots = [], effects = [], saved = [], notices = []; let cursor = 0;
   const hooks = {
     useState(initial) { const index = cursor++; if (!(index in slots)) slots[index] = typeof initial === 'function' ? initial() : initial; return [slots[index], value => { slots[index] = typeof value === 'function' ? value(slots[index]) : value; }]; },
     useEffect(effect, deps) { const index = cursor++; if (!slots[index] || deps.some((value, i) => value !== slots[index][i])) { slots[index] = deps; effects.push(effect); } },
   };
   const context = vm.createContext({ exports: {}, Error, Number, Object, String, URL, document: { body: {} },
     require(name) {
+      if (name === '../state/notifications') return { notify: (message, type) => notices.push({ message, type }) };
       if (name === 'react') return hooks;
       if (name === 'react-dom') return { createPortal: node => node };
       if (name === './JsonCodeEditor') return { JsonCodeEditor: 'json-editor' };
@@ -40,7 +41,7 @@ function harness(initial, options = {}) {
     },
   });
   vm.runInContext(output, context);
-  return { saved, parse: context.exports.parseExecutionLimits, render(locked = false) { cursor = 0; return context.exports.AgentExtensionSettings({ locked }); }, async flush() { while (effects.length) effects.shift()(); await new Promise(resolve => setImmediate(resolve)); } };
+  return { saved, notices, parse: context.exports.parseExecutionLimits, render(locked = false) { cursor = 0; return context.exports.AgentExtensionSettings({ locked }); }, async flush() { while (effects.length) effects.shift()(); await new Promise(resolve => setImmediate(resolve)); } };
 }
 function all(node) { if (Array.isArray(node)) return node.flatMap(all); return node?.props ? [node, ...all(node.props.children)] : []; }
 function text(node) { if (Array.isArray(node)) return node.map(text).join(' '); return node?.props ? text(node.props.children) : typeof node === 'string' || typeof node === 'number' ? String(node) : ''; }
@@ -55,7 +56,9 @@ test('Execution settings save all five edited limits and preserve MCP, Skills an
   for (const [index, value] of ['48', '256', '12', '32', '4'].entries()) inputs[index].props.onChange({ target: { value } });
   tree = h.render(); submit(tree); await h.flush();
   assert.deepEqual(h.saved[0], { ...fixture(), config: { ...fixture().config, executionLimits: { modelRounds: 48, toolCalls: 256, childModelRounds: 12, childToolCalls: 32, maxChildTasks: 4 } } });
-  assert.match(text(h.render()), /已保存，下一次发送消息时生效/);
+  assert.match(h.notices.at(-1).message, /已保存，下次发送消息时生效/);
+  assert.equal(h.notices.at(-1).type, 'success');
+  assert.doesNotMatch(text(h.render()), /设置已保存/);
 });
 
 test('Restoring recommendations updates every limit without deleting service or skill settings', async () => {
@@ -138,7 +141,7 @@ test('Skills page hides paths and editing controls until configured in a dialog 
   inputs[1].props.onChange({target:{value:' D:/Skills/three '}});
   submit(h.render());await h.flush();
   assert.deepEqual(h.saved[0].config.skillRoots,['C:/Skills/one','D:/Skills/three']);
-  assert.equal(skillsInputs(h).length,0);assert.match(text(h.render()),/Skills 目录已保存/);
+  assert.equal(skillsInputs(h).length,0);assert.match(h.notices.at(-1).message,/Skills 目录已保存/);
 });
 
 const editor = h => {

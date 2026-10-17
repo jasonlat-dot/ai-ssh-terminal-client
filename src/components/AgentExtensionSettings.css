@@ -29,7 +29,7 @@
 .agent-extension-settings button.primary { min-width: 96px; background: var(--ui-accent); color: #fff; border-color: transparent; }
 .agent-extension-settings button.primary:hover:not(:disabled) { background: var(--ui-accent); filter: brightness(.94); }
 .agent-extension-settings button:disabled { opacity: .5; cursor: default; }
-.agent-extension-settings .extension-save { padding: 10px 0 2px; }
+.agent-extension-settings .extension-save { justify-content:flex-end; padding: 10px 0 2px; }
 .extension-save > span { margin: 0; }
 .extension-feedback { margin-top: 10px; }
 @container settings-pane (max-width: 760px) {

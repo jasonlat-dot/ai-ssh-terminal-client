@@ -6,6 +6,7 @@ import type { Host } from '../types';
 import { Icon, Modal } from './Ui';
 import { Select } from './Select';
 import { historyPreviewPosition, historyPreviewTime } from '../state/historyPreview';
+import { notify } from '../state/notifications';
 
 const PREVIEW_ROWS = 5;
 
@@ -202,7 +203,7 @@ export function ProjectChatHistory({hosts,project,sessionId,locked,revision,newC
     void agentApi.renameChat(target.agentId,target.sessionId,title).then(()=>{
       version.current++;setLoading(false);
       setHistories(old=>Object.fromEntries(Object.entries(old).map(([key,page])=>[key,{...page,items:page.items.map(chat=>chat.sessionId===target.sessionId?{...chat,title}:chat)}])));
-      setRenameTarget(null);
+      setRenameTarget(null);notify('对话标题已更新。','success');
     }).catch(cause=>setRenameError(cause instanceof Error?cause.message:'修改标题失败，请重试。')).finally(()=>{renamePending.current=false;setRenaming(false);});
    }}>
     <label>对话标题<input autoFocus aria-label="对话标题" value={renameTitle} maxLength={160} disabled={renaming} onChange={event=>setRenameTitle(event.target.value)}/></label>
@@ -226,7 +227,7 @@ export function ProjectChatHistory({hosts,project,sessionId,locked,revision,newC
   </Modal>,document.body)}
   {creating&&<Modal title="新建服务器项目" className="project-create-dialog" dismissDisabled={saving} onClose={cancelCreate}>
    <form className="project-create-form" onSubmit={event=>{event.preventDefault();if(saving||!connection||!name.trim())return;setSaving(true);setError('');
-    void agentApi.createProject(name.trim(),connection).then(async p=>{setCreating(false);setReload(v=>v+1);await newChat(p);creationFinished?.();}).catch(cause=>setError(cause instanceof Error?cause.message:'新建项目失败')).finally(()=>setSaving(false));}}>
+    void agentApi.createProject(name.trim(),connection).then(async p=>{setCreating(false);setReload(v=>v+1);notify(`已创建项目“${p.name}”`,'success');await newChat(p);creationFinished?.();}).catch(cause=>setError(cause instanceof Error?cause.message:'新建项目失败')).finally(()=>setSaving(false));}}>
     <div className="project-create-fields">
      <label>项目名称<input autoFocus value={name} maxLength={100} onChange={event=>setName(event.target.value)} placeholder="例如：测试服务器"/></label>
      <label>已保存的服务器<Select label="项目服务器" value={connection} options={hosts.map(host=>({value:host.id,label:host.name+' · '+host.user+'@'+host.address}))} disabled={saving||!hosts.length} onChange={setConnection}/></label>

@@ -5,6 +5,7 @@ import type { useSshConnections } from '../state/useSshConnections';
 import { AccentIcon, Badge, Icon, IconButton, Modal } from './Ui';
 import { SshConnectionDialog } from './SshConnectionDialog';
 import { isSessionConnected } from '../state/terminalSessions';
+import { notify } from '../state/notifications';
 
 type Props = { connections: ReturnType<typeof useSshConnections>; terminal: (id: string) => void; create: () => void; copy: (value: string) => void };
 
@@ -80,7 +81,7 @@ export function ConnectionSidebar({ connections, sessions, connectingHostIds, ac
     </footer>
     {draft && <SshConnectionDialog connections={connections} initial={draft} onClose={() => setDraft(null)} />}
     {deleting && <Modal title="删除连接" dismissDisabled={connections.busy} onClose={() => setDeleting(null)}>
-      <div className="compact-delete-dialog"><p>确定删除 <strong>{deleting.name}</strong>？该操作无法恢复。</p><div className="dialog-actions"><button className="outlined-button" disabled={connections.busy} onClick={() => setDeleting(null)}>取消</button><button className="delete-dialog-confirm" disabled={connections.busy} onClick={async () => { if (await connections.remove(deleting.id)) setDeleting(null); }}>确认删除</button></div></div>
+      <div className="compact-delete-dialog"><p>确定删除 <strong>{deleting.name}</strong>？该操作无法恢复。</p><div className="dialog-actions"><button className="outlined-button" disabled={connections.busy} onClick={() => setDeleting(null)}>取消</button><button className="delete-dialog-confirm" disabled={connections.busy} onClick={async () => { if (await connections.remove(deleting.id)) { setDeleting(null); notify(`已删除 SSH 连接“${deleting.name}”`, 'success'); } }}>确认删除</button></div></div>
     </Modal>}
   </aside>;
 }
@@ -112,7 +113,7 @@ export function Connections({ connections, terminal, create, copy }: Props) {
         {apiError && <p role="alert" className="delete-dialog-error">{apiError}</p>}
         <footer className="delete-dialog-actions">
           <button data-autofocus disabled={busy} className="outlined-button" onClick={() => setDeleting(null)}>取消</button>
-          <button disabled={busy} className="delete-dialog-confirm" onClick={async () => { if (await connections.remove(deleting.id)) setDeleting(null); }}>{busy ? '正在删除…' : '确认删除'}</button>
+          <button disabled={busy} className="delete-dialog-confirm" onClick={async () => { if (await connections.remove(deleting.id)) { setDeleting(null); notify(`已删除 SSH 连接“${deleting.name}”`, 'success'); } }}>{busy ? '正在删除…' : '确认删除'}</button>
         </footer>
       </div>
     </Modal>}

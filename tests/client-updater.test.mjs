@@ -249,7 +249,7 @@ test('startup prompt does not show stale versions or manual check failures', () 
   assert.match(app, /return <>\{page\}<StartupUpdatePrompt/);
   assert.match(app, /waitingForBackend && !updateSettingsRequested/);
   assert.match(app, /beforeClientUpdate=\{prepareForClientUpdate\}/);
-  assert.match(dialog, /if\(showUpdates\)setTab\('about'\)/);
+  assert.match(dialog, /if\(showUpdates\)setTab\('general'\)/);
 });
 test('UI blocks unavailable updates, allows configuration-error retry, and renders escaped notes', () => {
   const disabled = ui({ config: { ...config, configured: false }, phase: 'disabled' });
@@ -274,8 +274,8 @@ test('UI supports indeterminate/known progress and settings update path works wi
   assert.equal(view.button('下载更新').props.disabled, true);
   view.render({ total: 100, downloaded: 50 }); assert.equal(view.nodes().find(x => x.type === 'progress').props.value, 50);
   const dialog = source('components/RustBackendSettingsDialog.tsx'), app = source('App.tsx');
-  assert.match(dialog, /tab==='about'/);
-  assert.match(dialog, /自动更新已关闭/);
+  assert.doesNotMatch(dialog, /tab==='about'|关于试用版/);
+  assert.match(dialog, /settingsNavigation\.map/);
   assert.doesNotMatch(dialog, /BackendConnectionSettings|connection-url/);
   assert.match(app, /await persistClientSession[\s\S]*await cleanupBeforeClose\(5_000\)/);
 });

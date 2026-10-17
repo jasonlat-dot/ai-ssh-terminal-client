@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { resetClientAppearance, setClientPanelTransparency, setClientReadabilityProtection } from '../state/clientAppearance';
+import { readClientAppearance, resetClientAppearance, setClientPanelTransparency, setClientReadabilityProtection } from '../state/clientAppearance';
+import { notify } from '../state/notifications';
 import { useClientAppearance } from '../state/useClientAppearance';
 import { Icon, Toggle } from './Ui';
 import { WallpaperCropEditor } from './WallpaperCropEditor';
@@ -32,7 +33,7 @@ export function AppearanceSettings() {
   const resetAction = <button type="button" className="appearance-remove-image" aria-label="恢复默认背景"
     title="移除壁纸并恢复默认透明度；主题与连接保持不变"
     disabled={disabled || (!appearance.wallpaperUrl && !appearance.error && !pendingWallpaper)}
-    onClick={() => { setPendingWallpaper(null); void resetClientAppearance(); }}><Icon name="trash" size={16} /></button>;
+    onClick={async () => { setPendingWallpaper(null); await resetClientAppearance(); const error = readClientAppearance().error; notify(error ?? '已移除壁纸并恢复默认背景。', error ? 'error' : 'success'); }}><Icon name="trash" size={16} /></button>;
   // 自动保存项放在同一侧栏，不与需要确认保存的画面选区混用状态提示。
   const surfaceControls = <div className="appearance-surface-controls">
     <div className="appearance-slider-heading"><label htmlFor="appearance-transparency" className="appearance-control-label"><Icon name="sun" size={14} />背景透明度</label>
@@ -40,14 +41,14 @@ export function AppearanceSettings() {
     <input id="appearance-transparency" className="appearance-slider" type="range" min={0} max={100} step={1}
       value={appearance.transparency} disabled={disabled || !appearance.wallpaperUrl}
       aria-describedby="appearance-transparency-help" aria-valuetext={`${appearance.transparency}%，数值越大壁纸越明显`}
-      onChange={event => setClientPanelTransparency(Number(event.target.value))} />
+      onChange={event => { setClientPanelTransparency(Number(event.target.value)); const error = readClientAppearance().error; notify(error ?? '背景透明度已自动保存。', error ? 'error' : 'success'); }} />
     <div id="appearance-transparency-help" className="appearance-slider-labels"><span>不透明</span><span>壁纸更明显 · 自动保存</span></div>
   </div>;
   const readabilityControl = <div className="appearance-readability">
       <div><strong id="appearance-readability-label" className="appearance-control-label"><Icon name="shield" size={14} />文字可读性保护</strong>
         <p id="appearance-readability-help">保留遮罩，柔化壁纸，增强文字对比。</p></div>
       <Toggle label="文字可读性保护" value={appearance.readabilityProtection} disabled={disabled}
-        aria-describedby="appearance-readability-help" onChange={setClientReadabilityProtection} />
+        aria-describedby="appearance-readability-help" onChange={value => { setClientReadabilityProtection(value); const error = readClientAppearance().error; notify(error ?? `文字可读性保护已${value ? '开启' : '关闭'}。`, error ? 'error' : 'success'); }} />
   </div>;
   const heading = <div className="appearance-title-group">
     <span className="appearance-title-icon"><Icon name="palette" size={20} /></span>

@@ -6,6 +6,7 @@ import { Modal, Icon } from './Ui';
 import { JsonCodeEditor } from './JsonCodeEditor';
 import { formatMcpConfig, parseMcpConfig, validateSavedMcpValues, mcpExamples } from '../state/mcpConfig';
 import { maxSkillDirectories, parseSkillDirectories } from '../state/skillDirectories';
+import { notify } from '../state/notifications';
 import './ModelNumberInput.css';
 import './AgentExtensionSettings.css';
 
@@ -38,7 +39,6 @@ export function AgentExtensionSettings({ locked = false }: { locked?: boolean })
   const [limits, setLimits] = useState<LimitDraft>(() => draftLimits(defaultExecutionLimits));
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
   const [mcpDraft, setMcpDraft] = useState(() => formatMcpConfig([]));
   const [mcpError, setMcpError] = useState('');
   const [mcpOpen, setMcpOpen] = useState(false);
@@ -55,7 +55,7 @@ export function AgentExtensionSettings({ locked = false }: { locked?: boolean })
     setMcpError('');
   };
   const load = () => {
-    setBusy(true); setError(''); setNotice('');
+    setBusy(true); setError('');
     void extensionApi.settings().then(accept).catch(e => setError(String(e))).finally(() => setBusy(false));
   };
   useEffect(() => {
@@ -65,9 +65,8 @@ export function AgentExtensionSettings({ locked = false }: { locked?: boolean })
   }, []);
   const change = (patch: Partial<ExtensionSettings['config']>) => {
     setSettings(value => value ? { ...value, config: { ...value.config, ...patch } } : value);
-    setNotice('');
   };
-  const updateMcp = (value: string) => { setMcpDraft(value); setMcpError(''); setNotice(''); };
+  const updateMcp = (value: string) => { setMcpDraft(value); setMcpError(''); };
   const closeMcp = () => {
     if (busy) return;
     setMcpOpen(false); setMcpError(''); setMcpDraft(formatMcpConfig(settings?.config.servers ?? []));
@@ -97,7 +96,7 @@ export function AgentExtensionSettings({ locked = false }: { locked?: boolean })
   };
   const save = async () => {
     if (!settings || !savedSettings || busy || locked || dialogOpen) return;
-    setError(''); setNotice('');
+    setError('');
     let executionLimits: ExecutionLimits;
     try {
       executionLimits = parseExecutionLimits(limits);
@@ -105,9 +104,9 @@ export function AgentExtensionSettings({ locked = false }: { locked?: boolean })
     setBusy(true);
     try {
       accept(await extensionApi.save({ ...savedSettings, revision: settings.revision, config: { ...savedSettings.config, executionLimits, subAgents: settings.config.subAgents } }, 'execution'));
-      setNotice('执行额度与子任务设置已保存，下一次发送消息时生效。');
+      notify('执行额度与子任务设置已保存，下次发送消息时生效。', 'success');
     }
-    catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+    catch (cause) { const message = cause instanceof Error ? cause.message : String(cause); setError(message); notify(message, 'error'); }
     finally { setBusy(false); }
   };
   const saveMcp = async () => {
@@ -121,8 +120,8 @@ export function AgentExtensionSettings({ locked = false }: { locked?: boolean })
       const result = await extensionApi.save({ ...savedSettings, revision: settings.revision, config: { ...savedSettings.config, servers } }, 'mcp');
       setSavedSettings(result);
       setSettings(current => current ? { ...result, config: { ...result.config, subAgents: current.config.subAgents } } : result);
-      setMcpDraft(formatMcpConfig(result.config.servers)); setMcpOpen(false); setNotice('MCP 配置已保存，下一次发送消息时生效。');
-    } catch (cause) { setMcpError(cause instanceof Error ? cause.message : String(cause)); }
+      setMcpDraft(formatMcpConfig(result.config.servers)); setMcpOpen(false); notify('MCP 配置已保存，下次发送消息时生效。', 'success');
+    } catch (cause) { const message = cause instanceof Error ? cause.message : String(cause); setMcpError(message); notify(message, 'error'); }
     finally { setBusy(false); }
   };
   const saveSkills = async () => {
@@ -136,8 +135,8 @@ export function AgentExtensionSettings({ locked = false }: { locked?: boolean })
       const result = await extensionApi.save({ ...savedSettings, revision: settings.revision, config: { ...savedSettings.config, skillRoots } }, 'skills');
       setSavedSettings(result);
       setSettings(current => current ? { ...result, config: { ...result.config, subAgents: current.config.subAgents } } : result);
-      setSkillsOpen(false); setSkillRows(result.config.skillRoots.length ? [...result.config.skillRoots] : ['']); setNotice('Skills 目录已保存，下一次发送消息时生效。');
-    } catch (cause) { setSkillsError(cause instanceof Error ? cause.message : String(cause)); }
+      setSkillsOpen(false); setSkillRows(result.config.skillRoots.length ? [...result.config.skillRoots] : ['']); notify('Skills 目录已保存，下次发送消息时生效。', 'success');
+    } catch (cause) { const message = cause instanceof Error ? cause.message : String(cause); setSkillsError(message); notify(message, 'error'); }
     finally { setBusy(false); }
   };
   const limitInput = (key: keyof ExecutionLimits, label: string) => {
@@ -146,7 +145,7 @@ export function AgentExtensionSettings({ locked = false }: { locked?: boolean })
     const selected = presets.find(value => String(value) === limits[key]);
     const options = presets.map(value => ({ value: String(value), label: `${value} ${unit}`, description: value === defaultExecutionLimits[key] ? '推荐' : undefined }));
     if (selected === undefined) options.unshift({ value: limits[key], label: '自定义', description: limits[key] || '尚未填写' });
-    const update = (value: string) => { setLimits(current => ({ ...current, [key]: value })); setNotice(''); };
+    const update = (value: string) => { setLimits(current => ({ ...current, [key]: value })); };
     const id = `extension-limit-${key}`;
     return <div className="extension-limit-field"><label htmlFor={id}>{label}</label>
       <div className={`model-token-input extension-limit-control${busy || locked ? ' is-disabled' : ''}`}>
@@ -162,7 +161,7 @@ export function AgentExtensionSettings({ locked = false }: { locked?: boolean })
     {settings && <form inert={dialogOpen} onSubmit={event => { event.preventDefault(); void save(); }}>
       <fieldset disabled={busy || locked || dialogOpen} className="extension-form-fields">
         <section className="extension-section extension-budget-section" aria-labelledby="extension-budget-title">
-          <div className="extension-section-heading"><div><h3 id="extension-budget-title">执行额度</h3><p>每次发送消息重新计数；主对话与子任务独立。可选常用档位或直接输入。</p></div><button type="button" onClick={() => { setLimits(draftLimits(defaultExecutionLimits)); setNotice(''); }}>恢复推荐值</button></div>
+          <div className="extension-section-heading"><div><h3 id="extension-budget-title">执行额度</h3><p>每次发送消息重新计数；主对话与子任务独立。可选常用档位或直接输入。</p></div><button type="button" onClick={() => { setLimits(draftLimits(defaultExecutionLimits)); notify('已恢复推荐值，点击保存设置后生效。'); }}>恢复推荐值</button></div>
           <div className="extension-budget-columns">
             <div className="extension-budget-group"><h4>主对话</h4>{limitInput('modelRounds', '模型请求轮数')}{limitInput('toolCalls', '工具调用次数')}</div>
             <div className="extension-budget-group"><h4>每个子任务</h4>{limitInput('childModelRounds', '模型请求轮数')}{limitInput('childToolCalls', '工具调用次数')}</div>
@@ -182,7 +181,7 @@ export function AgentExtensionSettings({ locked = false }: { locked?: boolean })
           {!!settings.config.servers.length && <p className="extension-mcp-summary">{settings.config.servers.slice(0, 4).map(server => server.name).join('、')}{settings.config.servers.length > 4 ? ` 等 ${settings.config.servers.length} 个服务` : ''}</p>}
         </section>
       </fieldset>
-      <footer className="extension-save"><span role="status">{notice || (locked ? '对话生成期间暂不可修改设置。' : '这里只保存执行额度与子任务设置；MCP、Skills 在各自弹窗保存。')}</span><button type="submit" className="primary" disabled={busy || locked || dialogOpen}>{busy ? '保存中…' : '保存设置'}</button></footer>
+      <footer className="extension-save">{locked && <span>对话生成期间暂不可修改设置。</span>}<button type="submit" className="primary" title="只保存执行额度与子任务设置；MCP、Skills 在各自弹窗保存" disabled={busy || locked || dialogOpen}>{busy ? '保存中…' : '保存设置'}</button></footer>
     </form>}
     {mcpOpen && settings && createPortal(<Modal title="配置 MCP 服务" className="mcp-config-dialog" onClose={closeMcp} dismissDisabled={busy}>
       <form className="mcp-config-form" onSubmit={event => { event.preventDefault(); void saveMcp(); }} onKeyDown={event => {

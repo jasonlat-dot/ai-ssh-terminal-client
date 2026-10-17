@@ -178,6 +178,7 @@ export function AgentMemoryDialog({ scope, onClose, onNotice }: { scope: MemoryS
     togglePending.current.add(item.id); setToggling(new Set(togglePending.current)); setError('');
     try {
       replace(await agentApi.saveMemory(writeView.agentId, writeView.sessionId, { ...editable(item), enabled }, writeView.projectId));
+      if (alive.current) onNotice?.(`已${enabled ? '启用' : '停用'}长期记忆“${item.title}”`);
     } catch (cause) {
       if (alive.current) setError(message(cause));
     } finally {

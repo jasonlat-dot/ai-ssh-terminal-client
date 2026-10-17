@@ -36,8 +36,8 @@ import { canSubmitTerminalCommand, resolveTerminalCommandTargets, submitTerminal
 import type { TerminalCommandMode } from './state/terminalBroadcast';
 import { TerminalCommandBar } from './components/TerminalCommandBar';
 import { copyText } from './state/clipboard';
-import { NotificationToast } from './components/NotificationToast';
-import type { Notice, NoticeType } from './components/NotificationToast';
+import { NotificationCenter } from './components/NotificationToast';
+import { notify } from './state/notifications';
 import { ConnectionSidebar } from './components/Connections';
 import { SshConnectionDialog } from './components/SshConnectionDialog';
 import { useSshConnections } from './state/useSshConnections';
@@ -120,7 +120,6 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
   const [commandTargetIds, setCommandTargetIds] = useState<string[]>([]);
   const [broadcastDraft, setBroadcastDraft] = useState('');
   const [broadcastBusy, setBroadcastBusy] = useState(false);
-  const [broadcastResult, setBroadcastResult] = useState('');
   const broadcastInput = useRef<HTMLTextAreaElement>(null);
   const broadcastSubmitting = useRef(false);
   const terminalIdsKey = sessions.map(session => session.id).join(',');
@@ -128,7 +127,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     const ids = new Set(sessionsRef.current.map(session => session.id));
     setCommandTargetIds(previous => previous.every(id => ids.has(id)) ? previous : previous.filter(id => ids.has(id)));
   }, [terminalIdsKey]);
-  useEffect(() => { setCommandMode('single'); setCommandTargetIds([]); setBroadcastDraft(''); setBroadcastResult(''); }, [backendUrl]);
+  useEffect(() => { setCommandMode('single'); setCommandTargetIds([]); setBroadcastDraft(''); }, [backendUrl]);
   const visibleIds = visibleTerminalIds(sessions.map(session => session.id), activeId, terminalLayout, terminalPanes);
   const visibleKey = visibleIds.join(',');
   useLayoutEffect(() => {
@@ -145,6 +144,9 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
   const selectedAgentRef=useRef(selectedAgent);
   selectedAgentRef.current=selectedAgent;
   const [agentModels, setAgentModels] = useState<AgentConfig[]>([]);
+  const [reasoningSaving, setReasoningSavingState] = useState(false);
+  const reasoningSavingRef = useRef(false);
+  const setReasoningSaving = useCallback((saving: boolean) => { reasoningSavingRef.current = saving; setReasoningSavingState(saving); }, []);
   const [modelSettingsRequested, setModelSettingsRequested] = useState(false);
   const [historyMore, setHistoryMore] = useState('');
   const [canonicalHistory, setCanonicalHistory] = useState<AgentHistory | null>(null);
@@ -182,7 +184,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
   const [dialog, setDialog] = useState<Dialog>(null);
   const [backendSettingsOpen, setBackendSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<RustSettingsSection>('general');
-  useEffect(() => { if (updateSettingsRequested) {setSettingsSection('about');setBackendSettingsOpen(true);} }, [updateSettingsRequested]);
+  useEffect(() => { if (updateSettingsRequested) {setSettingsSection('general');setBackendSettingsOpen(true);} }, [updateSettingsRequested]);
   const [attachmentPreviews] = useState(() => new AttachmentPreviews());
   const [chatDraft] = useState(() => new ChatAttachmentDraft(attachmentPreviews));
   const agentComposer = useRef<AgentComposerHandle>(null);
@@ -203,8 +205,6 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     setFileWindows(previous => previous.some(item => item.connectionId === connectionId) ? previous : [...previous, { connectionId, title }]);
     setVisibleFiles(connectionId);
   };
-  const [toast, setToast] = useState<Notice | null>(null);
-  const noticeSequence = useRef(0);
   const [commandCollapsed, setCommandCollapsed] = useState(true);
   const [agentCollapsed, setAgentCollapsed] = useState(false);
   // 应用关闭流程的全局标志位：避免 Tauri onCloseRequested 与 in-page 关闭按钮、
@@ -282,9 +282,6 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
         if (!cancelled) console.warn('加载客户端常用命令失败', error);
       });
     return () => { cancelled = true; };
-  }, []);
-  const notify = useCallback((message: string, type: NoticeType = 'info', durationMs?: number) => {
-    setToast({ id: ++noticeSequence.current, message, type, ...(durationMs === undefined ? {} : { durationMs }) });
   }, []);
 
   useEffect(() => {
@@ -402,7 +399,6 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
       if (version === historyRefreshVersion.current) setHistoryLoading(false);
     }
   }, [backendUrl, rustBuiltin]);
-  const dismissNotice = useCallback(() => setToast(null), []);
   useEffect(() => { if (connections.error) notify(connections.error, 'error'); }, [connections.error, notify]);
   useEffect(() => {
     let cancelled = false;
@@ -983,7 +979,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     if (commandMode === 'single' && !active) { void openNewTerminal(); notify('正在为你打开本地 CMD。'); return false; }
     const plan = resolveTerminalCommandTargets(sessionsRef.current, terminalClients.current, commandMode, activeId, commandTargetIds);
     if (!plan.targets.length) { notify(commandMode === 'selected' && !commandTargetIds.length ? '请先勾选目标终端。' : '目标终端不可用或正在提交命令，请检查连接。', 'error'); return false; }
-    broadcastSubmitting.current = true; setBroadcastBusy(true); setBroadcastResult('');
+    broadcastSubmitting.current = true; setBroadcastBusy(true);
     try {
       const results = await submitTerminalCommandBatch(plan.targets, command, running.current, target => {
         const session = sessionsRef.current.find(item => item.id === target.id);
@@ -998,8 +994,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
       const submitted = results.filter(item => item.status === 'submitted').length;
       const unsuccessful = allResults.filter(item => item.status !== 'submitted');
       const message = `已提交 ${submitted} 个终端${unsuccessful.length ? `；${unsuccessful.map(item => `${item.title}：${item.detail}`).join('；')}。未自动重试，请检查各终端输出。` : '，请查看各终端输出。'}`;
-      setBroadcastResult(message);
-      if (unsuccessful.length) notify(message, 'error', 5_000);
+      notify(message, unsuccessful.length ? 'error' : 'success', unsuccessful.length ? 6000 : 3500);
       return submitted > 0 && !unsuccessful.length;
     } finally { broadcastSubmitting.current = false; setBroadcastBusy(false); }
   };
@@ -1014,6 +1009,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     &&canonicalHistory?.session.scope?.kind==='server'
     &&!!executionTerminal(canonicalHistory.session,sessions,canonicalHistory.session.task?.target?.terminalSessionId??'');
   const sendMessage = async (text: string, selectedAttachments: ChatAttachment[] = []): Promise<boolean> => {
+    if (reasoningSavingRef.current) return false;
     if (!text.trim() && !selectedAttachments.length) return false;
     if (chatting.current || stopPending.current || scopeSwitchRef.current || historyLoadingId || recoveredRunning || agentLoading || agentLoadError) return false;
     // Fix this turn's references before any session creation or network await.
@@ -1472,7 +1468,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     void load();
     return()=>{controller.abort();if(timer)clearTimeout(timer);};
   },[activeChatSessionId,selectedAgent?.agentId,canonicalHistory?.session.revision,chatBusy,contextReload,rustBuiltin]);
-  const projectLocked=chatBusy||chatStopping||recoveredRunning||scopeSwitching||Boolean(historyLoadingId);
+  const projectLocked=chatBusy||chatStopping||recoveredRunning||scopeSwitching||Boolean(historyLoadingId)||reasoningSaving;
   const connectProject=async(p:AgentProject)=>{
     const {terminal,project:verified}=await ensureProjectTerminal(p,{
       hosts,find:()=>sessionsRef.current.find(item=>item.kind==='ssh' && item.connectionId===p.connectionId
@@ -1536,7 +1532,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     {backendSettingsOpen && <BackendSettingsDialog currentUrl={backendUrl}
       section={settingsSection}
       modelsChanged={() => setAgentLoadAttempt(value => value + 1)} modelSettingsRequested={modelSettingsRequested}
-      modelSettingsLocked={chatBusy || chatStopping || recoveredRunning}
+      modelSettingsLocked={chatBusy || chatStopping || recoveredRunning || reasoningSaving}
       onClose={() => { setModelSettingsRequested(false); setBackendSettingsOpen(false); clearUpdateSettingsRequest(); }}
       showUpdates={updateSettingsRequested}
       beforeClientUpdate={prepareForClientUpdate}
@@ -1566,13 +1562,13 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
         agentTerminalId={rustBuiltin?agentBoundTerminalId(canonicalHistory?.session,activeProject?projectTerminalId:'',sessions):undefined}
         dockControls={<><span><Icon name="terminal" size={16}/>SSH 终端</span><div><button type="button" className="terminal-return-chat" aria-label="展开智能体对话" title="展开智能体对话" aria-controls="agent-panel-content" aria-expanded={false} onClick={() => setAgentCollapsed(false)}><Icon name="bot" size={15}/><span>展开对话</span></button><button type="button" aria-label={terminalDockCollapsed ? '展开终端面板' : '收起终端面板'} aria-expanded={!terminalDockCollapsed} onClick={() => {setTerminalDockCollapsed(value => !value);setAgentCollapsed(false);}}><Icon name={terminalDockCollapsed ? 'left' : 'right'} size={16}/></button></div></>}
         commandControls={<TerminalCommandBar mode={commandMode} changeMode={mode => {
-          setCommandMode(mode); setBroadcastResult('');
+          setCommandMode(mode);
           if (mode === 'selected' && commandMode === 'single' && activeId) setCommandTargetIds(previous => previous.length ? previous : [activeId]);
         }} sessions={sessions.map(session => ({ id: session.id, title: session.title, address: session.kind === 'local' ? '本地 CMD' : session.host.address,
           available: canSubmitTerminalCommand(session, terminalClients.current.get(session.id)) }))}
           selectedIds={commandTargetIds} toggleTarget={id => setCommandTargetIds(previous => previous.includes(id) ? previous.filter(item => item !== id) : [...previous, id])}
           targetCount={commandPlan.targets.length} draft={broadcastDraft} changeDraft={setBroadcastDraft} inputRef={broadcastInput}
-          busy={broadcastBusy} result={broadcastResult} submit={() => {
+          busy={broadcastBusy} submit={() => {
             const draft = broadcastDraft;
             void requestRun(draft).then(success => { if (success) setBroadcastDraft(current => current === draft ? '' : current); });
           }} />}
@@ -1687,9 +1683,10 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
         await agentApi.steer(agentId,sessionId,requestId,id,text);
       }:undefined}
       clear={rustBuiltin ? ()=>void newProjectChat(activeProject) : clearChat}
-      disabled={Boolean(historyLoadingId) || scopeSwitching}
+      disabled={Boolean(historyLoadingId) || scopeSwitching || reasoningSaving}
       models={rustBuiltin ? agentModels : undefined} selectedModel={selectedAgent?.agentId}
-      selectModel={id => {if(!chatting.current&&!stopPending.current){const model=agentModels.find(item=>item.agentId===id)??null;if(activeProject&&model)void newProjectChat(activeProject,model);else setSelectedAgent(model);}}}
+      reasoning={rustBuiltin ? { revision: agentLoadAttempt, onSavingChange: setReasoningSaving } : undefined}
+      selectModel={id => {if(!chatting.current&&!stopPending.current&&!reasoningSavingRef.current){const model=agentModels.find(item=>item.agentId===id)??null;if(activeProject&&model)void newProjectChat(activeProject,model);else setSelectedAgent(model);}}}
       openModelSettings={() => { setSettingsSection('models');setModelSettingsRequested(true); setBackendSettingsOpen(true); }}
       recoveredRunning={recoveredRunning} refreshCurrent={() => { if (activeChatSessionId) void selectChatSession(activeChatSessionId); }}
       stopRecovered={stopRecoveredChat}
@@ -1708,7 +1705,6 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
       }} />
     </>
     {fileWindows.map(item => <SessionFiles key={item.connectionId} connectionId={item.connectionId} title={item.title} visible={!backendSettingsOpen && visibleFiles === item.connectionId} minimize={() => setVisibleFiles('')} remove={() => { setFileWindows(previous => previous.filter(window => window.connectionId !== item.connectionId)); setVisibleFiles(current => current === item.connectionId ? '' : current); }} copy={copy} notify={notify} registerAppCloseCleanup={registerAppCloseCleanup} />)}
-    {toast && <NotificationToast key={toast.id} notice={toast} close={dismissNotice} />}
     {dialog === 'command' && <AddCommandDialog close={closeDialog} categories={[...new Set(commands.map(command => command.category))]} save={async command => {
       const next = [...commands, command];
       await saveClientCommands(next);
@@ -1717,7 +1713,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
       closeDialog();
       notify('命令已保存到客户端', 'success');
     }} />}
-    {dialog === 'connection' && <SshConnectionDialog connections={connections} connectAfterSave={connectAfterSave} onClose={closeDialog} onSaved={saved => { if (connectAfterSave) void selectHost(saved.id, saved); else notify('SSH 连接已保存。', 'success'); }} />}
+    {dialog === 'connection' && <SshConnectionDialog connections={connections} connectAfterSave={connectAfterSave} onClose={closeDialog} onSaved={saved => { if (connectAfterSave) void selectHost(saved.id, saved); }} />}
     {disconnectTarget && <DisconnectDialog key={disconnectTarget.tabId} host={hosts.find(item => item.id === disconnectTarget.host.id) ?? disconnectTarget.host} connected={sessions.find(session => session.id === disconnectTarget.tabId)?.connected === true} busy={false} error={terminalError} close={() => setDisconnectTarget(null)} confirm={() => confirmDisconnect()} disconnectOnly={disconnectTarget.allowDisconnectOnly ? () => confirmDisconnect(true) : undefined} />}
   </div>;
 }
@@ -1929,7 +1925,7 @@ export default function App() {
     : <AppContent key={`${backendUrl}:${connectionRevision}`} backendUrl={backendUrl} onBackendChange={changeBackend}
       theme={theme} setTheme={setTheme} updateSettingsRequested={updateSettingsRequested}
       clearUpdateSettingsRequest={() => setUpdateSettingsRequested(false)} />;
-  return <>{page}<StartupUpdatePrompt onViewUpdate={() => setUpdateSettingsRequested(true)} /></>;
+  return <>{page}<StartupUpdatePrompt onViewUpdate={() => setUpdateSettingsRequested(true)} /><NotificationCenter /></>;
 }
 
 function parentDirectory(path: string | null): string | null {

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { DEFAULT_TEXT_COLORS, normalizeTextColor, resetClientTextColors, setClientTextColor } from '../state/clientTextColors';
+import { DEFAULT_TEXT_COLORS, normalizeTextColor, readClientTextColors, resetClientTextColors, setClientTextColor } from '../state/clientTextColors';
+import { notify } from '../state/notifications';
 import type { TextColorRole, TextColorTheme } from '../state/clientTextColors';
 import { useClientTextColors } from '../state/useClientTextColors';
 import { AccentIcon, Badge, Icon } from './Ui';
@@ -13,8 +14,9 @@ function TextColorControl({ theme, role, color, custom }: { theme: TextColorThem
     const normalized = normalizeTextColor(value);
     setInvalid(!normalized);
     if (normalized) {
-      if (setClientTextColor(theme, role, normalized)) setHex(normalized.toUpperCase());
-      else setHex(color.toUpperCase());
+      if (normalized === color && custom) return;
+      if (setClientTextColor(theme, role, normalized)) { setHex(normalized.toUpperCase()); notify('文字颜色已自动保存。', 'success'); }
+      else { setHex(color.toUpperCase()); notify(readClientTextColors().error ?? '文字颜色保存失败。', 'error'); }
     }
   };
   return <div className="appearance-text-color-row">
@@ -52,7 +54,7 @@ export function TextColorSettings() {
       color={palette[role] || defaults[role]} custom={!!palette[role]} />)}
     <p className="appearance-help">浅色、深色分别保存。终端输出、代码高亮、状态提示和实心按钮文字保持原配色。</p>
     <button type="button" className="ghost-button" disabled={!palette.primary && !palette.secondary}
-      onClick={() => resetClientTextColors(theme)}><Icon name="refresh" size={13} />恢复当前主题文字颜色</button>
+      onClick={() => { if (resetClientTextColors(theme)) notify('已恢复当前主题的默认文字颜色。', 'success'); else notify(readClientTextColors().error ?? '恢复文字颜色失败。', 'error'); }}><Icon name="refresh" size={13} />恢复当前主题文字颜色</button>
     {error && <p className="appearance-color-error" role="alert">{error}</p>}
   </section>;
 }

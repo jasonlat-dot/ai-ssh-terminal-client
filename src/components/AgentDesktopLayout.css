@@ -170,7 +170,6 @@
 .rust-settings .settings-nav-footer strong { font-size: 10px; }
 .rust-settings .settings-rail-back { border: 1px solid var(--settings-border); background: var(--settings-panel); color: var(--settings-text-muted); margin-bottom: 10px; }
 .rust-settings.main-navigation-settings .settings-body { grid-template-columns: minmax(0, 1fr); }
-.rust-settings .settings-content > .rust-about { display: block; width: 100%; max-width: 1100px; align-self: flex-start; }
 @media (max-width: 1250px) {
   .app-shell.agent-desktop { grid-template-columns: var(--rail) var(--host-sidebar-width) minmax(300px, 1fr) 6px minmax(300px, 32%); }
   .agent-desktop .conversation-card > header { padding: 10px; }

@@ -65,7 +65,7 @@
 }
 .agent-panel.conversation-only .chat-composer textarea::placeholder { color: color-mix(in srgb, var(--theme-text-muted) 65%, var(--theme-panel)); }
 .agent-panel.conversation-only .chat-composer textarea:focus-visible { outline: none; box-shadow: none; }
-.agent-panel.conversation-only .chat-composer .composer-bottom-bar { gap: 8px; padding-top: 6px; }
+.agent-panel.conversation-only .chat-composer .composer-bottom-bar { flex-wrap:wrap; gap: 8px; padding-top: 6px; }
 .agent-panel.conversation-only .chat-composer .composer-attachment-note { margin-right:auto; }
 .agent-panel.conversation-only .chat-composer .composer-attach-button {
   display: inline-flex;
@@ -87,8 +87,8 @@
   align-items: center;
   flex-wrap: nowrap;
   flex: 0 1 auto;
-  max-width: min(72%, 360px);
-  min-width: 0;
+  max-width: min(85%, 480px);
+  min-width: min(240px, calc(100% - 44px));
   gap: 3px;
   margin-left: auto;
   padding: 0;
@@ -117,6 +117,14 @@
   background: transparent;
 }
 .chat-composer .composer-model-controls .agent-model-settings-button:hover { color: var(--theme-text-strong); background: var(--theme-hover); }
+.composer-model-controls .agent-model-picker { min-width:64px; }
+.composer-reasoning-control { flex:0 0 auto; min-width:0; }
+:root .chat-composer .composer-reasoning-control > :is(.composer-reasoning-trigger, .composer-reasoning-retry) { display:flex; align-items:center; gap:4px; width:auto; min-height:30px; height:30px; border:0; border-radius:7px; padding:0 6px; background:transparent; color:var(--theme-text-muted); font-family:var(--font-ui); font-size:12px; font-weight:var(--weight-body); box-shadow:none; white-space:nowrap; }
+.chat-composer .composer-reasoning-control > button:hover:not(:disabled) { color:var(--theme-text-strong); background:var(--theme-hover); }
+.composer-reasoning-trigger > svg { width:12px; }
+.composer-reasoning-menu .ui-select-option { display:grid; grid-template-columns:minmax(0,1fr) auto 14px; gap:10px; padding:8px 10px; }
+.composer-reasoning-menu .ui-select-option-description { font-size:11px; color:var(--theme-text-muted); }
+.composer-reasoning-menu .ui-select-option > svg { grid-column:3; }
 .agent-panel.conversation-only .chat-composer .composer-bottom-bar > .send-button {
   display: inline-flex;
   align-items: center;

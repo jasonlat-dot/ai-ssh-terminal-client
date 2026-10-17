@@ -14,10 +14,13 @@ import { AgentExtensionSettings } from './AgentExtensionSettings';
 import { Icon, Badge } from './Ui';
 import { WindowControls } from './WindowControls';
 import { dragAppWindow } from '../state/appWindow';
+import { notify } from '../state/notifications';
+import { settingsNavigation } from '../config/settingsNavigation';
+import type { SettingsSection } from '../config/settingsNavigation';
 import './BackendSettingsDialog.css';
 import './RustPreview.css';
 
-export type RustSettingsSection = 'general' | 'models' | 'extensions' | 'appearance' | 'about';
+export type RustSettingsSection = SettingsSection;
 type Props = {
   currentUrl: string; required?: boolean; onClose: () => void; onSave: (url: string) => void;
   beforeClientUpdate?: () => Promise<void>; showUpdates?: boolean;
@@ -26,7 +29,7 @@ type Props = {
 };
 export function RustBackendSettingsDialog({required=false,onClose,onSave,showUpdates=false,modelsChanged,modelSettingsRequested=false,modelSettingsLocked=false,section}:Props) {
   const desktop=isTauriRuntime();
-  const [tab,setTab]=useState<RustSettingsSection>(section??(showUpdates?'about':modelSettingsRequested?'models':'general'));
+  const [tab,setTab]=useState<RustSettingsSection>(section??(modelSettingsRequested?'models':'general'));
   const [config,setConfig]=useState<BundledBackendConfig|null>(null);
   const [status,setStatus]=useState<BundledBackendStatus|null>(null);
   const [directory,setDirectory]=useState('');
@@ -36,9 +39,8 @@ export function RustBackendSettingsDialog({required=false,onClose,onSave,showUpd
   const [retention,setRetention]=useState('0');
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState('');
-  const [message,setMessage]=useState('');
   useEffect(()=>{if(section)setTab(section);},[section]);
-  useEffect(()=>{if(showUpdates)setTab('about');},[showUpdates]);
+  useEffect(()=>{if(showUpdates)setTab('general');},[showUpdates]);
   useEffect(()=>{if(modelSettingsRequested)setTab('models');},[modelSettingsRequested]);
   useEffect(()=>{
     let active=true;
@@ -54,29 +56,30 @@ export function RustBackendSettingsDialog({required=false,onClose,onSave,showUpd
   },[]);
   useEffect(()=>watchBundledBackendStatus(setStatus,cause=>setError(String(cause))),[]);
   const operate=async(action:'restart'|'stop')=>{
-    setBusy(true);setError('');setMessage('');
+    setBusy(true);setError('');
     try {
       const next=await(action==='restart'?restartBundledBackend():stopBundledBackend());
       if(next)setStatus(previous=>previous&&next.revision<previous.revision?previous:next);
       if(next?.status==='failed')throw new Error(next.message);
-      setMessage(next?.message??'操作已完成');
+      const complete=action==='stop'?next?.status==='stopped':next?.status==='running';
+      notify(next?.message??'工作区操作请求已提交。',complete?'success':'info');
       if(next?.backendUrl)onSave(next.backendUrl);
     } catch(cause){setError(cause instanceof Error?cause.message:String(cause));}
     finally{setBusy(false);}
   };
   const save=async()=>{
-    setBusy(true);setError('');setMessage('');
+    setBusy(true);setError('');
     try {
       if(!directory.trim())throw new Error('请输入数据目录。');
       for(const [value,min,max,label] of [[capacity,20,102400,'附件容量'],[retention,0,3650,'保留天数']] as const) {if(!Number.isInteger(Number(value))||Number(value)<min||Number(value)>max)throw new Error(label+'超出允许范围。');}
       const next=await saveBundledBackendConfig({values:{dataDirectory:directory,fileStorageEnabled:String(filesEnabled),maxStorageMiB:capacity,fileRetentionDays:retention}});
-      setConfig(next);setMessage('设置已保存，重新初始化工作区后生效。');
+      setConfig(next);notify('本地数据设置已保存，重新初始化工作区后生效。','success');
     } catch(cause){setError(cause instanceof Error?cause.message:String(cause));}
     finally{setBusy(false);}
   };
   const toggleAutoStart=async()=>{
     setBusy(true);setError('');
-    try {const result=await setBundledBackendAutoStart(!autoStart);if(result!==null)setAutoStart(result);}
+    try {const result=await setBundledBackendAutoStart(!autoStart);if(result!==null){setAutoStart(result);notify(result?'已开启启动时自动初始化。':'已关闭启动时自动初始化。','success');}}
     catch(cause){setError(String(cause));}finally{setBusy(false);}
   };
   return <main className={'settings-page rust-settings '+(required?'is-standalone ':'')+(section?'main-navigation-settings':'')} aria-label="Rust 试用版设置">
@@ -90,22 +93,15 @@ export function RustBackendSettingsDialog({required=false,onClose,onSave,showUpd
     <div className="settings-body">
       {section===undefined&&<aside className="settings-nav" aria-label="设置分类">
         <div className="settings-nav-list">
-          {([['general','本地工作区','settings','运行状态与数据存储'],['models','模型设置','bot','连接与生成参数'],['extensions','工具与 Skills','box','MCP、技能与子任务'],['appearance','外观','monitor','主题、字体与配色'],['about','关于试用版','terminal','版本与功能进度']] as const).map(([id,label,icon,caption])=><button key={id} aria-label={label} title={label+' · '+caption} className={'settings-nav-item '+(tab===id?'selected':'')} aria-current={tab===id?'page':undefined} onClick={()=>setTab(id)}><span className="settings-nav-icon"><Icon name={icon} size={17}/></span><span className="settings-nav-text"><strong>{label}</strong><small>{caption}</small></span><Icon name="right" size={12} className="settings-nav-arrow"/></button>)}
+          {settingsNavigation.map(({section:id,label,icon,subtitle})=><button key={id} aria-label={label} title={label+' · '+subtitle} className={'settings-nav-item '+(tab===id?'selected':'')} aria-current={tab===id?'page':undefined} onClick={()=>setTab(id)}><span className="settings-nav-icon"><Icon name={icon} size={17}/></span><span className="settings-nav-text"><strong>{label}</strong><small>{subtitle}</small></span><Icon name="right" size={12} className="settings-nav-arrow"/></button>)}
         </div>
         <div className="settings-nav-footer">{!required&&<button type="button" className="settings-rail-back" aria-label="返回终端" title="返回终端" onClick={onClose}><Icon name="left" size={19}/></button>}<strong>v{RUST_PREVIEW_VERSION}</strong><small>独立安装 · 独立数据</small></div>
       </aside>}
       <div className="settings-content-panel" data-section={tab==='models'?'model':tab}><section className={`settings-content ${tab==='models'?'rust-model-content':''}`} data-section={tab==='models'?'model':tab}>
         {error&&<p className="settings-error" role="alert">{error}</p>}
-        {message&&<p className="rust-settings-notice" role="status">{message}</p>}
         {tab==='appearance'&&<AppearanceSettings/>}
         {tab==='extensions'&&<AgentExtensionSettings locked={modelSettingsLocked}/>}
         {tab==='models'&&<ModelSettings changed={modelsChanged} locked={modelSettingsLocked}/>}
-        {tab==='about'&&<div className="rust-about">
-          <Badge tone="success">Rust Preview</Badge><h2>轻量的桌面 SSH 终端</h2>
-          <p>SSH、文件管理与本地数据直接运行在应用内，无需本地服务器端口、Java 或独立数据库。</p>
-          <div className="rust-feature-grid"><article><Icon name="terminal"/><h3>现在可用</h3><p>连接管理、SSH 终端、SFTP 文件管理、本地 CMD、独立附件存储，以及模型设置、基础文本 AI 对话、自动整理上下文和会话历史。</p></article><article><Icon name="folder"/><h3>后续迁移</h3><p>上下文占用与整理状态提示、聊天附件发送与工具执行审批。</p></article></div>
-          <p>试用版与原版本使用不同的数据目录。自动更新已关闭，后续使用新的试用安装包更新。</p>
-        </div>}
         {tab==='general'&&<>
           <section className="rust-service-card">
             <div><Badge tone={status?.status==='running'?'success':'amber'}>{status?.status==='running'?'运行中':status?.status==='starting'?'启动中':'未运行'}</Badge><h2>本地工作区</h2><p>{status?.message??(desktop?'正在读取工作区状态…':'请通过桌面程序使用本地工作区。')}</p></div>

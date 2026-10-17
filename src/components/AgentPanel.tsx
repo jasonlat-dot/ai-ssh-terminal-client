@@ -14,6 +14,7 @@ import { CopyMarkdownButton } from './CopyMarkdownButton';
 import { CopyTextButton } from './CopyTextButton';
 import { Select } from './Select';
 import { ComposerProjectPicker } from './ComposerProjectPicker';
+import { ComposerReasoningControl } from './ComposerReasoningControl';
 import { ChatAttachmentDraft, chatAttachmentPolicy, isLongChatText, pastedFiles, insertPastedText, validateChatContent } from '../state/chatAttachments';
 import { DraftAttachments, MessageAttachments } from './ChatAttachments';
 import { type NativeAttachmentProgress, pickNativeAttachments, pasteNativeAttachments } from '../api/files';
@@ -181,7 +182,7 @@ function sessionTime(value: ClientChatSession['updatedAt']): string {
 }
 
 export type AgentComposerHandle = { addText: (text: string, source: ChatTextExcerpt['source']) => boolean };
-export function AgentPanel({ ref, memoryScope, onMemoryNotice, sshConnections, chatDraft, draftScope, host, connected, localTerminal, targetLabel, scopeControls, composerProject, messages, busy, stopping, send, steer, stop, clear, disabled, agentAvailability, history, collapsed, models, selectedModel, selectModel, openModelSettings, recoveredRunning, stopRecovered, refreshCurrent, contextStatus=null, contextError, refreshContext, execution, onApprovalChange }: {
+export function AgentPanel({ ref, memoryScope, onMemoryNotice, sshConnections, chatDraft, draftScope, host, connected, localTerminal, targetLabel, scopeControls, composerProject, messages, busy, stopping, send, steer, stop, clear, disabled, agentAvailability, history, collapsed, models, selectedModel, selectModel, openModelSettings, reasoning, recoveredRunning, stopRecovered, refreshCurrent, contextStatus=null, contextError, refreshContext, execution, onApprovalChange }: {
   memoryScope?: MemoryScope;
   onMemoryNotice?: (message: string) => void;
   sshConnections?: { open: boolean; toggle: () => void };
@@ -209,6 +210,7 @@ export function AgentPanel({ ref, memoryScope, onMemoryNotice, sshConnections, c
   history: HistoryControls;
   collapsed: boolean;
   models?: AgentConfig[]; selectedModel?: string; selectModel?: (id: string) => void; openModelSettings?: () => void;
+  reasoning?: { revision: number; onSavingChange: (saving: boolean) => void };
   contextStatus?: ContextStatus|null; contextError?:string; refreshContext?:()=>void;
   recoveredRunning?: boolean; stopRecovered?: () => void; refreshCurrent?: () => void;
 }) {
@@ -743,6 +745,7 @@ export function AgentPanel({ ref, memoryScope, onMemoryNotice, sshConnections, c
           <div className="agent-model-picker"><Select label="对话模型" value={selectedModel ?? ''} disabled={busy || stopping || disabled || !models.length}
             options={models.length ? models.map(model => ({value:model.agentId,label:`${model.agentName}${model.modelName ? ` · ${model.modelName}` : ''}`})) : [{value:'',label:'请先添加模型'}]}
             menuMinWidth={260} menuAlign="end" onChange={value => selectModel?.(value)}/></div>
+          {reasoning && <ComposerReasoningControl modelId={selectedModel ?? ''} revision={reasoning.revision} disabled={locked || !!recoveredRunning} onSavingChange={reasoning.onSavingChange} />}
           <button className="agent-model-settings-button" type="button" aria-label="模型设置" title="模型设置" onClick={openModelSettings}><Icon name="settings" size={15}/></button>
           <AgentContextStatus status={contextStatus} error={contextError} retry={refreshContext}/>
         </div>}

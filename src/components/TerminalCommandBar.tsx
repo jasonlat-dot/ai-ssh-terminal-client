@@ -6,12 +6,12 @@ import { Badge, Icon } from './Ui';
 import './TerminalCommandBar.css';
 
 export function TerminalCommandBar({ mode, changeMode, sessions, selectedIds, toggleTarget, targetCount, draft, changeDraft,
-  inputRef, submit, busy, result }: {
+  inputRef, submit, busy }: {
   mode: TerminalCommandMode; changeMode: (mode: TerminalCommandMode) => void;
   sessions: readonly { id: string; title: string; address: string; available: boolean }[];
   selectedIds: readonly string[]; toggleTarget: (id: string) => void; targetCount: number;
   draft: string; changeDraft: (draft: string) => void; inputRef: RefObject<HTMLTextAreaElement | null>;
-  submit: () => void; busy: boolean; result: string;
+  submit: () => void; busy: boolean;
 }) {
   useLayoutEffect(() => {
     const field = inputRef.current;
@@ -59,7 +59,6 @@ export function TerminalCommandBar({ mode, changeMode, sessions, selectedIds, to
         <button type="submit" disabled={busy || !targetCount || !draft.trim()}><Icon name="play" size={13} />{busy ? '正在提交…' : `执行到 ${targetCount} 个终端`}</button>
       </form>
       <p id="terminal-broadcast-help">Enter 执行 · Shift+Enter 换行。{mode === 'all' ? '包含未显示的已连接页签。' : '只发送至勾选且连接可用的终端。'}常用命令使用相同目标；普通终端交互不广播。</p>
-      {result && <p className="terminal-broadcast-result" role="status">{result}</p>}
     </>}
   </section>;
 }

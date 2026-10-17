@@ -24,6 +24,8 @@ function settings(legacyVision) {
   const leaf=()=>null;
   const context=vm.createContext({exports:{},crypto,Error,require(name){
     if(name==='react')return hooks;
+    if(name==='react-dom')return {createPortal:node=>node};
+    if(name==='../state/notifications')return {notify(){}};
     if(name==='react/jsx-runtime')return {jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props})};
     if(name==='../api/models')return {modelApi:api,newModelConfig};
     if(name==='./Ui')return {AccentIcon:leaf,Badge:leaf,Icon:leaf,Toggle:leaf};
@@ -43,16 +45,15 @@ function settings(legacyVision) {
   }
   return {props,saved,render,find,async settle(){await new Promise(resolve=>setImmediate(resolve));render();}};
 }
-test('高级参数的自动整理比例可编辑并保存，保持配置 ID、名称和密钥保留动作',async()=>{
+test('直接展示的自动整理比例支持常用档位并保存，保持配置 ID、名称和密钥保留动作',async()=>{
   const ui=settings();ui.render();await ui.settle();
-  ui.find(node=>node.props.className==='model-advanced-toggle').props.onClick();ui.render();
   const field=ui.find(node=>node.props.id==='model-compact'&&node.props.label);
   assert.equal(field.props.label,'自动整理触发比例');assert.equal(field.props.badge,'%');
   assert.match(field.props.hint,/原始历史仍会保留/);
-  const input=ui.find(node=>node.type==='input'&&node.props.id==='model-compact');
-  assert.equal(input.props.value,75);assert.equal(input.props.min,1);assert.equal(input.props.max,99);
-  input.props.onChange({target:{value:'60'}});ui.render();
-  assert.equal(ui.find(node=>node.type==='input'&&node.props.id==='model-compact').props.value,60);
+  const input=ui.find(node=>node.props.id==='model-compact'&&node.props.kind==='compact');
+  assert.equal(input.props.value,75);assert.equal(input.props.kind,'compact');
+  input.props.onChange(60);ui.render();
+  assert.equal(ui.find(node=>node.props.id==='model-compact'&&node.props.kind==='compact').props.value,60);
   ui.find(node=>node.type==='form').props.onSubmit({preventDefault(){}});
   await ui.settle();
   assert.equal(ui.saved.length,1);
@@ -81,7 +82,6 @@ test('Responses 协议与远端整理开关可保存，复用稳定配置和原�
   assert.equal(ui.find(node=>node.type==='input'&&node.props.id==='model-path').props.value,'responses');
   const output=ui.find(node=>node.type==='input'&&node.props.id==='model-token-param');
   assert.equal(output.props.value,'max_output_tokens');assert.equal(output.props.readOnly,true);
-  ui.find(node=>node.props.className==='model-advanced-toggle').props.onClick();ui.render();
   const toggle=ui.find(node=>node.props.label==='启用 Responses 远端整理');
   assert.equal(toggle.props.value,false);
   assert.match(ui.find(node=>node.props.id==='model-compact'&&node.props.hint).props.hint,/启用供应商远端整理/);
@@ -99,7 +99,6 @@ test('Responses 协议与远端整理开关可保存，复用稳定配置和原�
 test('切回 Chat Completions 清除远端能力，锁定时协议和能力不可操作',async()=>{
   const ui=settings();ui.render();await ui.settle();
   ui.find(node=>node.props.id==='model-protocol').props.onChange('openAiResponses');ui.render();
-  ui.find(node=>node.props.className==='model-advanced-toggle').props.onClick();ui.render();
   ui.find(node=>node.props.label==='启用 Responses 远端整理').props.onChange(true);ui.render();
   ui.props.locked=true;ui.render();
   assert.equal(ui.find(node=>node.props.id==='model-protocol').props.disabled,true);
@@ -116,7 +115,6 @@ test('切回 Chat Completions 清除远端能力，锁定时协议和能力不�
 
 test('函数工具默认启用，设置中不再提供单独开关',async()=>{
   const ui=settings();ui.render();await ui.settle();
-  ui.find(node=>node.props.className==='model-advanced-toggle').props.onClick();ui.render();
   assert.equal(ui.find(node=>node.props.label==='启用模型函数工具能力'),undefined);
   ui.find(node=>node.type==='form').props.onSubmit({preventDefault(){}});await ui.settle();assert.equal(ui.saved[0][2].capabilities.toolCalls,true);
   ui.find(node=>node.props.id==='model-protocol').props.onChange('openAiResponses');ui.render();assert.equal(ui.find(node=>node.props.label==='启用模型函数工具能力'),undefined);
@@ -167,7 +165,6 @@ test('更换 API 地址不能携带旧密钥，输入替换密钥后才可保存
 test('Image input defaults on without a switch and legacy opt-out saves enabled',async()=>{
  assert.equal(newModelConfig().capabilities.vision,true);
  const h=settings(false);h.render();await h.settle();
- h.find(n=>n.props.className==='model-advanced-toggle').props.onClick();h.render();
  assert.equal(h.find(n=>n.props.label==='模型支持图片理解'),undefined);
  h.find(n=>n.type==='form').props.onSubmit({preventDefault(){}});await h.settle();
  assert.equal(h.saved[0][2].capabilities.vision,true);

@@ -9,7 +9,7 @@ function load(path, requireModule = () => { throw new Error('Unexpected import')
   const compiled = ts.transpileModule(source(path), { compilerOptions: {
     module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX,
   } }).outputText;
-  const context = vm.createContext({ exports: {}, require: requireModule, ...globals });
+  const context = vm.createContext({ exports: {}, require: name => name.endsWith('/notifications') ? { notify() {} } : requireModule(name), ...globals });
   vm.runInContext(`(function(exports, require) {${compiled}\n})(exports, require);`, context);
   return { api: context.exports, context, compiled };
 }

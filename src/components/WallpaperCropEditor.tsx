@@ -8,6 +8,7 @@ import { AccentIcon, Badge, Icon } from './Ui';
 import { WallpaperFitControl } from './WallpaperFitControl';
 import { WallpaperWorkspacePreview } from './WallpaperWorkspacePreview';
 import { WallpaperVideo } from './WallpaperVideo';
+import { notify } from '../state/notifications';
 import './WallpaperCropEditor.css';
 
 const FIXED_RATIOS = [
@@ -206,6 +207,7 @@ export function WallpaperCropEditor({ file, onClose, externalBusy = false, onSav
         // 已保存的图片不退出编辑器：更新基线后可立即继续调整，或还原到本次保存的画面。
         setBaseline(current);
         setSavedRatio(ratioKey === 'saved' ? ratio : null);
+        notify('壁纸画面已保存并应用。', 'success');
         if (file) onClose?.();
       }
       else setError(readClientAppearance().error ?? '壁纸暂时无法保存，请稍后重试。');
@@ -229,6 +231,7 @@ export function WallpaperCropEditor({ file, onClose, externalBusy = false, onSav
     setView({ ...baseline.view });
     setFit(baseline.fit);
     setError(null);
+    notify('已还原到上次保存的壁纸画面。');
   }
 
   const loading = initializing || (!empty && !source && !error);

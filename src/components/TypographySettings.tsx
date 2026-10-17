@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { DEFAULT_TYPOGRAPHY, normalizeFontFamily, normalizeFontWeight, resetClientTypography, setClientFontFamily,
+import { DEFAULT_TYPOGRAPHY, normalizeFontFamily, normalizeFontWeight, readClientTypography, resetClientTypography, setClientFontFamily,
   setClientFontWeight, UI_FONT_FAMILIES } from '../state/clientTypography';
 import { useClientTypography } from '../state/useClientTypography';
 import { Select } from './Select';
 import { AccentIcon, Badge, Icon } from './Ui';
+import { notify } from '../state/notifications';
 
 const fontOptions = [
   { value: '', label: '跟随默认字体' },
@@ -18,7 +19,9 @@ function WeightControl({ role, value }: { role: 'normalWeight' | 'boldWeight'; v
   function commit(text: string) {
     const weight = text.trim() ? normalizeFontWeight(Number(text)) : null;
     setInvalid(weight === null);
-    if (weight !== null && !setClientFontWeight(role, weight)) setDraft(String(current));
+    if (weight === null || weight === value) return;
+    if (setClientFontWeight(role, weight)) notify('字体粗细已自动保存。', 'success');
+    else { setDraft(String(current)); notify(readClientTypography().error ?? '字体粗细保存失败。', 'error'); }
   }
   const label = role === 'normalWeight' ? '正常字体粗细' : '粗体字体粗细';
   return <div className="appearance-typography-row">
@@ -46,14 +49,17 @@ export function TypographySettings() {
   }, [settings.family]);
   const commitFamily = () => {
     const family = normalizeFontFamily(draft); setInvalid(!family);
-    if (family && !setClientFontFamily(family)) setDraft(settings.family ?? '');
+    if (!family || family === settings.family) return;
+    if (setClientFontFamily(family)) notify('界面字体已自动保存。', 'success');
+    else { setDraft(settings.family ?? ''); notify(readClientTypography().error ?? '界面字体保存失败。', 'error'); }
   };
   return <section className="appearance-typography" aria-labelledby="appearance-typography-title">
     <div className="appearance-text-colors-heading appearance-typography-heading"><strong id="appearance-typography-title" className="appearance-section-title"><AccentIcon icon="type" tone="violet" size={17} />界面字体</strong>
       <Select id="ui-font-family" label="界面字体" className="settings-control" value={custom ? 'custom' : settings.family ?? ''}
         options={fontOptions} onChange={next => {
           if (next === 'custom') { setCustom(true); setDraft(''); setInvalid(false); }
-          else if (setClientFontFamily(next || null)) { setCustom(false); setInvalid(false); }
+          else if (setClientFontFamily(next || null)) { setCustom(false); setInvalid(false); notify('界面字体已自动保存。', 'success'); }
+          else notify(readClientTypography().error ?? '界面字体保存失败。', 'error');
         }} />
       <Badge tone="cyan" icon="check">自动保存</Badge>
     </div>
@@ -67,7 +73,7 @@ export function TypographySettings() {
     <WeightControl key={`normal-${resetGeneration}`} role="normalWeight" value={settings.normalWeight} /><WeightControl key={`bold-${resetGeneration}`} role="boldWeight" value={settings.boldWeight} />
     <p id="ui-font-help" className="appearance-help">字重 100–1000；字体未安装或不支持该字重时使用可用的替代效果。不改变终端、代码和公式字体。</p>
     <button type="button" className="ghost-button" disabled={!settings.family && settings.normalWeight === null && settings.boldWeight === null}
-      onClick={() => { if (resetClientTypography()) { setCustom(false); setDraft(''); setInvalid(false); setResetGeneration(value => value + 1); } }}><Icon name="refresh" size={13} />恢复默认字体与粗细</button>
+      onClick={() => { if (resetClientTypography()) { setCustom(false); setDraft(''); setInvalid(false); setResetGeneration(value => value + 1); notify('已恢复默认字体与粗细。', 'success'); } else notify(readClientTypography().error ?? '恢复字体失败。', 'error'); }}><Icon name="refresh" size={13} />恢复默认字体与粗细</button>
     {settings.error && <p className="appearance-color-error" role="alert">{settings.error}</p>}
   </section>;
 }

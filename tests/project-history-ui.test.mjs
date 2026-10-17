@@ -31,6 +31,7 @@ function harness(){
   {compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText;
  const context=vm.createContext({exports:{},window,document:{body:{}},require:name=>{
   if(name==='react')return hooks;
+  if(name==='../state/notifications')return {notify(){}};
   if(name==='react-dom')return {createPortal:content=>content};
   if(name==='react/jsx-runtime')return {jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props})};
   if(name==='../api/agent')return {agentApi:api};

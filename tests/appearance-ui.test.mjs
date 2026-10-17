@@ -13,7 +13,7 @@ function loadModule(path, requireModule, globals = {}) {
   const compiled = ts.transpileModule(source, { compilerOptions: {
     module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX,
   } }).outputText;
-  const context = vm.createContext({ exports: {}, require: requireModule, ...globals });
+  const context = vm.createContext({ exports: {}, require: name => name.endsWith('/notifications') ? { notify() {} } : requireModule(name), ...globals });
   vm.runInContext(compiled, context);
   return context.exports;
 }
