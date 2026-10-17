@@ -4,17 +4,26 @@ import type { ChatMessage, ChatMessageSegment, ChatToolActivity } from '../types
 function toolSegments(turn:AgentTurn):ChatMessageSegment[]|undefined {
   if(!turn.toolEvents?.length)return undefined;
   const tools=new Map<string,ChatToolActivity>();
+  const parents=new Map<string,string>();const tasks=new Map<string,string>();
   for(const event of turn.toolEvents){const p=event.payload;
     if(p.type==='toolCall'){
       let args=p.arguments.modelArguments??p.arguments;
       if(typeof args==='string'){try{args=JSON.parse(args);}catch{args={};}}
+      if(typeof p.arguments.parentToolCallId==='string')parents.set(p.callId,p.arguments.parentToolCallId);
+      if(p.toolName==='delegate_agent'&&args&&typeof args==='object'&&'task' in args&&typeof args.task==='string')tasks.set(p.callId,args.task);
       const command=args&&typeof args==='object'&&'command' in args&&typeof args.command==='string'?args.command:undefined;
       tools.set(p.callId,{id:p.callId,name:p.toolName,command,status:turn.state==='running'?'running':'unknown'});
     }else{const old=tools.get(p.callId);let output=p.text;
       if(p.outputs?.length){try{const parsed=JSON.parse(output);if(parsed&&typeof parsed==='object')output=JSON.stringify({...parsed,data:{...parsed.data,outputs:p.outputs}});}catch{/* Preserve original evidence text. */}}
       tools.set(p.callId,{id:p.callId,name:old?.name??'工具',command:old?.command,status:p.outcome==='success'?'success':p.outcome==='unknown'?'unknown':'error',output});}
   }
-  const segments:ChatMessageSegment[]=[...tools.values()].map(tool=>({id:tool.id,type:'tool',tool}));
+  const visible=(tool:ChatToolActivity)=>turn.state!=='running'||!!tool.output||turn.startedToolCallIds?.includes(tool.id)===true;
+  const segments:ChatMessageSegment[]=[...tools.values()].filter(tool=>!parents.has(tool.id)&&visible(tool)).map(tool=>{
+    if(tool.name!=='delegate_agent')return {id:tool.id,type:'tool',tool};
+    let output=tool.output;try{const data=JSON.parse(output??'{}').data;if(typeof data?.report==='string')output=data.report;}catch{/* Keep original failure evidence. */}
+    const children=[...tools.values()].filter(child=>parents.get(child.id)===tool.id&&visible(child));
+    return {id:tool.id,type:'agent',agent:{id:tool.id,name:'子任务',task:tasks.get(tool.id),status:tool.status,output,tools:children,segments:children.map(child=>({id:child.id,type:'tool',tool:child}))}};
+  });
   const text=turn.state==='completed'?turn.resultText:turn.partialText;
   if(text)segments.push({id:`${turn.requestId}:text`,type:'text',text});
   return segments;

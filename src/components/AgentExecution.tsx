@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { agentApi, type ExecutionPolicy, type ExecutionReceipt, type OutputReference, type OutputRange } from '../api/agent';
 import { Icon } from './Ui';
+import { extensionApi, type ExtensionReceipt } from '../api/agentExtensions';
 import { CopyTextButton } from './CopyTextButton';
 import './AgentExecution.css';
 
@@ -107,6 +108,8 @@ export function NativeToolOutput({output}:{output:string}){
   if(!value||typeof value!=='object'||typeof value.ok!=='boolean')return <pre>{output}</pre>;
   const data=value.data as Record<string,unknown>|undefined;
   if(!data||typeof data!=='object')return <pre>{output}</pre>;
+  const plan=Array.isArray(data.plan)?data.plan.filter((step):step is {step:string;status:string}=>!!step&&typeof step==='object'&&typeof step.step==='string'&&['pending','in_progress','completed'].includes(step.status)):[];
+  if(value.ok&&plan.length)return <div className="native-tool-output execution-plan" aria-label="任务计划">{typeof data.explanation==='string'&&data.explanation&&<p>{data.explanation}</p>}<ol>{plan.map((step,index)=><li key={index} data-status={step.status}><Icon name={step.status==='completed'?'check':step.status==='in_progress'?'refresh':'history'} size={14}/><span>{step.step}</span><small>{step.status==='completed'?'已完成':step.status==='in_progress'?'进行中':'待处理'}</small></li>)}</ol></div>;
   const outputs=outputReferences(data);
   const resultText=[data.stdout,data.stderr].filter((value):value is string=>typeof value==='string'&&!!value).join('\n');
   return <div className="native-tool-output">
@@ -157,7 +160,20 @@ export function ApprovalCard({receipt,disabled,act}:{receipt:ExecutionReceipt;di
     {pending?content:<details className="execution-record"><summary><Icon name="terminal" size={14}/><span className="execution-record-state">{approvalLabel(receipt)}</span><code title={receipt.command.command}>{receipt.command.command}</code><Icon name="down" size={13} className="execution-chevron"/></summary><div className="execution-record-body">{content}</div></details>}
   </article>;
 }
+function ExtensionApprovalCard({receipt,disabled,act}:{receipt:ExtensionReceipt;disabled:boolean;act:(id:string,allow:boolean)=>void}){
+  let argumentsText=JSON.stringify(receipt.arguments,null,2);
+  const raw=receipt.arguments.argumentsJson;
+  if(typeof raw==='string'){try{argumentsText=JSON.stringify(JSON.parse(raw),null,2);}catch{argumentsText=raw;}}else if(raw&&typeof raw==='object'){argumentsText=JSON.stringify(raw,null,2);}
+  return <article className="execution-receipt is-pending" aria-label="MCP 工具审批">
+    <div className="execution-receipt-heading"><strong>{receipt.destination}</strong><span>等待确认</span></div>
+    <h4>是否允许执行此 MCP 工具操作？</h4>
+    {receipt.review&&<p className="execution-review-note">{receipt.review.reason}</p>}
+    <p>{receipt.task.goal}</p><pre tabIndex={0}>{argumentsText}</pre>
+    <div className="execution-actions"><button type="button" className="execution-deny" disabled={disabled} onClick={()=>act(receipt.id,false)}>拒绝</button><button type="button" className="execution-approve" disabled={disabled} onClick={()=>act(receipt.id,true)}>允许这一次</button></div>
+  </article>;
+}
 export function AgentExecution({scope,approvalTarget,policyTarget,onPendingChange,onApprovalChange}:{scope:ExecutionScope;approvalTarget?:HTMLElement|null;policyTarget?:HTMLElement|null;onPendingChange?:(pending:boolean)=>void;onApprovalChange?:(sessionId:string,pending:boolean)=>void}){
+  const [extensions,setExtensions]=useState<ExtensionReceipt[]>([]);
   const [receipts,setReceipts]=useState<ExecutionReceipt[]>([]);const [policy,setPolicy]=useState<ExecutionPolicy|null>(null);
   const [error,setError]=useState('');const [action,setAction]=useState('');const [expanded,setExpanded]=useState(false);const [more,setMore]=useState(false);
   const [reload,setReload]=useState(0);const alive=useRef(true);const loadedOlder=useRef(false);
@@ -168,17 +184,20 @@ export function AgentExecution({scope,approvalTarget,policyTarget,onPendingChang
   const waiting=receipts.filter(receipt=>receipt.state==='pending'&&receipt.expiresAt>Date.now());
   // Auto-review runs before a human approval is requested. Do not replace the
   // composer with an approval card for a command the reviewer is still checking.
-  const reviewing=policy?.mode==='auto'&&waiting.some(receipt=>!receipt.review);
+  const reviewing=policy?.mode==='auto'&&(waiting.some(receipt=>!receipt.review)||extensions.some(r=>r.state==='pending'&&!r.review));
   const pending=waiting.filter(receipt=>policy?.mode==='confirm'||(policy?.mode==='auto'&&receipt.review?.decision==='ask'));
-  useEffect(()=>{onPendingChange?.(pending.length>0);return()=>onPendingChange?.(false);},[pending.length>0,onPendingChange]);
-  useEffect(()=>{onApprovalChange?.(scope.sessionId,pending.length>0);return()=>onApprovalChange?.(scope.sessionId,false);},[scope.sessionId,pending.length>0,onApprovalChange]);
+  const extensionPending=extensions.filter(r=>r.sessionId===scope.sessionId&&r.state==='pending'&&r.expiresAt>Date.now()&&(policy?.mode==='confirm'||(policy?.mode==='auto'&&r.review?.decision==='ask')));
+  const hasPending=pending.length+extensionPending.length>0;
+  useEffect(()=>{onPendingChange?.(hasPending);return()=>onPendingChange?.(false);},[hasPending,onPendingChange]);
+  useEffect(()=>{onApprovalChange?.(scope.sessionId,hasPending);return()=>onApprovalChange?.(scope.sessionId,false);},[scope.sessionId,hasPending,onApprovalChange]);
   useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
   useEffect(()=>{
     if(scope.hidden||!scope.sessionId)return;
     let cancelled=false;const controller=new AbortController();let timer:ReturnType<typeof setTimeout>;
     const poll=async()=>{
-      try{const list=await agentApi.executionRequests(scope.agentId,scope.sessionId,'',controller.signal);
+      try{const [list,extensionList]=await Promise.all([agentApi.executionRequests(scope.agentId,scope.sessionId,'',controller.signal),extensionApi.requests(scope.agentId,scope.sessionId,controller.signal)]);
         if(cancelled)return;
+        setExtensions(extensionList);
         setReceipts(old=>[...list,...old.filter(item=>!list.some(current=>current.id===item.id))].slice(0,500));
         if(!loadedOlder.current)setMore(list.length===50);setError('');
         if(!approvalTarget&&list.some(r=>r.state==='pending'&&r.expiresAt>Date.now()))setExpanded(true);
@@ -204,6 +223,7 @@ export function AgentExecution({scope,approvalTarget,policyTarget,onPendingChang
     catch(e){if(alive.current)setError(e instanceof Error?e.message:'操作失败，请刷新状态');}
     finally{if(alive.current){setAction('');setReload(v=>v+1);}}
   };
+  const actExtension=async(id:string,allow:boolean)=>{if(action)return;setAction(id);setError('');try{await extensionApi.decide(scope.agentId,scope.sessionId,id,allow);}catch(e){if(alive.current)setError(String(e));}finally{if(alive.current){setAction('');setReload(v=>v+1);}}};
   const changePolicy=async(mode:ExecutionPolicy['mode'])=>{
     if(!policy||action||policy.mode===mode)return;setAction('policy');setPolicyError('');
     try{const p=await agentApi.setExecutionPolicy(scope.agentId,scope.sessionId,{mode,revision:policy.revision});if(alive.current)setPolicy(p);}
@@ -216,9 +236,10 @@ export function AgentExecution({scope,approvalTarget,policyTarget,onPendingChang
     catch(e){if(alive.current)setError(e instanceof Error?e.message:'读取失败');}
     finally{if(alive.current)setAction('');}
   };
+  const extensionCard=extensionPending[0]?<ExtensionApprovalCard receipt={extensionPending[0]} disabled={!!action} act={(id,allow)=>void actExtension(id,allow)}/>:null;
   const visiblePolicy=draftPolicy?{mode:draftPolicy.mode,revision:0}:policy;
   const policyMenu=<ExecutionPolicyMenu policy={visiblePolicy} disabled={scope.locked||!!action||!visiblePolicy} error={policyError} retry={()=>setReload(value=>value+1)} select={mode=>draftPolicy?draftPolicy.select(mode):void changePolicy(mode)}/>;
-  return <section className="agent-execution" aria-label="工具执行权限" hidden={!scope.target&&!(serverScope&&!scope.available)&&!reviewing&&!expanded&&!error}>
+  return <section className="agent-execution" aria-label="工具执行权限" hidden={!scope.target&&!(serverScope&&!scope.available)&&!reviewing&&!hasPending&&!expanded&&!error}>
     {scope.target&&<div className="execution-target">固定目标 {scope.target.username}@{scope.target.host}:{scope.target.port}{scope.connected?'':' · 已断开'}
       {scope.terminalId&&<details><summary>查看绑定身份</summary><span>终端 {scope.terminalId}</span><code>{scope.target.hostKey}</code></details>}</div>}
     {!scope.available&&serverScope&&<p>当前工具执行链支持 Chat Completions；Responses 工具调用尚未接入。</p>}
@@ -234,6 +255,8 @@ export function AgentExecution({scope,approvalTarget,policyTarget,onPendingChang
       {receipts.length>=500&&<p>已显示最近 500 条审批；各轮工具记录仍可从聊天历史查看。</p>}
     </div>}
     {error&&<p className="execution-error" role="alert">{error}<button type="button" onClick={()=>setReload(v=>v+1)}>重试</button></p>}
+    {!approvalTarget&&extensionCard}
+    {approvalTarget&&pending.length===0&&extensionCard&&createPortal(<div className="composer-approval" aria-label="MCP 工具审批">{extensionCard}{error&&<p className="execution-error" role="alert">{error}</p>}</div>,approvalTarget)}
     {policyTarget&&createPortal(policyMenu,policyTarget)}
     {approvalTarget&&pending.length>0&&createPortal(<div className="composer-approval" aria-label="命令审批">{pending.length>1&&<p>有 {pending.length} 条命令等待确认</p>}<ApprovalCard key={pending[0].id} receipt={pending[0]} disabled={!!action} act={(id,decision)=>void act(id,decision)}/>{error&&<p className="execution-error" role="alert">{error}</p>}</div>,approvalTarget)}
   </section>;

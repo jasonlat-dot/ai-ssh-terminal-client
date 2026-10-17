@@ -6,7 +6,7 @@ import ts from 'typescript';
 
 const source=readFileSync(new URL('../src/components/AgentExecution.tsx',import.meta.url),'utf8');
 const output=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText;
-function harness(api={}){
+function harness(api={},extensions={}){
   const slots=[],effects=[],timers=[];let cursor=0;const contexts=new Map();
   const hooks={createContext:value=>({value}),useContext:context=>context.value,
     useState(initial){const index=cursor++;if(!(index in slots))slots[index]=typeof initial==='function'?initial():initial;return [slots[index],value=>{slots[index]=typeof value==='function'?value(slots[index]):value;}];},
@@ -14,7 +14,7 @@ function harness(api={}){
     useEffect(effect,deps){const index=cursor++;if(!slots[index]||deps.some((value,i)=>value!==slots[index][i])){slots[index]=deps;effects.push(effect);}}};
   const context=vm.createContext({exports:{},Date,Error,JSON,Map,Array,Number,TextDecoder,Uint8Array,AbortController,document:{addEventListener(){},removeEventListener(){},activeElement:null},
     setTimeout:callback=>{timers.push(callback);return timers.length;},clearTimeout(){},
-    require(name){if(name==='react')return hooks;if(name==='react-dom')return {createPortal:children=>children};if(name==='react/jsx-runtime')return {jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props})};if(name==='../api/agent')return {agentApi:api};if(name==='./Ui')return {Icon:()=>null};if(name==='./CopyTextButton')return {CopyTextButton:()=>null};if(name.endsWith('.css'))return {};throw new Error(name);}});
+    require(name){if(name==='react')return hooks;if(name==='react-dom')return {createPortal:children=>children};if(name==='react/jsx-runtime')return {jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props})};if(name==='../api/agent')return {agentApi:api};if(name==='../api/agentExtensions')return {extensionApi:{requests:async()=>[],...extensions}};if(name==='./Ui')return {Icon:()=>null};if(name==='./CopyTextButton')return {CopyTextButton:()=>null};if(name.endsWith('.css'))return {};throw new Error(name);}});
   vm.runInContext(output,context);
   return {module:context.exports,timers,render(name,props){cursor=0;return context.exports[name](props);},flush(){while(effects.length)effects.shift()();}};
 }
@@ -104,7 +104,7 @@ test('Composer permission menu presents three distinct modes, current selection 
   tree=h.render('ExecutionPolicyMenu',props);h.flush();
   const items=all(tree).filter(n=>n.props.role==='menuitemradio');
   assert.equal(items.length,3);assert.deepEqual(items.map(n=>n.props['aria-checked']),[false,true,false]);
-  assert.match(text(tree),/独立审查工具操作/);assert.match(text(tree),/当前任务的工具操作不再请求批准/);
+  assert.match(text(tree),/独立审查工具操作/);assert.match(text(tree),/工具操作不再请求批准/);
   items[2].props.onClick();assert.deepEqual(changes,['fullAccess']);
   tree=h.render('ExecutionPolicyMenu',props);assert.equal(all(tree).find(n=>n.props['aria-label']==='工具审核边界').props['aria-expanded'],false);
   tree=h.render('ExecutionPolicyMenu',{...props,disabled:true});
@@ -155,4 +155,17 @@ test('Auto review keeps composer available until the reviewer requests human con
   assert.deepEqual(statuses.at(-1),['chat',true]);
   current={...current,state:'denied'};h.timers.shift()();await new Promise(setImmediate);
   h.render('AgentExecution',props);h.flush();assert.deepEqual(statuses.at(-1),['chat',false]);
+});
+
+
+test('E3 MCP confirmation occupies the composer and routes an exact one-call decision to its session',async()=>{
+  const item={id:'mcp-approval',sessionId:'chat',callId:'mcp-call',toolName:'call_mcp_tool',arguments:{argumentsJson:{query:'hello'}},destination:'MCP demo / lookup',task:{goal:'inspect'},state:'pending',expiresAt:Date.now()+300000};
+  const actions=[],changes=[];const h=harness({executionRequests:async()=>[],executionPolicy:async()=>({mode:'confirm',revision:0})},{requests:async()=>[item],decide:async(...args)=>{actions.push(args);return true;}});
+  const props={scope,approvalTarget:{},onPendingChange:value=>changes.push(value)};
+  h.render('AgentExecution',props);h.flush();await new Promise(setImmediate);
+  let tree=h.render('AgentExecution',props);h.flush();assert.equal(changes.at(-1),true);
+  const card=all(tree).find(n=>n.type?.name==='ExtensionApprovalCard');assert.ok(card);
+  const contents=card.type(card.props);assert.match(text(contents),/MCP demo \/ lookup/);assert.match(text(contents),/hello/);
+  card.props.act('mcp-approval',true);await new Promise(setImmediate);assert.deepEqual(actions[0],['model','chat','mcp-approval',true]);
+  tree=h.render('AgentExecution',{...props,scope:{...scope,sessionId:'other'}});assert.ok(!all(tree).some(n=>n.type?.name==='ExtensionApprovalCard'));
 });

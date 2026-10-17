@@ -58,11 +58,12 @@ export type AgentTurn = {
   partialText:string;resultText:string|null;errorCode:string|null;usage:{prompt_tokens:number;completion_tokens:number;total_tokens:number}|null;
   cursor:number;createdAt:number;updatedAt:number;
   toolEvents?: NativeToolEvent[];
+  startedToolCallIds?: string[];
 };
 export type AgentHistory = {session:AgentSession;turns:AgentTurn[];hasMore:boolean;nextAfter:number};
 
 export type OutputReference={id:string;channel:'stdout'|'stderr';size:number;sha256:string};
-export type NativeToolEvent={id:number;payload:{type:'toolCall';callId:string;toolName:string;arguments:{modelArguments?:unknown}}|{type:'toolResult';callId:string;outcome:'success'|'error'|'unknown'|'cancelled';exitCode:number|null;text:string;outputs?:OutputReference[]}};
+export type NativeToolEvent={id:number;payload:{type:'toolCall';callId:string;toolName:string;arguments:{modelArguments?:unknown;parentToolCallId?:string}}|{type:'toolResult';callId:string;outcome:'success'|'error'|'unknown'|'cancelled';exitCode:number|null;text:string;outputs?:OutputReference[]}};
 export type ExecutionReceipt={id:string;callId:string;binding:{sessionId:string;tool:{taskId:string;target:{connectionId:string;terminalSessionId:string}};identity:{host:string;port:number;username:string;hostKey:string}};task:{id:string;goal:string;constraints:string[]};command:{command:string;timeoutSeconds:number;explanation?:string|null};state:'pending'|'approved'|'denied'|'cancelled'|'expired'|'admitted'|'completed'|'notSent'|'unknown';result:unknown;grant?:{expiresAt:number;revoked:boolean}|null;review?:ExecutionReview|null;createdAt:number;expiresAt:number};
 export type ExecutionPolicy={mode:'confirm'|'auto'|'fullAccess'|'deny';revision:number};
 export type ExecutionReview={mode:ExecutionPolicy['mode'];decision:string;risk:string;reason:string};

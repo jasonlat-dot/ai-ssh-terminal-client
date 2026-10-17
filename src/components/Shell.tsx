@@ -43,6 +43,7 @@ const items: { name: Navigation; label: string; subtitle: string; icon: IconName
 const settingsItems = [
   {section:'general', label:'本地工作区', subtitle:'运行状态与数据', icon:'settings'},
   {section:'models', label:'模型设置', subtitle:'连接与生成参数', icon:'bot'},
+  {section:'extensions', label:'工具与 Skills', subtitle:'MCP、技能与子任务', icon:'box'},
   {section:'appearance', label:'外观', subtitle:'主题与字体', icon:'monitor'},
   {section:'about', label:'关于试用版', subtitle:'版本与功能进度', icon:'box'},
 ] as const;

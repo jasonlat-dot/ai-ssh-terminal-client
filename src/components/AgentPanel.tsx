@@ -38,7 +38,7 @@ function ToolActivity({ tool, copyable }: { tool: ChatToolActivity; copyable: bo
   const label = tool.status === 'running' ? '运行中'
     : tool.status === 'success' ? '已运行'
       : tool.status === 'error' ? '运行失败' : '结果未知';
-  const title = tool.name === 'executeCommand' || tool.name === 'ssh_execute' ? '执行命令' : tool.name === 'read_tool_output' ? '回查工具输出' : tool.name;
+  const title = tool.name === 'executeCommand' || tool.name === 'ssh_execute' ? '执行命令' : tool.name === 'read_tool_output' ? '回查工具输出' : ({list_skills:'发现 Skills',read_skill:'读取 Skill',list_mcp_tools:'发现 MCP 工具',call_mcp_tool:'调用 MCP 工具',update_plan:'更新任务计划',delegate_agent:'委派子任务'} as Record<string,string>)[tool.name] ?? tool.name;
   const header = <>
     <Icon name="terminal" size={14} />
     <span className="tool-run-label">{label}</span>

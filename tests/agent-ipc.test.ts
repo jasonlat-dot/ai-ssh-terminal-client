@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { afterEach,test } from 'node:test';
 import { agentApi,type AgentStreamEvent } from '../src/api/agent.ts';
-import { ChatRequestError } from '../src/api/chatErrors.ts';
+import { ChatRequestError, chatErrorGuidance } from '../src/api/chatErrors.ts';
+import { extensionApi, defaultExecutionLimits } from '../src/api/agentExtensions.ts';
 import { pickNativeAttachments, pasteNativeAttachments, readNativeAttachmentPreview } from '../src/api/files.ts';
 import { modelApi, newModelConfig } from '../src/api/models.ts';
 import { adoptBundledBackendUrl,BUILTIN_ENDPOINT } from '../src/config/backend.ts';
@@ -384,4 +385,17 @@ test('Blank-chat memory management uses native global/project scopes without cre
  const memory={id:crypto.randomUUID(),revision:0,title:'偏好',content:'中文',kind:'preference' as const,scope:'global' as const,enabled:true};
  await agentApi.memories('','');await agentApi.memories('','','project');await agentApi.saveMemory('','',memory,'project');await agentApi.deleteMemory('','',memory.id,1,'project');
  assert.ok(requests.every(r=>r.endpoint==='agent/memories'));assert.deepEqual(requests[0].params,{agentId:'',sessionId:'',userId:'default'});assert.equal(requests[1].params.projectId,'project');assert.equal(requests[2].body.projectId,'project');assert.equal(requests[3].body.projectId,'project');
+});
+
+
+test('Execution quota settings cross the native bridge as integers with user and CAS revision',async()=>{
+  const requests:any[]=[];
+  const value={revision:7,config:{servers:[],skillRoots:[],subAgents:true,executionLimits:{...defaultExecutionLimits,modelRounds:80,childToolCalls:100}}};
+  harness((command,args)=>{assert.equal(command,'builtin_request');requests.push(args.request);return Promise.resolve(value);});
+  await extensionApi.settings();await extensionApi.save(value);
+  assert.equal(requests[0].endpoint,'agent/extensions_settings');assert.deepEqual(requests[0].params,{userId:'default'});
+  assert.deepEqual(requests[1].body,{userId:'default',...value});
+  assert.match(chatErrorGuidance('AGENT_MODEL_ROUND_LIMIT'),/模型请求轮数上限/);
+  assert.match(chatErrorGuidance('AGENT_TOOL_CALL_LIMIT'),/工具调用次数上限/);
+  assert.match(chatErrorGuidance('AGENT_TOOL_CALL_LIMIT'),/不占工具次数/);
 });

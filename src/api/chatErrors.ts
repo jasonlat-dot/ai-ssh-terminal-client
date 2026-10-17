@@ -8,7 +8,9 @@ export function chatErrorGuidance(code?: string): string {
     case 'AGENT_TOOLS_UNSUPPORTED': return '当前工具执行链需要支持 Chat Completions 函数工具的模型；工具默认启用，无需另外开启。';
     case 'AGENT_INVALID_REQUEST': return '请求或工具参数定义未通过校验，本次生成未完成；请更新应用后手动重试。';
     case 'AGENT_TOOL_UNKNOWN': return '命令可能已执行，请先核查服务器状态；不会自动重试。';
-    case 'AGENT_TOOL_LIMIT': return '本轮已达到工具调用上限，请核对已有结果后再继续。';
+    case 'AGENT_TOOL_LIMIT': return '本次处理已达到执行资源上限，请核对已有结果后再继续。';
+    case 'AGENT_MODEL_ROUND_LIMIT': return '本次处理已达到模型请求轮数上限，可在设置 → 工具与 Skills → 执行额度中调整。输出回查仍会使用模型请求轮数。';
+    case 'AGENT_TOOL_CALL_LIMIT': return '本次处理已达到工具调用次数上限，可在设置 → 工具与 Skills → 执行额度中调整。输出回查不占工具次数。';
     case 'MODEL_CONTEXT_BINDING_CHANGED': return '此会话保存的模型上下文与当前接口、模型或密钥不一致，请使用原配置或新建会话。';
     case 'MODEL_RESPONSES_UNSUPPORTED': return '供应商不支持所需的 Responses 输入计数或远端整理接口，请检查协议和供应商能力。';
     case 'MODEL_CREDENTIALS': return '请打开模型设置，配置或重新保存 API Key。';

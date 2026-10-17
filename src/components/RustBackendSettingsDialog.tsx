@@ -10,13 +10,14 @@ import { RUST_PREVIEW_VERSION } from '../config/rustPreview';
 import { isTauriRuntime } from '../state/runtime';
 import { AppearanceSettings } from './AppearanceSettings';
 import { ModelSettings } from './ModelSettings';
+import { AgentExtensionSettings } from './AgentExtensionSettings';
 import { Icon, Badge } from './Ui';
 import { WindowControls } from './WindowControls';
 import { dragAppWindow } from '../state/appWindow';
 import './BackendSettingsDialog.css';
 import './RustPreview.css';
 
-export type RustSettingsSection = 'general' | 'models' | 'appearance' | 'about';
+export type RustSettingsSection = 'general' | 'models' | 'extensions' | 'appearance' | 'about';
 type Props = {
   currentUrl: string; required?: boolean; onClose: () => void; onSave: (url: string) => void;
   beforeClientUpdate?: () => Promise<void>; showUpdates?: boolean;
@@ -89,7 +90,7 @@ export function RustBackendSettingsDialog({required=false,onClose,onSave,showUpd
     <div className="settings-body">
       {section===undefined&&<aside className="settings-nav" aria-label="设置分类">
         <div className="settings-nav-list">
-          {([['general','本地工作区','settings','运行状态与数据存储'],['models','模型设置','bot','连接与生成参数'],['appearance','外观','monitor','主题、字体与配色'],['about','关于试用版','terminal','版本与功能进度']] as const).map(([id,label,icon,caption])=><button key={id} aria-label={label} title={label+' · '+caption} className={'settings-nav-item '+(tab===id?'selected':'')} aria-current={tab===id?'page':undefined} onClick={()=>setTab(id)}><span className="settings-nav-icon"><Icon name={icon} size={17}/></span><span className="settings-nav-text"><strong>{label}</strong><small>{caption}</small></span><Icon name="right" size={12} className="settings-nav-arrow"/></button>)}
+          {([['general','本地工作区','settings','运行状态与数据存储'],['models','模型设置','bot','连接与生成参数'],['extensions','工具与 Skills','box','MCP、技能与子任务'],['appearance','外观','monitor','主题、字体与配色'],['about','关于试用版','terminal','版本与功能进度']] as const).map(([id,label,icon,caption])=><button key={id} aria-label={label} title={label+' · '+caption} className={'settings-nav-item '+(tab===id?'selected':'')} aria-current={tab===id?'page':undefined} onClick={()=>setTab(id)}><span className="settings-nav-icon"><Icon name={icon} size={17}/></span><span className="settings-nav-text"><strong>{label}</strong><small>{caption}</small></span><Icon name="right" size={12} className="settings-nav-arrow"/></button>)}
         </div>
         <div className="settings-nav-footer">{!required&&<button type="button" className="settings-rail-back" aria-label="返回终端" title="返回终端" onClick={onClose}><Icon name="left" size={19}/></button>}<strong>v{RUST_PREVIEW_VERSION}</strong><small>独立安装 · 独立数据</small></div>
       </aside>}
@@ -97,6 +98,7 @@ export function RustBackendSettingsDialog({required=false,onClose,onSave,showUpd
         {error&&<p className="settings-error" role="alert">{error}</p>}
         {message&&<p className="rust-settings-notice" role="status">{message}</p>}
         {tab==='appearance'&&<AppearanceSettings/>}
+        {tab==='extensions'&&<AgentExtensionSettings locked={modelSettingsLocked}/>}
         {tab==='models'&&<ModelSettings changed={modelsChanged} locked={modelSettingsLocked}/>}
         {tab==='about'&&<div className="rust-about">
           <Badge tone="success">Rust Preview</Badge><h2>轻量的桌面 SSH 终端</h2>

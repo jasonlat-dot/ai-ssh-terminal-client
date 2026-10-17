@@ -149,6 +149,24 @@ pub async fn dispatch(
         };
     }
     match (method, endpoint) {
+        ("GET", "agent/extensions_settings") => value(services.agent.extension_settings(text(&params,"userId")?,None).map_err(|e|Error::invalid(e.to_string()))?),
+        ("POST", "agent/extensions_settings") => {
+            let settings=serde_json::from_value(json!({"revision":body["revision"],"config":body["config"]})).map_err(|_|Error::invalid("扩展设置无效"))?;
+            let scope = body.get("scope")
+                .map(|scope| serde_json::from_value::<shellpilot_server::agent::extensions::config::SaveScope>(scope.clone()))
+                .transpose().map_err(|_| Error::invalid("扩展设置保存范围无效"))?;
+            let user = text(&body, "userId")?;
+            let result = match scope {
+                Some(scope) => services.agent.save_extension_section(user, settings, scope),
+                None => services.agent.extension_settings(user, Some(settings)),
+            };
+            value(result.map_err(|e|Error::invalid(e.to_string()))?)
+        },
+        ("GET", "agent/extensions_requests") => value(services.agent.extension_requests(text(&params,"agentId")?.into(),text(&params,"userId")?.into(),text(&params,"sessionId")?.into()).await.map_err(agent_error)?),
+        ("POST", "agent/extensions_decision") => {
+            services.agent.extension_decision(text(&body,"agentId")?.into(),text(&body,"userId")?.into(),text(&body,"sessionId")?.into(),text(&body,"id")?.into(),body["allow"].as_bool().ok_or_else(||Error::invalid("审批决定无效"))?).await.map_err(agent_error)?;
+            Ok(json!(true))
+        },
         ("GET", "agent/models") => {
             let user = text(&params, "userId")?.to_owned();
             value(models(&services, move |r| r.list(&user)).await?)

@@ -18,6 +18,75 @@ fn acknowledge(subscription: &Subscription, sequence: u64) {
 }
 
 #[tokio::test]
+async fn e3_extension_dispatch_keeps_config_revision_and_approval_ownership() {
+    let (_dir, services)=services().await;
+    let initial=dispatch(services.clone(),"agent/extensions_settings","GET",Value::Null,json!({"userId":"default"})).await.unwrap();
+    assert_eq!(initial["revision"],0);
+    assert_eq!(initial["config"]["executionLimits"]["modelRounds"],32);
+    let body=json!({"userId":"default","revision":0,"config":{"servers":[{"name":"local","enabled":false,"transport":"stdio","command":"fixture","args":[],"env":["MCP_TOKEN"]},{"name":"baidu-search","enabled":false,"transport":"sse","url":"http://appbuilder.baidu.com/v2/ai_search/mcp/sse?api_key=Bearer+fixture","bearerEnv":"","timeoutSeconds":300}],"skillRoots":[],"subAgents":true,"executionLimits":{"modelRounds":48,"toolCalls":256,"childModelRounds":36,"childToolCalls":96,"maxChildTasks":4}}});
+    let saved=dispatch(services.clone(),"agent/extensions_settings","POST",body.clone(),Value::Null).await.unwrap();
+    assert_eq!(saved["revision"],1);assert_eq!(saved["config"]["servers"][0]["transport"],"stdio");
+    assert_eq!(saved["config"]["executionLimits"],body["config"]["executionLimits"]);
+    let readback=dispatch(services.clone(),"agent/extensions_settings","GET",Value::Null,json!({"userId":"default"})).await.unwrap();
+    assert_eq!(readback["config"]["executionLimits"],body["config"]["executionLimits"]);
+    assert_eq!(readback["config"]["servers"],body["config"]["servers"]);
+    assert!(dispatch(services.clone(),"agent/extensions_settings","POST",body,Value::Null).await.is_err());
+    let other=dispatch(services.clone(),"agent/extensions_settings","GET",Value::Null,json!({"userId":"other"})).await.unwrap();assert_eq!(other["revision"],0);
+    save_test_model(&services,"http://127.0.0.1:1/v1/".into());
+    let chat=dispatch(services.clone(),"agent/create_session","POST",json!({"userId":"default","agentId":"model"}),Value::Null).await.unwrap();
+    let owned=json!({"userId":"default","agentId":"model","sessionId":chat["sessionId"]});
+    assert_eq!(dispatch(services.clone(),"agent/extensions_requests","GET",Value::Null,owned.clone()).await.unwrap(),json!([]));
+    let mut foreign=owned.clone();foreign["userId"]=json!("other");
+    let error=dispatch(services.clone(),"agent/extensions_requests","GET",Value::Null,foreign.clone()).await.unwrap_err();assert_eq!(error.code,"AGENT_NOT_FOUND");
+    foreign["id"]=json!("unowned");foreign["allow"]=json!(true);
+    let error=dispatch(services.clone(),"agent/extensions_decision","POST",foreign,Value::Null).await.unwrap_err();assert_eq!(error.code,"AGENT_NOT_FOUND");
+    services.shutdown().await;
+}
+
+#[cfg(windows)]
+#[tokio::test]
+async fn mcp_client_token_dispatch_saves_redacted_credentials_and_supports_keep_and_clear() {
+    let (_dir, services)=services().await;
+    let body=json!({"userId":"default","revision":0,"config":{"servers":[{"name":"baidu-search","enabled":false,"transport":"streamableHttp","url":"https://example.com/mcp","bearerEnv":"","bearerToken":{"action":"set","value":"fixture-client-token/a+b.c"}}]}});
+    let saved=dispatch(services.clone(),"agent/extensions_settings","POST",body,Value::Null).await.unwrap();
+    assert_eq!(saved["config"]["servers"][0]["bearerTokenConfigured"],true);
+    assert!(saved["config"]["servers"][0].get("bearerToken").is_none());
+    assert!(!saved.to_string().contains("fixture-client-token"));
+    let readback=dispatch(services.clone(),"agent/extensions_settings","GET",Value::Null,json!({"userId":"default"})).await.unwrap();
+    assert_eq!(readback,saved);
+    let mut keep=readback; keep["userId"]=json!("default");
+    let kept=dispatch(services.clone(),"agent/extensions_settings","POST",keep,Value::Null).await.unwrap();
+    assert_eq!(kept["config"]["servers"][0]["bearerTokenConfigured"],true);
+    let mut clear=kept; clear["userId"]=json!("default"); clear["config"]["servers"][0]["bearerToken"]=json!({"action":"clear"});
+    let cleared=dispatch(services.clone(),"agent/extensions_settings","POST",clear,Value::Null).await.unwrap();
+    assert!(cleared["config"]["servers"][0].get("bearerTokenConfigured").is_none());
+    let other=dispatch(services.clone(),"agent/extensions_settings","GET",Value::Null,json!({"userId":"other"})).await.unwrap();
+    assert_eq!(other["config"]["servers"],json!([]));
+    services.shutdown().await;
+}
+
+#[cfg(windows)]
+#[tokio::test]
+async fn json_mcp_dispatch_preserves_metadata_and_redacts_headers_and_stdio_environment() {
+    let (_dir,services)=services().await;
+    let body=json!({"userId":"default","revision":0,"config":{"servers":[{"name":"search","description":"实时搜索","enabled":false,"transport":"streamableHttp","url":"https://example.com/mcp","connectionValues":{"headers":{"Authorization":"Bearer fixture-json-token"},"env":{}}},{"name":"local","enabled":false,"transport":"stdio","command":"node","args":["server.js"],"env":[],"connectionValues":{"headers":{},"env":{"TOKEN":"fixture-env-key"}}}]}});
+    let saved=dispatch(services.clone(),"agent/extensions_settings","POST",body,Value::Null).await.unwrap();
+    assert_eq!(saved["config"]["servers"][0]["description"],"实时搜索");
+    assert_eq!(saved["config"]["servers"][0]["savedHeaders"],json!(["authorization"]));
+    assert_eq!(saved["config"]["servers"][1]["savedEnv"],json!(["TOKEN"]));
+    assert!(!saved.to_string().contains("fixture-json-token"));assert!(!saved.to_string().contains("fixture-env-key"));
+    let readback=dispatch(services.clone(),"agent/extensions_settings","GET",Value::Null,json!({"userId":"default"})).await.unwrap();assert_eq!(saved,readback);
+    let mut keep=readback;keep["userId"]=json!("default");
+    keep["config"]["servers"][0]["connectionValues"]=json!({"headers":{"Authorization":"__SHELLPILOT_SAVED__"},"env":{}});
+    keep["config"]["servers"][1]["connectionValues"]=json!({"headers":{},"env":{"TOKEN":"__SHELLPILOT_SAVED__"}});
+    let kept=dispatch(services.clone(),"agent/extensions_settings","POST",keep,Value::Null).await.unwrap();
+    assert_eq!(kept["config"]["servers"],saved["config"]["servers"]);
+    let mut remove=kept;remove["userId"]=json!("default");remove["config"]["servers"]=json!([]);
+    assert_eq!(dispatch(services.clone(),"agent/extensions_settings","POST",remove,Value::Null).await.unwrap()["config"]["servers"],json!([]));
+    services.shutdown().await;
+}
+
+#[tokio::test]
 async fn delete_chat_dispatch_removes_owned_history_without_deleting_models() {
     let (_dir, services) = services().await;
     save_test_model(&services, "http://127.0.0.1:1/v1/".into());

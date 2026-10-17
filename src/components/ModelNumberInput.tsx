@@ -1,4 +1,5 @@
 import { Select } from './Select';
+import './ModelNumberInput.css';
 
 type NumberPreset = { value: number; short: string; label: string; description: string };
 const preset = (short: string, value: number): NumberPreset => ({

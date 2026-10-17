@@ -4,6 +4,19 @@ import { readAgentHistory, turnMessages } from '../src/state/agentHistory.ts';
 import type { AgentHistory, AgentTurn } from '../src/api/agent.ts';
 const session = { id:'s', agentId:'m', userId:'default', revision:1 };
 const turn = (state: AgentTurn['state'], cursor = 1): AgentTurn => ({requestId:`r${cursor}`,message:'question',target:null,state,partialText:'partial',resultText:'完整回复',errorCode:null,usage:null,cursor,createdAt:1,updatedAt:2});
+
+test('Running history shows only dispatched calls and completed results, keeping queued tools hidden',()=>{
+  const t=turn('running');t.startedToolCallIds=['active'];t.toolEvents=[
+    {id:1,payload:{type:'toolCall',callId:'active',toolName:'delegate_agent',arguments:{modelArguments:{task:'active child'}}}},
+    {id:2,payload:{type:'toolCall',callId:'queued',toolName:'list_skills',arguments:{modelArguments:{}}}},
+    {id:3,payload:{type:'toolCall',callId:'finished',toolName:'list_mcp_tools',arguments:{modelArguments:{server:''}}}},
+    {id:4,payload:{type:'toolResult',callId:'finished',outcome:'success',exitCode:null,text:'{"ok":true,"data":{}}'}},
+  ];
+  const segments=turnMessages([t])[1].segments!;
+  assert.deepEqual(segments.filter(s=>s.type!=='text').map(s=>s.id),['active','finished']);
+  assert.ok(!segments.some(s=>s.id==='queued'));
+  t.state='cancelled';assert.ok(turnMessages([t])[1].segments!.some(s=>s.id==='queued'), 'terminal history still retains original evidence');
+});
 test('Steered user inputs restore once and distinguish accepted but unapplied input',()=>{
   const t=turn('completed');t.inputs=[{id:'applied',message:'first input',eventId:3,createdAt:2},{id:'pending',message:'saved input',eventId:null,createdAt:3}];
   const messages=turnMessages([t]);assert.deepEqual(messages.map(m=>m.id),['r1:user','applied','pending','r1']);assert.equal(messages[1].inputPending,false);assert.equal(messages[2].inputPending,true);assert.equal(messages[3].text,'完整回复');
@@ -45,4 +58,22 @@ test('D5 restored tool records retain paired failure and unknown output referenc
 test('Native history restores attachment references without inline media or session substitution',()=>{
  const t=turn('completed');t.attachments=[{fileId:'immutable-file',fileName:'manual.pdf',size:100,contentType:'application/pdf',sha256:'digest',kind:'pdfText',pages:2,width:null,height:null}];
  const [message]=turnMessages([t]);assert.equal(message.attachments?.[0].fileId,'immutable-file');assert.equal(message.attachments?.[0].fileName,'manual.pdf');assert.equal(message.attachments?.[0].previewUrl,undefined);
+});
+
+
+test('E3 restored child workflow nests original tool records under its parent and preserves failures',()=>{
+  const t=turn('completed');t.toolEvents=[
+    {id:2,payload:{type:'toolCall',callId:'parent',toolName:'delegate_agent',arguments:{modelArguments:{task:'inspect'}}}},
+    {id:3,payload:{type:'toolCall',callId:'child',toolName:'call_mcp_tool',arguments:{parentToolCallId:'parent',modelArguments:{server:'demo'}}}},
+    {id:4,payload:{type:'toolResult',callId:'child',outcome:'error',exitCode:null,text:'{"ok":false,"error":"denied"}'}},
+    {id:5,payload:{type:'toolResult',callId:'parent',outcome:'success',exitCode:null,text:'{"ok":true,"data":{"report":"No operation was approved."}}'}},
+  ];
+  const segments=turnMessages([t])[1].segments!;
+  assert.equal(segments[0].type,'agent');
+  if(segments[0].type!=='agent')assert.fail();
+  assert.equal(segments[0].agent.output,'No operation was approved.');
+  assert.equal(segments[0].agent.task,'inspect');
+  assert.equal(segments[0].agent.tools.length,1);
+  assert.equal(segments[0].agent.tools[0].status,'error');
+  assert.equal(segments.filter(s=>s.type==='tool').length,0);
 });
