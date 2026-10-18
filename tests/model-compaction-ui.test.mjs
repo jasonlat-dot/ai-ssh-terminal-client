@@ -6,6 +6,14 @@ import ts from 'typescript';
 import {newModelConfig} from '../src/api/models.ts';
 import {chatErrorGuidance} from '../src/api/chatErrors.ts';
 
+test('New profiles use the chosen token, timeout and response defaults without sharing mutable state',()=>{
+  const config=newModelConfig();
+  assert.deepEqual([config.contextWindow,config.outputReserve,config.safetyReserve,config.compactPercent,config.timeoutSeconds,config.maxResponseBytes,config.temperature],
+    [256000,2048,8192,75,120,1048576,null]);
+  config.safetyReserve=512;config.capabilities.temperature=true;
+  assert.equal(newModelConfig().safetyReserve,8192);assert.equal(newModelConfig().capabilities.temperature,false);
+});
+
 function settings(legacyVision) {
   const profile={id:'stable-profile',displayName:'日常模型',revision:7,config:{...newModelConfig(),baseUrl:'https://example.test/v1/',model:'text'},
     apiKeyConfigured:true,ready:true};
@@ -65,7 +73,7 @@ test('直接展示的自动整理比例支持常用档位并保存，保持配�
 test('模型设置锁定时整理参数沿用原表单禁用状态',async()=>{
   const ui=settings();ui.render();await ui.settle();ui.props.locked=true;ui.render();
   assert.equal(ui.find(node=>node.type==='fieldset').props.disabled,true);
-  assert.equal(ui.find(node=>node.type==='button'&&node.props.className==='model-save-button').props.disabled,true);
+  assert.equal(ui.find(node=>node.type==='button'&&node.props.className?.split(' ').includes('model-save-button')).props.disabled,true);
 });
 test('整理失败与容量错误提示保留原历史并要求明确重试，不显示已成功压缩',()=>{
   for(const code of ['AGENT_COMPACTION_FAILED','AGENT_COMPACTION_LIMIT','MODEL_CONTEXT_LIMIT']) {

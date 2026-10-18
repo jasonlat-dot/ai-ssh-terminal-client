@@ -1,0 +1,27 @@
+/* Extra room between the close button and the diagonal resize target. */
+:root[data-desktop-window="true"] .app-header { padding-right: 28px; }
+
+.window-resize-handles {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  pointer-events: none;
+}
+.window-resize-handle {
+  position: absolute;
+  pointer-events: auto;
+  touch-action: none;
+  user-select: none;
+  background: transparent;
+}
+.resize-North, .resize-South { left: 24px; right: 24px; height: 8px; cursor: ns-resize; }
+.resize-North { top: 0; }
+.resize-South { bottom: 0; }
+.resize-East, .resize-West { top: 24px; bottom: 24px; width: 8px; cursor: ew-resize; }
+.resize-East { right: 0; }
+.resize-West { left: 0; }
+.resize-NorthWest, .resize-NorthEast, .resize-SouthWest, .resize-SouthEast { width: 24px; height: 24px; }
+.resize-NorthWest { top: 0; left: 0; cursor: nwse-resize; }
+.resize-NorthEast { top: 0; right: 0; cursor: nesw-resize; }
+.resize-SouthWest { bottom: 0; left: 0; cursor: nesw-resize; }
+.resize-SouthEast { bottom: 0; right: 0; cursor: nwse-resize; }

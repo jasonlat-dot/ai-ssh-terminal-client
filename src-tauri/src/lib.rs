@@ -6,9 +6,11 @@ mod cache;
 mod chat_history;
 mod client_update;
 mod command_store;
+mod data_migration;
 mod local_terminal;
 mod sftp;
 mod sftp_commands;
+mod tray;
 
 use chat_history::{list_chat_sessions, load_chat_session, save_chat_session, ChatHistoryState};
 use command_store::{load_commands, save_commands, CommandStoreState};
@@ -17,10 +19,20 @@ use local_terminal::{
     LocalTerminalState,
 };
 use sftp_commands::*;
+use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let app = tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    // Register first, before opening windows or initializing the workspace.
+    // Taskbar/Start menu launches wake the tray instance and exit immediately.
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        tray::show_main_window(app);
+    }));
+
+    let app = builder
+        .plugin(data_migration::plugin())
         .manage(backend_ipc::IpcState::default())
         .manage(ChatHistoryState::default())
         .manage(bundled_backend::BundledBackendState::default())
@@ -31,6 +43,8 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
+            // Install first: never hide the main window without a way to restore it.
+            tray::install(app)?;
             /*
              * Initialize local services on their own runtime without an HTTP listener.
              * SQLite and file initialization must not block the window thread.
@@ -39,6 +53,7 @@ pub fn run() {
             bundled_backend::start_in_background(app.handle().clone());
             Ok(())
         })
+        .on_window_event(tray::on_window_event)
         .invoke_handler(tauri::generate_handler![
             backend_ipc::builtin_request,
             backend_ipc::builtin_cancel,
@@ -90,6 +105,7 @@ pub fn run() {
     app.run(|app_handle, event| {
         if matches!(event, tauri::RunEvent::Exit) {
             bundled_backend::stop(app_handle);
+            local_terminal::close_all(&app_handle.state::<LocalTerminalState>());
         }
     });
 }

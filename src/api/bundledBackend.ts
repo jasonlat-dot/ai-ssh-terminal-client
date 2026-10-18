@@ -115,7 +115,7 @@ export async function readBundledBackendConfig(): Promise<BundledBackendConfig |
   return invoke<BundledBackendConfig>('bundled_backend_config');
 }
 
-/** 按字段更新 rust-backend.json 中的应用数据设置。 */
+/** 按字段更新 workspace.json 中的应用数据设置。 */
 export async function saveBundledBackendConfig(update: BundledBackendConfigUpdate): Promise<BundledBackendConfig | null> {
   if (!isTauriRuntime()) return null;
   return invoke<BundledBackendConfig>('bundled_backend_save_config', { update });

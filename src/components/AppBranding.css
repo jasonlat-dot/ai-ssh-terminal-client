@@ -1,3 +1,3 @@
-.rust-preview-badge { margin-left:12px; padding:3px 9px; border:1px solid var(--mint); border-radius:999px; color:var(--mint); background:var(--mint-soft); font-size:11px; white-space:nowrap; }
+.app-version-badge { margin-left:12px; padding:3px 9px; border:1px solid var(--mint); border-radius:999px; color:var(--mint); background:var(--mint-soft); font-size:11px; white-space:nowrap; }
 .rust-settings .settings-content { display:flex; flex-direction:column; gap:16px; padding:20px; overflow:auto; }
 .rust-settings .settings-content.rust-model-content { display:block; padding:24px; overflow:hidden; }

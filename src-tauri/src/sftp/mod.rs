@@ -502,4 +502,4 @@ pub fn local_delete(path: String) -> Result<()> {
 }
 
 #[cfg(all(test, windows))]
-mod rust_preview_tests;
+mod native_tests;

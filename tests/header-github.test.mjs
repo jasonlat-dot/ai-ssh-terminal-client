@@ -16,6 +16,7 @@ function header({ tauri = false, fail = false } = {}) {
     if (name === './WindowControls') return { WindowControls: () => null };
     if (name === './NavigationButton') return { NavigationButton: () => null };
     if (name === '../config/settingsNavigation') return { settingsNavigation: [] };
+    if (name === '../config/appRuntime') return { APP_VERSION: '0.2.1' };
     if (name.endsWith('.css')) return {};
     if (name === '../state/appWindow') return { dragAppWindow() {} };
     if (name === '../state/runtime') return { isTauriRuntime: () => tauri };

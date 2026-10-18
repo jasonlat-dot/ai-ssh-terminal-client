@@ -1,8 +1,9 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "ShellPilot",
-  "version": "0.2.0",
-  "identifier": "com.jasonlat.shellpilot.rust-preview",
+  "mainBinaryName": "ShellPilot",
+  "version": "0.2.1",
+  "identifier": "com.jasonlat.shellpilot",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -34,7 +35,7 @@
       "nsis"
     ],
     "resources": {
-      "bundle/rust-preview.txt": "rust-preview.txt",
+      "bundle/backend-info.txt": "backend-info.txt",
       "bundle/backend-LICENSE.txt": "backend-LICENSE.txt"
     },
     "icon": [

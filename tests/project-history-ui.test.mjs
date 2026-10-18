@@ -84,6 +84,27 @@ test('Creating project chooses only a saved server then starts its own conversat
  assert.equal(ui.actions[1][0],'new');assert.equal(ui.actions[1][1].connectionId,'B');
  assert.equal(ui.find(n=>n.type==='modal'),undefined);
 });
+
+test('Guided project creation preselects the requested server and returns the project without starting a conversation',async()=>{
+ const ui=harness();await ui.settle();const created=[];let finished=0;
+ ui.props.createConnectionId='B';ui.props.created=project=>created.push(project);ui.props.creationFinished=()=>{finished++;};
+ ui.props.createRequest=1;ui.render();ui.render();
+ assert.equal(ui.find(n=>n.props.label==='项目服务器').props.value,'B');
+ ui.find(n=>n.type==='input').props.onChange({target:{value:'指引项目'}});ui.render();
+ ui.find(n=>n.type==='form').props.onSubmit({preventDefault(){}});await ui.settle();
+ assert.equal(created.length,1);assert.equal(created[0].connectionId,'B');assert.equal(finished,1);
+ assert.ok(ui.actions.every(action=>action[0]!=='new'));
+});
+
+test('A failed guided project save keeps its form open and does not advance the guide',async()=>{
+ const ui=harness();await ui.settle();let advanced=0;
+ ui.props.created=()=>{advanced++;};ui.props.creationFinished=()=>{advanced++;};ui.props.createRequest=1;
+ ui.api.createProject=async()=>{throw new Error('保存失败，请重试');};ui.render();ui.render();
+ ui.find(n=>n.type==='input').props.onChange({target:{value:'指引项目'}});ui.render();
+ ui.find(n=>n.type==='form').props.onSubmit({preventDefault(){}});await ui.settle();
+ assert.equal(advanced,0);assert.ok(ui.find(n=>n.type==='modal'&&n.props.title==='新建服务器项目'));
+ assert.ok(ui.find(n=>n.props.role==='alert'));assert.equal(ui.actions.length,0);
+});
 test('History loading failure is visible and does not create or connect chats',async()=>{
  const ui=harness();ui.api.projects=async()=>{throw new Error('数据库暂不可用');};ui.props.revision='retry';ui.render();await ui.settle();
  assert.ok(ui.find(n=>n.props.role==='alert'));assert.equal(ui.actions.length,0);

@@ -32,6 +32,6 @@ export function WindowControls() {
   return <div className="app-window-controls" role="group" aria-label="窗口操作" data-no-window-drag>
     <IconButton icon="minimize" label="最小化窗口" onClick={() => perform('minimize')} />
     <IconButton icon={maximized ? 'restore' : 'maximize'} label={maximized ? '还原窗口' : '最大化窗口'} onClick={() => perform('toggleMaximize')} />
-    <IconButton icon="close" label="关闭应用" className="app-window-close" onClick={() => perform('close')} />
+    <IconButton icon="close" label="隐藏到系统托盘" className="app-window-close" onClick={() => perform('close')} />
   </div>;
 }

@@ -30,7 +30,7 @@ const responsePresets = [
   {short:'8 MiB',value:8388608},
 ].map(option => ({...option,label:option.short,description:`${option.value.toLocaleString('en-US')} bytes`}));
 const safetyPresets = [0, 128, 256, 512, 1024, 2048, 4096, 8192].map(value => ({
-  value, short: value >= 1024 ? `${value / 1024}Ki` : String(value), label: `${value.toLocaleString('en-US')} tokens`, description: value === 512 ? '默认' : '安全预留',
+  value, short: value >= 1024 ? `${value / 1024}Ki` : String(value), label: `${value.toLocaleString('en-US')} tokens`, description: value === 8192 ? '默认' : '安全预留',
 }));
 const compactPresets = [50, 60, 70, 75, 80, 85, 90, 95].map(value => ({
   value, short: `${value}%`, label: `${value}%`, description: value === 75 ? '默认' : '自动整理触发比例',

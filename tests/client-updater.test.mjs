@@ -216,6 +216,7 @@ function ui(initial = {}, component = 'ClientUpdateSettings') {
       install: async callback => { calls.push('install'); assert.equal(callback, beforeInstall); },
     } };
     if (name === '../state/runtime') return { isTauriRuntime: () => true };
+    if (name === '../config/appRuntime') return { APP_VERSION: '0.2.1' };
     if (name === './Ui') return { Badge: 'badge', Icon: 'icon', Modal: 'modal' };
     if (name === '@tauri-apps/plugin-opener') return { openUrl: async () => calls.push('open') };
     if (name.endsWith('.css')) return {};
@@ -249,7 +250,7 @@ test('startup prompt does not show stale versions or manual check failures', () 
   assert.match(app, /return <>\{page\}<StartupUpdatePrompt/);
   assert.match(app, /waitingForBackend && !updateSettingsRequested/);
   assert.match(app, /beforeClientUpdate=\{prepareForClientUpdate\}/);
-  assert.match(dialog, /if\(showUpdates\)setTab\('general'\)/);
+  assert.match(dialog, /if\(showUpdates\)setTab\('updates'\)/);
 });
 test('UI blocks unavailable updates, allows configuration-error retry, and renders escaped notes', () => {
   const disabled = ui({ config: { ...config, configured: false }, phase: 'disabled' });

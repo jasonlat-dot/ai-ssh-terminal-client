@@ -323,6 +323,11 @@ export const agentApi = {
     if(!isAgentContextStatus(status))throw new ChatRequestError('上下文状态格式无效。','MODEL_PROTOCOL_FAILED');
     return status;
   },
+  compactContext: async(agentId:string,sessionId:string,signal?:AbortSignal):Promise<{compacted:boolean;status:AgentContextStatus}>=>{
+    const result=await request<{compacted:boolean;status:unknown}>('compact_context','POST',{agentId,userId:sshUserId,sessionId},signal);
+    if(typeof result?.compacted!=='boolean'||!isAgentContextStatus(result.status))throw new ChatRequestError('上下文压缩结果格式无效。','MODEL_PROTOCOL_FAILED');
+    return {compacted:result.compacted,status:result.status};
+  },
   sessions: (agentId:string,after='',signal?:AbortSignal) => request<AgentSession[]>(
     'session_list','GET',undefined,signal,{agentId,userId:sshUserId,after}),
   events: (agentId:string,sessionId:string,after=0,signal?:AbortSignal) => request<unknown[]>(

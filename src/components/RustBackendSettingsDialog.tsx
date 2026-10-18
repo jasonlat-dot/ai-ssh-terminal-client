@@ -6,7 +6,7 @@ import {
   saveBundledBackendConfig, setBundledBackendAutoStart,
   type BundledBackendConfig, type BundledBackendStatus,
 } from '../api/bundledBackend';
-import { RUST_PREVIEW_VERSION } from '../config/rustPreview';
+import { APP_VERSION } from '../config/appRuntime';
 import { isTauriRuntime } from '../state/runtime';
 import { AppearanceSettings } from './AppearanceSettings';
 import { ModelSettings } from './ModelSettings';
@@ -20,7 +20,7 @@ import { notify } from '../state/notifications';
 import { settingsNavigation } from '../config/settingsNavigation';
 import type { SettingsSection } from '../config/settingsNavigation';
 import './BackendSettingsDialog.css';
-import './RustPreview.css';
+import './AppBranding.css';
 import './WorkspaceSettings.css';
 
 export type RustSettingsSection = SettingsSection;
@@ -98,7 +98,7 @@ export function RustBackendSettingsDialog({required=false,onClose,onSave,beforeC
         <div className="settings-nav-list">
           {settingsNavigation.map(({section:id,label,icon,subtitle})=><button key={id} aria-label={label} title={label+' · '+subtitle} className={'settings-nav-item '+(tab===id?'selected':'')} aria-current={tab===id?'page':undefined} onClick={()=>setTab(id)}><span className="settings-nav-icon"><Icon name={icon} size={17}/></span><span className="settings-nav-text"><strong>{label}</strong><small>{subtitle}</small></span><Icon name="right" size={12} className="settings-nav-arrow"/></button>)}
         </div>
-        <div className="settings-nav-footer">{!required&&<button type="button" className="settings-rail-back" aria-label="返回终端" title="返回终端" onClick={onClose}><Icon name="left" size={19}/></button>}<strong>v{RUST_PREVIEW_VERSION}</strong><small>独立安装 · 独立数据</small></div>
+        <div className="settings-nav-footer">{!required&&<button type="button" className="settings-rail-back" aria-label="返回终端" title="返回终端" onClick={onClose}><Icon name="left" size={19}/></button>}<strong>v{APP_VERSION}</strong><small>独立安装 · 独立数据</small></div>
       </aside>}
       <div className="settings-content-panel" data-section={tab==='models'?'model':tab}><section className={`settings-content ${tab==='models'?'rust-model-content':''}`} data-section={tab==='models'?'model':tab}>
         {error&&<p className="settings-error" role="alert">{error}</p>}
@@ -109,7 +109,7 @@ export function RustBackendSettingsDialog({required=false,onClose,onSave,beforeC
         {tab==='general'&&<section className="workspace-preferences" aria-labelledby="workspace-preferences-title">
           <header className="workspace-preferences-heading">
             <div><IconHeading as="h2" id="workspace-preferences-title" icon="workspace" tone="blue">本地工作区</IconHeading><p>管理运行状态、数据目录与附件存储。</p></div>
-            <span className="workspace-version">v{RUST_PREVIEW_VERSION}</span>
+            <span className="workspace-version">v{APP_VERSION}</span>
           </header>
           <section className="workspace-runtime-bar" aria-label="工作区运行状态">
             <AccentIcon className="workspace-section-icon" icon="workspace" tone="success" size={18}/>

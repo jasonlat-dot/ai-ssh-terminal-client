@@ -52,13 +52,6 @@
 .welcome-guide { border: 1px solid #d7e4fb; background: #ffffffd9; color: #18335b; }
 .welcome-guide:hover { background: #f0f6ff; border-color: #a8c8fa; }
 .terminal-welcome button:focus-visible { outline: 2px solid #2675ff; outline-offset: 3px; }
-.connection-guide-content { padding: 22px; font-size: 12px; line-height: 1.8; }
-.connection-guide-content > p { color: var(--muted); }
-.connection-guide-content ol { margin: 20px 0; padding-left: 20px; }
-.connection-guide-content li { padding-left: 5px; margin-bottom: 16px; }
-.connection-guide-content li::marker { color: var(--blue); font-weight: 600; }
-.connection-guide-content li strong, .connection-guide-content li span { display: block; }
-.connection-guide-content li span { color: var(--muted); margin-top: 4px; }
 .app-shell .central-workspace.no-session { grid-template-rows: minmax(0, 1fr); }
 .central-workspace.no-session > .command-shelf { display: none; }
 

@@ -13,7 +13,7 @@ export type ModelProfile = { id: string; displayName?: string; revision: number;
 export type KeyChange = { action: 'keep'|'clear' } | { action: 'set'; value: string };
 export const newModelConfig = (): ModelConfig => ({
   provider: 'openAiCompatible', remoteCompaction: false, baseUrl: '', completionsPath: 'chat/completions', model: '',
-  contextWindow: 8192, outputReserve: 1024, safetyReserve: 512, compactPercent: 75,
+  contextWindow: 256000, outputReserve: 2048, safetyReserve: 8192, compactPercent: 75,
   outputTokenParameter: 'maxCompletionTokens',
   capabilities: { toolCalls: true, developerRole: false, temperature: false, reasoningEffort: false, vision: true },
   temperature: null, reasoningEffort: null, timeoutSeconds: 120, maxResponseBytes: 1048576, requireApiKey: true,

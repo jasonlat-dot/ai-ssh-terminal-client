@@ -80,13 +80,18 @@ test('identical duplicate is safely consolidated; invalid names/versions fail be
   assert.deepEqual(renameBundleArtifacts(join(directory, 'missing'), options), []);
 });
 
-test('ShellPilot release branding preserves the existing workspace installation identity', () => {
+test('ShellPilot release branding uses the stable identity and consistent product versions', () => {
   const config = JSON.parse(file('src-tauri/tauri.conf.json'));
   const packageInfo = JSON.parse(file('package.json'));
   assert.equal(packageInfo.displayName, 'ShellPilot');
   assert.equal(packageInfo.name, 'ai-ssh-terminal-client');
   assert.equal(config.productName, 'ShellPilot');
-  assert.equal(config.identifier, 'com.jasonlat.shellpilot.rust-preview');
+  assert.equal(config.identifier, 'com.jasonlat.shellpilot');
+  assert.equal(config.mainBinaryName, 'ShellPilot');
+  assert.equal(config.version, packageInfo.version);
+  assert.match(file('src-tauri/Cargo.toml'), new RegExp(`\\[package\\][\\s\\S]*?version = "${config.version.replaceAll('.', '\\.')}"`));
+  assert.match(file('../ai-ssh-terminal-server-rust/Cargo.toml'), new RegExp(`\\[package\\][\\s\\S]*?version = "${config.version.replaceAll('.', '\\.')}"`));
+  assert.deepEqual(config.bundle.resources, { 'bundle/backend-info.txt': 'backend-info.txt', 'bundle/backend-LICENSE.txt': 'backend-LICENSE.txt' });
   assert.equal(config.app.windows[0].title, 'ShellPilot');
   for (const path of ['src/components/Shell.tsx', 'src/components/StartupScreen.tsx', 'src/components/ClientUpdateSettings.tsx', 'src/components/StartupUpdatePrompt.tsx', 'index.html']) {
     assert.ok(file(path).includes('ShellPilot'), path);

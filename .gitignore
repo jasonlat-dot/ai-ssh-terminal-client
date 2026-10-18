@@ -32,3 +32,4 @@ dist-ssr
 *.key
 /release/
 /docs/client-updates.md
+/docs/releases/v0.2.1-commit-notes.md

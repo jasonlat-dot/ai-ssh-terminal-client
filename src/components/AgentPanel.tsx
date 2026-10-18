@@ -8,6 +8,7 @@ import type { ClientChatSession } from '../state/clientChatHistory';
 import type { AgentConfig, AgentProject } from '../api/agent';
 import type { AgentContextStatus as ContextStatus } from '../api/agentContext';
 import { AgentContextStatus } from './AgentContextStatus';
+import type { ManualCompactionControl } from './AgentContextStatus';
 import { AgentMemoryButton,type MemoryScope } from './AgentMemory';
 import type { ChatAttachment, ChatAgentActivity, ChatMessage, ChatToolActivity, ChatTextExcerpt, Host } from '../types';
 import { AccentIcon, Badge, Icon } from './Ui';
@@ -183,7 +184,7 @@ function sessionTime(value: ClientChatSession['updatedAt']): string {
 }
 
 export type AgentComposerHandle = { addText: (text: string, source: ChatTextExcerpt['source']) => boolean };
-export function AgentPanel({ ref, memoryScope, onMemoryNotice, sshConnections, chatDraft, draftScope, host, connected, localTerminal, targetLabel, scopeControls, composerProject, messages, busy, stopping, send, steer, stop, clear, disabled, agentAvailability, history, collapsed, models, selectedModel, selectModel, openModelSettings, reasoning, recoveredRunning, stopRecovered, refreshCurrent, contextStatus=null, contextError, refreshContext, execution, onApprovalChange }: {
+export function AgentPanel({ ref, memoryScope, onMemoryNotice, sshConnections, chatDraft, draftScope, host, connected, localTerminal, targetLabel, scopeControls, composerProject, messages, busy, stopping, send, steer, stop, clear, disabled, agentAvailability, history, collapsed, models, selectedModel, selectModel, openModelSettings, reasoning, recoveredRunning, stopRecovered, refreshCurrent, contextStatus=null, contextError, refreshContext, manualCompaction, execution, onApprovalChange }: {
   memoryScope?: MemoryScope;
   onMemoryNotice?: (message: string) => void;
   sshConnections?: { open: boolean; toggle: () => void };
@@ -212,7 +213,7 @@ export function AgentPanel({ ref, memoryScope, onMemoryNotice, sshConnections, c
   collapsed: boolean;
   models?: AgentConfig[]; selectedModel?: string; selectModel?: (id: string) => void; openModelSettings?: () => void;
   reasoning?: { revision: number; onSavingChange: (saving: boolean) => void };
-  contextStatus?: ContextStatus|null; contextError?:string; refreshContext?:()=>void;
+  contextStatus?: ContextStatus|null; contextError?:string; refreshContext?:()=>void; manualCompaction?:ManualCompactionControl;
   recoveredRunning?: boolean; stopRecovered?: () => void; refreshCurrent?: () => void;
 }) {
   const [messageNow,setMessageNow]=useState(()=>Date.now());
@@ -577,7 +578,7 @@ export function AgentPanel({ ref, memoryScope, onMemoryNotice, sshConnections, c
           aria-controls="connection-sidebar-content" aria-expanded={sshConnections.open} onClick={sshConnections.toggle}>
           <Icon name="server" size={16}/><span>SSH 连接</span><Icon name={sshConnections.open ? 'down' : 'up'} size={13}/>
         </button>}
-        <button type="button" className="new-agent-session" onClick={() => { clear(); setDraft(''); }} aria-label="新建智能体会话">
+        <button type="button" className="new-agent-session" disabled={manualCompaction?.busy} onClick={() => { clear(); setDraft(''); }} aria-label="新建智能体会话">
           <Icon name="edit" size={15} />
           <strong>新会话</strong>
         </button>
@@ -746,7 +747,7 @@ export function AgentPanel({ ref, memoryScope, onMemoryNotice, sshConnections, c
             menuMinWidth={260} menuAlign="end" onChange={value => selectModel?.(value)}/></div>
           {reasoning && <ComposerReasoningControl modelId={selectedModel ?? ''} revision={reasoning.revision} disabled={locked || !!recoveredRunning} onSavingChange={reasoning.onSavingChange} />}
           <button className="agent-model-settings-button" type="button" aria-label="模型设置" title="模型设置" onClick={openModelSettings}><Icon name="settings" size={15}/></button>
-          <AgentContextStatus status={contextStatus} error={contextError} retry={refreshContext}/>
+          <AgentContextStatus status={contextStatus} error={contextError} retry={refreshContext} manual={manualCompaction}/>
         </div>}
         {(busy||stopping)&&<button type="button" className="send-button stop-button" aria-label={stopping?'正在停止':'停止生成'} title="停止生成" onClick={()=>{setQueuePaused(true);stop();}} disabled={stopping}><Icon name="stop" size={16}/></button>}
         {(!(busy||stopping)||!!draft.trim()||attachments.length>0)&&<button type="submit" className="send-button" aria-label={busy||sending?'加入消息队列':'发送消息'} title={busy||sending?'加入队列，当前轮结束后自动发送':'发送消息'} disabled={(!draft.trim() && !attachments.length) || editingLocked || notReady || !agentAvailability.ready}><Icon name="arrowUp" size={20}/></button>}

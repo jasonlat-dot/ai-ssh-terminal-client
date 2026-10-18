@@ -3,7 +3,7 @@ import { openUrl } from '@tauri-apps/plugin-opener';
 import { clientUpdater, useClientUpdater } from '../state/useClientUpdater';
 import { isTauriRuntime } from '../state/runtime';
 import { Badge, Icon, IconHeading } from './Ui';
-import { APP_VERSION } from '../config/rustPreview';
+import { APP_VERSION } from '../config/appRuntime';
 import './ClientUpdateSettings.css';
 
 const RELEASES_URL = 'https://github.com/jasonlat-dot/ai-ssh-terminal-client/releases';

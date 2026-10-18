@@ -1,7 +1,7 @@
 [package]
-name = "shellpilot-rust-preview"
-version = "0.2.0"
-description = "ShellPilot Rust SSH and SFTP preview"
+name = "shellpilot"
+version = "0.2.1"
+description = "ShellPilot desktop SSH terminal and AI workspace"
 authors = ["you"]
 edition = "2021"
 
@@ -24,7 +24,7 @@ rfd = "0.15"
 image = { version = "0.25.10", default-features = false, features = ["png"] }
 uuid = { version = "1", features = ["v4"] }
 chrono = "0.4"
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-opener = "2"
 tauri-plugin-clipboard-manager = "2"
 tauri-plugin-updater = "2"
@@ -38,6 +38,9 @@ futures-util = "0.3"
 portable-pty = "0.9"
 # Safely simplify canonical Windows paths before passing them to Java.
 dunce = "1.0.5"
+
+[target.'cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))'.dependencies]
+tauri-plugin-single-instance = "2"
 
 # Windows APIs used by local terminal/process handling.
 [target.'cfg(target_os = "windows")'.dependencies]

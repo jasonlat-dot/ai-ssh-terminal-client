@@ -61,6 +61,7 @@ function composer({ upload = async file => result(file), send = async () => true
     if (name === './Select') return { Select: leaf };
     if (name === './MarkdownMessage') return { MarkdownMessage: leaf };
     if (name === './AgentContextStatus') return { AgentContextStatus: leaf };
+    if (name === './AgentEmptyState') return { AgentEmptyState: leaf };
     if (name === './AgentMemory') return { AgentMemoryButton: leaf };
     if (name === './ComposerProjectPicker') return { ComposerProjectPicker: leaf };
     if (name === './ComposerReasoningControl') return { ComposerReasoningControl: leaf };

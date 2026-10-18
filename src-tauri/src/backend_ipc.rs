@@ -460,6 +460,14 @@ pub async fn dispatch(
                 .await
                 .map_err(agent_error)?,
         ),
+        ("POST", "agent/compact_context") => value(
+            services.agent.compact_context(
+                text(&body, "agentId")?.into(),
+                text(&body, "userId")?.into(),
+                text(&body, "sessionId")?.into(),
+                &services.stop,
+            ).await.map_err(agent_error)?,
+        ),
         ("GET", "agent/memories") => value(
             services
                 .agent

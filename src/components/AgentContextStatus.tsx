@@ -1,11 +1,20 @@
-import { useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import type { AgentContextStatus as Status } from '../api/agentContext';
+import { Icon } from './Ui';
 import './AgentContextStatus.css';
 
 const number = (value: number) => value.toLocaleString('zh-CN');
-export function AgentContextStatus({ status, error, retry }: { status: Status | null; error?: string; retry?: () => void }) {
+export type ManualCompactionControl = { run: () => void; cancel?: () => void; busy: boolean; disabled: boolean; reason?: string };
+export function AgentContextStatus({ status, error, retry, manual }: { status: Status | null; error?: string; retry?: () => void; manual?: ManualCompactionControl }) {
   const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
   const tooltipId = useId();
+  useEffect(() => {
+    if (!open) return;
+    const dismiss = (event: PointerEvent) => { if (!root.current?.contains(event.target as Node)) setOpen(false); };
+    document.addEventListener('pointerdown', dismiss);
+    return () => document.removeEventListener('pointerdown', dismiss);
+  }, [open]);
   const usage = status?.usage;
   const percent = usage ? Math.round(usage.inputTokens / usage.availableInputTokens * 100) : null;
   const phase = status?.phase ?? 'idle';
@@ -16,19 +25,20 @@ export function AgentContextStatus({ status, error, retry }: { status: Status | 
   const valueLabel = percent === null ? '尚未测量' : `${percent}%${percent > 100 ? ' · 超出容量' : ''}`;
   const level = error || percent !== null && percent > 100 ? 'error'
     : usage && percent !== null && percent >= usage.compactPercent ? 'warning' : 'normal';
-  return <div className={`agent-context-indicator level-${level}${percent === null ? ' is-unknown' : ''}`}
-    onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
+  return <div ref={root} className={`agent-context-indicator level-${level}${percent === null ? ' is-unknown' : ''}`}
+    onMouseEnter={() => setOpen(true)} onMouseLeave={event => { if (!event.currentTarget.contains(document.activeElement)) setOpen(false); }}
+    onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false); }}
+    onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); root.current?.querySelector('button')?.focus(); setOpen(false); } }}>
     <button type="button" className="agent-context-ring" aria-label={`上下文占用：${valueLabel}${usage ? `（${source}）` : ''}${error ? '，点击重试' : ''}`}
-      aria-describedby={open ? tooltipId : undefined} onFocus={() => setOpen(true)} onBlur={() => setOpen(false)}
-      onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); setOpen(false); } }}
-      onClick={() => { if (error) retry?.(); else setOpen(value => !value); }}>
+      aria-controls={open ? tooltipId : undefined} aria-haspopup="dialog" aria-expanded={open} onFocus={() => setOpen(true)}
+      onClick={() => { setOpen(true); if (error) retry?.(); }}>
       <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
         <circle className="agent-context-ring-track" cx="12" cy="12" r="8" />
         {percent !== null && <circle className="agent-context-ring-value" cx="12" cy="12" r="8" pathLength="100"
           strokeDasharray="100" strokeDashoffset={100 - Math.max(0, Math.min(100, percent))} transform="rotate(-90 12 12)" />}
       </svg>
     </button>
-    {open && <div id={tooltipId} className="agent-context-tooltip" role="tooltip">
+    {open && <div id={tooltipId} className="agent-context-tooltip" role="dialog" aria-label="上下文详情">
       <div className="agent-context-tooltip-heading"><strong>上下文占用</strong><span>{valueLabel}</span></div>
       {usage ? <>
         <p className="agent-context-tooltip-usage">{number(usage.inputTokens)} / {number(usage.availableInputTokens)} tokens · {source}</p>
@@ -39,6 +49,13 @@ export function AgentContextStatus({ status, error, retry }: { status: Status | 
       {error && <p className="agent-context-tooltip-error">占用状态暂不可用，点击圆环重试。</p>}
       <p className="agent-context-tooltip-note">最近一次请求的输入快照，不包含未发送草稿或回复后的新增内容，也不是累计消耗。</p>
       {status?.updatedAt ? <small>记录时间：{new Date(status.updatedAt).toLocaleString()}</small> : null}
+      {manual && <div className="agent-context-manual">
+        <button type="button" className="agent-context-compact" disabled={manual.disabled || manual.busy || phase === 'running'} onClick={manual.run}>
+          <Icon name="file" size={14}/><span>{manual.busy || phase === 'running' ? '正在压缩上下文…' : '立即压缩上下文'}</span>
+        </button>
+        {manual.busy && manual.cancel && <button type="button" className="agent-context-cancel" onClick={manual.cancel}>取消压缩</button>}
+        <p>{manual.busy ? '正在整理已保存的历史，原始消息会保留。' : manual.reason || '生成历史检查点，保留原始消息；此操作会调用模型。'}</p>
+      </div>}
     </div>}
   </div>;
 }

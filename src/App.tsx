@@ -2,12 +2,13 @@ import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useSta
 import type { CSSProperties } from 'react';
 import { useStartupMinimum } from './state/useStartupMinimum';
 import { useStartupTransition } from './state/useStartupTransition';
-import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useTheme } from './state/useTheme';
 import { useApplyClientAppearance } from './state/useClientAppearance';
 import type { ThemePreference } from './state/useTheme';
 import { ensureProjectTerminal, restoreProjectConversation } from './state/projectConversation';
 import { ProjectChatHistory } from './components/ProjectChatHistory';
+import { ConnectionGuide } from './components/ConnectionGuide';
+import type { ConnectionGuideState, ConnectionGuideStep } from './components/ConnectionGuide';
 import type { AgentProject, ProjectChat } from './api/agent';
 import { agentApi } from './api/agent';
 import type { AgentConfig, AgentStreamEvent, AgentHistory, ExecutionPolicy } from './api/agent';
@@ -53,7 +54,7 @@ import { ChatRequestError } from './api/chatErrors';
 import { ActivityBar, AppHeader } from './components/Shell';
 import { RustBackendSettingsDialog as BackendSettingsDialog } from './components/RustBackendSettingsDialog';
 import type { RustSettingsSection } from './components/RustBackendSettingsDialog';
-import { usingRustBuiltinBackend } from './config/rustPreview';
+import { usingRustBuiltinBackend } from './config/appRuntime';
 import { adoptBundledBackendUrl, readBackendUrl, saveBackendUrl } from './config/backend';
 import { watchBundledBackendStatus, restartBundledBackend, type BundledBackendStatus } from './api/bundledBackend';
 import { probeBackendHealth } from './api/health';
@@ -159,6 +160,9 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
   const [contextSnapshot,setContextSnapshot]=useState<{sessionId:string;agentId:string;status:AgentContextStatus}|null>(null);
   const [contextError,setContextError]=useState('');
   const [contextReload,setContextReload]=useState(0);
+  const [manualCompacting,setManualCompacting]=useState(false);
+  const manualCompactionAbort=useRef<AbortController|null>(null);
+  useEffect(()=>()=>manualCompactionAbort.current?.abort(),[]);
   const [scopeSwitching, setScopeSwitching] = useState(false);
   const scopeSwitchRef = useRef(false);
   const [activeProject,setActiveProject]=useState<AgentProject|null>(null);
@@ -167,6 +171,9 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
   const [projectRevision,setProjectRevision]=useState(0);
   const [projectCreateRequest,setProjectCreateRequest]=useState(0);
   const projectCreateFinished=useRef<(()=>void)|null>(null);
+  const [connectionGuide,setConnectionGuide]=useState<ConnectionGuideState|null>(null);
+  const [guideStarting,setGuideStarting]=useState(false);
+  const [guideError,setGuideError]=useState('');
   const [approvalState,setApprovalState]=useState<{sessionId:string;pending:boolean}>();
   const onApprovalChange=useCallback((sessionId:string,pending:boolean)=>{
     setApprovalState(previous=>!pending&&previous?.sessionId!==sessionId?previous:
@@ -234,8 +241,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     else setTerminalDockCollapsed(false);
     if (compactWindow) setConnectionSidebarCollapsed(true);
   };
-  // 应用关闭流程的全局标志位：避免 Tauri onCloseRequested 与 in-page 关闭按钮、
-  // 终端页签关闭等其他路径在快速关窗时重复触发清理。
+  // 更新安装前的清理标志；隐藏到托盘不会触发清理。
   const closingApp = useRef(false);
   // 由各个文件管理窗口注册的“应用关闭前”清理器；
   // connectionId -> () => Promise<void>，调用方负责关掉后端 SFTP 会话。
@@ -905,10 +911,10 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     return true;
   };
   /**
-   * 关窗前的集中清理：取消所有未完成的连接尝试、关闭每个终端运行时、
+   * 更新安装前的集中清理：取消所有未完成的连接尝试、关闭每个终端运行时、
    * 通知文件管理窗口释放后端 SFTP 会话。所有 IO 失败都吞掉，只记日志。
    *
-   * 调用方在 await 之后调 getCurrentWindow().destroy() 真正退出。
+   * 真正退出由原生层兜底关闭内置服务与本地终端，普通关窗仅隐藏。
    */
   const cleanupBeforeClose = useCallback(async (maximumWaitMs?: number) => {
     if (closingApp.current) return;
@@ -937,7 +943,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     });
     sftpCleanups.current.clear();
 
-    // 4) 更新前有等待上限；正常关窗仍等待清理完成，再留 800ms 给状态收尾。
+    // 4) 更新前有等待上限，再留 800ms 给状态收尾。
     const closing = Promise.allSettled([...runtimeCloses, ...sftpCloses]);
     if (maximumWaitMs) {
       let timer: ReturnType<typeof setTimeout> | undefined;
@@ -947,7 +953,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     await new Promise(resolve => setTimeout(resolve, 800));
 
     // 5) 清理持久化的页签恢复信息：markManuallyClosed() 已经让 sessions 状态变化，
-    //    但 useEffect 不一定在 destroy 之前 flush 完；这里直接清空 localStorage 兜底，
+    //    但 useEffect 不一定在更新安装之前 flush 完；这里直接清空 localStorage 兜底，
     //    避免下次启动时把已关闭的终端 tab 重新恢复出来。
     try { localStorage.removeItem(terminalSessionsStorageKey(backendUrl)); }
     catch (error) { console.warn('清理终端页签持久化数据失败', error); }
@@ -955,7 +961,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
 
   const prepareForClientUpdate = async () => {
     if (closingApp.current) throw new Error('应用正在关闭，请稍后重试。');
-    if (chatBusy || chatStopping || broadcastBusy) throw new Error('请先结束智能体回复或命令提交，再安装更新。');
+    if (chatBusy || chatStopping || broadcastBusy || manualCompactionAbort.current) throw new Error('请先结束智能体回复、上下文压缩或命令提交，再安装更新。');
     if (clientHistoryDirty.current && messagesRef.current.length) {
       if (!selectedAgent?.agentId || !activeChatSessionId) throw new Error('当前对话尚未保存，请先确认历史记录已保存。');
       await persistClientSession(selectedAgent.agentId, activeChatSessionId);
@@ -964,28 +970,8 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     finally { closingApp.current = false; }
   };
 
-  useEffect(() => {
-    if (!isTauriRuntime()) return;
-    let disposed = false;
-    let unlisten: (() => void) | undefined;
-    // Tauri v2：先 preventDefault 关掉默认的立刻销毁行为，等清理完再 destroy。
-    void getCurrentWindow().onCloseRequested(async event => {
-      if (disposed || closingApp.current) {
-        // 第二次/卸载后的关闭请求不再拦截，让它走默认行为快速退出。
-        return;
-      }
-      event.preventDefault();
-      try { await cleanupBeforeClose(); }
-      catch (error) { console.warn('关闭应用前的清理失败', error); }
-      if (disposed) return;
-      try { await getCurrentWindow().destroy(); }
-      catch (error) { console.error('强制销毁主窗口失败', error); }
-    }).then(stop => {
-      if (disposed) stop();
-      else unlisten = stop;
-    }).catch(error => console.error('监听窗口关闭事件失败', error));
-    return () => { disposed = true; unlisten?.(); };
-  }, [cleanupBeforeClose]);
+  // Window close/hide is owned by the native tray handler.
+
   const fill = (command: string) => {
     setNavigation('命令');
     if (commandMode !== 'single') {
@@ -1036,7 +1022,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     &&canonicalHistory?.session.scope?.kind==='server'
     &&!!executionTerminal(canonicalHistory.session,sessions,canonicalHistory.session.task?.target?.terminalSessionId??'');
   const sendMessage = async (text: string, selectedAttachments: ChatAttachment[] = []): Promise<boolean> => {
-    if (reasoningSavingRef.current) return false;
+    if (reasoningSavingRef.current || manualCompactionAbort.current) return false;
     if (!text.trim() && !selectedAttachments.length) return false;
     if (chatting.current || stopPending.current || scopeSwitchRef.current || historyLoadingId || recoveredRunning || agentLoading || agentLoadError) return false;
     // Fix this turn's references before any session creation or network await.
@@ -1374,6 +1360,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     if (version === chatVersion.current) await selectChatSession(sessionId);
   };
   const clearChat = () => {
+    if (manualCompactionAbort.current) return;
     const previousSessionId = chatSessionId.current;
     const previousAgentId = selectedAgent?.agentId;
     if (previousAgentId && previousSessionId && messagesRef.current.length) {
@@ -1399,7 +1386,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
   };
 
   const selectChatSession = async (sessionId: string, agentId=selectedAgent?.agentId) => {
-    if (!agentId || chatting.current || stopPending.current) return;
+    if (!agentId || chatting.current || stopPending.current || manualCompactionAbort.current) return;
     if(agentId!==selectedAgentRef.current?.agentId){skipModelReset.current=agentId;setSelectedAgent(agentModels.find(item=>item.agentId===agentId)??{agentId,agentName:'原模型配置不可用',agentDesc:''});}
     const selection = ++historySelection.current;
     setHistoryLoadingId(sessionId);
@@ -1489,13 +1476,31 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
         const status=await agentApi.contextStatus(agentId,sessionId,controller.signal);
         if(controller.signal.aborted||version!==chatVersion.current)return;
         setContextSnapshot({sessionId,agentId,status});setContextError('');
-        if(status.phase==='running')timer=setTimeout(()=>void load(),1000);
+        if(status.phase==='running'||manualCompacting)timer=setTimeout(()=>void load(),1000);
       }catch(error){if(!controller.signal.aborted&&version===chatVersion.current)setContextError(error instanceof Error?error.message:'上下文状态暂不可用');}
     };
     void load();
     return()=>{controller.abort();if(timer)clearTimeout(timer);};
-  },[activeChatSessionId,selectedAgent?.agentId,canonicalHistory?.session.revision,chatBusy,contextReload,rustBuiltin]);
-  const projectLocked=chatBusy||chatStopping||recoveredRunning||scopeSwitching||Boolean(historyLoadingId)||reasoningSaving;
+  },[activeChatSessionId,selectedAgent?.agentId,canonicalHistory?.session.revision,chatBusy,contextReload,rustBuiltin,manualCompacting]);
+  const projectLocked=chatBusy||chatStopping||recoveredRunning||scopeSwitching||Boolean(historyLoadingId)||reasoningSaving||manualCompacting;
+  const manualCompactionReason=!activeChatSessionId||!canonicalHistory?.turns.length?'发送消息、产生历史后才能压缩上下文。'
+    : chatBusy||chatStopping||recoveredRunning?'请等待当前回答和工具执行结束后再主动压缩。'
+      : scopeSwitching||historyLoadingId||reasoningSaving?'请等待会话或模型设置准备完成。'
+        : contextStatus?.phase==='running'?'上下文正在整理，请等待完成。':undefined;
+  const compactContextNow=async()=>{
+    if(!rustBuiltin||!selectedAgent||manualCompactionReason||projectLocked||manualCompactionAbort.current)return;
+    const controller=new AbortController();manualCompactionAbort.current=controller;setManualCompacting(true);
+    const agentId=selectedAgent.agentId,sessionId=activeChatSessionId,version=chatVersion.current;
+    try{
+      const result=await agentApi.compactContext(agentId,sessionId,controller.signal);
+      if(version!==chatVersion.current)return;
+      setContextSnapshot({sessionId,agentId,status:result.status});setContextError('');
+      if(result.compacted)notify('上下文已压缩，原始聊天记录已保留。','success');
+      else if(result.status.phase==='failed')notify('上下文压缩未完成，原始历史已保留；请检查模型配置后重试。','error');
+      else notify('当前没有可进一步压缩的完整历史。','info');
+    }catch(error){if(!controller.signal.aborted&&version===chatVersion.current)notify(error instanceof Error?error.message:'压缩上下文失败，请重试。','error');}
+    finally{if(manualCompactionAbort.current===controller){manualCompactionAbort.current=null;setManualCompacting(false);setContextReload(value=>value+1);}}
+  };
   const connectProject=async(p:AgentProject)=>{
     const {terminal,project:verified}=await ensureProjectTerminal(p,{
       hosts,find:()=>sessionsRef.current.find(item=>item.kind==='ssh' && item.connectionId===p.connectionId
@@ -1542,16 +1547,43 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     }finally{scopeSwitchRef.current=false;setScopeSwitching(false);}
   };
   const newProjectChat=async(p:AgentProject|null,model=selectedAgent)=>{
-    if(projectLocked||scopeSwitchRef.current)return;
-    if(!p){setActiveProject(null);setProjectTerminalId('');setAgentCollapsed(false);clearChat();return;}
-    if(!model||!agentModels.some(item=>item.agentId===model.agentId)){notify('请先在设置中选择可用模型；项目已保存。','error');return;}
+    if(projectLocked||scopeSwitchRef.current)return false;
+    if(!p){setActiveProject(null);setProjectTerminalId('');setAgentCollapsed(false);clearChat();return true;}
+    if(!model||!agentModels.some(item=>item.agentId===model.agentId)){notify('请先在设置中选择可用模型；项目已保存。','error');return false;}
     scopeSwitchRef.current=true;setScopeSwitching(true);setAgentCollapsed(false);setActiveProject(p);setProjectTerminalId('');
     clearChat();
     if(model.agentId!==selectedAgentRef.current?.agentId){skipModelReset.current=model.agentId;setSelectedAgent(model);}
     try{
       await connectProject(p);
-    }catch(error){notify(error instanceof Error?error.message:'新建项目对话失败','error');}
+      return true;
+    }catch(error){notify(error instanceof Error?error.message:'新建项目对话失败','error');return false;}
     finally{scopeSwitchRef.current=false;setScopeSwitching(false);}
+  };
+  const openConnectionGuide=()=>{
+    setGuideError('');
+    setConnectionGuide(previous=>previous?{...previous,open:true,task:null}:{open:true,step:0,task:null,connectionId:hosts[0]?.id??'',projectId:''});
+  };
+  const resumeConnectionGuide=()=>{
+    setConnectionGuide(previous=>previous?{...previous,task:null}:previous);
+  };
+  const guideStep=(step:ConnectionGuideStep)=>{setGuideError('');setConnectionGuide(previous=>previous?{...previous,step}:previous);};
+  const guideProject=chatProjects.find(project=>project.id===connectionGuide?.projectId && project.connectionId===connectionGuide.connectionId);
+  const guideConnected=!!guideProject && activeProject?.id===guideProject.id && projectConnected;
+  const startGuideConversation=async()=>{
+    if(!guideProject||projectLocked||guideStarting)return;
+    setGuideStarting(true);setGuideError('');
+    try{
+      const ready=await newProjectChat(guideProject);
+      if(ready)guideStep(3);
+      else setGuideError('服务器对话尚未就绪，请检查连接信息或模型配置后重试。');
+    }finally{setGuideStarting(false);}
+  };
+  const finishConnectionGuide=(example?:string)=>{
+    if(!guideConnected||projectLocked)return;
+    if(example && !agentComposer.current?.addText(example,'paste')){notify('暂时无法填入示例，请稍后重试。','error');return;}
+    setConnectionGuide(previous=>previous?{...previous,open:false,task:null}:previous);
+    setBackendSettingsOpen(false);setAgentCollapsed(false);
+    if(compactWindow)showCompactPane('chat');
   };
   return <div data-compact-pane={agentCollapsed ? 'terminal' : compactWorkspacePane} style={{ '--terminal-dock-width': `${terminalWidth}%`, '--command-width': `${commandWidth}px`, '--connection-sidebar-width': `${connectionSidebarWidth}px` } as CSSProperties} className={`app-shell agent-desktop ${terminalDockCollapsed && !agentCollapsed ? 'terminal-dock-collapsed' : ''} ${agentCollapsed ? 'agent-collapsed' : ''} ${navCollapsed ? 'nav-collapsed' : ''} ${connectionSidebarCollapsed ? 'host-sidebar-collapsed' : ''} ${navigation === '连接' ? 'connections-view' : 'terminal-view'} ${backendSettingsOpen ? 'settings-view' : ''}`}>
     <AppHeader notify={notify} theme={theme} setTheme={setTheme} />
@@ -1564,7 +1596,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     {backendSettingsOpen && <BackendSettingsDialog currentUrl={backendUrl}
       section={settingsSection}
       modelsChanged={() => setAgentLoadAttempt(value => value + 1)} modelSettingsRequested={modelSettingsRequested}
-      modelSettingsLocked={chatBusy || chatStopping || recoveredRunning || reasoningSaving}
+      modelSettingsLocked={chatBusy || chatStopping || recoveredRunning || reasoningSaving || manualCompacting}
       onClose={() => { setModelSettingsRequested(false); setBackendSettingsOpen(false); clearUpdateSettingsRequest(); }}
       showUpdates={updateSettingsRequested}
       beforeClientUpdate={prepareForClientUpdate}
@@ -1572,10 +1604,15 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     <aside className="workspace-sidebar" id="workspace-sidebar-content" aria-label="会话与 SSH 工作区">
       <header className="workspace-sidebar-heading"><span><Icon name="sidebar" size={16}/><strong>工作区</strong></span><button type="button" className="workspace-sidebar-toggle" aria-label={connectionSidebarCollapsed ? '展开工作区侧栏' : '收起工作区侧栏'} aria-expanded={!connectionSidebarCollapsed} onClick={() => setConnectionSidebarCollapsed(value => !value)}><Icon name={connectionSidebarCollapsed ? 'right' : 'left'} size={16}/></button></header>
       <section className="workspace-conversations" aria-label="Agent 会话">
-        <header className="workspace-section-heading workspace-history-heading"><h2>对话</h2></header>
+        <header className="workspace-section-heading workspace-history-heading"><h2>对话</h2><button type="button" className="workspace-guide-button" onClick={openConnectionGuide}><Icon name="book" size={13}/>连接指引</button></header>
         <ProjectChatHistory hosts={hosts} project={activeProject} sessionId={activeChatSessionId} approvalState={approvalState} activeRunning={chatBusy||chatStopping||recoveredRunning}
           projectsChanged={setChatProjects} createRequest={projectCreateRequest}
-          creationFinished={()=>{const finish=projectCreateFinished.current;projectCreateFinished.current=null;finish?.();}}
+          createConnectionId={connectionGuide?.task==='project'?connectionGuide.connectionId:undefined}
+          created={connectionGuide?.task==='project'?project=>{
+            setChatProjects(previous=>[...previous.filter(item=>item.id!==project.id),project]);
+            setConnectionGuide(previous=>previous?{...previous,task:null,step:2,projectId:project.id,connectionId:project.connectionId}:previous);
+          }:undefined}
+          creationFinished={()=>{const finish=projectCreateFinished.current;projectCreateFinished.current=null;finish?.();if(connectionGuide?.task==='project')resumeConnectionGuide();}}
           deleted={chat=>{if(chatSessionId.current===chat.sessionId){clearChat();setActiveProject(null);setProjectTerminalId('');}setProjectRevision(value=>value+1);notify(`已删除对话“${chat.title||'新对话'}”`,'success');}}
           removed={project=>{setChatProjects(old=>old.filter(item=>item.id!==project.id));if(activeProject?.id===project.id){setActiveProject(null);setProjectTerminalId('');}setProjectRevision(value=>value+1);notify(`已移除项目“${project.name}”，聊天记录已保留`,'success');}}
           locked={projectLocked} revision={String(projectRevision)+':'+activeChatSessionId+':'+String(chatBusy)}
@@ -1661,7 +1698,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
             </Suspense>
           </section>;
         })}
-        connections={() => navigate('连接')}
+        guide={openConnectionGuide}
         sessions={sessions}
         activeId={activeId}
         host={host}
@@ -1706,6 +1743,8 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
         hidden:agentCollapsed,
       }:undefined}
       contextStatus={contextStatus} contextError={contextError} refreshContext={()=>setContextReload(value=>value+1)}
+      manualCompaction={rustBuiltin?{run:()=>void compactContextNow(),busy:manualCompacting,disabled:!!manualCompactionReason||projectLocked,
+        reason:manualCompactionReason,cancel:()=>{manualCompactionAbort.current?.abort();notify('已请求取消压缩，正在刷新最终状态。','info');}}:undefined}
       host={chatTargetState.host} connected={activeProject ? projectConnected : chatTargetState.connected}
       localTerminal={chatTargetState.localTerminal} targetLabel={rustBuiltin ? activeProject ? activeProject.name+(projectConnected?' · 服务器任务':' · 离线讨论') : chatTargetState.label : undefined}
       messages={messages} busy={chatBusy} stopping={chatStopping} send={sendMessage} stop={stopChat} collapsed={agentCollapsed}
@@ -1715,10 +1754,10 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
         await agentApi.steer(agentId,sessionId,requestId,id,text);
       }:undefined}
       clear={rustBuiltin ? ()=>void newProjectChat(activeProject) : clearChat}
-      disabled={Boolean(historyLoadingId) || scopeSwitching || reasoningSaving}
+      disabled={Boolean(historyLoadingId) || scopeSwitching || reasoningSaving || manualCompacting}
       models={rustBuiltin ? agentModels : undefined} selectedModel={selectedAgent?.agentId}
       reasoning={rustBuiltin ? { revision: agentLoadAttempt, onSavingChange: setReasoningSaving } : undefined}
-      selectModel={id => {if(!chatting.current&&!stopPending.current&&!reasoningSavingRef.current){const model=agentModels.find(item=>item.agentId===id)??null;if(activeProject&&model)void newProjectChat(activeProject,model);else setSelectedAgent(model);}}}
+      selectModel={id => {if(!chatting.current&&!stopPending.current&&!reasoningSavingRef.current&&!manualCompactionAbort.current){const model=agentModels.find(item=>item.agentId===id)??null;if(activeProject&&model)void newProjectChat(activeProject,model);else setSelectedAgent(model);}}}
       openModelSettings={() => { setSettingsSection('models');setModelSettingsRequested(true); setBackendSettingsOpen(true); }}
       recoveredRunning={recoveredRunning} refreshCurrent={() => { if (activeChatSessionId) void selectChatSession(activeChatSessionId); }}
       stopRecovered={stopRecoveredChat}
@@ -1745,7 +1784,21 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
       closeDialog();
       notify('命令已保存到客户端', 'success');
     }} />}
-    {dialog === 'connection' && <SshConnectionDialog connections={connections} connectAfterSave={connectAfterSave} onClose={closeDialog} onSaved={saved => { if (connectAfterSave) void selectHost(saved.id, saved); }} />}
+    {connectionGuide?.open && !connectionGuide.task && <ConnectionGuide state={connectionGuide} hosts={hosts} projects={chatProjects}
+      modelReady={!!selectedAgent && agentModels.some(model=>model.agentId===selectedAgent.agentId)} connected={guideConnected}
+      busy={projectLocked||guideStarting||connections.busy} error={guideError}
+      onClose={()=>setConnectionGuide(previous=>previous?{...previous,open:false}:previous)} onStep={guideStep}
+      onConnection={id=>{setGuideError('');setConnectionGuide(previous=>previous?{...previous,connectionId:id,projectId:''}:previous);}}
+      onProject={id=>{setGuideError('');setConnectionGuide(previous=>previous?{...previous,projectId:id}:previous);}}
+      onCreateConnection={()=>{setConnectionGuide(previous=>previous?{...previous,task:'connection'}:previous);openNewConnection();}}
+      onCreateProject={()=>{if(!hosts.some(host=>host.id===connectionGuide.connectionId))return;setBackendSettingsOpen(false);setConnectionSidebarCollapsed(false);setConnectionGuide(previous=>previous?{...previous,task:'project'}:previous);setProjectCreateRequest(value=>value+1);}}
+      onModels={()=>{setConnectionGuide(previous=>previous?{...previous,task:'model'}:previous);setSettingsSection('models');setModelSettingsRequested(true);setBackendSettingsOpen(true);}}
+      onStart={()=>void startGuideConversation()} onFinish={finishConnectionGuide}/>}
+    {connectionGuide?.open && connectionGuide.task==='model' && <button type="button" className="connection-guide-resume" onClick={()=>{setBackendSettingsOpen(false);setModelSettingsRequested(false);clearUpdateSettingsRequest();resumeConnectionGuide();}}><Icon name="book" size={17}/>返回连接指引<Icon name="right" size={15}/></button>}
+    {dialog === 'connection' && <SshConnectionDialog connections={connections} connectAfterSave={connectAfterSave} onClose={()=>{closeDialog();if(connectionGuide?.task==='connection')resumeConnectionGuide();}} onSaved={saved => {
+      if(connectionGuide?.task==='connection')setConnectionGuide(previous=>previous?{...previous,task:null,step:1,connectionId:saved.id,projectId:''}:previous);
+      if (connectAfterSave) void selectHost(saved.id, saved);
+    }} />}
     {disconnectTarget && <DisconnectDialog key={disconnectTarget.tabId} host={hosts.find(item => item.id === disconnectTarget.host.id) ?? disconnectTarget.host} connected={sessions.find(session => session.id === disconnectTarget.tabId)?.connected === true} busy={false} error={terminalError} close={() => setDisconnectTarget(null)} confirm={() => confirmDisconnect()} disconnectOnly={disconnectTarget.allowDisconnectOnly ? () => confirmDisconnect(true) : undefined} />}
   </div>;
 }

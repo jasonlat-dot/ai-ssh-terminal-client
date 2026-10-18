@@ -54,7 +54,7 @@
   .agent-desktop .terminal-toolbar { flex-wrap: wrap; gap: 5px; }
   .agent-desktop .terminal-dock-heading > span { font-size: 12px; }
   .app-shell .app-header { gap: 8px; padding-inline: 10px; }
-  .app-header .rust-preview-badge, .app-header .header-divider,
+  .app-header .app-version-badge, .app-header .header-divider,
   .app-header .github-link { display: none; }
   .app-header .profile { gap: 4px; min-width: 0; }
   .app-header .app-window-controls { margin-left: 4px; padding-left: 4px; }

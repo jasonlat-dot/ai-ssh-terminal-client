@@ -8,7 +8,7 @@ if (-not (Test-Path -LiteralPath $serverManifest -PathType Leaf)) {
 }
 # Cargo links the backend library directly into the Tauri executable. Only this
 # informational file is bundled; existing Java/JRE directories are not resources.
-$info = Join-Path $clientRoot 'src-tauri\bundle\rust-preview.txt'
+$info = Join-Path $clientRoot 'src-tauri\bundle\backend-info.txt'
 New-Item -ItemType Directory -Path (Split-Path -Parent $info) -Force | Out-Null
 $releaseVersion = (Get-Content -LiteralPath (Join-Path $clientRoot 'package.json') -Raw | ConvertFrom-Json).version
 [IO.File]::WriteAllText($info, "ShellPilot ${releaseVersion}: embedded Rust SSH, SFTP, Agent, MCP and Skills backend; no JRE/JAR required.", [Text.UTF8Encoding]::new($false))

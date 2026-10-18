@@ -1,13 +1,13 @@
 # 运行日志与执行记录
 
-当前说明对应 v0.2.0 内置 Rust 后端。桌面宿主实际编译 `src-tauri/src/embedded_backend.rs`，后端库来自兄弟目录 `ai-ssh-terminal-server-rust`；旧 Java 生命周期实现文件不代表当前运行路径。
+当前说明对应 v0.2.1 内置 Rust 后端。桌面宿主实际编译 `src-tauri/src/embedded_backend.rs`，后端库来自兄弟目录 `ai-ssh-terminal-server-rust`；旧 Java 生命周期实现文件不代表当前运行路径。
 
 ## 文件日志
 
 默认日志文件为：
 
 ```text
-%LOCALAPPDATA%\com.jasonlat.shellpilot.rust-preview\logs\backend.log
+%LOCALAPPDATA%\com.jasonlat.shellpilot\logs\backend.log
 ```
 
 该文件由桌面宿主追加工作区初始化、停止记录，时间使用 UTC。日志不会随每次启动清空，因此可能包含早期 Rust HTTP 实现的 `starting embedded Rust backend at http://...` 记录。当前版本记录 `initializing local workspace (IPC, no HTTP listener)`，不启动本机 HTTP 服务。
@@ -21,10 +21,10 @@
 优先打开对应对话历史，展开工具、子任务、审批和原始输出。持久记录默认位于：
 
 ```text
-%LOCALAPPDATA%\com.jasonlat.shellpilot.rust-preview\backend-data\shellpilot.sqlite3
+%LOCALAPPDATA%\com.jasonlat.shellpilot\backend-data\shellpilot.sqlite3
 ```
 
-如果修改过数据目录，以“本地工作区 → 数据与日志位置”显示的数据库路径为准。日志目录和 `rust-backend.json` 仍在应用根目录。
+如果修改过数据目录，以“本地工作区 → 数据与日志位置”显示的数据库路径为准。日志目录和 `workspace.json` 仍在应用根目录。
 
 | 表 | 用途 |
 | --- | --- |

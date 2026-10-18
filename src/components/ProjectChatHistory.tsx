@@ -20,7 +20,7 @@ function measureTitleOverflow(row:HTMLButtonElement) {
  row.style.setProperty('--history-title-duration',`${Math.max(3,overflow/32+1.2)}s`);
 }
 
-export function ProjectChatHistory({hosts,project,sessionId,locked,revision,newChat,openChat,servers,projectsChanged,deleted,removed,approvalState,activeRunning,createRequest=0,creationFinished}:{
+export function ProjectChatHistory({hosts,project,sessionId,locked,revision,newChat,openChat,servers,projectsChanged,deleted,removed,approvalState,activeRunning,createRequest=0,creationFinished,createConnectionId,created}:{
  hosts:Host[];project:AgentProject|null;sessionId:string;locked:boolean;revision:string;
  newChat:(project:AgentProject|null)=>void|Promise<void>;openChat:(chat:ProjectChat,project:AgentProject|null)=>void;servers:()=>void;
  projectsChanged?:(projects:AgentProject[])=>void;
@@ -29,6 +29,7 @@ export function ProjectChatHistory({hosts,project,sessionId,locked,revision,newC
  approvalState?:{sessionId:string;pending:boolean};
  activeRunning?:boolean;
  createRequest?:number;creationFinished?:()=>void;
+ createConnectionId?:string;created?:(project:AgentProject)=>void;
 }) {
  const [projects,setProjects]=useState<AgentProject[]>([]);
  const [histories,setHistories]=useState<Record<string,ProjectChats>>({});
@@ -43,7 +44,7 @@ export function ProjectChatHistory({hosts,project,sessionId,locked,revision,newC
  const [removing,setRemoving]=useState(false);const [removeError,setRemoveError]=useState('');
  const [creating,setCreating]=useState(false);const [name,setName]=useState('');
  const [connection,setConnection]=useState('');const [saving,setSaving]=useState(false);
- const startCreate=()=>{if(locked)return;setConnection(hosts[0]?.id??'');setName('');setError('');setCreating(true);};
+ const startCreate=()=>{if(locked)return;setConnection(hosts.find(host=>host.id===createConnectionId)?.id??hosts[0]?.id??'');setName('');setError('');setCreating(true);};
  const cancelCreate=()=>{if(saving)return;setCreating(false);creationFinished?.();};
  useEffect(()=>{if(createRequest)startCreate();},[createRequest]);
  const [reload,setReload]=useState(0);const version=useRef(0);const initialized=useRef(false);
@@ -227,14 +228,14 @@ export function ProjectChatHistory({hosts,project,sessionId,locked,revision,newC
   </Modal>,document.body)}
   {creating&&<Modal icon="server" iconTone="cyan" title="新建服务器项目" className="project-create-dialog" dismissDisabled={saving} onClose={cancelCreate}>
    <form className="project-create-form" onSubmit={event=>{event.preventDefault();if(saving||!connection||!name.trim())return;setSaving(true);setError('');
-    void agentApi.createProject(name.trim(),connection).then(async p=>{setCreating(false);setReload(v=>v+1);notify(`已创建项目“${p.name}”`,'success');await newChat(p);creationFinished?.();}).catch(cause=>setError(cause instanceof Error?cause.message:'新建项目失败')).finally(()=>setSaving(false));}}>
+    void agentApi.createProject(name.trim(),connection).then(async p=>{setCreating(false);setReload(v=>v+1);notify(`已创建项目“${p.name}”`,'success');if(created)created(p);else await newChat(p);creationFinished?.();}).catch(cause=>setError(cause instanceof Error?cause.message:'新建项目失败')).finally(()=>setSaving(false));}}>
     <div className="project-create-fields">
      <label>项目名称<input autoFocus value={name} maxLength={100} onChange={event=>setName(event.target.value)} placeholder="例如：测试服务器"/></label>
      <label>已保存的服务器<Select label="项目服务器" value={connection} options={hosts.map(host=>({value:host.id,label:host.name+' · '+host.user+'@'+host.address}))} disabled={saving||!hosts.length} onChange={setConnection}/></label>
      <p className="project-create-hint">{!hosts.length?'请先在“管理服务器”中保存一台服务器。':'开始对话时自动连接此服务器，聊天记录按项目保存。'}</p>
     {error&&<p role="alert" className="project-sidebar-error">{error}</p>}
     </div>
-    <footer className="project-create-footer"><button type="button" className="project-manage-servers" disabled={saving} onClick={()=>{cancelCreate();servers();}}><Icon name="server" size={15}/><span>管理服务器</span></button><button type="submit" className="project-create-submit" disabled={saving||!connection||!name.trim()}>{saving?'正在创建…':'创建并开始对话'}<Icon name="right" size={15}/></button></footer>
+    <footer className="project-create-footer"><button type="button" className="project-manage-servers" disabled={saving} onClick={()=>{cancelCreate();servers();}}><Icon name="server" size={15}/><span>管理服务器</span></button><button type="submit" className="project-create-submit" disabled={saving||!connection||!name.trim()}>{saving?'正在创建…':created?'创建项目':'创建并开始对话'}<Icon name="right" size={15}/></button></footer>
    </form>
   </Modal>}
  </section>;

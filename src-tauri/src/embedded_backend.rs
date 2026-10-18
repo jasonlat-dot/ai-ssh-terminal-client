@@ -1,4 +1,4 @@
-//! Rust preview: backend runs inside the Tauri process, with its own runtime.
+//! Embedded backend running inside the Tauri process, with its own runtime.
 //! The desktop owns startup, shutdown and configuration; no JVM or child server.
 use serde::{Deserialize, Serialize};
 use std::{
@@ -98,7 +98,7 @@ fn home(app: &AppHandle) -> io::Result<PathBuf> {
     app.path().app_local_data_dir().map_err(io::Error::other)
 }
 fn config_file(app: &AppHandle) -> io::Result<PathBuf> {
-    Ok(home(app)?.join("rust-backend.json"))
+    Ok(home(app)?.join("workspace.json"))
 }
 fn load(path: &Path) -> io::Result<Settings> {
     match fs::read(path) {
@@ -328,7 +328,7 @@ fn view(app: &AppHandle) -> io::Result<BackendConfigView> {
     Ok(BackendConfigView {
         config_directory: home(app)?.to_string_lossy().into_owned(),
         application_file: source,
-        active_profiles: vec!["rust-preview".into()],
+        active_profiles: vec!["embedded".into()],
         values,
         sqlite_file: data
             .join("shellpilot.sqlite3")
@@ -368,7 +368,7 @@ fn apply(settings: &mut Settings, values: BTreeMap<String, String>) -> io::Resul
                     .filter(|v| *v <= 3650)
                     .ok_or_else(|| io::Error::other("保留天数必须为 0 到 3650"))?;
             }
-            _ => return Err(io::Error::other("Rust 试用版不支持此配置项")),
+            _ => return Err(io::Error::other("本地工作区不支持此配置项")),
         }
     }
     Ok(())
@@ -451,7 +451,7 @@ mod tests {
     #[test]
     fn settings_persist_without_losing_startup_preference() {
         let path = std::env::temp_dir().join(format!(
-            "shellpilot-preview-settings-{}.json",
+            "shellpilot-settings-{}.json",
             std::process::id()
         ));
         let mut settings = Settings {

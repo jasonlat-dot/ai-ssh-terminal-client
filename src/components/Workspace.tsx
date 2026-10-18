@@ -8,7 +8,7 @@ import { TerminalWelcome } from './TerminalWelcome';
 import { isSessionConnected } from '../state/terminalSessions';
 import { Select } from './Select';
 
-export function TerminalWorkspace({ remoteViews, sessions, activeId, host, select, close, add, filesOpen, toggleFiles, commandCollapsed, toggleCommands, agentCollapsed, toggleAgent, filesAvailable = true, agentAvailable = true, copy, connections, layout = 'single', visibleIds = [activeId], changeLayout, reorder, commandControls, dockControls, agentTerminalId }: { remoteViews: ReactNode; sessions: TerminalSession[]; activeId: string; host?: Host; select: (id: string) => void; close: (id: string) => void; add: () => void; filesOpen: boolean; toggleFiles: () => void; commandCollapsed: boolean; toggleCommands: () => void; agentCollapsed: boolean; toggleAgent: () => void; filesAvailable?: boolean; agentAvailable?: boolean; connections: () => void; copy: (text: string) => void; layout?: TerminalLayout; visibleIds?: string[]; changeLayout?: (layout: TerminalLayout) => void; reorder?: (draggedId: string, targetId: string, after: boolean) => void; commandControls?: ReactNode; dockControls?: ReactNode; agentTerminalId?:string }) {
+export function TerminalWorkspace({ remoteViews, sessions, activeId, host, select, close, add, filesOpen, toggleFiles, commandCollapsed, toggleCommands, agentCollapsed, toggleAgent, filesAvailable = true, agentAvailable = true, copy, guide, layout = 'single', visibleIds = [activeId], changeLayout, reorder, commandControls, dockControls, agentTerminalId }: { remoteViews: ReactNode; sessions: TerminalSession[]; activeId: string; host?: Host; select: (id: string) => void; close: (id: string) => void; add: () => void; filesOpen: boolean; toggleFiles: () => void; commandCollapsed: boolean; toggleCommands: () => void; agentCollapsed: boolean; toggleAgent: () => void; filesAvailable?: boolean; agentAvailable?: boolean; guide: () => void; copy: (text: string) => void; layout?: TerminalLayout; visibleIds?: string[]; changeLayout?: (layout: TerminalLayout) => void; reorder?: (draggedId: string, targetId: string, after: boolean) => void; commandControls?: ReactNode; dockControls?: ReactNode; agentTerminalId?:string }) {
   const active = sessions.find(session => session.id === activeId);
   const dragging = useRef<{ id: string; pointerId: number; x: number; y: number; left: number; top: number; width: number; node: HTMLDivElement; moved: boolean; target: { id: string; after: boolean } | null } | null>(null);
   const suppressClick = useRef(false);
@@ -149,7 +149,7 @@ export function TerminalWorkspace({ remoteViews, sessions, activeId, host, selec
         {commandControls}
         <div className="terminal-view-grid" data-layout={layout} data-count={visibleIds.length}>{remoteViews}</div>
       </div>
-    </div> : <TerminalWelcome add={add} connections={connections} />}
+    </div> : <TerminalWelcome add={add} guide={guide} />}
   </section>;
 }
 export function CommandShelf({ commands, category, setCategory, fill, run, copy, add, disabled, collapsed, resize, broadcast = false }: { commands: SavedCommand[]; category: string; setCategory: (value: string) => void; fill: (command: string) => void; run: (command: string) => void; copy: (text: string) => void; add: () => void; disabled: boolean; collapsed: boolean; resize?: ReactNode; broadcast?: boolean }) {
