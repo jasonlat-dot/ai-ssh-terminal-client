@@ -262,16 +262,12 @@ impl State {
     pub async fn open_local(
         &self,
         services: Arc<shellpilot_server::services::Services>,
-        connection: String,
-        root: Option<String>,
+        request: shellpilot_server::sftp::model::OpenRequest,
         emit: Arc<dyn Fn(Value) + Send + Sync>,
     ) -> Result<Value> {
         let opened = services
             .sftp
-            .open(shellpilot_server::sftp::model::OpenRequest {
-                connection_id: connection,
-                root_path: root,
-            })
+            .open(request)
             .await
             .map_err(from_service)?;
         let data = serde_json::to_value(&opened)?;

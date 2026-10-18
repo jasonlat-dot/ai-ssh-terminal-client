@@ -4,7 +4,8 @@ import { isTauriRuntime } from '../state/runtime';
 
 export type SftpEntry = { name: string; path: string; kind: 'FILE' | 'DIRECTORY' | 'SYMLINK' | 'OTHER'; size: number; modifiedAt: number; permissions: string };
 export type LocalDirectory = { path: string; parent: string | null; roots: string[]; entries: SftpEntry[] };
-export type SftpSession = { sftpSessionId: string; connectionId: string; rootPath: string; createdAt: string };
+export type SftpAccessMode = 'login' | 'sudoRoot';
+export type SftpSession = { sftpSessionId: string; connectionId: string; rootPath: string; createdAt: string; loginUsername: string; accessUsername: string; accessMode: SftpAccessMode };
 export type SftpItem = { itemId: string; relativePath: string; kind: SftpEntry['kind']; size: number; transferredBytes: number; status: string; errorCode: string | null; message: string | null };
 export type SftpProgress = { transferId: string; direction: 'UPLOAD' | 'DOWNLOAD'; status: string; totalBytes: number; transferredBytes: number; completedItems: number; totalItems: number; failedItems: number; awaitingConfirmation: number; updatedAt: string; activeItems: SftpItem[] };
 export type SftpTransfer = { transferId: string; sftpSessionId: string; direction: 'UPLOAD' | 'DOWNLOAD'; remotePath: string; progress: SftpProgress; items: SftpItem[] };
@@ -32,11 +33,11 @@ async function native<T>(command: string, args: Record<string, unknown> = {}): P
   catch (error) { throw new SftpError(error); }
 }
 export const sftpApi = {
-  async open(connectionId: string, rootPath: string, onEvent: (event: SftpEvent) => void) {
+  async open(connectionId: string, rootPath: string, onEvent: (event: SftpEvent) => void, accessMode: SftpAccessMode = 'login', sudoPassword?: string) {
     if (!isTauriRuntime()) return Promise.reject(new Error('请在桌面客户端打开文件管理，本地文件传输需要 Tauri。'));
     const channel = new Channel<SftpEvent>();
     channel.onmessage = onEvent;
-    return native<SftpSession>('sftp_open', { backendUrl: requireBackendUrl(), connectionId, rootPath: rootPath.trim() || null, onEvent: channel });
+    return native<SftpSession>('sftp_open', { backendUrl: requireBackendUrl(), connectionId, rootPath: rootPath.trim() || null, accessMode, sudoPassword: sudoPassword || null, onEvent: channel });
   },
   close: (sessionId: string) => native<void>('sftp_close', { sessionId }),
   entries: (sessionId: string, path: string) => native<SftpEntry[]>('sftp_entries', { sessionId, path }),

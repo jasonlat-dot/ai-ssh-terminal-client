@@ -4,17 +4,22 @@ use std::sync::Arc;
 use tauri::{ipc::Channel, AppHandle, State};
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // Named IPC parameters preserve the existing sftp_open contract.
 pub async fn sftp_open(
     app: AppHandle,
     state: State<'_, sftp::State>,
     backend_url: String,
     connection_id: String,
     root_path: Option<String>,
+    access_mode: Option<shellpilot_server::sftp::model::AccessMode>,
+    sudo_password: Option<String>,
     on_event: Channel<Value>,
 ) -> Result<Value> {
     let services = crate::backend_ipc::services_for_url(&app, &backend_url)
         .map_err(|error| sftp::Error { message: error.message, code: error.code, status: error.status })?;
-    state.open_local(services, connection_id, root_path, Arc::new(move |event| {
+    state.open_local(services, shellpilot_server::sftp::model::OpenRequest {
+        connection_id, root_path, access_mode: access_mode.unwrap_or_default(), sudo_password,
+    }, Arc::new(move |event| {
         let _ = on_event.send(event);
     })).await
 }

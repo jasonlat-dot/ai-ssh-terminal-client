@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
-import type { SftpEntry, SftpTransfer } from '../api/sftp';
+import type { SftpAccessMode, SftpEntry, SftpTransfer } from '../api/sftp';
 import { sftpApi } from '../api/sftp';
 import { useSftp } from '../state/useSftp';
 import { isTauriRuntime } from '../state/runtime';
 import { formatBytes, remoteParent, transferPercent, transferStatus } from '../state/sftp';
 import { AccentIcon, Badge, Icon, IconButton, Modal, fileTone } from './Ui';
+import { Select } from './Select';
 import './SftpFileManager.css';
 
 const LOCAL_PATH_DRAG_TYPE = 'application/x-agent-ssh-local-path';
@@ -180,6 +181,9 @@ export function SessionFiles({ connectionId, title, visible, minimize, remove, c
   // This controller remains mounted while minimized, independently of terminal tabs.
   const files = useSftp(connectionId);
   const [root, setRoot] = useState('');
+  const [accessMode, setAccessMode] = useState<SftpAccessMode>('login');
+  const [sudoPassword, setSudoPassword] = useState('');
+  const [accessEditing, setAccessEditing] = useState(false);
   const [localSelected, setLocalSelected] = useState('');
   const [remoteSelected, setRemoteSelected] = useState('');
   const [conflict, setConflict] = useState<'FAIL' | 'SKIP' | 'REPLACE'>('FAIL');
@@ -190,6 +194,8 @@ export function SessionFiles({ connectionId, title, visible, minimize, remove, c
   const [deleting, setDeleting] = useState(false);
   const deleteConfirmRef = useRef<HTMLButtonElement>(null);
   const ready = files.phase === 'ready';
+
+  useEffect(() => { if (!visible) setSudoPassword(''); }, [visible]);
 
   // 注册到父组件的“应用关闭前”清理队列。
   // - 仅在可见时（文件窗口还存在）注册；最小化也算存在，只有真正关闭才走 files.close()
@@ -274,8 +280,25 @@ export function SessionFiles({ connectionId, title, visible, minimize, remove, c
   if (!visible) return null;
   return <Modal title={`文件管理 · ${title}`} onClose={() => { if (deleteTarget && !deleting) setDeleteTarget(null); else if (transfersOpen) setTransfersOpen(false); else minimize(); }} className="sftp-modal" dismissDisabled={deleting}>
     <div className="session-file-panel sftp-manager">
-      <div className="sftp-session-bar"><span><i className={`status-dot ${ready ? '' : 'offline'}`} />{ready ? `${files.connection} · 目标 ${files.remotePath}` : files.phase === 'opening' ? '正在建立文件管理连接…' : files.phase === 'closed' ? '文件管理会话已结束' : '使用已保存的 SSH 配置连接'}</span><div className="inline-actions"><button className="file-mini-action" disabled={files.phase === 'opening' || files.phase === 'closing'} onClick={async () => { if (await files.close()) remove(); }}>{files.phase === 'closing' ? '正在关闭…' : '结束文件会话'}</button></div></div>
-      {!ready && files.phase !== 'closing' && <form className="sftp-connect" onSubmit={event => { event.preventDefault(); void files.open(root); }}><label>远程根目录<input value={root} onChange={event => setRoot(event.target.value)} placeholder="留空使用账号默认目录；/ 浏览整个文件系统" disabled={files.phase === 'opening'} /></label><button className="primary-button" disabled={files.phase === 'opening'}>{files.phase === 'opening' ? '连接中…' : files.phase === 'closed' ? '重新打开会话' : '连接文件管理'}</button></form>}
+      <div className="sftp-session-bar"><span><i className={`status-dot ${ready ? '' : 'offline'}`} />{ready ? `${files.connection} · 访问账号 ${files.session?.accessUsername} ${files.session?.accessMode === 'sudoRoot' ? `（${files.session.loginUsername} 经 sudo）` : ''} · 目标 ${files.remotePath}` : files.phase === 'opening' ? '正在建立文件管理连接…' : files.phase === 'closed' ? '文件管理会话已结束' : '使用已保存的 SSH 配置连接'}</span><div className="inline-actions">{ready && <button className="file-mini-action" disabled={files.working || activeTransfers > 0} title={activeTransfers > 0 ? '请先完成或取消传输，再切换访问账号' : '重新连接文件管理，选择普通账号或 root 访问'} onClick={() => { setAccessEditing(value => !value); setSudoPassword(''); }}>切换访问账号</button>}<button className="file-mini-action" disabled={files.phase === 'opening' || files.phase === 'closing'} onClick={async () => { setSudoPassword(''); if (await files.close()) remove(); }}>{files.phase === 'closing' ? '正在关闭…' : '结束文件会话'}</button></div></div>
+      {(!ready || accessEditing) && files.phase !== 'closing' && <form className={`sftp-connect ${accessMode === 'sudoRoot' ? 'with-sudo' : ''}`} onSubmit={event => {
+        event.preventDefault();
+        if (files.working || activeTransfers > 0) { notify('请先完成或取消传输，再切换访问账号', 'error'); return; }
+        const password = sudoPassword;
+        setSudoPassword('');
+        setRemoteSelected('');
+        void files.open(root, accessMode, accessMode === 'sudoRoot' ? password : undefined).then(success => {
+          if (success) { setAccessEditing(false); notify(accessMode === 'sudoRoot' ? '已使用 root 权限连接文件管理' : '已使用 SSH 登录账号连接文件管理', 'success'); }
+        });
+      }}>
+        <div className="sftp-connect-fields">
+          <label className="sftp-access-choice"><span className="sftp-field-label"><Icon name="user" size={13} />访问身份</span><Select<SftpAccessMode> value={accessMode} label="文件访问身份" className="sftp-access-select" menuClassName="sftp-access-menu" menuMinWidth={220} disabled={files.phase === 'opening'} onChange={value => { setAccessMode(value); setSudoPassword(''); }} options={[{ value: 'login', label: 'SSH 登录账号' }, { value: 'sudoRoot', label: 'root（通过 sudo）' }]} /></label>
+          {accessMode === 'sudoRoot' && <label className="sftp-password-field"><span className="sftp-field-label"><Icon name="key" size={13} />sudo 密码<small>可选</small></span><input type="password" autoComplete="off" value={sudoPassword} onChange={event => setSudoPassword(event.target.value)} placeholder="登录账号密码，免密可留空" disabled={files.phase === 'opening'} /></label>}
+          <label className="sftp-root-field"><span className="sftp-field-label"><Icon name="folder" size={13} />远程根目录</span><input value={root} onChange={event => setRoot(event.target.value)} placeholder="默认目录留空，浏览全部填 /" disabled={files.phase === 'opening'} /></label>
+          <button className="primary-button" disabled={files.phase === 'opening' || files.working || activeTransfers > 0}><Icon name={files.phase === 'opening' || ready ? 'refresh' : 'power'} size={14} />{files.phase === 'opening' ? '连接中…' : ready ? '切换并重连' : files.phase === 'closed' ? '重新打开会话' : '连接文件管理'}</button>
+        </div>
+        <div className="sftp-access-hint"><Icon name="bulb" size={13} /><span>独立 SFTP 连接，终端中的 su / sudo 不会切换文件账号。{accessMode === 'sudoRoot' && <small>密码仅在会话内存中保留；服务器需允许 sudo 并安装 sftp-server。</small>}</span></div>
+      </form>}
       <div className={`sftp-native-drop ${nativeDragActive ? 'visible' : ''}`} aria-hidden={!nativeDragActive}><span><Icon name="upload" size={28} /></span><strong>{ready ? `释放以上传到 ${files.remotePath}` : '请先连接文件管理'}</strong><small>支持文件和文件夹，可一次拖入多项</small></div>
       <section className="dual-file-explorer" aria-label="本地与远程文件">
         <FileSource side="local" title="本地系统" path={files.local?.path ?? ''} parent={files.local?.parent ?? null} roots={files.local?.roots ?? []} entries={files.local?.entries ?? []} loading={files.localLoading} enabled selected={localSelected} select={setLocalSelected} browse={path => { setLocalSelected(''); void files.loadLocal(path); }} create={(kind, name) => kind === 'directory' ? files.mkdir('local', name) : files.createFile('local', name)} requestDelete={entry => setDeleteTarget({ side: 'local', entry })} copy={copy} dragStart={setDraggingLocalPath} dragEnd={() => setDraggingLocalPath('')} />

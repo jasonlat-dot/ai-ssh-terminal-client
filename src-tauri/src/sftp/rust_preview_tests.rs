@@ -35,7 +35,9 @@ impl LiveBackend {
         request.as_object_mut().unwrap().remove("encrypted");
         let connection = self.services.store.save(serde_json::from_value(request).unwrap(), false).unwrap();
         let opened = state.open_local(
-            self.services.clone(), connection.connection_id, Some("/home".into()),
+            self.services.clone(), shellpilot_server::sftp::model::OpenRequest {
+                connection_id: connection.connection_id, root_path: Some("/home".into()), ..Default::default()
+            },
             Arc::new(move |event| events.lock().unwrap().push(event)),
         ).await.unwrap();
         opened["sftpSessionId"].as_str().unwrap().into()
@@ -52,6 +54,33 @@ impl LiveBackend {
 #[tokio::test]
 async fn native_bridge_round_trips_real_rust_sftp_nested_empty_and_unicode_files() {
     round_trip(LiveBackend::new().await).await;
+}
+#[tokio::test]
+async fn native_bridge_preserves_explicit_root_access_identity_and_secret() {
+    let backend = LiveBackend::native().await;
+    *backend.fixture.root_access.lock().unwrap() = protocol::RootAccess::Password;
+    let state = State::default();
+    let login_id = backend.open(&state, Arc::new(Mutex::new(vec![]))).await;
+    let login = backend.services.sftp.session_view(&login_id).unwrap();
+    let root = state.open_local(backend.services.clone(), shellpilot_server::sftp::model::OpenRequest {
+        connection_id: login.connection_id,
+        access_mode: shellpilot_server::sftp::model::AccessMode::SudoRoot,
+        sudo_password: Some("sudo-test-password".into()),
+        ..Default::default()
+    }, Arc::new(|_| {})).await.unwrap();
+    let id = root["sftpSessionId"].as_str().unwrap();
+    assert_eq!(root["loginUsername"], "tester");
+    assert_eq!(root["accessUsername"], "root");
+    assert_eq!(root["accessMode"], "sudoRoot");
+    assert_eq!(root["rootPath"], "/root");
+    assert!(!root.to_string().contains("sudo-test-password"));
+    state.create_file(id, "/root/private").await.unwrap();
+    let entries = state.entries(id, "/root").await.unwrap();
+    assert_eq!(entries[0]["name"], "private");
+    assert_eq!(backend.services.sftp.session_view(&login_id).unwrap().access_username, "tester");
+    state.close(id).await.unwrap();
+    state.close(&login_id).await.unwrap();
+    backend.shutdown().await;
 }
 #[tokio::test]
 async fn native_direct_services_round_trip_without_an_http_listener() {

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { sftpApi, SftpError } from '../api/sftp';
-import type { LocalDirectory, SftpEntry, SftpEvent, SftpSession, SftpTransfer } from '../api/sftp';
+import type { LocalDirectory, SftpAccessMode, SftpEntry, SftpEvent, SftpSession, SftpTransfer } from '../api/sftp';
 import { mergeTask, remoteChild } from './sftp';
 
 export function useSftp(connectionId: string) {
@@ -143,22 +143,24 @@ export function useSftp(connectionId: string) {
     };
   }, [loadLocal]);
 
-  const open = async (root: string) => {
-    if (phase === 'opening' || phase === 'closing') return;
+  const open = async (root: string, accessMode: SftpAccessMode = 'login', sudoPassword?: string) => {
+    if (phase === 'opening' || phase === 'closing') return false;
     const version = ++generation.current;
     setPhase('opening'); setError('');
     try {
       const previous = sessionRef.current;
       if (previous) await sftpApi.close(previous.sftpSessionId);
       sessionRef.current = null;
+      setSession(null); setRemotePath('');
       setTasks([]); setTaskErrors({}); setLocalBytes({}); setEntries([]);
-      const current = await sftpApi.open(connectionId, root, event => { if (version === generation.current) receive(event); });
-      if (!mounted.current || version !== generation.current) { await sftpApi.close(current.sftpSessionId); return; }
+      const current = await sftpApi.open(connectionId, root, event => { if (version === generation.current) receive(event); }, accessMode, sudoPassword);
+      if (!mounted.current || version !== generation.current) { await sftpApi.close(current.sftpSessionId); return false; }
       sessionRef.current = current;
       setSession(current); setPhase('ready');
       await loadRemote(current.rootPath, current);
       void refreshTasks();
-    } catch (e) { fail(e); if (mounted.current) setPhase('closed'); }
+      return true;
+    } catch (e) { fail(e); if (mounted.current) setPhase('closed'); return false; }
   };
   const close = async (): Promise<boolean> => {
     setPhase('closing');
