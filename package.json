@@ -1,8 +1,8 @@
 {
   "name": "ai-ssh-terminal-client",
-  "displayName": "ShellPilot-Rust-Preview",
+  "displayName": "ShellPilot",
   "private": true,
-  "version": "0.4.0",
+  "version": "0.2.0",
   "type": "module",
   "scripts": {
     "prepare:icons": "node scripts/prepare-app-icons.mjs",

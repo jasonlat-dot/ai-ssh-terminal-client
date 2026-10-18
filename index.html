@@ -4,8 +4,8 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/icon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#f2f7ff" />
-    <meta name="description" content="ShellPilot 智能终端客户端 · 前端演示" />
+    <meta name="theme-color" content="#f7faff" />
+    <meta name="description" content="ShellPilot 智能终端与 Agent 协作工作区" />
     <title>ShellPilot</title>
     <script>
       try {
@@ -15,63 +15,34 @@
         document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
       } catch (_) {}
     </script>
+    <link rel="stylesheet" href="/src/components/StartupScreen.css" />
     <style>
-      :root { --boot-bg: #f2f7ff; --boot-panel: #ffffff; --boot-soft: #f7faff; --boot-line: #e2eaf7; --boot-text: #12234e; --boot-muted: #7184b1; --boot-blue: #2675ff; --boot-shadow: #cadef638; background: var(--boot-bg); }
-      :root[data-theme='dark'] { --boot-bg: #0c1320; --boot-panel: #172233; --boot-soft: #111c2b; --boot-line: #26364a; --boot-text: #dce8f6; --boot-muted: #aec0d4; --boot-blue: #68a7ff; --boot-shadow: #02071152; }
       * { box-sizing: border-box; }
       html, body, #root { width: 100%; height: 100%; margin: 0; }
-      body { overflow: hidden; background: var(--boot-bg); }
-      .boot-fallback {
-        display: grid;
-        width: 100%;
-        height: 100dvh;
-        grid-template-rows: 68px minmax(0, 1fr) 36px;
-        color: var(--boot-text);
-        background: var(--boot-bg);
-        font-family: var(--font-ui, 'Segoe UI', 'Microsoft YaHei UI', 'Microsoft YaHei', 'PingFang SC', 'Noto Sans CJK SC', sans-serif);
-        font-size: 13px;
-        line-height: 1.6;
-      }
-      .boot-header { display: flex; align-items: center; padding: 0 28px; border-bottom: 1px solid var(--boot-line); background: var(--boot-panel); }
-      .boot-brand { display: flex; align-items: center; gap: 12px; }
-      .boot-mark { display: block; width: 36px; height: 36px; flex-shrink: 0; object-fit: contain; }
-      .boot-brand > span:last-child { display: flex; flex-direction: column; }
-      .boot-brand strong { font-size: 18px; font-weight: 600; letter-spacing: -.2px; }
-      .boot-brand small { margin-top: 2px; color: var(--boot-muted); font-size: 11px; }
-      .boot-main { display: grid; min-height: 0; place-items: center; padding: 32px 24px; overflow: auto; }
-      .boot-panel { display: flex; align-items: flex-start; flex-direction: column; width: min(760px, 100%); gap: 20px; padding: 32px; border: 1px solid var(--boot-line); border-radius: 12px; background: var(--boot-panel); box-shadow: 0 6px 22px var(--boot-shadow); }
-      .boot-icon { display: grid; width: 46px; height: 46px; place-items: center; border: 1px solid color-mix(in srgb, var(--boot-blue) 25%, var(--boot-line)); border-radius: 10px; background: color-mix(in srgb, var(--boot-blue) 10%, var(--boot-panel)); }
-      .boot-icon img { width: 24px; height: 24px; }
-      .boot-copy { padding-top: 1px; }
-      .boot-status { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; color: var(--boot-muted); font-size: 11px; font-weight: 500; }
-      .boot-status i { width: 7px; height: 7px; border-radius: 50%; background: var(--boot-blue); }
-      .boot-copy h1 { margin: 0; color: var(--boot-text); font-size: 26px; font-weight: 600; line-height: 1.35; letter-spacing: -.4px; }
-      .boot-copy > p:last-child { margin: 12px 0 0; color: var(--boot-muted); font-size: 14px; line-height: 1.75; }
-      .boot-footer { display: flex; align-items: center; justify-content: center; padding: 0 24px; color: var(--boot-muted); font-size: 11px; }
-      @media (max-width: 640px) { .boot-header { padding: 0 16px; } .boot-brand small { display: none; } .boot-main { padding: 20px 16px; } .boot-panel { padding: 24px 20px; } .boot-copy h1 { font-size: 23px; } }
+      body { overflow: hidden; background: #f7faff; }
+      :root[data-theme='dark'] body { background: #0c1725; }
     </style>
   </head>
 
   <body>
     <div id="root">
-      <main class="boot-fallback" aria-live="polite" aria-busy="true">
-        <header class="boot-header">
-          <div class="boot-brand">
-            <img class="boot-mark" src="/agent-ssh-header.svg" alt="" />
-            <span><strong>ShellPilot</strong><small>智能远程开发助手</small></span>
-          </div>
-        </header>
-        <section class="boot-main">
-          <div class="boot-panel">
-            <div class="boot-icon"><img src="/agent-ssh-header.svg" alt="" /></div>
-            <div class="boot-copy">
-              <p class="boot-status"><i></i>正在载入</p>
-              <h1>正在初始化客户端</h1>
-              <p>正在准备窗口与本地运行环境…</p>
+      <main class="startup-screen is-checking" aria-busy="true">
+        <header class="startup-header"><span class="startup-header-wordmark">ShellPilot<span class="startup-header-dot"></span></span></header>
+        <div class="startup-main">
+          <section class="startup-content" aria-labelledby="startup-title">
+            <div class="startup-symbol" aria-hidden="true">
+              <svg class="startup-wire" viewBox="0 0 400 260" fill="none">
+                <g class="startup-orbit" stroke="currentColor" stroke-width="1"><ellipse cx="200" cy="130" rx="158" ry="88" stroke-dasharray="2 9" /><path d="M18 132h65m234 0h65M200 14v34m0 164v34" /></g>
+                <g class="startup-frame" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M153 66h92c14 0 25 11 25 25v78c0 14-11 25-25 25h-92c-14 0-25-11-25-25V91c0-14 11-25 25-25Z" /><path class="startup-frame-inner" d="M144 88h111m-111 3v76c0 7 5 12 12 12h88" /><path class="startup-chevron" d="m162 111 21 19-21 19" stroke-width="5" /><path class="startup-command-cursor" d="M203 149h29" stroke-width="5" /></g>
+              </svg>
+              <span class="startup-symbol-halo"></span>
             </div>
-          </div>
-        </section>
-        <footer class="boot-footer"><span>本地客户端 · ShellPilot</span></footer>
+            <h1 id="startup-title">Shell<span>Pilot</span><span class="startup-wordmark-cursor" aria-hidden="true">_</span></h1>
+            <p class="startup-tagline">让思路沿着终端，走到答案</p>
+            <div class="startup-readiness" role="status" aria-live="polite"><span class="startup-status-title"><i></i>正在准备你的工作区</span><div class="startup-progress" aria-hidden="true"><span></span></div><p class="startup-status-message">正在载入客户端…</p></div>
+          </section>
+        </div>
+        <footer class="startup-footer"><span>你的终端协作空间</span><span>SSH <i></i> SFTP <i></i> AGENT</span></footer>
       </main>
     </div>
     <script type="module" src="/src/main.tsx"></script>

@@ -50,6 +50,11 @@
 .workspace-sidebar .host-sidebar.collapsed > footer { display: none; }
 .agent-desktop > .agent-panel { grid-column: 3; grid-row: 2; margin: 10px 6px 10px 0; min-width: 0; }
 .agent-desktop .conversation-card { border-radius: 12px; }
+.agent-desktop .agent-mode-note {
+  align-self: flex-start; width: fit-content; max-width: calc(100% - 24px);
+  flex-wrap: wrap; margin: 6px 12px 0; padding: 3px 0;
+  background: transparent; color: var(--theme-text-muted);
+}
 .agent-desktop .conversation-card > header { min-height: 64px; padding: 12px 16px; }
 .agent-desktop .chat-messages { padding: 20px clamp(14px, 3vw, 44px); }
 .agent-desktop .chat-messages > * { width: 100%; max-width: 850px; margin-inline: auto; }

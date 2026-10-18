@@ -76,11 +76,11 @@ export function ModelSettings({ changed, locked = false }: { changed?: () => voi
   return <section className="model-settings" aria-label="模型设置">
     <div className="model-workspace" inert={confirmDelete}>
       <aside className="model-profiles" aria-label="模型配置列表">
-        <div className="model-profiles-heading"><strong>我的模型</strong><span>{profiles.length}</span></div>
+        <div className="model-profiles-heading"><strong className="ui-icon-heading ui-icon-heading--compact"><AccentIcon icon="bot" tone="violet" size={14}/>我的模型</strong><span>{profiles.length}</span></div>
         <button type="button" className="model-create" disabled={disabled} onClick={() => select(null)}><Icon name="plus" size={15}/>新建配置</button>
         <div className="model-profile-items">
           {busy && !profiles.length ? <div className="model-loading" role="status"><i/><i/><i/><span>正在读取配置…</span></div> : profiles.length ? profiles.map(p => <button type="button" className={`model-profile ${editing?.id === p.id ? 'selected' : ''}`} key={p.id} aria-pressed={editing?.id === p.id} disabled={disabled} onClick={() => select(p)}>
-            <span className="model-profile-icon"><Icon name="bot" size={18}/></span><span className="model-profile-info"><strong>{p.displayName ?? p.id}</strong><small>{p.config.model}</small><span className={`model-profile-state ${p.ready ? 'ready' : ''}`}><i/>{p.ready ? '已配置' : '需要密钥'}</span></span><Icon name="right" size={14}/>
+            <AccentIcon className="model-profile-icon" icon="bot" tone="violet" size={16}/><span className="model-profile-info"><strong title={p.displayName ?? p.id}>{p.displayName ?? p.id}</strong><small title={p.config.model}>{p.config.model}</small><span className={`model-profile-state ${p.ready ? 'ready' : ''}`}><i/>{p.ready ? '已配置' : '需要密钥'}</span></span><Icon name="right" size={12}/>
           </button>) : <div className="model-list-empty"><Icon name="bot" size={26}/><strong>添加第一个模型</strong><p>填写连接信息后，即可开始对话。</p></div>}
         </div>
         <p className="model-profile-note"><Icon name="key" size={14}/>密钥加密保存在本机</p>
@@ -132,11 +132,11 @@ export function ModelSettings({ changed, locked = false }: { changed?: () => voi
         </div>
         <footer className="model-editor-footer">
             {editing && <button type="button" className="model-delete-button" disabled={disabled} onClick={() => { setError(''); setConfirmDelete(true); }}><Icon name="trash" size={15}/>删除</button>}
-            <span className="model-save-hint">保存后用于后续对话</span><button className="model-save-button" type="submit" disabled={disabled}><Icon name={busy ? 'refresh' : 'check'} size={16}/>{busy ? '处理中…' : '保存配置'}</button>
+            <span className="model-save-hint">保存后用于后续对话</span><button className="model-save-button primary-button" type="submit" disabled={disabled}><Icon name={busy ? 'refresh' : 'check'} size={16}/>{busy ? '处理中…' : '保存配置'}</button>
         </footer>
       </form>
     </div>
-    {confirmDelete && editing && createPortal(<Modal title="删除模型配置？" className="model-delete-dialog" dismissDisabled={busy} onClose={() => { if (!busy) setConfirmDelete(false); }}>
+    {confirmDelete && editing && createPortal(<Modal icon="trash" iconTone="danger" title="删除模型配置？" className="model-delete-dialog" dismissDisabled={busy} onClose={() => { if (!busy) setConfirmDelete(false); }}>
       <strong>{editing.displayName ?? editing.id}</strong><p>此模型配置将被删除，已有历史会话会保留。</p>
       {error && <p className="form-error" role="alert">{error}</p>}
       <footer><button type="button" data-autofocus className="outlined-button" disabled={busy} onClick={() => setConfirmDelete(false)}>取消</button><button type="button" className="danger-button" disabled={disabled} onClick={() => void remove()}>{busy ? '正在删除…' : '确认删除'}</button></footer>

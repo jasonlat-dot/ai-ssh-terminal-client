@@ -1,7 +1,8 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
-import type { PointerEvent, RefObject } from 'react';
-import type { StartupPhase } from './StartupScreen';
+import type { PointerEvent } from 'react';
 import { Icon } from './Ui';
+import { TerminalWelcomeParticles } from './TerminalWelcomeParticles';
+import './TerminalWelcomeDemo.css';
 
 type DialogueScene = {
   phase: number;
@@ -26,11 +27,6 @@ const outputRows = [
 ];
 const flowPhases = ['提出问题', 'Agent 执行', '读取结果', '回答用户'];
 const demoPhases = ['type', 'execute', 'analyze', 'done'];
-const startupSteps = [
-  { icon: 'monitor' as const, title: '加载客户端' },
-  { icon: 'server' as const, title: '启动内置服务' },
-  { icon: 'terminal' as const, title: '进入工作区' },
-];
 const initialScene: DialogueScene = {
   phase: 0, agent: false, tool: false, command: '', output: false, rows: 0,
   toolState: '准备执行', receiving: false, streaming: false, answer: false,
@@ -40,17 +36,9 @@ const completedScene: DialogueScene = {
   toolState: '已完成', receiving: false, streaming: false, answer: true,
 };
 
-/** The dialogue is a local illustration; backend startup and health remain separate. */
-export function StartupTerminalPreview({ phase, phaseLabel, message, working, motion, terminalRef }: {
-  phase: StartupPhase;
-  phaseLabel: string;
-  message: string;
-  working: boolean;
-  motion: boolean;
-  terminalRef: RefObject<HTMLDivElement | null>;
-}) {
-  const choosing = phase === 'stopped';
-  const failed = phase === 'failed';
+/** Local illustration only. Never connects, executes commands or sends model requests. */
+export function TerminalWelcomeDemo() {
+  const terminalRef = useRef<HTMLDivElement>(null);
   const visualRef = useRef<HTMLElement>(null);
   const [scene, setScene] = useState(initialScene);
   const [cycle, setCycle] = useState(0);
@@ -58,7 +46,7 @@ export function StartupTerminalPreview({ phase, phaseLabel, message, working, mo
   const [visible, setVisible] = useState(true);
   const [pageVisible, setPageVisible] = useState(() => !document.hidden);
   const [reduced, setReduced] = useState(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches);
-  const animated = motion && !reduced;
+  const animated = !reduced;
 
   useEffect(() => {
     const visual = visualRef.current;
@@ -77,7 +65,6 @@ export function StartupTerminalPreview({ phase, phaseLabel, message, working, mo
   }, []);
 
   useEffect(() => {
-    if (!choosing) return;
     if (!animated) { setScene(completedScene); setCycle(value => value + 1); return; }
     if (!visible || !pageVisible) {
       setScene(previous => ({ ...previous, streaming: false, receiving: false }));
@@ -125,7 +112,7 @@ export function StartupTerminalPreview({ phase, phaseLabel, message, working, mo
       if (timer !== undefined) clearTimeout(timer);
       resolveWait?.(false);
     };
-  }, [choosing, animated, visible, pageVisible, replayVersion]);
+  }, [animated, visible, pageVisible, replayVersion]);
 
   const resetTilt = () => {
     const visual = visualRef.current;
@@ -144,76 +131,59 @@ export function StartupTerminalPreview({ phase, phaseLabel, message, working, mo
     event.currentTarget.style.setProperty('--shift-x', `${x * 9}px`);
     event.currentTarget.style.setProperty('--shift-y', `${y * 7}px`);
   };
-  const receiving = choosing && animated && pageVisible && visible && scene.receiving;
-  const streaming = choosing && animated && pageVisible && visible && scene.streaming;
+  const receiving = animated && pageVisible && visible && scene.receiving;
+  const streaming = animated && pageVisible && visible && scene.streaming;
 
-  return <section ref={visualRef} className="startup-visual" aria-label="Agent 协作流程演示与启动进度"
+  return <div className="terminal-demo-scene" data-motion={animated ? 'on' : 'off'}>
+    <TerminalWelcomeParticles enabled={animated} burstVersion={replayVersion} terminalRef={terminalRef} />
+    <section ref={visualRef} className="terminal-demo-visual" aria-label="智能体协作流程演示"
     onPointerMove={tilt} onPointerLeave={resetTilt}>
-    <div className="startup-stage-grid" aria-hidden="true" />
-    <div className="startup-stage-line" aria-hidden="true" />
-    <span className="startup-stage-caption" aria-hidden="true">ASK → ACT → ANSWER</span>
-    <div className={`startup-ai-node${receiving ? ' is-receiving' : ''}`} aria-hidden="true">
-      <span className="startup-node-symbol"><Icon name="sparkles" size={15} /></span>AI 协作<span className="startup-node-light" />
+    <div className="terminal-demo-stage-grid" aria-hidden="true" />
+    <div className="terminal-demo-stage-line" aria-hidden="true" />
+    <span className="terminal-demo-stage-caption" aria-hidden="true">ASK → ACT → ANSWER</span>
+    <div className={`terminal-demo-ai-node${receiving ? ' is-receiving' : ''}`} aria-hidden="true">
+      <span className="terminal-demo-node-symbol"><Icon name="sparkles" size={15} /></span>AI 协作<span className="terminal-demo-node-light" />
     </div>
-    <div className="startup-ssh-node" aria-hidden="true"><Icon name="fingerprint" size={13} />SSH 远程连接</div>
-    <div className="startup-terminal" ref={terminalRef} data-demo-phase={choosing ? demoPhases[scene.phase] : 'idle'}>
-      <div className="startup-terminal-bar">
-        <span className="startup-terminal-dot" aria-hidden="true" /><span className="startup-terminal-dot" aria-hidden="true" /><span className="startup-terminal-dot" aria-hidden="true" />
-        <span className="startup-terminal-title">{choosing ? 'Agent 对话 · 演示' : `~/workspace · ${phaseLabel}`}</span>
-        <button className="startup-demo-replay" type="button" disabled={!choosing}
+    <div className="terminal-demo-ssh-node" aria-hidden="true"><Icon name="fingerprint" size={13} />SSH 远程连接</div>
+    <div className="terminal-demo-terminal" ref={terminalRef} data-demo-phase={demoPhases[scene.phase]}>
+      <div className="terminal-demo-terminal-bar">
+        <span className="terminal-demo-terminal-title">Agent 对话 · 演示</span>
+        <button className="terminal-demo-replay" type="button"
           onClick={() => setReplayVersion(version => version + 1)}>重播演示</button>
       </div>
-      <div className="startup-terminal-body">
-        {choosing ? <div className="startup-dialogue" aria-hidden="true">
-          <div className="startup-conversation" key={cycle}>
-            <div className="startup-user-question"><span>{question}</span></div>
-            {scene.agent && <div className="startup-agent-action"><span className="startup-agent-avatar">✦</span>
+      <div className="terminal-demo-terminal-body">
+        <div className="terminal-demo-dialogue" aria-hidden="true">
+          <div className="terminal-demo-conversation" key={cycle}>
+            <div className="terminal-demo-user-question"><span>{question}</span></div>
+            {scene.agent && <div className="terminal-demo-agent-action"><span className="terminal-demo-agent-avatar"><Icon name="bot" size={13} /></span>
               <span>{animated ? '我来检查各磁盘的使用情况。' : '我会检查各磁盘的容量、使用率和挂载情况。'}</span>
             </div>}
           </div>
-          {scene.tool && <div className="startup-tool-card">
-            <div className="startup-tool-caption"><span><Icon name="terminal" size={11} />SSH · execute_command</span><span className="startup-tool-state">{scene.toolState}</span></div>
-            <div className="startup-code-line"><span className="startup-prompt">❯</span><span className="startup-command">{scene.command}</span><span className="startup-cursor" /></div>
-            <div className="startup-demo-output">
-              {scene.output && <div className="startup-output-row is-header">{headers.map(value => <span key={value}>{value}</span>)}</div>}
-              {outputRows.slice(0, scene.rows).map(row => <div className="startup-output-row" key={row[0]}>
-                {row.map((value, index) => <span key={index} className={index === 3 ? 'startup-output-value' : undefined}>{value}</span>)}
+          {scene.tool && <div className="terminal-demo-tool-card">
+            <div className="terminal-demo-tool-caption"><span><Icon name="terminal" size={11} />SSH · execute_command</span><span className="terminal-demo-tool-state">{scene.toolState}</span></div>
+            <div className="terminal-demo-code-line"><span className="terminal-demo-prompt">❯</span><span className="terminal-demo-command">{scene.command}</span><span className="terminal-demo-cursor" /></div>
+            <div className="terminal-demo-output">
+              {scene.output && <div className="terminal-demo-output-row is-header">{headers.map(value => <span key={value}>{value}</span>)}</div>}
+              {outputRows.slice(0, scene.rows).map(row => <div className="terminal-demo-output-row" key={row[0]}>
+                {row.map((value, index) => <span key={index} className={index === 3 ? 'terminal-demo-output-value' : undefined}>{value}</span>)}
               </div>)}
             </div>
           </div>}
-          {scene.answer && <div className="startup-ai-strip is-complete"><Icon name="sparkles" size={14} /><div><strong>Agent · 根据执行结果</strong><small>{answer}</small></div></div>}
-          <div className="startup-agent-demo-label">对话、命令及结果均为演示</div>
-        </div> : <>
-          <div className="startup-code-line" aria-hidden="true"><span className="startup-prompt">❯</span><span className="startup-command">agent ssh --local</span><span className="startup-cursor" /></div>
-          <ol className="startup-steps" aria-label="启动进度">
-            {startupSteps.map((step, index) => {
-              const state = phase === 'ready' || (phase !== 'checking' && index === 0) ? 'done'
-                : (phase === 'checking' ? index === 0 : index === 1) ? failed ? 'failed' : 'active' : 'pending';
-              return <li key={step.title} className={`startup-code-line is-${state}`}>
-                <Icon name={state === 'done' ? 'check' : state === 'failed' ? 'alert' : step.icon} size={13} />
-                <span>{step.title}{state === 'active' ? '…' : ''}</span>
-              </li>;
-            })}
-          </ol>
-          <hr className="startup-terminal-divider" />
-          <div className={`startup-code-line startup-terminal-status${failed ? ' is-error' : ' is-dim'}`}>{message}</div>
-          <div className="startup-ai-strip" aria-hidden="true"><Icon name="sparkles" size={14} /><div>
-            <strong>{working ? '正在准备你的工作区' : failed ? '服务启动需要检查' : '让 AI 理解你的工作上下文'}</strong>
-            <small>{working ? '环境检查 → 服务初始化 → 终端就绪' : failed ? '重试启动，或直接进入客户端。' : '从命令执行到结果分析，让操作更连贯。'}</small>
-          </div></div>
-        </>}
+          {scene.answer && <div className="terminal-demo-ai-strip is-complete"><Icon name="sparkles" size={14} /><div><strong>Agent · 根据执行结果</strong><small>{answer}</small></div></div>}
+          <div className="terminal-demo-agent-demo-label">对话、命令及结果均为演示</div>
+        </div>
       </div>
     </div>
-    <div className="startup-flow-phases" aria-hidden="true">
+    <div className="terminal-demo-flow-phases" aria-hidden="true">
       {flowPhases.map((name, index) => <Fragment key={name}>
-        {index > 0 && <span className="startup-phase-connector" />}
-        <span className={`startup-flow-phase${choosing && scene.phase === index ? ' is-active' : ''}`}>{name}</span>
+        {index > 0 && <span className="terminal-demo-phase-connector" />}
+        <span className={`terminal-demo-flow-phase${scene.phase === index ? ' is-active' : ''}`}>{name}</span>
       </Fragment>)}
     </div>
-    <div className="startup-capabilities" aria-hidden="true">
+    <div className="terminal-demo-capabilities" aria-hidden="true">
       <span><Icon name="terminal" size={13} />SSH 终端</span><b>·</b><span><Icon name="sparkles" size={13} />AI 助手</span><b>·</b><span><Icon name="folder" size={13} />文件管理</span>
     </div>
-    <span className={`startup-stream-packet${streaming ? ' is-flowing' : ''}`} aria-hidden="true" />
-    <span className={`startup-stream-packet is-second${streaming ? ' is-flowing' : ''}`} aria-hidden="true" />
-  </section>;
+    <span className={`terminal-demo-stream-packet${streaming ? ' is-flowing' : ''}`} aria-hidden="true" />
+    <span className={`terminal-demo-stream-packet is-second${streaming ? ' is-flowing' : ''}`} aria-hidden="true" />
+  </section></div>;
 }

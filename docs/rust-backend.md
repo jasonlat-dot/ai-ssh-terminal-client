@@ -1,26 +1,33 @@
-# Rust 后端实验
+# ShellPilot Rust 内置架构
 
-test-rust-ui 分支接入内置 Rust 后端，当前为 ShellPilot Rust Preview 0.4.0。
+当前版本为 ShellPilot v0.2.0。完整开发与发布流程见 [README](../README.md)。
 
-安装包将 React/Tauri 界面与 shellpilot_server 库编译为同一个 Windows 程序，无需另启 server 或安装 Java/MySQL。首次启动创建独立数据和设置；内置功能全部使用 IPC，不启动本地 HTTP 服务，不占用本机监听端口。
+## 双仓库职责
 
-详见 RUST_PREVIEW_INSTALL.md。当前支持 SSH 连接配置与终端、本地 CMD、SFTP 文件管理/上传下载，以及对话附件存储、预览和原生保存。附件通过对话输入框添加，顶栏独立文件管理入口已移除；设置页可调整附件策略。
+- `ai-ssh-terminal-client`：React / TypeScript 界面，Tauri 2 原生宿主，本地 CMD、桌面 IPC、安装和更新。
+- `shell-pilot-rust`：Rust 后端库，负责 SSH、SFTP、附件、SQLite、Agent、审批、上下文、长期记忆、MCP 和 Skills。本地检出目录必须为 `ai-ssh-terminal-server-rust`，位于客户端旁边。
 
-桌面模式运行 `npm run tauri dev`，功能通过应用内部 IPC 完成；普通浏览器只预览界面，不访问外部后端。
+客户端 Cargo 路径依赖为 `../../ai-ssh-terminal-server-rust`。后端库链接进同一个桌面程序，不打包独立 server.exe、Spring Boot JAR 或 Java Runtime。最终用户不需要安装 Node、Rust、Java 或 MySQL。
 
-~~~powershell
-npm run bundle:nsis
-npm run test:files
-~~~
+`src-tauri/src/lib.rs` 使用 `embedded_backend.rs` 作为工作区宿主。功能通过 Tauri IPC 与原生 Channel 在应用内部调用，不启动 HTTP 监听；`ipc://builtin/<实例 ID>` 是内部实例标识，不是可在浏览器访问的服务地址。后端库保留的 HTTP 适配代码不代表桌面版使用 HTTP 部署。
 
-第二条命令运行附件 IPC 与队列回归，不访问用户已有附件或远端。本轮按用户要求尚未执行。
+## 状态和数据
 
-试用程序、应用标识和数据目录与 Java 版隔离，自动更新关闭。
-旧 bundled_backend.rs 留作 Java 实现参考；实际编译入口由 lib.rs 指向 embedded_backend.rs。
-后端附件协议和边界详见兄弟 Rust 后端 docs/FILES.md。
+工作区初始化、停止和重新初始化由原生宿主管理，React 订阅状态。启动页至少展示 2 秒，服务就绪后才进入工作区。
 
-内置业务现通过 invoke/Channel 调用 Rust 服务，不再提供远程后端模式、地址配置或证书配置。具体分工、启动命令与验证边界见 [ipc-transport.md](ipc-transport.md)。
+默认配置与数据位于 `%LOCALAPPDATA%/com.jasonlat.shellpilot.rust-preview/`。应用名称为 ShellPilot，保留原 Rust identifier 以继续使用现有数据。修改数据目录不会自动搬迁数据；旧 Java 数据也没有自动导入。
 
-`npm run tauri dev` 中 Vite 的 1420 端口仅用于开发，安装后的应用不需要它。本轮移除监听端口的改动由用户自行运行验证，未重新打包。
+工作区历史与工具执行事件保存在 SQLite，`logs/backend.log` 当前只记录初始化和停止。桌面版尚无完整模型/工具文件诊断日志，详见 [日志与执行记录](runtime-logs.md)。
 
-Rust 项目现为纯业务库，独立 HTTP main.rs/二进制入口已移除。业务库可单独编译和测试；运行桌面应用由 Tauri 初始化该库，无需先生成安装包。
+## 运行与发布
+
+```powershell
+npm ci
+npm run tauri dev
+```
+
+普通浏览器的 `npm run dev` 仅供界面预览，不能替代原生 IPC 联调。
+
+普通安装包使用 `npm run bundle:nsis`；签名发布使用 `npm run release:windows -- --notes docs/releases/v0.2.0.md`。正式安装版沿用客户端 GitHub Releases 更新通道及现有签名公钥，开发模式禁用更新。详见 [发布说明](client-updates.md)。
+
+支持边界及最新验收证据以兄弟后端仓库 `docs/AGENT_PROGRESS.md` 为准。历史文件中的 Rust Preview 0.4.0、AI 尚未开放、自动更新关闭等描述属于早期阶段，不作为当前版本说明。

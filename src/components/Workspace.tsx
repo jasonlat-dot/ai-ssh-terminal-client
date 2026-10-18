@@ -158,7 +158,7 @@ export function CommandShelf({ commands, category, setCategory, fill, run, copy,
   return <section className={`command-shelf ${collapsed ? 'collapsed' : ''}`} id="commands" tabIndex={-1}>
     {resize}
     <div className="command-shelf-inner" id="command-shelf-content" aria-hidden={collapsed}>
-      <div className="section-heading"><div className="panel-title"><div className="command-library-heading"><h2>常用命令</h2><small>本机持久化命令库</small></div><Badge tone="violet" className="panel-count">{commands.length}</Badge></div><button className="text-button command-add-button" onClick={add}><Icon name="plus" />新增</button></div>
+      <div className="section-heading"><div className="panel-title"><AccentIcon icon="terminal" tone="blue" size={16}/><div className="command-library-heading"><h2>常用命令</h2><small>本机持久化命令库</small></div><Badge tone="violet" className="panel-count">{commands.length}</Badge></div><button className="text-button command-add-button" onClick={add}><Icon name="plus" />新增</button></div>
       <div className="command-categories" role="tablist" aria-label="命令分类">{categoryCards.map(item => {
         const count = item === '全部' ? commands.length : commands.filter(command => command.category === item).length;
         const icon = item === '全部' ? 'terminal' : commandCategoryIcon(item);

@@ -51,7 +51,7 @@ export function AttachmentImage({file,scope,preparing=false}: {file:Pick<ChatAtt
       {url?<img src={url} alt={file.fileName} onLoad={()=>setLoadedUrl(url)} onError={()=>setResource({key,error:'图片加载失败，点击重试'})}/>:<span>{current?.error&&<span role="alert"><Icon name="refresh" size={22}/>加载失败，点击重试</span>}</span>}
       {!current?.error&&(preparing||!url||loadedUrl!==url)&&<AttachmentProgress name={file.fileName}/>}
     </button>
-    {opened===key&&url&&<Modal title={file.fileName} onClose={()=>setOpened(null)} className="chat-attachment-dialog" wide><img src={url} alt={file.fileName}/></Modal>}
+    {opened===key&&url&&<Modal icon="file" iconTone="violet" title={file.fileName} onClose={()=>setOpened(null)} className="chat-attachment-dialog" wide><img src={url} alt={file.fileName}/></Modal>}
   </div>;
 }
 export function DraftAttachments({ items, pending=[], draft, locked, report }: { pending?:readonly NativeAttachmentProgress[]; items: readonly UploadItem[]; draft: ChatAttachmentDraft; locked: boolean; report: (error: string) => void }) {
@@ -92,7 +92,7 @@ export function MessageAttachments({ files, scope }: { files: ChatAttachment[]; 
       <span className="chat-attachment-body"><strong title={file.textExcerpt?.preview ?? file.fileName}>{file.textExcerpt?.preview || file.fileName}</strong><small>{file.textExcerpt ? `${textExcerptLabel(file.textExcerpt.source)} · ${file.textExcerpt.characters} 字符` : formatFileSize(file.size)}</small></span>
     </button>
     {file.downloadUrl && file.urlExpiresAt !== undefined && <div className="chat-attachment-actions"><DownloadButton file={{ downloadUrl: file.downloadUrl, urlExpiresAt: file.urlExpiresAt }} /></div>}
-  </div>)}</div>{preview&&createPortal(<Modal title={preview.name} onClose={()=>setPreview(null)} className="chat-document-dialog" wide>
+  </div>)}</div>{preview&&createPortal(<Modal icon="file" iconTone="rose" title={preview.name} onClose={()=>setPreview(null)} className="chat-document-dialog" wide>
     <div className="chat-document-toolbar">
       <div className="chat-document-info"><Icon name="file" size={15}/><span>{preview.pdf?'PDF 文本':'文本'}</span><span>{formatFileSize(preview.size)}</span>{preview.text!==undefined&&<span>{preview.text.length?preview.text.split(/\r\n|\r|\n/).length:0} 行</span>}</div>
       {!preview.loading&&!preview.error&&preview.text!==undefined&&!preview.imageUrl&&<div className="chat-document-tools">

@@ -52,6 +52,7 @@ function composer({ upload = async file => result(file), send = async () => true
   const leaf = () => null;
   const { AgentPanel } = load('components/AgentPanel.tsx', name => {
     if (name === 'react') return hooks;
+    if (name === 'react-dom') return { createPortal: children => children };
     if (name === 'react/jsx-runtime') return { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) };
     if (name === '../state/chatAttachments') return api;
     if (name === '../api/files') return { pickNativeAttachments: async()=>{} };
@@ -60,13 +61,19 @@ function composer({ upload = async file => result(file), send = async () => true
     if (name === './Select') return { Select: leaf };
     if (name === './MarkdownMessage') return { MarkdownMessage: leaf };
     if (name === './AgentContextStatus') return { AgentContextStatus: leaf };
+    if (name === './AgentMemory') return { AgentMemoryButton: leaf };
+    if (name === './ComposerProjectPicker') return { ComposerProjectPicker: leaf };
+    if (name === './ComposerReasoningControl') return { ComposerReasoningControl: leaf };
+    if (name === './AgentExecution') return { AgentExecution: leaf, NativeToolOutput: leaf, ExecutionContext: { Provider: leaf } };
+    if (name === '../state/messageTime') return { messageTime: () => '' };
+    if (name === '../state/agentTranscript') return load('state/agentTranscript.ts', () => { throw new Error('Unexpected transcript import'); });
     if (name === './CopyMarkdownButton') return { CopyMarkdownButton: leaf };
     if (name === './CopyTextButton') return { CopyTextButton: leaf };
     if (name === './ChatAttachments') return { DraftAttachments: leaf, MessageAttachments: leaf };
     if (name === '../api/chatErrors') return { chatErrorGuidance: () => '' };
     if (name === '../state/chatMarkdown') return {};
     throw new Error(name);
-  }, { requestAnimationFrame: callback => frames.push(callback), window: { addEventListener() {}, removeEventListener() {}, setTimeout() { return 1; }, clearTimeout() {} } });
+  }, { requestAnimationFrame: callback => frames.push(callback), cancelAnimationFrame() {}, window: { addEventListener() {}, removeEventListener() {}, setTimeout() { return 1; }, clearTimeout() {} } });
   function find(predicate, node) {
     if (arguments.length === 1) node = tree;
     if (Array.isArray(node)) { for (const child of node) { const found = find(predicate, child); if (found) return found; } return; }
@@ -105,7 +112,10 @@ test('终端短文本追加而非覆盖；长文本只加入卡片，不挤占�
   assert.equal(ui.ref.current.addText(long, 'terminal'), true); ui.render(); await ui.settle();
   assert.equal(ui.input().props.value, '请解释\n短命令'); assert.equal(ui.chatDraft.getSnapshot().length, 1);
   assert.equal(ui.chatDraft.ready()[0].textExcerpt.source, 'terminal'); assert.equal(sends, 0);
-  ui.props.busy = true; ui.render(); assert.equal(ui.ref.current.addText('不能写入', 'terminal'), false);
+  ui.props.busy = true; ui.render(); assert.equal(ui.ref.current.addText('继续补充', 'terminal'), true); ui.render();
+  assert.equal(ui.input().props.value, '请解释\n短命令\n继续补充'); assert.equal(sends, 0);
+  ui.props.disabled = true; ui.render(); assert.equal(ui.ref.current.addText('不能写入', 'terminal'), false);
+  assert.equal(ui.input().props.value, '请解释\n短命令\n继续补充');
   ui.chatDraft.clear();
 });
 
@@ -120,7 +130,7 @@ test('纯文本 99 字符保留原生粘贴，100 字符使用卡片；混合短
   assert.equal(ui.input().props.value, 'before new after'); await ui.settle(); ui.chatDraft.clear();
 });
 
-test('超限错误不丢草稿、不部分加入；上传中/失败阻止发送，失败保留卡片，成功发送才清空', async () => {
+test('超限不丢草稿；上传中阻止发送，失败队列保留附件并可恢复编辑后重试', async () => {
   let resolve, sends = 0, succeed = false;
   const ui = composer({ upload: file => new Promise(done => { resolve = () => done(result(file)); }),
     send: async () => { sends++; return succeed; } });
@@ -129,9 +139,14 @@ test('超限错误不丢草稿、不部分加入；上传中/失败阻止发送�
   assert.equal(ui.chatDraft.getSnapshot().length, 0); assert.equal(ui.input().props.value, '已有问题');
   assert.ok(ui.find(node => node.props.className === 'composer-attachment-error'));
   ui.paste('x'.repeat(100)); await ui.submit(); assert.equal(sends, 0);
-  resolve(); await ui.settle(); await ui.submit();
-  assert.equal(sends, 1); assert.equal(ui.chatDraft.getSnapshot().length, 1); assert.equal(ui.input().props.value, '已有问题');
-  succeed = true; await ui.submit(); assert.equal(ui.chatDraft.getSnapshot().length, 0); assert.equal(ui.input().props.value, '');
+  resolve(); await ui.settle(); await ui.submit(); await ui.settle();
+  assert.equal(sends, 1); assert.ok(ui.find(node => node.props.className === 'composer-queue-item is-failed'));
+  assert.equal(ui.input().props.value, '');
+  ui.find(node => node.props['aria-label'] === '编辑排队消息').props.onClick(); ui.render();
+  assert.equal(ui.chatDraft.getSnapshot().length, 1); assert.equal(ui.input().props.value, '已有问题');
+  succeed = true; await ui.submit(); await ui.settle(); assert.equal(sends, 2);
+  assert.equal(ui.chatDraft.getSnapshot().length, 0); assert.equal(ui.input().props.value, '');
+  assert.ok(!ui.find(node => node.props.className?.startsWith('composer-queue-item')));
 });
 
 test('文本卡片使用紧凑摘要、字符数、准备状态及移除入口；内容按纯文本转义', () => {
@@ -139,11 +154,15 @@ test('文本卡片使用紧凑摘要、字符数、准备状态及移除入口�
   const policy = load('config/fileUpload.ts', () => { throw new Error('Unexpected import'); });
   const { DraftAttachments } = load('components/ChatAttachments.tsx', name => {
     if (name === 'react') return React;
+    if (name === 'react-dom') return { createPortal: children => children };
     if (name === 'react/jsx-runtime') return runtime;
     if (name.endsWith('.css')) return {};
     if (name === '../state/chatAttachments') return api;
     if (name === '../config/fileUpload') return policy;
     if (name === './DownloadButton') return { DownloadButton: () => null };
+    if (name === './CopyTextButton') return { CopyTextButton: () => null };
+    if (name === '../api/agent') return { agentApi: {} };
+    if (name === '../api/files') return { readNativeAttachmentPreview() {} };
     if (name === './Ui') return { fileTone: () => 'blue', Icon: () => React.createElement('svg'),
       Badge: ({ children }) => React.createElement('span', null, children), IconButton: ({ label }) => React.createElement('button', { 'aria-label': label }) };
     throw new Error(name);

@@ -1,150 +1,78 @@
-import { useEffect, useRef, useState } from 'react';
-import type { PointerEvent } from 'react';
 import { Icon } from './Ui';
 import { dragAppWindow } from '../state/appWindow';
 import { WindowControls } from './WindowControls';
-import { StartupParticles } from './StartupParticles';
-import { StartupTerminalPreview } from './StartupTerminalPreview';
-import { isBuiltinEndpoint } from '../config/backend';
 import './StartupScreen.css';
 
 export type StartupPhase = 'checking' | 'starting' | 'ready' | 'failed' | 'stopped';
 export type StartupHealthState = 'idle' | 'probing' | 'up' | 'down' | 'error';
-
 export type StartupHealth = {
-  state: StartupHealthState;
-  backendUrl: string;
-  latencyMs: number | null;
-  message: string | null;
-  checkedAt: string | null;
+  state: StartupHealthState; backendUrl: string; latencyMs: number | null;
+  message: string | null; checkedAt: string | null;
+};
+type Props = {
+  exiting?: boolean;
+  phase: StartupPhase; message: string; logDirectory: string | null;
+  retrying: boolean; onRetry: () => void; onStart: () => void; starting: boolean;
+  health: StartupHealth; onRecheckHealth: () => void;
 };
 
-type StartupScreenProps = {
-  phase: StartupPhase;
-  message: string;
-  logDirectory: string | null;
-  retrying: boolean;
-  onRetry: () => void;
-  onContinue: () => void;
-  onStart?: () => void;
-  starting?: boolean;
-  health?: StartupHealth;
-  onRecheckHealth?: () => void;
-  rechecking?: boolean;
-};
-
-function phaseCopy(phase: StartupPhase) {
-  if (phase === 'failed') return { label: '启动失败', title: '本地工作区初始化失败' };
-  if (phase === 'ready') return { label: '启动完成', title: '正在进入工作区' };
-  if (phase === 'stopped') return { label: '选择工作方式', title: '开始使用 ShellPilot Rust' };
-  if (phase === 'checking') return { label: '正在检查', title: '正在检查运行环境' };
-  return { label: '正在启动', title: '正在初始化本地工作区' };
+/** A geometric terminal silhouette, not an embedded application icon. */
+export function StartupMark() {
+  return <div className="startup-symbol" aria-hidden="true">
+    <svg className="startup-wire" viewBox="0 0 400 260" fill="none">
+      <g className="startup-orbit" stroke="currentColor" strokeWidth="1">
+        <ellipse cx="200" cy="130" rx="158" ry="88" strokeDasharray="2 9" />
+        <path d="M18 132h65m234 0h65M200 14v34m0 164v34" />
+        <path d="M70 62l39 23m182 91 39 23M70 198l39-23m182-91 39-23" />
+      </g>
+      <g className="startup-frame" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M153 66h92c14 0 25 11 25 25v78c0 14-11 25-25 25h-92c-14 0-25-11-25-25V91c0-14 11-25 25-25Z" />
+        <path className="startup-frame-inner" d="M144 88h111m-111 3v76c0 7 5 12 12 12h88" />
+        <path className="startup-chevron" d="m162 111 21 19-21 19" strokeWidth="5" />
+        <path className="startup-command-cursor" d="M203 149h29" strokeWidth="5" />
+      </g>
+      <g className="startup-points" fill="currentColor">
+        <circle cx="41" cy="132" r="2.5" /><circle cx="330" cy="61" r="2" />
+        <circle cx="200" cy="29" r="2" /><circle cx="357" cy="132" r="2.5" />
+        <circle cx="70" cy="198" r="2" /><circle cx="200" cy="232" r="2" />
+      </g>
+    </svg>
+    <span className="startup-orbit-particle is-one" /><span className="startup-orbit-particle is-two" />
+    <span className="startup-symbol-halo" />
+  </div>;
 }
 
-function healthLabel(health: StartupHealth | undefined) {
-  if (!health || health.state === 'idle') return '检查工作区';
-  if (health.state === 'probing') return '正在检查…';
-  if (health.state === 'up') return health.latencyMs == null ? '工作区正常' : `工作区正常 · ${health.latencyMs} ms`;
-  return '工作区尚未就绪';
-}
-
-export function StartupScreen({ phase, message, logDirectory, retrying, onRetry, onContinue, onStart, starting, health, onRecheckHealth, rechecking }: StartupScreenProps) {
-  const copy = phaseCopy(phase);
+export function StartupScreen({ phase, message, logDirectory, retrying, onRetry, onStart, starting, health, onRecheckHealth, exiting = false }: Props) {
   const failed = phase === 'failed';
-  const choosing = phase === 'stopped';
-  const busy = phase === 'checking' || phase === 'starting';
-  const locked = busy || !!starting || retrying;
-  const terminalRef = useRef<HTMLDivElement>(null);
-  const [motion, setMotion] = useState(() => !window.matchMedia('(prefers-reduced-motion: reduce)').matches);
-  const [burstVersion, setBurstVersion] = useState(0);
-  useEffect(() => {
-    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)');
-    const change = () => setMotion(!reduce.matches);
-    reduce.addEventListener('change', change);
-    return () => reduce.removeEventListener('change', change);
-  }, []);
-  const start = () => {
-    setBurstVersion(version => version + 1);
-    if (failed) onRetry();
-    else onStart?.();
-  };
-  const highlightChoice = (event: PointerEvent<HTMLButtonElement>) => {
-    if (event.pointerType === 'touch') return;
-    const b = event.currentTarget.getBoundingClientRect();
-    event.currentTarget.style.setProperty('--hover-x', `${event.clientX - b.left}px`);
-    event.currentTarget.style.setProperty('--hover-y', `${event.clientY - b.top}px`);
-  };
-
-  return <main className={`startup-screen is-${phase}${locked ? ' is-working' : ''}`} data-motion={motion ? 'on' : 'off'}>
+  const stopped = phase === 'stopped';
+  const busy = phase === 'checking' || phase === 'starting' || retrying || starting;
+  const title = failed ? '工作区暂未就绪' : stopped ? '准备好，开始新的会话' : phase === 'ready' ? '工作区已就绪' : '正在准备你的工作区';
+  return <main className={`startup-screen is-${phase}${exiting ? ' is-exiting' : ''}`}>
     <header className="startup-header" onMouseDown={dragAppWindow}>
-      <div className="startup-brand">
-        <img className="startup-brand-mark" src="/agent-ssh-header.svg" alt="" draggable={false} />
-        <span><strong>ShellPilot</strong><small>智能远程开发助手</small></span>
-      </div>
-      <div className="startup-header-actions">
-        <label className="startup-motion-control" data-no-window-drag>
-          <input type="checkbox" checked={motion} onChange={event => setMotion(event.target.checked)} aria-label="背景动效" />动效
-        </label>
-        {onRecheckHealth && <button type="button" className="startup-health-button"
-          data-state={health?.state || 'idle'}
-          onClick={onRecheckHealth} aria-busy={!!rechecking || health?.state === 'probing'}
-          title={health?.backendUrl ? `${isBuiltinEndpoint(health.backendUrl) ? '本地工作区' : health.backendUrl} · ${health.message || ''} · ${health.checkedAt ? new Date(health.checkedAt).toLocaleString() : '尚未检查'}` : '检查工作区是否就绪'}>
-          <Icon name={health?.state === 'up' ? 'check' : 'refresh'} size={16} /><span>{healthLabel(health)}</span>
-        </button>}
-        <WindowControls />
-      </div>
+      <span className="startup-header-wordmark">ShellPilot<span className="startup-header-dot" /></span>
+      <WindowControls />
     </header>
-
     <div className="startup-main">
-      <StartupParticles enabled={motion} burstVersion={burstVersion} terminalRef={terminalRef} />
-      <div className="startup-ambient" aria-hidden="true" />
-      <div className="startup-ambient is-secondary" aria-hidden="true" />
-      <div className="startup-layout">
-        <section className="startup-content" aria-labelledby="startup-title" aria-busy={locked}>
-          <div className="startup-eyebrow"><span />YOUR WORKSPACE, CONNECTED</div>
-          <h1 id="startup-title">一个终端，<br /><em>连接更多可能。</em></h1>
-          <p className="startup-intro">远程连接、文件管理与 AI 协作，在一个工作区中完成。选择工作方式，即刻开始。</p>
-          <div className="startup-choices" aria-label="启动方式">
-            {(onStart || failed) && <button type="button" className="startup-choice is-recommended"
-              onClick={start} onPointerMove={highlightChoice} disabled={locked || phase === 'ready'}>
-              <span className="startup-option-icon"><Icon name={failed ? 'refresh' : 'server'} size={16} /></span>
-              <span className="startup-choice-text">
-                <span className="startup-choice-title">{retrying ? '正在重试…' : busy || starting ? '正在启动…' : failed ? '重试启动' : '打开本地工作区'}
-                  {!failed && <span className="startup-recommended-badge">推荐</span>}
-                </span>
-                <span className="startup-choice-copy">{failed ? '重新检查环境并初始化工作区' : '直接使用应用内的 SSH 与文件管理'}</span>
-              </span>
-              <Icon name="upRight" size={16} className="startup-choice-arrow" />
-            </button>}
-            <button type="button" className="startup-choice is-client" onClick={onContinue}
-              onPointerMove={highlightChoice} disabled={locked || phase === 'ready'}>
-              <span className="startup-option-icon"><Icon name="monitor" size={16} /></span>
-              <span className="startup-choice-text">
-                <span className="startup-choice-title">直接进入客户端</span>
-                <span className="startup-choice-copy">先使用本地终端，稍后初始化工作区</span>
-              </span>
-              <Icon name="upRight" size={16} className="startup-choice-arrow" />
-            </button>
-          </div>
-          <div className="startup-hint">
-            <Icon name="settings" size={16} /><span>{choosing ? '进入后可随时在设置中切换服务方式。'
-              : failed ? '可先进入客户端使用本地终端，再到设置中检查工作区。'
-                : '启动完成后将自动进入工作区。'}</span>
-          </div>
-          <div className="startup-notice" role={failed ? 'alert' : 'status'} aria-live="polite"
-            data-state={failed ? 'failed' : choosing ? health?.state : phase}>
-            {!choosing ? <><strong>{copy.title}</strong><span>{message}</span></>
-              : health?.checkedAt && health.state !== 'probing' ? <span>{healthLabel(health)}{health.message ? ` · ${health.message}` : ''}</span> : null}
-          </div>
-          {failed && logDirectory && <div className="startup-log-location">
-            <Icon name="folder" size={14} /><span><strong>启动日志目录</strong><span title={logDirectory}>{logDirectory}</span></span>
-          </div>}
-        </section>
-
-        <StartupTerminalPreview phase={phase} phaseLabel={copy.label} message={message}
-          working={locked} motion={motion} terminalRef={terminalRef} />
-      </div>
+      <section className="startup-content" aria-labelledby="startup-title" aria-busy={busy}>
+        <StartupMark />
+        <h1 id="startup-title">Shell<span>Pilot</span><span className="startup-wordmark-cursor" aria-hidden="true">_</span></h1>
+        <p className="startup-tagline">让思路沿着终端，走到答案</p>
+        <div className="startup-readiness" role={failed ? 'alert' : 'status'} aria-live="polite" aria-atomic="true">
+          <span className="startup-status-title"><i />{title}</span>
+          <div className="startup-progress" aria-hidden="true"><span /></div>
+          <p className="startup-status-message">{phase === 'ready' ? '即将进入终端与智能体工作区' : message}</p>
+        </div>
+        {(failed || stopped) && <div className="startup-actions">
+          <button type="button" className="startup-primary" disabled={busy} onClick={failed ? onRetry : onStart}>
+            <Icon name={failed ? 'refresh' : 'terminal'} size={16} />{retrying || starting ? '正在启动…' : failed ? '重新启动工作区' : '启动工作区'}
+          </button>
+          {failed && <button type="button" className="startup-recheck" onClick={onRecheckHealth} disabled={health.state === 'probing'}>
+            <Icon name="refresh" size={15} />{health.state === 'probing' ? '正在检查…' : '重新检查'}
+          </button>}
+        </div>}
+        {failed && logDirectory && <p className="startup-log-location"><Icon name="folder" size={14} /><span>日志目录：{logDirectory}</span></p>}
+      </section>
     </div>
-    <footer className="startup-footer"><span><i />本地客户端 · ShellPilot</span><span>{choosing ? '选择工作方式，即刻开始' : copy.label}</span></footer>
+    <footer className="startup-footer"><span>你的终端协作空间</span><span>SSH <i /> SFTP <i /> AGENT</span></footer>
   </main>;
 }

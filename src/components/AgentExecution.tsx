@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { agentApi, type ExecutionPolicy, type ExecutionReceipt, type OutputReference, type OutputRange } from '../api/agent';
-import { Icon } from './Ui';
+import { Icon, IconHeading } from './Ui';
 import { extensionApi, type ExtensionReceipt } from '../api/agentExtensions';
 import { CopyTextButton } from './CopyTextButton';
 import './AgentExecution.css';
@@ -127,7 +127,7 @@ export function ApprovalCard({receipt,disabled,act}:{receipt:ExecutionReceipt;di
   const grant=receipt.grant;
   const content=<>
     <div className="execution-receipt-heading"><span><Icon name="terminal" size={16}/>SSH 终端</span><span className="execution-server" title="此处是 SSH 登录账号；工具使用绑定终端当前的 Shell 身份，包括已完成的 sudo 切换">{receipt.binding.identity.username}@{receipt.binding.identity.host}:{receipt.binding.identity.port}</span></div>
-    {pending&&<h4>是否允许在此服务器执行以下命令？</h4>}
+    {pending&&<IconHeading as="h4" icon="shield" tone="amber">是否允许在此服务器执行以下命令？</IconHeading>}
     {receipt.review&&<p className="execution-review-note"><Icon name="shield" size={13}/>{receipt.review.decision==='allow'?(receipt.review.mode==='fullAccess'?'完全访问权限 · ':'自动审查已批准 · '):'自动审查需要确认 · '}{receipt.review.reason}</p>}
     <div className="execution-command"><pre>{receipt.command.command}</pre><span className="execution-timeout">无输出超时 {receipt.command.timeoutSeconds} 秒</span><CopyTextButton getText={()=>receipt.command.command} label="复制命令" iconOnly/></div>
     <details className="execution-environment">
@@ -166,7 +166,7 @@ function ExtensionApprovalCard({receipt,disabled,act}:{receipt:ExtensionReceipt;
   if(typeof raw==='string'){try{argumentsText=JSON.stringify(JSON.parse(raw),null,2);}catch{argumentsText=raw;}}else if(raw&&typeof raw==='object'){argumentsText=JSON.stringify(raw,null,2);}
   return <article className="execution-receipt is-pending" aria-label="MCP 工具审批">
     <div className="execution-receipt-heading"><strong>{receipt.destination}</strong><span>等待确认</span></div>
-    <h4>是否允许执行此 MCP 工具操作？</h4>
+    <IconHeading as="h4" icon="extensions" tone="amber">是否允许执行此 MCP 工具操作？</IconHeading>
     {receipt.review&&<p className="execution-review-note">{receipt.review.reason}</p>}
     <p>{receipt.task.goal}</p><pre tabIndex={0}>{argumentsText}</pre>
     <div className="execution-actions"><button type="button" className="execution-deny" disabled={disabled} onClick={()=>act(receipt.id,false)}>拒绝</button><button type="button" className="execution-approve" disabled={disabled} onClick={()=>act(receipt.id,true)}>允许这一次</button></div>

@@ -2090,7 +2090,10 @@ async fn d5_native_channel_waits_for_human_approval_executes_bound_ssh_and_resto
             let events=format!("data: {}\n\ndata: {}\n\ndata: [DONE]\n\n",json!({"choices":[{"index":0,"delta":{"content":"离线分析历史输出"},"finish_reason":null}]}),json!({"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}));
             return axum::response::Response::builder().header("content-type","text/event-stream").body(axum::body::Body::from(events)).unwrap();
         }
-        assert_eq!(body["tools"].as_array().unwrap().len(),2);
+        let tools = body["tools"].as_array().unwrap();
+        assert!(tools.iter().any(|tool| tool["function"]["name"] == "ssh_execute"));
+        assert!(tools.iter().any(|tool| tool["function"]["name"] == "read_tool_output"));
+        assert!(tools.iter().all(|tool| tool["type"] == "function"));
         assert_eq!(body["stream"],true);
         assert!(body["messages"].to_string().contains("E1-native-evidence"));
         let index=count.fetch_add(1,Ordering::SeqCst);

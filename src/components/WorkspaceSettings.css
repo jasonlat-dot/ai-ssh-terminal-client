@@ -1,0 +1,101 @@
+/* Shared density and tokens with Tools & Skills; keep every rule within this page. */
+:root .rust-settings .settings-content[data-section='general'] {
+  display: block;
+  padding: 16px 22px;
+}
+:root .rust-settings .workspace-preferences {
+  display: block;
+  width: 100%;
+  max-width: 1120px;
+  min-width: 0;
+  margin: 0 auto;
+  color: var(--settings-text);
+  container: workspace-preferences / inline-size;
+}
+.workspace-preferences .workspace-preferences-heading {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 16px;
+  padding-bottom: 14px; border-bottom: 1px solid var(--settings-border);
+}
+.workspace-preferences .workspace-preferences-heading h2 { margin: 0; font-size: 20px; line-height: 1.4; font-weight: var(--weight-title); }
+.workspace-preferences .workspace-preferences-heading p { margin: 5px 0 0; font-size: 12px; line-height: 1.6; color: var(--settings-text-muted); }
+.workspace-preferences .workspace-version { flex-shrink: 0; padding: 3px 8px; border: 1px solid var(--settings-border); border-radius: 6px; color: var(--settings-text-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.workspace-preferences .workspace-runtime-bar {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 12px;
+  min-width: 0; margin: 14px 0 18px; padding: 12px 14px;
+  border: 1px solid var(--settings-border); border-radius: 9px; background: var(--settings-panel-soft);
+}
+.workspace-preferences .workspace-section-icon {
+  display: inline-flex; align-items: center; justify-content: center; flex: 0 0 32px;
+  width: 32px; height: 32px; border: 1px solid var(--settings-border); border-radius: 8px;
+  color: var(--settings-blue-text); background: var(--settings-panel);
+}
+.workspace-preferences .workspace-runtime-copy { flex: 1 1 180px; min-width: 0; }
+.workspace-preferences .workspace-runtime-copy > div { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.workspace-preferences .workspace-runtime-copy strong { font-size: 13px; font-weight: var(--weight-title); }
+.workspace-preferences .workspace-runtime-copy p { margin: 4px 0 0; color: var(--settings-text-muted); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+.workspace-preferences .workspace-runtime-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-left: auto; }
+.workspace-preferences :is(.workspace-runtime-actions, .workspace-preferences-save) > button {
+  display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto;
+  gap: 6px; min-height: 34px; padding: 6px 12px; border-radius: 7px;
+  border: 1px solid var(--settings-border); font-size: 12px; line-height: 1.5;
+}
+.workspace-preferences .ghost-button { color: var(--settings-text); background: var(--settings-panel); }
+.workspace-preferences .ghost-button:hover:not(:disabled) { border-color: var(--settings-blue); background: var(--settings-hover); }
+.workspace-preferences .workspace-preferences-form { display: block; margin: 0; min-width: 0; }
+.workspace-preferences .workspace-preferences-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; gap: 20px; }
+.workspace-preferences .workspace-preferences-group { min-width: 0; padding: 16px; border: 1px solid var(--settings-border); border-radius: 9px; background: var(--settings-panel-soft); }
+.workspace-preferences .workspace-group-heading { display: flex; align-items: center; gap: 10px; margin: 0; padding-bottom: 14px; border-bottom: 1px solid var(--settings-border); }
+.workspace-preferences .workspace-group-heading h3 { margin: 0; color: var(--settings-text); font-size: 14px; line-height: 1.5; font-weight: var(--weight-title); }
+.workspace-preferences .workspace-group-heading p { margin: 2px 0 0; color: var(--settings-text-muted); font-size: 11px; line-height: 1.5; }
+.workspace-preferences .workspace-preference-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding-block: 14px; }
+.workspace-preferences .workspace-preference-row > div { min-width: 0; }
+.workspace-preferences .workspace-preference-row strong { display: block; color: var(--settings-text); font-size: 12px; line-height: 1.5; font-weight: var(--weight-label); }
+.workspace-preferences .workspace-preference-row small { display: block; margin: 4px 0 0; color: var(--settings-text-muted); font-size: 11px; line-height: 1.6; }
+/* Reuse Toggle, including its established theme and wallpaper behavior. */
+:root .workspace-preferences .workspace-preference-row > .toggle { display: inline-flex; align-items: center; justify-content: flex-start; flex: 0 0 36px; width: 36px; height: 20px; padding: 2px; border-radius: 20px; }
+:root .workspace-preferences .workspace-preference-row > .toggle > span { flex: 0 0 14px; width: 14px; height: 14px; }
+:root .workspace-preferences .workspace-preference-row > .toggle.on > span { transform: translateX(14px); }
+.workspace-preferences .workspace-directory-field { min-width: 0; }
+.workspace-preferences .workspace-directory-field > label,
+.workspace-preferences .workspace-number-field > label { display: flex; align-items: center; justify-content: space-between; margin: 0 0 7px; color: var(--settings-text); font-size: 12px; line-height: 1.5; font-weight: var(--weight-label); }
+.workspace-preferences .workspace-directory-field > input { display: block; box-sizing: border-box; width: 100%; min-width: 0; height: 36px; padding: 7px 10px; border: 1px solid var(--settings-border); border-radius: 7px; color: var(--settings-text); background: var(--settings-panel); font-size: 12px; }
+.workspace-preferences .workspace-directory-caption { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 6px 12px; margin-top: 7px; }
+.workspace-preferences .workspace-directory-caption small { flex: 1 1 200px; margin: 0; color: var(--settings-text-muted); font-size: 11px; line-height: 1.6; }
+.workspace-preferences .workspace-directory-open { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; gap: 5px; min-height: 24px; padding: 2px 0; color: var(--settings-blue-text); border: 0; border-radius: 4px; background: transparent; font-size: 11px; }
+.workspace-preferences .workspace-directory-open:hover { text-decoration: underline; }
+.workspace-preferences .workspace-storage-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+.workspace-preferences .workspace-number-field { min-width: 0; padding: 10px 12px; border: 1px solid var(--settings-border); border-radius: 8px; background: var(--settings-panel); }
+.workspace-preferences .workspace-number-field > label > span { color: var(--settings-text-muted); font-size: 11px; font-weight: var(--weight-body); }
+.workspace-preferences .workspace-number-field .model-token-input { width: 100%; min-width: 0; background: var(--settings-panel); }
+:root .workspace-preferences .workspace-number-field .model-token-value { height: 34px; padding: 6px 9px; font-size: 12px; }
+.workspace-preferences .workspace-number-field > small { display: block; margin: 6px 0 0; color: var(--settings-text-muted); font-size: 11px; line-height: 1.6; }
+.workspace-preferences .workspace-location-details { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--settings-border); }
+.workspace-preferences .workspace-location-details > summary { display: flex; align-items: center; gap: 6px; color: var(--settings-text-muted); font-size: 11px; cursor: pointer; list-style: none; }
+.workspace-preferences .workspace-location-details > summary::-webkit-details-marker { display: none; }
+.workspace-preferences .workspace-location-details > summary > svg:last-child { margin-left: auto; transition: transform .16s ease; }
+.workspace-preferences .workspace-location-details[open] > summary > svg:last-child { transform: rotate(180deg); }
+.workspace-preferences .workspace-location-details dl { display: grid; gap: 9px; max-height: 160px; overflow: auto; margin: 12px 0 0; }
+.workspace-preferences .workspace-location-details dl > div { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 8px; color: var(--settings-text-muted); font-size: 11px; line-height: 1.6; }
+.workspace-preferences .workspace-location-details dd { margin: 0; }
+.workspace-preferences .workspace-location-details code { padding: 0; background: transparent; color: inherit; font-size: 11px; overflow-wrap: anywhere; }
+.workspace-preferences .workspace-preferences-save { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-top: 18px; padding: 12px 0 0; border-top: 1px solid var(--settings-border); }
+.workspace-preferences .workspace-preferences-save > span { display: flex; align-items: flex-start; flex: 1 1 240px; gap: 7px; color: var(--settings-text-muted); font-size: 11px; line-height: 1.6; }
+.workspace-preferences .workspace-preferences-save > span > svg { flex-shrink: 0; margin-top: 2px; }
+.workspace-preferences .workspace-preferences-save > .primary-button { min-width: 96px; margin-left: auto; border-color: transparent; background: var(--settings-blue); color: #fff; }
+.workspace-preferences .workspace-preferences-save > .primary-button:hover:not(:disabled) { background: var(--settings-blue-hover); }
+.workspace-preferences button:disabled { opacity: .5; cursor: not-allowed; }
+.workspace-preferences :is(button, input):focus-visible { outline: 2px solid var(--settings-focus); outline-offset: 2px; }
+.workspace-preferences .workspace-loading { padding-block: 12px; color: var(--settings-text-muted); font-size: 12px; }
+@container workspace-preferences (max-width: 820px) {
+  .workspace-preferences .workspace-preferences-grid { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+  .workspace-preferences .workspace-storage-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@container workspace-preferences (max-width: 480px) {
+  .workspace-preferences .workspace-preferences-group { padding: 12px; }
+  .workspace-preferences .workspace-storage-grid { grid-template-columns: minmax(0, 1fr); }
+  .workspace-preferences .workspace-runtime-bar { gap: 10px; padding: 12px; }
+  .workspace-preferences .workspace-runtime-actions { flex-basis: 100%; justify-content: flex-end; }
+  .workspace-preferences .workspace-preferences-heading h2 { font-size: 18px; }
+}
+@media (max-width: 700px) { :root .rust-settings .settings-content[data-section='general'] { padding: 12px 14px; } }
+@media (prefers-reduced-motion: reduce) { .workspace-preferences .workspace-location-details > summary > svg:last-child { transition: none; } }

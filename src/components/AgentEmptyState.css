@@ -1,0 +1,39 @@
+.agent-panel .agent-signal-empty {
+  --signal-ink: var(--theme-accent-text, #3973be);
+  --signal-muted: var(--theme-text-muted, #71839b);
+  gap: 0;
+}
+.agent-conversation-signal { width: 188px; max-width: 70%; aspect-ratio: 220 / 156; margin: 0 auto 14px; pointer-events: none; }
+.agent-conversation-signal svg { display: block; width: 100%; height: 100%; overflow: visible; stroke-linecap: round; stroke-linejoin: round; }
+.agent-signal-guide { stroke: var(--signal-muted); stroke-width: 1; opacity: .24; }
+.agent-signal-reply { stroke: var(--signal-ink); stroke-width: 1.2; opacity: .3; }
+.agent-signal-message { animation: agent-signal-float 6s ease-in-out infinite; }
+.agent-signal-bubble { stroke: var(--signal-ink); stroke-width: 1.7; fill: none; }
+.agent-signal-line { stroke: var(--signal-ink); stroke-width: 2; opacity: .7; }
+.agent-signal-cursor { stroke: var(--signal-ink); stroke-width: 2; animation: agent-signal-breathe 3.6s ease-in-out infinite; }
+.agent-signal-spark { stroke: var(--signal-ink); stroke-width: 1.3; transform-origin: 164px 39px; animation: agent-signal-spark 7s ease-in-out infinite; }
+.agent-signal-point { fill: var(--signal-ink); animation: agent-signal-drift 8s ease-in-out infinite; }
+.agent-signal-point.is-two { animation-delay: -3s; opacity: .6; }
+.agent-signal-point.is-three { animation-delay: -5s; opacity: .4; }
+.agent-panel .agent-signal-empty > h3 { margin: 0 0 8px; color: var(--theme-text-strong); }
+.agent-panel .agent-signal-empty > p { margin: 0; max-width: 300px; color: var(--theme-text-muted); line-height: 1.8; text-wrap: balance; }
+.agent-panel .agent-signal-empty > .agent-empty-suggestion {
+  display: grid; place-items: center; min-height: 3.6em; margin: 0 0 5px;
+  font-size: 13px; color: var(--theme-text-strong); opacity: 1;
+  transform: translateY(0); transition: opacity 220ms ease, transform 220ms ease;
+}
+.agent-panel .agent-signal-empty > .agent-empty-suggestion.is-leaving { opacity: 0; transform: translateY(-5px); }
+.agent-empty-suggestion > span { animation: agent-suggestion-arrive 300ms ease-out both; }
+.agent-panel .agent-signal-empty > .agent-empty-context { max-width: 310px; font-size: 11px; }
+.agent-panel .agent-signal-empty[data-paused='true'] *,
+.agent-panel .agent-signal-empty[data-paused='true'] *::before { animation-play-state: paused; }
+@keyframes agent-signal-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
+@keyframes agent-signal-breathe { 0%, 100% { opacity: .3; } 50% { opacity: 1; } }
+@keyframes agent-signal-spark { 0%, 100% { transform: scale(.9); opacity: .55; } 50% { transform: scale(1.06); opacity: .9; } }
+@keyframes agent-signal-drift { 0%, 100% { transform: translate(0, 0); } 50% { transform: translate(3px, -5px); } }
+@keyframes agent-suggestion-arrive { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+@media (max-height: 600px) {
+  .agent-panel .agent-signal-empty { min-height: 160px; padding-block: 12px; }
+  .agent-conversation-signal { width: 110px; margin-bottom: 8px; }
+}
+@media (prefers-reduced-motion: reduce) { .agent-signal-empty * { animation: none !important; transition: none !important; } }

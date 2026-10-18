@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { readClientAppearance, resetClientAppearance, setClientPanelTransparency, setClientReadabilityProtection } from '../state/clientAppearance';
 import { notify } from '../state/notifications';
 import { useClientAppearance } from '../state/useClientAppearance';
-import { Icon, Toggle } from './Ui';
+import { Icon, Toggle, AccentIcon } from './Ui';
 import { WallpaperCropEditor } from './WallpaperCropEditor';
 import { TextColorSettings } from './TextColorSettings';
 import { TypographySettings } from './TypographySettings';
@@ -36,7 +36,7 @@ export function AppearanceSettings() {
     onClick={async () => { setPendingWallpaper(null); await resetClientAppearance(); const error = readClientAppearance().error; notify(error ?? '已移除壁纸并恢复默认背景。', error ? 'error' : 'success'); }}><Icon name="trash" size={16} /></button>;
   // 自动保存项放在同一侧栏，不与需要确认保存的画面选区混用状态提示。
   const surfaceControls = <div className="appearance-surface-controls">
-    <div className="appearance-slider-heading"><label htmlFor="appearance-transparency" className="appearance-control-label"><Icon name="sun" size={14} />背景透明度</label>
+    <div className="appearance-slider-heading"><label htmlFor="appearance-transparency" className="appearance-control-label"><AccentIcon icon="sun" tone="amber" size={14}/>背景透明度</label>
       <output htmlFor="appearance-transparency">{appearance.transparency}<small>%</small></output></div>
     <input id="appearance-transparency" className="appearance-slider" type="range" min={0} max={100} step={1}
       value={appearance.transparency} disabled={disabled || !appearance.wallpaperUrl}
@@ -45,13 +45,13 @@ export function AppearanceSettings() {
     <div id="appearance-transparency-help" className="appearance-slider-labels"><span>不透明</span><span>壁纸更明显 · 自动保存</span></div>
   </div>;
   const readabilityControl = <div className="appearance-readability">
-      <div><strong id="appearance-readability-label" className="appearance-control-label"><Icon name="shield" size={14} />文字可读性保护</strong>
+      <div><strong id="appearance-readability-label" className="appearance-control-label"><AccentIcon icon="shield" tone="cyan" size={14}/>文字可读性保护</strong>
         <p id="appearance-readability-help">保留遮罩，柔化壁纸，增强文字对比。</p></div>
       <Toggle label="文字可读性保护" value={appearance.readabilityProtection} disabled={disabled}
         aria-describedby="appearance-readability-help" onChange={value => { setClientReadabilityProtection(value); const error = readClientAppearance().error; notify(error ?? `文字可读性保护已${value ? '开启' : '关闭'}。`, error ? 'error' : 'success'); }} />
   </div>;
   const heading = <div className="appearance-title-group">
-    <span className="appearance-title-icon"><Icon name="palette" size={20} /></span>
+    <AccentIcon className="appearance-title-icon" icon="palette" tone="violet" size={20}/>
     <div><h2 id="appearance-title">工作区外观</h2><p>在预览中调整画面，保存后应用。透明度、文字保护与界面文字颜色自动保存。</p></div>
   </div>;
 

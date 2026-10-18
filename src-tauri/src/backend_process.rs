@@ -441,13 +441,11 @@ mod platform {
             eprintln!("backend stderr 中文");
             fs::write(directory.join("child.pid"), std::process::id().to_string()).unwrap();
             // An ordinary descendant should inherit the private job, but not its handle.
-            let _descendant = Command::new(std::env::current_exe().unwrap())
+            let mut descendant = Command::new(std::env::current_exe().unwrap())
                 .args(["--exact", GRANDCHILD, "--nocapture"])
                 .spawn()
                 .unwrap();
-            loop {
-                thread::sleep(Duration::from_secs(1));
-            }
+            descendant.wait().unwrap();
         }
         #[test]
         fn grandchild_fixture() {

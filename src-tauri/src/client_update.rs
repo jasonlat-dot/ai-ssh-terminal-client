@@ -34,13 +34,13 @@ pub fn client_update_status(app: AppHandle) -> ClientUpdateStatus {
         version: app.package_info().version.to_string(),
         configured,
         development: cfg!(debug_assertions),
-        // The packaged Java runtime and the current release pipeline are Windows-only.
+        // The current signed installer release pipeline targets Windows x64.
         supported: cfg!(all(target_os = "windows", target_arch = "x86_64")),
     }
 }
 
 /// Called only after the signed download is verified and the user confirms installation.
-/// Stop the owned Java process before the installer replaces bundled runtime DLLs.
+/// Stop the embedded workspace before the installer replaces application files.
 #[tauri::command]
 pub async fn prepare_client_update(app: AppHandle) -> Result<(), String> {
     let status = client_update_status(app.clone());

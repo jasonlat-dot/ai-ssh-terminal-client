@@ -136,7 +136,8 @@ function controls() {
     throw new Error(name);
   });
   function render() { tree = node(api.TypographySettings, {}); return tree; }
-  function find(predicate, candidate = tree) {
+  function find(predicate, candidate) {
+    if (arguments.length === 1) candidate = tree;
     if (Array.isArray(candidate)) { for (const child of candidate) { const found = find(predicate, child); if (found) return found; } return; }
     if (!candidate?.props) return;
     if (predicate(candidate)) return candidate;
@@ -200,7 +201,8 @@ test('字体下拉的真实 Select 处理方向键、确认、Esc 与禁用，�
   }, { document: { body: {} } });
   const options = [{ value: '', label: '跟随默认字体' }, { value: 'Consolas', label: 'Consolas' }, { value: 'custom', label: '自定义本机字体…' }];
   function render() { cursor = 0; tree = api.Select({ id: 'ui-font-family', label: '界面字体', value, disabled, options, onChange: next => { value = next; } }); }
-  function find(predicate, candidate = tree) {
+  function find(predicate, candidate) {
+    if (arguments.length === 1) candidate = tree;
     if (Array.isArray(candidate)) return candidate.map(child => find(predicate, child)).find(Boolean);
     if (!candidate?.props) return;
     return predicate(candidate) ? candidate : find(predicate, candidate.props.children ?? null);

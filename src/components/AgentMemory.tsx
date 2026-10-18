@@ -226,7 +226,7 @@ export function AgentMemoryDialog({ scope, onClose, onNotice }: { scope: MemoryS
   const filtered = !!search || scopeFilter !== 'all' || kindFilter !== 'all' || statusFilter !== 'all';
   const originalTarget = original ? targetKey(original) : undefined;
   const editOptions = original?.scope === 'server' ? targetOptions.filter(option => option.value === 'global' || option.value === originalTarget) : targetOptions;
-  return <><Modal title="长期记忆" className="agent-memory-dialog" active={!deleteTarget} dismissDisabled={!!saving || toggling.size > 0} onClose={onClose}>
+  return <><Modal icon="book" iconTone="violet" title="长期记忆" className="agent-memory-dialog" active={!deleteTarget} dismissDisabled={!!saving || toggling.size > 0} onClose={onClose}>
     <div className={`agent-memory-body${draft ? ' is-editing' : ''}`}>
       <p className="agent-memory-intro">保存你确认的偏好与经验，供后续对话参考。记忆不会自动授予工具执行权限。</p>
       {projectsError && <p className="agent-memory-error" role="alert">项目读取失败：{projectsError} <button type="button" onClick={() => setProjectReload(value => value + 1)}>重试项目列表</button></p>}
@@ -279,7 +279,7 @@ export function AgentMemoryDialog({ scope, onClose, onNotice }: { scope: MemoryS
       </>}
     </div>
   </Modal>
-    {deleteTarget && createPortal(<Modal title="删除长期记忆？" className="agent-memory-delete-dialog" dismissDisabled={!!saving} onClose={cancelDelete}>
+    {deleteTarget && createPortal(<Modal icon="trash" iconTone="danger" title="删除长期记忆？" className="agent-memory-delete-dialog" dismissDisabled={!!saving} onClose={cancelDelete}>
       <div className="agent-memory-delete-body">
         <strong>{deleteTarget.title}</strong><span className={`agent-memory-scope-badge ${scopeLabel(deleteTarget, projects).kind}`}>{scopeLabel(deleteTarget, projects).text}</span>
         <p>这条长期记忆将被永久删除，后续对话不再参考它。已有聊天记录会保留。</p>

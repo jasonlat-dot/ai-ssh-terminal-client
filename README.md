@@ -1,158 +1,166 @@
 # ShellPilot · 终端领航
 
-当前 `test-rust-ui` 分支使用内置 Rust Agent。已连接的服务器对话默认可用 SSH 工具，固定原服务器和终端，使用绑定终端的当前 Shell；输入框底部选择请求批准、自动审查或完全访问，默认请求批准。支持拒绝、撤销、原始输出回查和历史恢复。E1 已接入图片、PDF 提取文字和 UTF-8 文本附件；图片理解与工具一样默认开启，无需额外开关。Responses 支持文字与附件输入，尚不支持工具调用。开发验证无需安装包，阶段证据和实际验收边界见 Rust 仓库 `docs/AGENT_PROGRESS.md`。
+ShellPilot 是基于 React、TypeScript、Tauri 2 和 Rust 的 Windows 智能终端客户端。当前版本为 **v0.2.0**，支持本地 CMD、SSH 终端、SFTP 文件管理，以及带工具审批、子任务、MCP、Skills 和长期记忆的 AI 对话。
 
+Rust 后端作为库直接链接进桌面程序，前端通过 Tauri IPC 调用同一应用内的服务。桌面版不启动本机 HTTP 监听，不需要填写后端地址，也不依赖 Java、JAR、JRE、Maven 或独立数据库服务。模型 API、远程 SSH 与 MCP 仍按各自配置连接。
 
-智能终端管理与 AI 辅助客户端。
+## 两个仓库
 
-## 客户端版本更新
+| 仓库 | 职责 |
+| --- | --- |
+| [ai-ssh-terminal-client](https://github.com/jasonlat-dot/ai-ssh-terminal-client) | React 界面、Tauri 原生宿主、本地 CMD、桌面 IPC、更新及安装包 |
+| [shell-pilot-rust](https://github.com/jasonlat-dot/shell-pilot-rust) | Rust 后端库：SSH、SFTP、附件、SQLite、Agent 执行与上下文、MCP、Skills、记忆 |
 
-更新入口为“设置 → 关于与更新”，发布源为客户端仓库的 GitHub Releases。需要先生成更新签名密钥、导入公钥，再使用 `npm run release:windows -- --notes <更新日志.md>` 生成签名安装包与 `latest.json`。
+开发和打包时，需要将两个仓库放在同一个父目录。后端 GitHub 仓库名为 `shell-pilot-rust`，**本地目录必须命名为 `ai-ssh-terminal-server-rust`**，与客户端 Cargo 路径依赖一致：
 
-正式安装版每次启动后约 3 秒静默检查一次，不依赖后端启动成功。有新版本时弹出更新说明，可以稍后处理或前往“关于与更新”下载；无更新或网络失败不弹提示，不会自动下载或安装。
-
-密钥生成、首个版本的手动安装、发布和真实升级验收步骤见 [客户端更新与发布](docs/client-updates.md)。旧版 0.1.4 没有更新功能，需手动覆盖安装一次新版本；开发模式与未配置公钥的构建不启用更新。
-
-让客户端正式 Release 自动触发 Cloudflare Pages 官网更新，见 [官网自动部署配置](docs/website-auto-deploy.md)。需要一次性配置 Deploy Hook 和 GitHub Secret，并将工作流推送到客户端仓库。
-
-## 拉取更新后启动
-
-代码更新可能包含新的 npm 依赖，`git pull` 不会同步本地 `node_modules`。请先停止正在运行的 Vite/Tauri 开发进程，在项目目录执行：
-
-```powershell
-npm install
-npm run dev
+```text
+AIShellTerminal/
+├── ai-ssh-terminal-client/
+│   ├── src/                   React 前端
+│   ├── src-tauri/             原生宿主与桌面 IPC
+│   ├── scripts/               构建与发布脚本
+│   └── docs/                  使用与发布说明
+└── ai-ssh-terminal-server-rust/
+    ├── src/                   后端库
+    ├── migrations/            SQLite 迁移
+    ├── tests/                 后端回归
+    ├── evals/                 模型评测与验收记录
+    └── docs/AGENT_PROGRESS.md  实施进度与验证边界
 ```
 
-使用桌面开发模式时，将最后一行替换为 `npm run tauri dev`。
+客户端 `src-tauri/Cargo.toml` 通过 `../../ai-ssh-terminal-server-rust` 引用后端库。最终用户只需安装客户端，不需要克隆两个仓库或另外启动后端。
 
-开发工具需要 Node 20.19+ 或 22.12+（包括 Node 24）。dev、tauri、build 和 preview 命令会先检查当前 Node；版本不足时，自动查找 PATH 或本机已有的 Codex Node 运行时，仅为本次命令调整子进程 PATH，不改系统 Node。找不到兼容版本会提前给出明确提示。也可通过环境变量 SHELLPILOT_NODE 指定兼容 node.exe 的完整路径；无须修改项目中的绝对路径。
+## 功能
 
-若出现 `Failed to resolve import "rehype-highlight"` 或 `"remend"`，说明本地没有安装到新增的 Markdown 依赖。它们已经记录在 `package.json` 和 `package-lock.json` 中，执行上面的安装命令即可，不需要修改 import。安装后可用 `npm ls rehype-highlight remend --depth=0` 确认；若 Vite 仍保留旧的依赖缓存，可用 `npm run dev -- --force` 重新启动。
+- 本地 CMD、SSH 交互终端、多会话与分屏、页签排序、常用命令。
+- 双栏 SFTP 浏览、上传下载、传输进度与取消；支持 SSH 登录身份和 sudo root 访问。
+- 普通对话和固定服务器目标的任务对话；服务器工具使用绑定终端的当前 POSIX Shell。
+- 请求批准、自动审查、完全访问三种审批边界。MCP 与其他注册工具也遵循当前边界，普通对话不注册 SSH 工具。
+- 有界子 Agent 协作、独立任务并行、执行过程和工具输出回查。
+- MCP JSON 配置与高亮，支持 Streamable HTTP、旧版 SSE 和 stdio；Skills 目录按需读取。
+- 全局或服务器范围的长期记忆，支持筛选、编辑、启停与删除。
+- 图片、UTF-8 文本及可提取文字的 PDF 附件，长对话自动整理与历史恢复。
+- 明暗主题、壁纸与字体设置、紧凑窗口布局、统一操作提示及应用更新。
 
-代码块右上角的“复制文本”在生成中也可使用，复制点击时已显示的代码正文，不含语言标签、Markdown 围栏或高亮标签；后续生成不会修改已复制的内容。工具结果展开后可分别“复制命令”“复制输出”，整条回复仍在完成后提供 Markdown 复制。
+Responses 当前支持文字和附件输入，尚未开放工具调用。扫描 PDF/OCR、Office 内容解析、旧 Java 数据自动导入及递归子任务不在当前支持范围。SFTP 使用独立连接，终端 `sudo` 不会自动改变文件连接的身份，需要在文件窗口选择访问身份。
 
+## 开发环境
 
-## 安装后的后端地址设置
+Windows 桌面开发需要：
 
-Windows 安装包默认连接随客户端自动启动的 `http://localhost:8888`。如果需要改用独立部署的后端，可在左侧导航栏“设置”中填写服务器根地址，例如 `https://api.example.com` 或 `http://192.168.1.10:8888`。不要附加 `/agent` 或 `/api/v1/ssh`；应用会分别拼接接口前缀。保存后的地址会覆盖本机默认值，重启仍然有效，**无需重新打包或安装**。切换服务器前请停止正在生成的对话并关闭远程终端标签，以免不同服务器的会话混用。
+- Node.js 20.19+ 或 22.12+，也支持 Node 24。
+- Rust stable MSVC 工具链。
+- Visual Studio C++ Build Tools / Windows SDK。
+- Microsoft Edge WebView2 Runtime。
 
-“测试连接”会请求目标服务器的 `/agent/query_ai_agent_config_list`。客户端仍通过 WebView 的 `fetch` 调用后端，因此跨域部署时后端或反向代理必须允许客户端来源（Windows Tauri 正式版通常为 `http://tauri.localhost`；本地开发为 `http://localhost:1420`），并正确处理跨域预检请求。若后端启用 HTTPS，请使用有效证书。没有保存自定义地址时，开发模式和正式安装包都默认连接 `http://localhost:8888`。
-
-## Windows 打包
-
-安装包会同时包含：
-
-- Tauri 前端客户端；
-- Spring Boot 后端可执行 JAR；
-- 由当前 JDK 生成的 Java Runtime，最终用户不需要安装 Java；
-- 首次启动使用的 `application.yml` 和 `application-prod.yml` 默认模板。
-
-打包电脑需要安装 JDK 25、Maven、Node.js、Rust/MSVC 和 WebView2 构建工具。先确认：
-
-```powershell
-java -version
-jlink --version
-mvn -version
-npm install
-```
-
-然后在 `ai-ssh-terminal-client` 目录执行：
+首次拉取：
 
 ```powershell
-# 当前 JAVA_HOME 不是 JDK 25 时，可只为打包指定 JDK，不影响系统全局配置。
-$env:BUNDLE_JAVA_HOME = "C:\Users\Administrator\.jdks\jdk25"
-npm run bundle:windows
+git clone https://github.com/jasonlat-dot/ai-ssh-terminal-client.git
+git clone https://github.com/jasonlat-dot/shell-pilot-rust.git ai-ssh-terminal-server-rust
+cd ai-ssh-terminal-client
+npm ci
+npm run tauri dev
 ```
 
-该命令会依次构建后端 JAR、通过 `jlink` 生成内置 Java Runtime、构建前端，并同时生成 NSIS 与 MSI 安装程序。结果位于：
+拉取后续更新时，两个仓库都需要更新到相互兼容的代码；客户端依赖变化后重新执行 `npm ci`。原生代码或窗口尺寸限制改变后，需要重新编译并重启 Tauri；仅前端修改通常由 Vite 热更新。
+
+只预览网页界面可运行 `npm run dev`，但普通浏览器无法使用桌面 IPC、本地终端、内置 SSH/SFTP 等原生功能，不能代替桌面联调。
+
+dev、tauri、build、preview 脚本会选择兼容的 Node 运行时；可用 `SHELLPILOT_NODE` 指定已有 `node.exe`，不会修改系统全局 Node。
+
+## 构建和发布
+
+在客户端目录执行。两个仓库都必须存在，Cargo 会将 Rust 后端库编译到桌面程序，不另外打包 server.exe、JAR 或 JRE。
+
+普通安装包：
+
+```powershell
+npm run bundle:nsis     # NSIS EXE
+npm run bundle:msi      # MSI
+npm run bundle:windows  # 两种格式
+```
+
+默认输出：
 
 ```text
 src-tauri/target/release/bundle/nsis/ShellPilot_<版本>_x64-setup.exe
 src-tauri/target/release/bundle/msi/ShellPilot_<版本>_x64_en-US.msi
 ```
 
-如果只需要其中一种格式，可以使用：
+正式发布及自动更新使用签名发布命令：
 
 ```powershell
-# 只生成 NSIS EXE 安装包
-npm run bundle:nsis
-
-# 只生成 MSI 安装包
-npm run bundle:msi
+# 继续使用与配置公钥匹配的原有签名私钥；无密码时填空字符串。
+$env:TAURI_SIGNING_PRIVATE_KEY = '你的签名私钥文件绝对路径'
+$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = '你的私钥密码'
+npm run release:windows -- --notes docs/releases/v0.2.0.md
 ```
 
-打包生成的临时资源位于 `src-tauri/bundle`，已加入 `.gitignore`，不要手工提交 JAR 和 Java Runtime。
+发布脚本构建 Windows x64 NSIS 安装包、验证签名，并在 `release/v0.2.0/` 生成安装包、`.sig`、`latest.json`、发布说明与 SHA256 校验文件。脚本不会自动上传 GitHub 或安装更新，也不会覆盖已有的同版本发布目录。普通 `bundle:*` 不会生成完整的签名更新发布目录。
 
-界面和发布文件使用名称 **ShellPilot**（终端领航）。请使用以上 `npm run bundle:*` 或 `npm run release:windows` 命令打包，它们会在 Tauri 完成后自动统一安装包和 `.sig` 名称，更新清单及 SHA256 校验记录会引用同一个名字。直接执行 `tauri build` 会生成内部旧名称。`productName`、原生程序名、安装注册表标识、应用 identifier 和更新仓库保持不变，以兼容已安装版本；此处只改变对外显示及分发文件名称，不迁移或清理用户数据。
+将安装包、对应 `.sig` 与 `latest.json` 一起上传到 `v0.2.0` 的 GitHub 正式 Release。更新通道沿用原客户端仓库的 GitHub Releases；通道读取最新正式 Release，与代码分支无关。不要更换已有签名密钥。
 
-应用图标统一来源于 `public/icon.svg`。开发启动和打包前会自动生成原生图标，以及 NSIS 安装/卸载程序的图标和页头图案；Windows 应用窗口、任务栏和快捷方式使用同一套图标。也可运行 `npm run prepare:icons` 单独同步。更换图标后需要重新构建安装包并安装；已固定到任务栏的旧快捷方式如果仍显示缓存图标，可取消固定后重新固定。
+“关于与更新”可以检查、下载并确认安装。开发模式不检查或安装更新；正式版启动后约 3 秒静默检查一次，无更新或失败不打扰，有更新时提示，不自动下载或安装。详见 [更新与发布说明](docs/client-updates.md)。
 
-### 安装后的后端目录
+应用图标来源于 `public/icon.svg`，开发启动和打包前自动同步原生图标；可单独运行 `npm run prepare:icons`。生成的构建资源及私钥不应提交。
 
-客户端首次启动时，会在当前用户主目录创建统一后端数据目录：
+## 数据与配置
+
+默认 Windows 数据根目录：
 
 ```text
-%USERPROFILE%\.ai-ssh-terminal\
-├── application.yml
-├── application-prod.yml
-├── data\
-│   └── ai-ssh-terminal.db
-├── uploads\
-└── logs\
-    └── backend-console.log
+%LOCALAPPDATA%/com.jasonlat.shellpilot.rust-preview/
+├── rust-backend.json          工作区配置与自动初始化设置
+├── backend-data/
+│   ├── shellpilot.sqlite3     连接、模型、对话、工具事件、记忆等
+│   └── attachments/           本地附件
+└── logs/
+    └── backend.log            工作区初始化、停止记录
 ```
 
-统一根目录由 `application.yml` 中的 `app.config.data-directory` 配置，默认值为
-`${AI_SSH_TERMINAL_HOME:${user.home}/.ai-ssh-terminal}`。改成其他绝对路径并重启客户端后，
-客户端会把现有内容复制到新目录，后续配置、SQLite、上传文件和日志都从新目录读写。
+保留 `com.jasonlat.shellpilot.rust-preview` 应用标识，避免升级时切换现有 Rust 数据目录。它与旧 Java 版的 `%USERPROFILE%/.ai-ssh-terminal` 不是同一目录；当前没有自动导入旧版数据。
 
-初始化只检查 `application.yml`：
+在“本地工作区”可调整数据目录、附件存储、容量与保留天数，并展开“数据与日志位置”查看实际路径。数据目录改动不会自动搬迁旧数据；重新初始化后使用新目录。配置文件与 `logs` 仍在应用根目录，不随数据目录移动。
 
-- 如果 `application.yml` 不存在，复制默认的 `application.yml` 和 `application-prod.yml`。
-- 如果 `application.yml` 已存在，不复制、不覆盖任何 YAML；用户可以自行使用 `application-dev.yml`、`application-sit.yml` 或其他 profile。
-- 客户端升级不会覆盖已有配置、SQLite 数据、上传文件和日志。
+附件容量默认 1024 MiB，保留天数 0 表示长期保留；正数会自动清理超过保留时间的已有附件。目录与附件设置保存后需重新初始化，启动时自动初始化开关立即保存。重新初始化或停止工作区会断开当前连接。
 
-内置后端以该目录作为工作目录，并通过 `spring.config.additional-location` 加载外置配置。默认 SQLite 位于 `data`，本地上传文件位于 `uploads`，日志位于 `logs`。修改配置后重启客户端即可重新启动后端并生效。若后端启动失败，客户端仍会打开，并直接显示真实启动错误和 `backend-console.log` 路径。
+SSH 凭据在 Windows 上使用当前用户 DPAPI 加密。客户端常用命令等缓存仍由原生缓存模块管理，优先在可执行文件旁的 `.cache`，无法解析目录时按开发/平台路径回退；Agent 正式历史以工作区 SQLite 为准。
 
-## SSH HTTP 接口对接
+## 日志与问题排查
 
-连接管理已对接 `SshConnectionController` 的列表、详情、新增、更新、删除、连接与断开 7 个接口。远程终端已接入真实 SSH，Agent 对话调用后端接口；本地终端和 SFTP 仍为模拟功能。
+`logs/backend.log` **目前仅是工作区生命周期日志**，不是 Java 版的后端控制台日志。文件只有初始化和停止记录是当前实现的实际行为；它不包含逐次模型请求、提示词、模型响应、工具参数或完整执行输出。最早出现的 `http://...` 行可能是该文件累计保留的旧实现记录，当前桌面版使用 IPC。
 
-按需将 `.env.example` 复制为 `.env.local`；以下是构建时选项，修改后需重启 Vite 或重新构建：
+- 查看实际执行过程：打开对应对话历史，展开工具或子任务卡片、审批与原始输出。
+- 数据排查：SQLite 中的 `agent_chat_turns`、`agent_events`、`agent_outputs` / `agent_output_chunks`、`agent_workflow_events` 等保存不同层面的回合和工具记录；这些不是完整的模型 HTTP 流量日志。
+- 当前桌面宿主尚未将后端 `tracing` 诊断接入文件输出，单独设置 `RUST_LOG` 不能让 `backend.log` 自动出现模型或工具跟踪。
 
-- `VITE_SSH_USER_ID`：默认 `default`，列表与新增使用同一个用户 ID，避免后端两个默认用户值不一致。此值不是登录认证。
+更多位置、查询与限制见 [运行日志与执行记录](docs/runtime-logs.md)。
 
-新增、更新提交 JSON；其他单连接操作通过 query 参数传 `connectionId`，成功码严格使用 `SUCCESS_0000`。连接成功后才打开终端；关闭远程终端标签时显示断开确认框，确认后先调用断开接口，成功才关闭标签；失败保留终端供重试。本地标签直接关闭。删除前先断开 SSH，因为后端删除接口不释放会话。
+## 验证命令
 
-密码和完整私钥内容只随保存请求提交，不持久化到浏览器。编辑留空保留原凭据；更换认证方式需输入对应凭据。高级配置未在详情响应中返回，因此不伪造回显，未修改的字段不提交。环境和收藏是按用户与连接 ID 保存的本地偏好。
+以下命令供开发者按需运行，不表示每次文档或界面修改都已执行：
 
-验证：`npm run build`；启动 Vite 后运行 `node scripts/verify-ssh.cjs`（需 Playwright 和 Chrome，可通过 `PLAYWRIGHT_MODULE_PATH` 指定 Playwright 模块）。测试拦截 HTTP 请求验证接口契约和界面流程，不访问真实 SSH 主机。
+```powershell
+# 客户端类型检查与前端构建
+npm run build
 
-后端当前在更新时保留空凭据，并优先使用已存私钥建立连接，因此已有私钥连接不能直接切换为密码认证；前端会提示新建密码连接，避免显示切换成功却仍使用旧私钥。
+# 原生与所链接后端的桌面宿主测试
+cargo test --manifest-path src-tauri/Cargo.toml --all-targets
 
-断开弹框默认关闭同主机的关联标签并保留本机连接记录；取消勾选关联会话时，仅关闭所点标签，其余关联标签保留为离线。取消、稍后处理、Esc 和右上角关闭均不触发断开，请求期间禁止重复提交或关闭弹框。连接记录仅包含主机、地址和断开时间（最多 50 条），可在设置中查看，不保存终端内容或凭据。
+# 在兄弟后端目录运行后端套件
+cd ../ai-ssh-terminal-server-rust
+cargo test --all-targets
+```
 
-断开确认流程测试：启动 Vite 后运行 `node scripts/verify-disconnect.cjs`（同样需要 Playwright 和 Chrome）。覆盖取消、稍后处理、Esc、非当前标签关闭、失败重试、请求期间锁定和连接记录选项。
+真实模型、SSH、SFTP 与第三方 MCP 的验收有额外配置和实际用量，不能用普通界面预览代替。实施状态和历史证据位于后端仓库 `docs/AGENT_PROGRESS.md` 与 `evals/`；E4 旧数据迁移仍按计划暂缓。
 
+## 相关说明
 
-## SSH 交互式终端
-
-`SshTerminalController` 的 7 个接口已接入，地址为“客户端设置的后端根地址 + `/api/v1/ssh/terminal`”。
-
-- `open`：SSH 连接成功后打开会话，使用后端返回的 `sessionId`，立即呈现 `initialOutput`。
-- `exec`：常用命令的“运行”和日志操作提交真实命令，并补上 `\r`，因为服务按原始字节写入。
-- `read`：每次请求完成后间隔 250ms 继续读取，支持延迟输出、长时间日志输出；与 exec 串行，避免同时读取并清空同一缓冲区。错误后暂停，手动重试读取，不重放命令。
-- `write`：xterm 区域始终支持按键、粘贴、Tab、方向键等直接发往远端；点击常用命令正文可将内容写入当前终端。“中断 Ctrl+C”始终可用。
-- `resize`：根据终端区域实际大小同步 cols / rows，文件面板、窗口尺寸和专注模式变化均会适配。
-- `close`：关闭标签或在连接管理断开、删除主机时，先关闭 shell 再断开 SSH。关闭失败保留标签并提示重试。切换标签或导航不重新打开 shell。
-
-远程输出由 xterm.js 渲染 ANSI 控制序列，不作为 HTML 插入。当前后端没有进程退出码或命令结束事件，前端“提交中”只代表请求状态；API 返回不代表远程命令已结束。`read` 消费缓冲区，网络中断时无法保证重传已读取的输出。
-
-后端创建 PTY 时声明 `xterm-256color`，使 Vim、less、top 等全屏程序使用备用屏幕缓冲区；程序退出后 xterm.js 会恢复进入程序前的终端历史，避免 Vim 的 `~` 填充行残留或覆盖历史。
-
-验证：启动 Vite 后运行 `node scripts/verify-terminal.cjs`。使用 Playwright / Chrome 和拦截的 HTTP 响应，覆盖 7 个接口、初始及延迟输出、回车、按键、尺寸、切换标签、错误重试和先关闭终端再断开连接的顺序。
-
-## 客户端磁盘缓存
-
-桌面客户端在可执行文件所在目录创建 `.cache`：聊天历史按会话写入 `.cache/chat`，用户添加的常用命令写入 `.cache/command/commands.json`。`npm run tauri dev` 无法解析可执行文件目录时回退到当前项目目录的 `.cache`；纯 `npm run dev` 没有 Tauri 文件接口，因此回退到浏览器 localStorage。命令分类由已保存的命令动态生成，添加命令时可以选择已有分类或直接输入新分类。
+- [v0.2.0 发布说明](docs/releases/v0.2.0.md)
+- [Rust 内置架构](docs/rust-backend.md)
+- [安装与数据目录](docs/RUST_PREVIEW_INSTALL.md)
+- [运行日志与执行记录](docs/runtime-logs.md)
+- [自动更新与发布](docs/client-updates.md)
+- [模型设置](docs/agent-model-settings.md)
+- [官网自动部署](docs/website-auto-deploy.md)

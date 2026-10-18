@@ -1,0 +1,81 @@
+/* Compact panes stay mounted so resizing and switching never discard sessions. */
+.compact-workspace-switch, .compact-sidebar-scrim { display: none; }
+@media (max-width: 1050px) {
+  .app-shell.agent-desktop:not(.agent-collapsed) {
+    grid-template-rows: 54px minmax(0, 1fr) minmax(0, 38%);
+  }
+  .app-shell.agent-desktop.terminal-dock-collapsed {
+    grid-template-rows: 54px minmax(0, 1fr) 46px;
+  }
+}
+@media (max-width: 760px) {
+  .app-shell.agent-desktop[data-compact-pane] {
+    --rail: 56px;
+    grid-template-columns: var(--rail) 0 minmax(0, 1fr) 0 0;
+    grid-template-rows: 48px 38px minmax(0, 1fr);
+    transition: none;
+  }
+  .compact-workspace-switch {
+    grid-column: 3 / -1; grid-row: 2; display: flex; align-items: center;
+    gap: 6px; min-width: 0; padding: 2px 8px 2px 42px;
+  }
+  .app-shell.agent-desktop .activity-bar > .nav-collapse-toggle { display: none; }
+  .compact-workspace-switch > button {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    min-height: 30px; padding: 4px 14px; border: 1px solid var(--line);
+    border-radius: 7px; color: var(--theme-text-muted); background: var(--theme-panel);
+    font-size: 12px;
+  }
+  .compact-workspace-switch > button[aria-pressed='true'] {
+    color: var(--ui-highlight-text); background: var(--ui-highlight-bg); border-color: var(--ui-accent);
+  }
+  .app-shell.agent-desktop > :is(.agent-panel, .central-workspace) {
+    grid-column: 3 / -1; grid-row: 3; min-width: 0; min-height: 0; margin: 0 6px 6px 0;
+  }
+  .app-shell.agent-desktop[data-compact-pane='chat'] > .central-workspace,
+  .app-shell.agent-desktop[data-compact-pane='terminal'] > .agent-panel { display: none; }
+  .app-shell.agent-desktop > .panel-divider { display: none; }
+  .app-shell.agent-desktop.host-sidebar-collapsed > .workspace-sidebar { grid-column: 2; grid-row: 2; margin: 0; padding-top: 2px; height: 36px; }
+  .app-shell.agent-desktop:not(.host-sidebar-collapsed):not(.settings-view) > .workspace-sidebar {
+    display: flex; position: fixed; inset: 50px auto 6px var(--rail); z-index: 31;
+    width: min(280px, calc(100vw - var(--rail) - 8px)); padding: 8px;
+    border: 1px solid var(--line); border-radius: 10px; background: var(--bg);
+    box-shadow: var(--ui-menu-shadow);
+  }
+  .compact-sidebar-scrim {
+    display: block; position: fixed; inset: 48px 0 0 var(--rail); z-index: 30;
+    border: 0; border-radius: 0; background: #08182938;
+  }
+  .agent-desktop.settings-view .compact-workspace-switch { display: none; }
+  .app-shell.agent-desktop.settings-view[data-compact-pane] { grid-template-rows: 48px minmax(0, 1fr) 0; }
+  .app-shell.agent-desktop .conversation-card > header { padding-inline-start: 10px; }
+  .agent-desktop .terminal-tab-strip { flex-wrap: wrap; gap: 2px; }
+  .agent-desktop .terminal-layout-control { margin-left: auto; padding-bottom: 3px; }
+  .agent-desktop .terminal-toolbar { flex-wrap: wrap; gap: 5px; }
+  .agent-desktop .terminal-dock-heading > span { font-size: 12px; }
+  .app-shell .app-header { gap: 8px; padding-inline: 10px; }
+  .app-header .rust-preview-badge, .app-header .header-divider,
+  .app-header .github-link { display: none; }
+  .app-header .profile { gap: 4px; min-width: 0; }
+  .app-header .app-window-controls { margin-left: 4px; padding-left: 4px; }
+}
+@media (max-width: 480px) {
+  .app-header .theme-switcher { display: none; }
+  .app-header .brand { gap: 6px; }
+  .app-header .brand strong { font-size: 15px; }
+  .app-header .brand-mark { width: 24px; height: 24px; }
+  .agent-desktop .terminal-dock-heading button { padding-inline: 5px; gap: 3px; }
+  .agent-desktop .terminal-dock-heading .terminal-return-chat > span { display: none; }
+}
+@media (max-height: 600px) {
+  .agent-desktop .workspace-conversations { min-height: 0; }
+  .agent-desktop .workspace-sidebar > .host-sidebar { min-height: 120px; }
+  .agent-desktop .agent-chat-empty { padding-block: 8px; }
+  .agent-desktop .agent-chat-empty img { max-height: 64px; width: auto; }
+  .agent-desktop .agent-panel.conversation-only > .composer-dock { margin-block: 4px 8px; }
+  .agent-desktop .agent-panel.conversation-only .chat-composer { padding-top: 8px; }
+  .agent-desktop .agent-panel.conversation-only .chat-composer .composer-input-row textarea { min-height: 36px; max-height: 90px; }
+  .app-shell.agent-desktop > .central-workspace:not(.no-session):not(.command-collapsed) {
+    grid-template-rows: minmax(0, 1fr) minmax(80px, 30%);
+  }
+}

@@ -80,7 +80,7 @@ export function ConnectionSidebar({ connections, sessions, connectingHostIds, ac
       <button className="sidebar-manage-button" aria-pressed={manageMode === 'all'} disabled={connections.busy || !connections.hosts.length} title="显示全部连接的编辑和删除操作" onClick={() => setManageMode(mode => mode === 'all' ? 'none' : 'all')}><Icon name="settings" size={13} />管理全部</button>
     </footer>
     {draft && <SshConnectionDialog connections={connections} initial={draft} onClose={() => setDraft(null)} />}
-    {deleting && <Modal title="删除连接" dismissDisabled={connections.busy} onClose={() => setDeleting(null)}>
+    {deleting && <Modal icon="trash" iconTone="danger" title="删除连接" dismissDisabled={connections.busy} onClose={() => setDeleting(null)}>
       <div className="compact-delete-dialog"><p>确定删除 <strong>{deleting.name}</strong>？该操作无法恢复。</p><div className="dialog-actions"><button className="outlined-button" disabled={connections.busy} onClick={() => setDeleting(null)}>取消</button><button className="delete-dialog-confirm" disabled={connections.busy} onClick={async () => { if (await connections.remove(deleting.id)) { setDeleting(null); notify(`已删除 SSH 连接“${deleting.name}”`, 'success'); } }}>确认删除</button></div></div>
     </Modal>}
   </aside>;
@@ -98,10 +98,10 @@ export function Connections({ connections, terminal, create, copy }: Props) {
   const filtered = hosts.filter(h => `${h.name} ${h.address} ${h.user}`.toLowerCase().includes(query.trim().toLowerCase()));
   return <main className="connections-page" aria-label="SSH 连接管理">
     <header className="connections-heading">
-      <div><span className="eyebrow">REMOTE HOSTS</span><h1>SSH 连接</h1><p><strong>{hosts.length}</strong> 个已保存配置</p></div>
+      <div><span className="eyebrow">REMOTE HOSTS</span><h1 className="ui-icon-heading"><AccentIcon icon="server" tone="cyan" size={18}/>SSH 连接</h1><p><strong>{hosts.length}</strong> 个已保存配置</p></div>
       <button disabled={busy} className="primary-button connection-create-button" onClick={create}><Icon name="plus" size={17} />添加 SSH</button>
     </header>
-    {deleting && <Modal title="删除确认" className="delete-connection-modal" dismissDisabled={busy} onClose={() => setDeleting(null)}>
+    {deleting && <Modal icon="trash" iconTone="danger" title="删除确认" className="delete-connection-modal" dismissDisabled={busy} onClose={() => setDeleting(null)}>
       <span className="delete-dialog-warning" aria-hidden="true"><Icon name="alert" size={36} /></span>
       <div className="delete-dialog-content">
         <h3>确定要删除该 SSH 连接吗？</h3>

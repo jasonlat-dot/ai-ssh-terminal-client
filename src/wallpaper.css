@@ -69,6 +69,11 @@
   .app-shell .command-shelf,
   .app-shell .command-shelf-inner,
   .app-shell .conversation-card,
+  .app-shell .workspace-conversations,
+  .app-shell .agent-mode-note,
+  .app-shell .composer-dock,
+  .app-shell .composer-project-strip,
+  .app-shell .composer-queue,
   .app-shell .session-file-panel,
   .app-shell .connections-page,
   .settings-page,
@@ -84,9 +89,18 @@
   .settings-page .settings-topbar,
   .settings-page .settings-nav,
   .settings-page .settings-group,
+  .settings-page .extension-budget-group,
   .settings-page .settings-field,
   .settings-page .settings-footer
 ) { background: transparent; }
+
+/* Workspace surfaces added after the original wallpaper coverage. */
+:root[data-wallpaper='true'] .workspace-conversations .project-toolbar-action > svg + svg { background: transparent; }
+/* Project and queued-input strips share the root wallpaper tint with the composer.
+   Keep the project picker popup opaque; only its inline trigger follows the tint. */
+:root[data-wallpaper='true'] .app-shell .composer-project-strip .composer-project-picker:is(:hover, [aria-expanded='true']):not(:disabled) {
+  background: color-mix(in srgb, var(--theme-hover) var(--client-panel-opacity, 75%), transparent);
+}
 
 /*
  * 旧主题既有变量底色，也有写死的白/深色底色，单改 --theme-panel 不能覆盖它们。
@@ -217,11 +231,12 @@
  */
 :root[data-wallpaper='true'][data-theme] .settings-page :is(
   .settings-control,
+  .model-token-input,
   .ui-select-trigger,
   :where(input:not([type='checkbox']):not([type='radio']):not([type='range'])),
   textarea,
   select,
-  button:not(:where(.primary-button, .danger-button, .toggle)),
+  button:not(:where(.primary-button, .danger-button, .model-delete-button, .toggle)),
   .settings-certificate-action,
   .settings-certificate-icon,
   .settings-segmented,
@@ -245,7 +260,7 @@
 ) { background: var(--settings-selection-bg); }
 
 :root[data-wallpaper='true'][data-theme] .settings-page :is(
-  button:not(:where(.primary-button, .danger-button, .toggle)),
+  button:not(:where(.primary-button, .danger-button, .model-delete-button, .toggle)),
   .appearance-picker
 ):hover:not(:disabled):not(:where(.modal *, [role='dialog'] *, [role='menu'] *, [role='listbox'] *)) {
   background: var(--settings-hover);

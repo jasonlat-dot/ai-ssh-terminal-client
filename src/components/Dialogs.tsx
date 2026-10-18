@@ -11,7 +11,7 @@ export function AddCommandDialog({ close, save, categories }: { close: () => voi
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const normalizedCategory = category.trim();
-  return <Modal title="添加常用命令" className="add-command-dialog" dismissDisabled={saving} onClose={close}>
+  return <Modal icon="terminal" iconTone="blue" title="添加常用命令" className="add-command-dialog" dismissDisabled={saving} onClose={close}>
     <form className="command-dialog-form" onSubmit={async event => {
       event.preventDefault();
       if (!name.trim() || !command.trim() || !normalizedCategory) { setError('请填写命令名称、分类和命令内容。'); return; }
@@ -41,5 +41,5 @@ export function CreateFileDialog({ close, files, save, path }: { path: string; c
   const [name, setName] = useState('');
   const [kind, setKind] = useState<'file' | 'folder'>('file');
   const [error, setError] = useState('');
-  return <Modal title="新建文件或文件夹（模拟）" onClose={close}><form className="dialog-form" onSubmit={e => { e.preventDefault(); const trimmed = name.trim(); if (!trimmed || /[\\/]/.test(trimmed) || trimmed === '.' || trimmed === '..') { setError('请输入有效名称，不能包含路径分隔符。'); return; } if (files.some(file => file.name === trimmed)) { setError('当前目录已存在同名项目。'); return; } save({ id: trimmed, name: trimmed, kind, ...(kind === 'folder' ? { children: [] } : {}) }); }}><p className="muted">位置：{path}</p><label>名称<input value={name} onChange={e => setName(e.target.value)} maxLength={100} placeholder="输入文件或文件夹名称" /></label><label>类型<Select<'file' | 'folder'> label="文件类型" value={kind} onChange={setKind} options={[{ value: 'file', label: '文件' }, { value: 'folder', label: '文件夹' }]} /></label>{error && <p className="form-error" role="alert">{error}</p>}<div className="dialog-actions"><button className="outlined-button" type="button" onClick={close}>取消</button><button type="submit" className="primary-button">创建</button></div></form></Modal>;
+  return <Modal icon="folder" iconTone="amber" title="新建文件或文件夹（模拟）" onClose={close}><form className="dialog-form" onSubmit={e => { e.preventDefault(); const trimmed = name.trim(); if (!trimmed || /[\\/]/.test(trimmed) || trimmed === '.' || trimmed === '..') { setError('请输入有效名称，不能包含路径分隔符。'); return; } if (files.some(file => file.name === trimmed)) { setError('当前目录已存在同名项目。'); return; } save({ id: trimmed, name: trimmed, kind, ...(kind === 'folder' ? { children: [] } : {}) }); }}><p className="muted">位置：{path}</p><label>名称<input value={name} onChange={e => setName(e.target.value)} maxLength={100} placeholder="输入文件或文件夹名称" /></label><label>类型<Select<'file' | 'folder'> label="文件类型" value={kind} onChange={setKind} options={[{ value: 'file', label: '文件' }, { value: 'folder', label: '文件夹' }]} /></label>{error && <p className="form-error" role="alert">{error}</p>}<div className="dialog-actions"><button className="outlined-button" type="button" onClick={close}>取消</button><button type="submit" className="primary-button">创建</button></div></form></Modal>;
 }

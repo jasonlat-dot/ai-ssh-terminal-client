@@ -49,7 +49,7 @@ export function SshConnectionDialog({ connections, initial = blankSshConnection,
     if (saved) { onClose(); notify(editing ? 'SSH 连接修改已保存。' : 'SSH 连接已添加。', 'success'); onSaved?.(saved); }
   };
 
-  return <Modal title={editing ? '编辑 SSH 连接' : '新建 SSH 连接'} onClose={onClose} className="ssh-connection-modal" dismissDisabled={busy}>
+  return <Modal icon="server" iconTone="cyan" title={editing ? '编辑 SSH 连接' : '新建 SSH 连接'} onClose={onClose} className="ssh-connection-modal" dismissDisabled={busy}>
     <div className="ssh-dialog-intro">
       <AccentIcon className="ssh-dialog-symbol" icon="server" size={22} />
       <p>{editing ? '更新服务器信息与登录方式' : '保存你的服务器，随时开启远程会话'}</p>

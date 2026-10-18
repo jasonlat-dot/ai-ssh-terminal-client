@@ -10,6 +10,7 @@ import type { RustSettingsSection } from './RustBackendSettingsDialog';
 import { settingsNavigation } from '../config/settingsNavigation';
 import { NavigationButton } from './NavigationButton';
 import './Shell.css';
+import { APP_VERSION } from '../config/rustPreview';
 
 const PROJECT_GITHUB_URL = 'https://github.com/jasonlat-dot/ai-ssh-terminal-server';
 export function AppHeader({ notify, theme, setTheme }: {
@@ -19,7 +20,7 @@ export function AppHeader({ notify, theme, setTheme }: {
 }) {
   return <header className="app-header" onMouseDown={dragAppWindow}>
     <div className="brand"><img className="brand-mark" src="/agent-ssh-header.svg" alt="" draggable={false} /><div><strong>ShellPilot</strong><small>轻量 SSH 终端试用版</small></div></div>
-    <span className="rust-preview-badge">Rust Preview · 0.4.0</span>
+    <span className="rust-preview-badge">v{APP_VERSION}</span>
     <div className="profile">
       <div className="theme-switcher" role="group" aria-label="界面主题">
         {([

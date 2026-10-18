@@ -106,6 +106,12 @@ export function AccentIcon({ icon, tone = toneForIcon(icon), size = 17, classNam
 }) {
   return <span className={`ui-accent-icon ${className}`} data-accent={tone} aria-hidden="true"><Icon name={icon} size={size} /></span>;
 }
+/** Semantic heading with the same colored icon surface as model configuration. */
+export function IconHeading({ as: Tag = 'h3', icon, tone, className = '', children, ...props }: HTMLAttributes<HTMLHeadingElement> & {
+  as?: 'h2' | 'h3' | 'h4'; icon: IconName; tone?: AccentTone;
+}) {
+  return <Tag {...props} className={`ui-icon-heading ${className}`}><AccentIcon icon={icon} tone={tone} size={16}/><span>{children}</span></Tag>;
+}
 export function Icon({ name, size = 20, className = '' }: { name: IconName; size?: number; className?: string }) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.65} strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true"><path d={paths[name]} /></svg>;
 }
@@ -118,7 +124,7 @@ export function Toggle({ value, onChange, label, disabled, 'aria-describedby': d
   return <button type="button" role="switch" aria-checked={value} aria-label={label} aria-describedby={describedBy} disabled={disabled}
     className={`toggle ${value ? 'on' : ''}`} onClick={() => onChange(!value)}><span /></button>;
 }
-export function Modal({ title, onClose, children, wide = false, className = '', dismissDisabled = false, active = true }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean; className?: string; dismissDisabled?: boolean; active?: boolean }) {
+export function Modal({ title, icon, iconTone, onClose, children, wide = false, className = '', dismissDisabled = false, active = true }: { title: string; icon?: IconName; iconTone?: AccentTone; onClose: () => void; children: ReactNode; wide?: boolean; className?: string; dismissDisabled?: boolean; active?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   const closeRef = useRef(onClose);
   closeRef.current = () => { if (active && !dismissDisabled) onClose(); };
@@ -142,5 +148,5 @@ export function Modal({ title, onClose, children, wide = false, className = '', 
     document.addEventListener('keydown', listener);
     return () => { document.removeEventListener('keydown', listener); previous?.focus(); };
   }, [active]);
-  return <div className={`modal-backdrop ${className ? `${className}-backdrop` : ''}`} inert={!active} aria-hidden={!active || undefined} onMouseDown={e => { if (e.target === e.currentTarget) closeRef.current(); }}><div ref={ref} tabIndex={-1} role="dialog" aria-modal={active} aria-labelledby={id} className={`modal ${wide ? 'wide' : ''} ${className}`}><header><h2 id={id}>{title}</h2><IconButton icon="close" label="关闭弹窗" disabled={dismissDisabled} onClick={() => closeRef.current()} /></header>{children}</div></div>;
+  return <div className={`modal-backdrop ${className ? `${className}-backdrop` : ''}`} inert={!active} aria-hidden={!active || undefined} onMouseDown={e => { if (e.target === e.currentTarget) closeRef.current(); }}><div ref={ref} tabIndex={-1} role="dialog" aria-modal={active} aria-labelledby={id} className={`modal ${wide ? 'wide' : ''} ${className}`}><header>{icon ? <IconHeading as="h2" id={id} icon={icon} tone={iconTone}>{title}</IconHeading> : <h2 id={id}>{title}</h2>}<IconButton icon="close" label="关闭弹窗" disabled={dismissDisabled} onClick={() => closeRef.current()} /></header>{children}</div></div>;
 }

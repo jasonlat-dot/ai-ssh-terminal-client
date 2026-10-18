@@ -11,7 +11,7 @@ type Wave = { x: number; y: number; r: number; life: number };
 type ParticleEngine = { sync: () => void; burst: () => void };
 
 /** Particle colors, motion and interaction parameters come from the supplied startup demo. */
-export function StartupParticles({ enabled, burstVersion, terminalRef }: {
+export function TerminalWelcomeParticles({ enabled, burstVersion, terminalRef }: {
   enabled: boolean;
   burstVersion: number;
   terminalRef: RefObject<HTMLDivElement | null>;
@@ -226,5 +226,5 @@ export function StartupParticles({ enabled, burstVersion, terminalRef }: {
 
   useEffect(() => { engineRef.current?.sync(); }, [enabled]);
   useEffect(() => { if (burstVersion > 0) engineRef.current?.burst(); }, [burstVersion]);
-  return <canvas ref={canvasRef} className="startup-particle-field" aria-hidden="true" />;
+  return <canvas ref={canvasRef} className="terminal-demo-particle-field" aria-hidden="true" />;
 }

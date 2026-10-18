@@ -193,10 +193,10 @@ test('A running conversation in another project cannot be deleted from a stale i
  assert.equal(ui.button('删除对话：A 的完整历史').props.disabled,true);
 });
 
-test('Project actions use compose next to more, and removal explains that conversations are retained',async()=>{
+test('Project actions use chat next to more, and removal explains that conversations are retained',async()=>{
  const ui=harness();await ui.settle();const calls=[],removed=[];
  ui.api.deleteProject=async id=>{calls.push(id);};ui.props.removed=project=>removed.push(project);
- const compose=ui.button('在 A 服务器 新建对话');assert.equal(compose.props.children.props.name,'edit');
+ const compose=ui.button('在 A 服务器 新建对话');assert.equal(compose.props.children.props.name,'chat');
  const menu=ui.find(n=>n.props.label==='项目选项：A 服务器');assert.equal(menu.props.displayValue,'⋯');
  assert.equal(menu.props.options[0].label,'移除项目');
  assert.match(menu.props.options[0].description,/保留聊天记录/);

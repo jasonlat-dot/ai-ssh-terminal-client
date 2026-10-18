@@ -7,54 +7,65 @@ import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import { prepareAssistantMarkdown, renderableAssistantMarkdown } from '../src/state/assistantMarkdown.ts';
 import { agentApi } from '../src/api/agent.ts';
+import { adoptBundledBackendUrl, BUILTIN_ENDPOINT } from '../src/config/backend.ts';
 
 const render = (text: string) => renderToStaticMarkup(createElement(ReactMarkdown, { remarkPlugins: [remarkGfm], children: prepareAssistantMarkdown(text) }));
 const originalFetch = globalThis.fetch;
+const originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window');
 const originalStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
 afterEach(() => {
   globalThis.fetch = originalFetch;
+  if (originalWindow) Object.defineProperty(globalThis, 'window', originalWindow);
+  else Reflect.deleteProperty(globalThis, 'window');
+  adoptBundledBackendUrl(BUILTIN_ENDPOINT);
   if (originalStorage) Object.defineProperty(globalThis, 'localStorage', originalStorage);
   else Reflect.deleteProperty(globalThis, 'localStorage');
 });
-async function streamed(wire: string, fragmentSize = 7) {
-  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: { getItem: () => 'https://api.example.test' } });
-  const bytes = new TextEncoder().encode(wire);
-  globalThis.fetch = async () => new Response(new ReadableStream({ start(controller) {
-    for (let i = 0; i < bytes.length; i += fragmentSize) controller.enqueue(bytes.slice(i, i + fragmentSize));
-    controller.close();
-  } }));
+async function streamed(deltas: string[], child = false, encoded = false) {
+  adoptBundledBackendUrl(BUILTIN_ENDPOINT);
+  globalThis.fetch = async () => { throw new Error('native chat must not use HTTP'); };
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: { __TAURI_INTERNALS__: {
+    transformCallback: () => 1, unregisterCallback() {},
+    invoke: async (command: string, args: any) => {
+      if (command === 'builtin_agent_ack') return;
+      assert.equal(command, 'builtin_agent_subscribe');
+      let sequence = 0;
+      for (const content of deltas) {
+        const payload = child ? {event:'agent_text', agentCallId:'child', content} : {event:'text', content};
+        await args.onEvent.onmessage({sequence:++sequence, requestId:args.request.requestId, payload:encoded?JSON.stringify(payload):payload});
+      }
+      await args.onEvent.onmessage({sequence:++sequence, requestId:args.request.requestId, payload:{event:'done',content:''}});
+    },
+  } } });
   let text = '';
-  await agentApi.chatStream({ agentId: 'a', userId: 'u', sessionId: 's', terminalSessionId: '', message: 'hello' }, event => {
+  await agentApi.chatStream({ agentId:'a',userId:'u',sessionId:'s',terminalSessionId:'',message:'hello' }, event => {
     if (event.event === 'text' || event.event === 'agent_text') text += event.content;
   });
   return text;
 }
-const done = JSON.stringify({ event: 'done', content: '' });
 
-test('JSON Lines retain every delta, newline, quote and escape across arbitrary UTF-8 chunks', async () => {
+test('native Channel deltas retain every newline, quote, escape and Unicode character', async () => {
   const deltas = ['##', ' ', '进入容器', '\n\n', '```', 'bash', '\n', '  mc alias set local ', '"http://127.0.0.1:9000"', ' ', '"\\n"', '\n', 'mc ls local', '\n', '```'];
-  const wire = deltas.map(content => JSON.stringify({ event: 'text', content })).join('\n') + '\n' + done + '\n';
-  const text = await streamed(wire, 1);
+  const text = await streamed(deltas);
   assert.equal(text, deltas.join(''));
   assert.match(render(text), /<h2>进入容器<\/h2>/);
   assert.match(render(text), /<pre><code class="language-bash">  mc alias/);
   assert.match(render(text), /\nmc ls local/);
 });
 
-test('JSON string deltas preserve whitespace and are not silently discarded', async () => {
+test('serialized native payloads preserve whitespace without double decoding content', async () => {
   const deltas = ['##', ' ', '标题', '\n\n', '```bash', '\n', 'echo hi', '\n```'];
-  assert.equal(await streamed(deltas.map(value => JSON.stringify(value)).join('\n') + '\n' + done), deltas.join(''));
+  assert.equal(await streamed(deltas, false, true), deltas.join(''));
 });
 
-test('plain SSE deltas retain separator whitespace, indentation and newline-only events', async () => {
-  const wire = 'data: ##\n\ndata:  \n\ndata: 标题\n\ndata: \ndata: \ndata: \n\ndata: ```bash\n\ndata: \ndata:   echo hi\ndata: ```\n\ndata: [DONE]\n\n';
-  assert.equal(await streamed(wire), '## 标题\n\n```bash\n  echo hi\n```');
+test('native whitespace-only deltas preserve indentation and paragraph separators', async () => {
+  const deltas = ['##', ' ', '标题', '\n\n', '```bash', '\n', '  echo hi', '\n```'];
+  assert.equal(await streamed(deltas), '## 标题\n\n```bash\n  echo hi\n```');
 });
 
-test('structured SSE and child-agent deltas preserve original quoted content', async () => {
+test('native child-agent deltas preserve original quoted content', async () => {
   const deltas = ['## 标题\n', '"quoted"', '\n', '"\\n"'];
-  const wire = deltas.map(content => `data: ${JSON.stringify({ event: 'agent_text', agentCallId: 'child', content })}\n\n`).join('') + `data: ${done}\n\n`;
-  assert.equal(await streamed(wire), deltas.join(''));
+  assert.equal(await streamed(deltas, true), deltas.join(''));
 });
 
 test('screenshot headings and compact shell fences render as separate headings and code blocks', () => {
@@ -102,10 +113,9 @@ test('incomplete streaming fences keep code visible and converge when the closin
   assert.match(render(input + '```\n\n完成'), /<\/pre>\n<p>完成<\/p>/);
 });
 
-test('plain SSE tokens that look like JSON primitives are still visible content', async () => {
+test('native text that looks like JSON primitives remains visible literal content', async () => {
   const tokens = ['9000', ' ', 'true', ' ', 'null', ' ', '[1,2]'];
-  const wire = tokens.map(token => `data: ${token}\n\n`).join('') + 'data: [DONE]\n\n';
-  assert.equal(await streamed(wire), tokens.join(''));
+  assert.equal(await streamed(tokens), tokens.join(''));
 });
 
 

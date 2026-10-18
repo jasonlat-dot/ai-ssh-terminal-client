@@ -10,7 +10,7 @@ export function StartupUpdatePrompt({ onViewUpdate }: { onViewUpdate: () => void
   // If a manual check/discard supersedes the startup result, don't show stale details.
   if (!announcedVersion || announcedVersion !== state.version || state.phase !== 'available') return null;
   const dismiss = () => setAnnouncedVersion('');
-  return <Modal title="发现客户端新版本" className="startup-update-prompt" onClose={dismiss}>
+  return <Modal icon="refresh" iconTone="blue" title="发现客户端新版本" className="startup-update-prompt" onClose={dismiss}>
     <div className="startup-update-content">
       <div className="startup-update-version"><Icon name="refresh" size={22} />
         <strong>ShellPilot</strong><Badge tone="blue">v{announcedVersion}</Badge></div>

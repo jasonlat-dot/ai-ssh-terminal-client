@@ -17,3 +17,11 @@
 .client-update-release-link { display: inline-flex; align-items: center; gap: 6px; align-self: flex-start; color: var(--theme-accent-text); text-decoration: none; }
 .client-update-release-link:hover { text-decoration: underline; }
 .client-update-release-link:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 3px; }
+@media (max-width: 600px) {
+  .settings-page .settings-content > .client-update-settings { gap: 12px; }
+  .client-update-card { min-width: 0; padding: 14px; gap: 10px; }
+  .client-update-card header { flex-wrap: wrap; gap: 8px; }
+  .client-update-card :is(p, small) { overflow-wrap: anywhere; }
+  .client-update-actions { gap: 8px; }
+  .client-update-confirm { padding: 12px; }
+}

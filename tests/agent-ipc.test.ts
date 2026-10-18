@@ -392,9 +392,9 @@ test('Execution quota settings cross the native bridge as integers with user and
   const requests:any[]=[];
   const value={revision:7,config:{servers:[],skillRoots:[],subAgents:true,executionLimits:{...defaultExecutionLimits,modelRounds:80,childToolCalls:100}}};
   harness((command,args)=>{assert.equal(command,'builtin_request');requests.push(args.request);return Promise.resolve(value);});
-  await extensionApi.settings();await extensionApi.save(value);
+  await extensionApi.settings();await extensionApi.save(value,'execution');
   assert.equal(requests[0].endpoint,'agent/extensions_settings');assert.deepEqual(requests[0].params,{userId:'default'});
-  assert.deepEqual(requests[1].body,{userId:'default',...value});
+  assert.deepEqual(requests[1].body,{userId:'default',...value,scope:'execution'});
   assert.match(chatErrorGuidance('AGENT_MODEL_ROUND_LIMIT'),/模型请求轮数上限/);
   assert.match(chatErrorGuidance('AGENT_TOOL_CALL_LIMIT'),/工具调用次数上限/);
   assert.match(chatErrorGuidance('AGENT_TOOL_CALL_LIMIT'),/不占工具次数/);

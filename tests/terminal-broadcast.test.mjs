@@ -195,15 +195,15 @@ test('输入随内容及宽度自动增高并能收缩；高度变化不循环�
   assert.match(css, /white-space: pre-wrap; overflow-wrap: anywhere; overflow-x: hidden; overflow-y: auto/);
 });
 
-test('Agent 单终端说明采用主题高亮徽标，成功状态仍内联显示', () => {
+test('Agent 单终端说明采用主题高亮徽标，不再内联显示操作结果', () => {
   const ui = commandBar({ result: '已提交 2 个终端' });
   const badge = ui.nodes.find(item => item.props.className === 'terminal-command-agent');
   assert.equal(badge.type, 'Badge'); assert.equal(badge.props.tone, 'blue'); assert.equal(badge.props.icon, 'bot');
   assert.equal(badge.props.children, 'Agent 始终单终端');
-  assert.ok(ui.nodes.find(item => item.props.role === 'status' && item.props.children === '已提交 2 个终端'));
+  assert.ok(!ui.nodes.some(item => item.props.role === 'status'), 'operation feedback belongs to the application Toast');
 });
 
-test('实际 App 提交入口：全部成功不弹通知，失败或跳过保留错误提醒', async () => {
+test('实际 App 提交入口：成功使用 Toast，失败或跳过保留错误提醒', async () => {
   const parsed = ts.createSourceFile('App.tsx', source('App.tsx'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   let expression;
   function findRun(node) {
@@ -228,14 +228,14 @@ test('实际 App 提交入口：全部成功不弹通知，失败或跳过保留
     const success = await context.exports.run('echo ok');
     return { success, notifications, results, f };
   }
-  const good = await run(); assert.equal(good.success, true); assert.equal(good.notifications.length, 0);
-  assert.match(good.results.at(-1), /已提交 3 个终端/);
+  const good = await run(); assert.equal(good.success, true); assert.equal(good.notifications.length, 1); assert.equal(good.notifications[0][1], 'success');
+  assert.match(good.notifications[0][0], /已提交 3 个终端/);
   const failed = await run(f => { f.clients.get('b').exec = async () => { throw new Error('Failed'); }; });
   assert.equal(failed.success, false); assert.equal(failed.notifications.length, 1); assert.equal(failed.notifications[0][1], 'error');
-  assert.match(failed.results.at(-1), /已提交 2 个终端.*未自动重试/);
+  assert.match(failed.notifications[0][0], /已提交 2 个终端.*未自动重试/);
   const skipped = await run(f => { f.sessions[1].connected = false; });
   assert.equal(skipped.success, false); assert.equal(skipped.notifications[0][1], 'error');
-  assert.match(skipped.results.at(-1), /连接不可用/);
+  assert.match(skipped.notifications[0][0], /连接不可用/);
 });
 
 test('选择范围/目标只修改选择不执行；不可用会话明确标记，忙碌时禁用选择', () => {
@@ -270,7 +270,8 @@ test('广播仅接入手工/常用命令入口；Agent 与原始终端交互保�
   assert.match(agent, /const currentSession = active;/);
   // Rust scopes were introduced before the layout change: keep that single target,
   // rather than requiring the historical pre-scope implementation string.
-  assert.match(agent, /const terminalSessionId = rustBuiltin[\s\S]*canonicalHistory\?\.session.scope\?\.kind === 'server' \? scopeRuntime\?\.terminalSessionId/);
+  assert.match(agent, /let terminalSessionId = sshExecutionEnabled \? toolTerminal\?\.terminalSessionId/);
+  assert.match(agent, /executionTerminal\(canonicalHistory\?\.session, sessionsRef\.current/);
   assert.match(agent, /: currentSession\?\.kind === 'ssh' && isSessionConnected\(currentSession\)/);
   assert.doesNotMatch(agent, /submitTerminalCommandBatch|resolveTerminalCommandTargets|commandTargetIds|commandMode/);
   const terminal = source('components/RemoteTerminalView.tsx');

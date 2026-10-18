@@ -20,7 +20,7 @@ export function DisconnectDialog({ host, connected, busy, error, close, confirm,
     try { await operation(); }
     finally { locked.current = false; setSubmitting(null); }
   };
-  return <Modal title={connected ? disconnectOnly ? '断开终端连接？' : '关闭终端会话？' : '关闭终端页签？'} className="disconnect-dialog" dismissDisabled={pending} onClose={close}>
+  return <Modal icon="terminal" iconTone="amber" title={connected ? disconnectOnly ? '断开终端连接？' : '关闭终端会话？' : '关闭终端页签？'} className="disconnect-dialog" dismissDisabled={pending} onClose={close}>
     <div className="disconnect-intro">
       <p>{connected ? disconnectOnly ? '断开会结束此页签的 Shell 会话并保留页签；“断开并关闭”会同时关闭页签。请确认没有需要保留的任务。' : '关闭后会结束此页签的 Shell 会话，请确认没有需要保留的任务。' : '此终端已断开，可以直接关闭页签。'}</p>
     </div>

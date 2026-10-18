@@ -1,60 +1,53 @@
-# ShellPilot Rust Preview 0.4.0 试装说明
+# ShellPilot v0.2.0 安装与数据说明
 
-客户端分支：test-rust-ui。Windows x64，中文 NSIS 安装程序。
-程序名 shellpilot-rust-preview.exe，应用标识 com.jasonlat.shellpilot.rust-preview；可与原 ShellPilot 并存。
+当前发布目标为 Windows x64，使用 Tauri + 内置 Rust 后端。主流程见 [README](../README.md)，当前版本说明见 [v0.2.0](releases/v0.2.0.md)。文件名保留 RUST_PREVIEW_INSTALL 供旧链接继续访问。
 
 ## 安装和使用
 
-1. 运行 ShellPilot-Rust-Preview_0.4.0_x64-setup.exe。
-2. 打开 ShellPilot-Rust-Preview，本地工作区自动初始化，功能通过 IPC 在应用内运行，不监听本机 HTTP 端口；不需要 Java、MySQL、Node 或 Rust 开发工具。
-3. 添加 SSH 连接，输入密码或私钥。默认开启主机密钥检查，需要目标服务器匹配的 known_hosts 公钥记录。
-4. SSH 终端支持原始输入、多窗口/分屏、命令库及本地 CMD。文件夹按钮打开双栏 SFTP 文件管理，支持目录/普通文件操作、上传下载、进度、取消和失败重试。
-5. 通过对话输入框添加本机附件，无需 SSH；消息中的文件可预览或下载。顶栏独立“文件与附件”入口已移除。
-6. “客户端设置”支持工作区初始化/停止/重新初始化、数据目录、自动初始化，以及附件启用、容量与保留天数。
+1. 运行 `ShellPilot_0.2.0_x64-setup.exe`。
+2. 打开 ShellPilot，等待本地工作区就绪。后端在应用内部通过 IPC 运行，无需启动 Java、独立后端或数据库服务。
+3. 在模型设置中配置模型服务；普通对话可使用已配置的扩展工具，服务器任务另行绑定 SSH 目标。
+4. 从连接管理添加 SSH 主机，使用终端按钮建立远程会话；新建终端也可直接打开本地 CMD。
+5. 从服务器的文件管理入口打开 SFTP，选择 SSH 登录身份或 sudo root 身份。文件连接独立于终端，身份不会随终端 sudo 自动切换。
+6. 从输入框添加图片、文本或可提取文字的 PDF。附件存储格式和模型内容解析能力是两件事；扫描 PDF/OCR 与 Office 内容解析尚未提供。
 
-附件默认单文件最多 20 MiB、总容量 1 GiB、长期保留；本地附件无需 HTTP 下载链接。
-支持 png/jpg/jpeg/webp/pdf/txt/log/csv/json/yaml/yml/md/docx/xlsx。上传中断后文件可能已保存，重试需手动操作；移除草稿附件只取消该草稿中的引用。
+## 数据位置
 
-保留天数 0 表示长期保留，正数按创建时间清理，包括此前已存文件。
-设置保存后需重新初始化工作区。此操作会断开 SSH/SFTP；如旧实例附件引用失效，可重新附加文件，已有消息的内容预览使用会话快照。
-数据目录变更不会搬迁数据；默认 SQLite 与 attachments 位于：
-%LOCALAPPDATA%\com.jasonlat.shellpilot.rust-preview\backend-data。
-旧配置自动补齐附件默认值，本轮沿用同一份 Rust Preview 数据；serverPort/downloadLinkMinutes 不再使用。
+默认应用目录为：
 
-## 当前范围
+```text
+%LOCALAPPDATA%\com.jasonlat.shellpilot.rust-preview\
+├── rust-backend.json
+├── backend-data\
+│   ├── shellpilot.sqlite3
+│   └── attachments\
+└── logs\
+    └── backend.log
+```
 
-已支持连接管理、密码/私钥认证、主机密钥验证、SSH PTY、读写/resize、多窗口、取消/断线状态、本地 CMD、命令库、SFTP 和本地附件存储。
-AI 对话、聊天模型附件处理及自动执行任务仍属下一阶段，内置模式暂未启用相应入口。
-与 Java 版数据独立，不自动导入旧 MySQL 或附件。SSH 凭据由当前 Windows 用户 DPAPI 加密。
-自动更新关闭，后续使用新版试用安装包升级。原 Java 服务端源码未修改。
+保留 Rust 应用 identifier 以使用已有配置。旧 Java 目录 `%USERPROFILE%/.ai-ssh-terminal` 不会自动导入，也不会因本轮文档修改而搬迁或清理。
 
-## 构建
+“本地工作区”显示实际数据库、附件和日志位置。数据目录变更不会自动搬迁旧数据，重新初始化后使用新目录；配置和日志仍在应用根目录。修改目录、附件容量及保留时间后需重新初始化，这会断开已有连接。
 
-需要 Node 22.12+（本次使用 24.19）、Rust MSVC、Windows SDK/C++ Build Tools，兄弟目录 ai-ssh-terminal-server-rust 必须存在。
+附件容量默认 1024 MiB，0 天为长期保留；正数会清理超过期限的已有附件。SSH 凭据在 Windows 上使用当前用户 DPAPI 加密。
 
-~~~powershell
+`backend.log` 目前只记录工作区初始化、停止；它不包含每次模型请求或工具输出。相关执行记录保存在 SQLite，可从对话历史展开，详见 [运行日志与执行记录](runtime-logs.md)。
+
+## 开发和发布
+
+开发需要 Node 20.19+ 或 22.12+、Rust MSVC 工具链和 Windows C++ Build Tools / SDK。两个仓库必须放在同级目录，后端本地目录名为 `ai-ssh-terminal-server-rust`。
+
+```powershell
 npm ci
+npm run tauri dev
+
+# 普通安装包
 npm run bundle:nsis
-~~~
 
-Cargo 将后端库链接进 Tauri 主程序，不打包 JAR/JRE 或独立后端 exe。
-Tauri 使用 WebView2；缺少运行时的电脑由安装器按标准流程处理。
+# 已配置原有签名私钥环境变量后生成正式更新发布文件
+npm run release:windows -- --notes docs/releases/v0.2.0.md
+```
 
-## 此前已生成的 0.4.0 安装包验证（本轮改动前）
+无需 JDK、Maven、jlink 或 JRE。WebView2 为桌面运行时依赖。
 
-后端 60 项测试、cargo fmt、Clippy -D warnings 通过，包括 16 项附件存储测试及既有 SSH/SFTP 回归。
-前端 69 项回归及 1 项连接真实 Rust 文件服务的联调通过，覆盖上传、下载、过期刷新、队列并发、历史、删除和容量回收。
-15 项原生桌面测试通过，命令须串行：cargo test --manifest-path src-tauri/Cargo.toml --lib -- --test-threads=1。
-NSIS 安装包已生成：8399302 字节，主程序 16868864 字节。成品桌面实际启动，健康 UP、同进程附件上传/SHA256/下载/元数据/容量/删除及 SFTP 路由回归通过，停止程序后监听端口释放。
-完整 GUI 点击、实际安装及用户远端验证仍由用户试装；协议测试使用本地临时服务，未操作用户实际远端服务器。
-
-旧安装包保留在 releases 目录。SFTP 边界见兄弟后端 docs/SFTP.md，附件策略见 docs/FILES.md。
-
-
-安装包 SHA256：82D6BD0C4D17A9BEC6B7E4DC36AAD82949A62202C08F59EF93F7DA0661BDED65
-
-## 本轮源码的运行方式
-
-移除监听端口的改动尚未重新编译、测试或打包，上面的安装包及校验值对应旧版本。退出旧开发程序，在客户端目录运行 `npm run tauri dev` 自行验证。本命令启动 Vite 开发服务器（1420），桌面内置 Rust 功能仍不监听 HTTP 端口。
-
-当前源码已移除远程后端模式，旧后端 URL/证书/活动档案均不再使用。只有目标服务器 SSH/SFTP 通信和后续 Rust Agent 的模型请求需要业务网络访问。工作区操作统一使用 IPC；普通浏览器只可预览界面。
+正式版“关于与更新”沿用旧客户端的 GitHub Releases 通道，发布时需上传签名安装包、匹配的 `.sig` 和 `latest.json`；开发模式不检查或安装更新。发布脚本不自动上传。历史 0.4.0 试装结果不等于当前 v0.2.0 安装包已经构建或验收，验证记录以实际批次为准。

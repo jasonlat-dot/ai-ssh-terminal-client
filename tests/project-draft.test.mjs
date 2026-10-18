@@ -42,6 +42,7 @@ test('First message creates the selected project session and binds tools to its 
   chatStream:async body=>{calls.push(['stream',body.sessionId,body.terminalSessionId,body.executionEnabled]);},
  };
  const send=action('sendMessage',{
+  reasoningSavingRef:{current:false},toolsEnabled:true,sshExecutionEnabled:false,draftExecutionPolicy:'confirm',
   chatting:{current:false},stopPending:{current:false},scopeSwitchRef:{current:false},historyLoadingId:'',recoveredRunning:false,agentLoading:false,agentLoadError:'',
   activeProject:project,projectTerminalId:terminal.terminalSessionId,active:terminal,sessions:[terminal],sessionsRef:{current:[terminal]},terminalClients:{current:new Map()},
   rustBuiltin:true,executionEnabled:false,canonicalHistory:null,selectedAgent:model,chatSessionId:chatId,chatTarget:{current:null},chatVersion:{current:1},chatRequestId:{current:''},chatAbort:{current:null},

@@ -1,7 +1,6 @@
 import { useState } from 'react';
-import { AccentIcon, Badge, Icon, Modal } from './Ui';
-import welcomeArtDark from '../assets/terminal-welcome.png';
-import welcomeArtLight from '../assets/terminal-welcome-light.png';
+import { Icon, Modal } from './Ui';
+import { TerminalWelcomeDemo } from './TerminalWelcomeDemo';
 import './TerminalWelcome.css';
 
 export function TerminalWelcome({ add, connections }: { add: () => void; connections: () => void }) {
@@ -10,13 +9,8 @@ export function TerminalWelcome({ add, connections }: { add: () => void; connect
   return <>
     <section className="terminal-welcome" aria-labelledby="terminal-welcome-title">
       <div className="terminal-welcome-content">
-        <div className="terminal-welcome-art" aria-hidden="true">
-          <img className="welcome-art-light" src={welcomeArtLight} alt="" draggable={false} />
-          <img className="welcome-art-dark" src={welcomeArtDark} alt="" draggable={false} />
-          <Badge className="welcome-art-label remote" tone="cyan" icon="server">远程主机</Badge>
-          <Badge className="welcome-art-label cloud" tone="violet" icon="box">云服务器</Badge>
-          <Badge className="welcome-art-label welcome-art-transfer" tone="amber" icon="folder">文件传输</Badge>
-        </div>
+        <TerminalWelcomeDemo />
+        <div className="terminal-welcome-intro">
         <span className="welcome-ready"><i />终端工作区已就绪</span>
         <h2 id="terminal-welcome-title">开始一个终端会话</h2>
         <p className="welcome-description">新建终端会直接打开本地 CMD；需要远程操作时，从连接管理进入 SSH 主机</p>
@@ -24,15 +18,10 @@ export function TerminalWelcome({ add, connections }: { add: () => void; connect
           <button className="welcome-create" onClick={add}><Icon name="plus" size={23} />打开本地 CMD</button>
           <button className="welcome-guide" onClick={() => setGuideOpen(true)}><Icon name="book" size={22} />查看连接指引</button>
         </div>
-        <div className="welcome-features">
-          <article><AccentIcon className="welcome-feature-icon" icon="bolt" size={29} /><div><h3>本地终端</h3><p>默认打开 CMD，快速执行命令</p></div></article>
-          <article><AccentIcon className="welcome-feature-icon" icon="bot" size={29} /><div><h3>智能诊断</h3><p>SSH Agent 协助分析日志</p></div></article>
-          <article><AccentIcon className="welcome-feature-icon" icon="shield" tone="cyan" size={29} /><div><h3>安全会话</h3><p>会话独立管理，执行前可确认</p></div></article>
         </div>
-        <p className="welcome-demo-note">远程终端和文件管理仍从左侧连接管理中的服务器进入。</p>
       </div>
     </section>
-    {guideOpen && <Modal title="终端连接指引" onClose={() => setGuideOpen(false)}>
+    {guideOpen && <Modal icon="book" iconTone="blue" title="终端连接指引" onClose={() => setGuideOpen(false)}>
       <div className="connection-guide-content">
         <p>添加云服务器或远程主机后，即可建立真实的 SSH 终端会话。</p>
         <ol>

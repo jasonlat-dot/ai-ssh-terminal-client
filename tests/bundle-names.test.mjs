@@ -80,14 +80,14 @@ test('identical duplicate is safely consolidated; invalid names/versions fail be
   assert.deepEqual(renameBundleArtifacts(join(directory, 'missing'), options), []);
 });
 
-test('public branding and all documented bundle workflows preserve legacy installation/update identity', () => {
+test('ShellPilot release branding preserves the existing workspace installation identity', () => {
   const config = JSON.parse(file('src-tauri/tauri.conf.json'));
   const packageInfo = JSON.parse(file('package.json'));
   assert.equal(packageInfo.displayName, 'ShellPilot');
   assert.equal(packageInfo.name, 'ai-ssh-terminal-client');
-  assert.equal(config.productName, 'ai-ssh-terminal-client');
-  assert.equal(config.identifier, 'com.jasonlat.ai-ssh-client');
-  assert.equal(config.app.windows[0].title, packageInfo.displayName);
+  assert.equal(config.productName, 'ShellPilot');
+  assert.equal(config.identifier, 'com.jasonlat.shellpilot.rust-preview');
+  assert.equal(config.app.windows[0].title, 'ShellPilot');
   for (const path of ['src/components/Shell.tsx', 'src/components/StartupScreen.tsx', 'src/components/ClientUpdateSettings.tsx', 'src/components/StartupUpdatePrompt.tsx', 'index.html']) {
     assert.ok(file(path).includes('ShellPilot'), path);
     assert.ok(!file(path).includes('Agent SSH'), path);

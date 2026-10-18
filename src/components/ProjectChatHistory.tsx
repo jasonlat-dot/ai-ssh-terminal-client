@@ -180,7 +180,7 @@ export function ProjectChatHistory({hosts,project,sessionId,locked,revision,newC
      <button type="button" className="project-general-toggle" aria-expanded={expanded.has('')} aria-controls="project-chats-general" onClick={()=>setExpanded(old=>{const next=new Set(old);if(next.has(''))next.delete('');else next.add('');return next;})}><Icon name="history" size={16}/><span>未分组对话</span><Icon name={expanded.has('')?'down':'right'} size={12}/></button>
     </div>{expanded.has('')&&rows(null)}</section>
    </nav>
-  {removeTarget&&createPortal(<Modal title="移除项目？" className="project-delete-dialog" dismissDisabled={removing} onClose={()=>setRemoveTarget(null)}>
+  {removeTarget&&createPortal(<Modal icon="folder" iconTone="amber" title="移除项目？" className="project-delete-dialog" dismissDisabled={removing} onClose={()=>setRemoveTarget(null)}>
    <p className="project-delete-title">{removeTarget.name}</p>
    <p>仅移除项目分组。已有聊天、命令记录和工具输出都会保留，可在“未分组对话”中继续查看。服务器配置和对话的服务器绑定不会改变。</p>
    {removeError&&<p role="alert" className="project-sidebar-error">{removeError}</p>}
@@ -194,7 +194,7 @@ export function ProjectChatHistory({hosts,project,sessionId,locked,revision,newC
       }).catch(cause=>setRemoveError(cause instanceof Error?cause.message:'移除项目失败，请重试。')).finally(()=>setRemoving(false));
     }}>{removing?'正在移除…':'移除项目'}</button></footer>
   </Modal>,document.body)}
-  {renameTarget&&<Modal title="修改对话标题" className="project-rename-dialog" dismissDisabled={renaming} onClose={()=>setRenameTarget(null)}>
+  {renameTarget&&<Modal icon="chat" iconTone="blue" title="修改对话标题" className="project-rename-dialog" dismissDisabled={renaming} onClose={()=>setRenameTarget(null)}>
    <form onSubmit={event=>{
     event.preventDefault();if(locked||isRunning(renameTarget)||renaming||renamePending.current)return;
     const title=renameTitle.trim();
@@ -212,7 +212,7 @@ export function ProjectChatHistory({hosts,project,sessionId,locked,revision,newC
     <footer><button type="button" className="outlined-button" disabled={renaming} onClick={()=>setRenameTarget(null)}>取消</button><button type="submit" className="primary-button" disabled={locked||isRunning(renameTarget)||renaming}>{renaming?'正在保存…':'保存'}</button></footer>
    </form>
   </Modal>}
-  {deleteTarget&&createPortal(<Modal title="删除对话？" className="project-delete-dialog" dismissDisabled={deleting} onClose={()=>setDeleteTarget(null)}>
+  {deleteTarget&&createPortal(<Modal icon="trash" iconTone="danger" title="删除对话？" className="project-delete-dialog" dismissDisabled={deleting} onClose={()=>setDeleteTarget(null)}>
    <p className="project-delete-title">{deleteTarget.title||'新对话'}</p>
    <p>这条对话的聊天内容、命令记录和工具输出将一并删除，无法恢复。</p>
    {deleteError&&<p role="alert" className="project-sidebar-error">{deleteError}</p>}
@@ -225,7 +225,7 @@ export function ProjectChatHistory({hosts,project,sessionId,locked,revision,newC
       }).catch(cause=>setDeleteError(cause instanceof Error?cause.message:'删除失败，请重试。')).finally(()=>setDeleting(false));
     }}>{deleting?'正在删除…':'删除对话'}</button></footer>
   </Modal>,document.body)}
-  {creating&&<Modal title="新建服务器项目" className="project-create-dialog" dismissDisabled={saving} onClose={cancelCreate}>
+  {creating&&<Modal icon="server" iconTone="cyan" title="新建服务器项目" className="project-create-dialog" dismissDisabled={saving} onClose={cancelCreate}>
    <form className="project-create-form" onSubmit={event=>{event.preventDefault();if(saving||!connection||!name.trim())return;setSaving(true);setError('');
     void agentApi.createProject(name.trim(),connection).then(async p=>{setCreating(false);setReload(v=>v+1);notify(`已创建项目“${p.name}”`,'success');await newChat(p);creationFinished?.();}).catch(cause=>setError(cause instanceof Error?cause.message:'新建项目失败')).finally(()=>setSaving(false));}}>
     <div className="project-create-fields">

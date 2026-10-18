@@ -3,6 +3,7 @@ import type { PointerEvent as ReactPointerEvent, Ref, ReactNode, HTMLAttributes 
 import { createPortal } from 'react-dom';
 import { MarkdownMessage } from './MarkdownMessage';
 import agentRobotAvatar from '../assets/agent-robot-avatar.png';
+import { AgentEmptyState } from './AgentEmptyState';
 import type { ClientChatSession } from '../state/clientChatHistory';
 import type { AgentConfig, AgentProject } from '../api/agent';
 import type { AgentContextStatus as ContextStatus } from '../api/agentContext';
@@ -635,13 +636,11 @@ export function AgentPanel({ ref, memoryScope, onMemoryNotice, sshConnections, c
           </div>, document.body)}
       <div className="chat-messages" ref={scrollRef} aria-label="聊天记录" aria-live="polite"
         onScroll={handleMessagesScroll} onWheel={event => { if (event.deltaY < 0) followOutputRef.current = false; }}>
-        {messages.length === 0 && !busy && <div className="agent-chat-empty">
-          <img className="empty-agent-avatar" src={agentRobotAvatar} alt="Agent 机器人" />
-          <h3>有什么需要我协助？</h3>
-          <p>{models ? (agentAvailability.ready ? execution?.enabled?'可以让我检查服务或分析日志；工具操作遵循输入框中的审核设置。':'可以提问或粘贴文本；连接绑定服务器后，SSH 工具自动可用。' : '先在模型设置中添加 API 地址、模型与密钥，再开始对话。') : agentAvailability.ready
-            ? connected ? '可以让我执行命令、检查服务状态或分析日志。' : localTerminal ? '当前是本地 CMD，Agent 无法连接或代为执行本地命令，但仍可进行普通对话。' : '可以直接与 Agent 对话；当前页签连接服务器后还可以执行 SSH 命令。'
-            : '可以先输入问题或添加附件，智能体就绪后再发送。'}</p>
-        </div>}
+        {messages.length === 0 && !busy && <AgentEmptyState mode={!agentAvailability.ready ? 'setup' : execution?.enabled ? 'server' : 'general'}>
+          {models ? (agentAvailability.ready ? execution?.enabled?'工具操作遵循输入框中的审批设置。':'支持文字与附件；服务器任务请先绑定 SSH 连接。' : '在模型设置中添加 API 地址、模型与密钥，再回来聊聊。') : agentAvailability.ready
+            ? connected ? '工具操作遵循当前对话的审批设置。' : localTerminal ? '可以讨论问题，暂不支持代为执行本地 CMD 命令。' : '直接输入问题；绑定服务器后还可以使用 SSH 工具。'
+            : '先配置模型，也可以提前准备问题或附件。'}
+        </AgentEmptyState>}
 
         {messages.map((message, index) => message.role === 'user'
           ? <div className={`user-message-group${highlightedMessageId === message.id ? ' chat-message-jump-highlight' : ''}`} key={message.id} ref={node => { if (node) messageRefs.current.set(message.id, node); else messageRefs.current.delete(message.id); }}>

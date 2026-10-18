@@ -47,6 +47,8 @@ const settings = {
   safety: {presets:safetyPresets,min:0,max:16777216},
   compact: {presets:compactPresets,min:1,max:99},
   temperature: {presets:temperaturePresets,min:0,max:2},
+  storage: {presets:[256,512,1024,2048,5120,10240,51200,102400].map(value=>({value,short:value>=1024?`${value/1024} GiB`:`${value} MiB`,label:value>=1024?`${value/1024} GiB`:`${value} MiB`,description:`${value} MiB`})),min:20,max:102400},
+  retention: {presets:[0,7,30,90,180,365].map(value=>({value,short:value===0?'长期':`${value} 天`,label:value===0?'长期保留':`${value} 天`,description:value===0?'不自动删除':'自动清理过期附件'})),min:0,max:3650},
 };
 
 type Props = { id: string; label: string; disabled: boolean } & (

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { defaultExecutionLimits, extensionApi, type ExecutionLimits, type ExtensionSettings } from '../api/agentExtensions';
 import { Select } from './Select';
-import { Modal, Icon } from './Ui';
+import { Modal, Icon, IconHeading } from './Ui';
 import { JsonCodeEditor } from './JsonCodeEditor';
 import { formatMcpConfig, parseMcpConfig, validateSavedMcpValues, mcpExamples } from '../state/mcpConfig';
 import { maxSkillDirectories, parseSkillDirectories } from '../state/skillDirectories';
@@ -155,35 +155,35 @@ export function AgentExtensionSettings({ locked = false }: { locked?: boolean })
     </div>;
   };
   return <div className="agent-extension-settings">
-    <header className="extension-heading"><h2>工具与 Skills</h2><p>管理执行额度与扩展工具，沿用当前对话的审批边界。</p></header>
+    <header className="extension-heading"><IconHeading as="h2" icon="extensions" tone="blue">工具与 Skills</IconHeading><p>管理执行额度与扩展工具，沿用当前对话的审批边界。</p></header>
     {error && <div className="extension-feedback settings-error" role="alert"><span>{error}</span><button type="button" onClick={load} disabled={busy}>重新读取</button></div>}
     {!settings && busy && <p role="status">正在读取工具设置…</p>}
     {settings && <form inert={dialogOpen} onSubmit={event => { event.preventDefault(); void save(); }}>
       <fieldset disabled={busy || locked || dialogOpen} className="extension-form-fields">
         <section className="extension-section extension-budget-section" aria-labelledby="extension-budget-title">
-          <div className="extension-section-heading"><div><h3 id="extension-budget-title">执行额度</h3><p>每次发送消息重新计数；主对话与子任务独立。可选常用档位或直接输入。</p></div><button type="button" onClick={() => { setLimits(draftLimits(defaultExecutionLimits)); notify('已恢复推荐值，点击保存设置后生效。'); }}>恢复推荐值</button></div>
+          <div className="extension-section-heading"><div><IconHeading id="extension-budget-title" icon="settings" tone="blue">执行额度</IconHeading><p>每次发送消息重新计数；主对话与子任务独立。可选常用档位或直接输入。</p></div><button type="button" onClick={() => { setLimits(draftLimits(defaultExecutionLimits)); notify('已恢复推荐值，点击保存设置后生效。'); }}>恢复推荐值</button></div>
           <div className="extension-budget-columns">
-            <div className="extension-budget-group"><h4>主对话</h4>{limitInput('modelRounds', '模型请求轮数')}{limitInput('toolCalls', '工具调用次数')}</div>
-            <div className="extension-budget-group"><h4>每个子任务</h4>{limitInput('childModelRounds', '模型请求轮数')}{limitInput('childToolCalls', '工具调用次数')}</div>
+            <div className="extension-budget-group"><IconHeading as="h4" icon="chat" tone="blue">主对话</IconHeading>{limitInput('modelRounds', '模型请求轮数')}{limitInput('toolCalls', '工具调用次数')}</div>
+            <div className="extension-budget-group"><IconHeading as="h4" icon="network" tone="violet">每个子任务</IconHeading>{limitInput('childModelRounds', '模型请求轮数')}{limitInput('childToolCalls', '工具调用次数')}</div>
           </div>
           <p className="extension-budget-note">输出回查（512 字节/页）不占工具调用次数，仍计入模型轮数；最后一轮用于报告，上下文容量另有限制。</p>
         </section>
         <section className="extension-section" aria-labelledby="extension-children-title">
-          <div className="extension-section-heading"><div><h3 id="extension-children-title">子 Agent</h3><p>继承父任务的模型、服务器目标与审批边界。</p></div><label className="extension-check"><input type="checkbox" checked={settings.config.subAgents} onChange={event => change({ subAgents: event.target.checked })} />允许委派</label></div>
+          <div className="extension-section-heading"><div><IconHeading id="extension-children-title" icon="bot" tone="violet">子 Agent</IconHeading><p>继承父任务的模型、服务器目标与审批边界。</p></div><label className="extension-check"><input type="checkbox" checked={settings.config.subAgents} onChange={event => change({ subAgents: event.target.checked })} />允许委派</label></div>
           <div className="extension-child-limit">{limitInput('maxChildTasks', '每次处理最多子任务')}</div><p>限制累计派发数；并发由宿主调度，停止对话会停止子任务。</p>
         </section>
         <section className="extension-section" aria-labelledby="extension-skills-title">
-          <div className="extension-section-heading"><div><h3 id="extension-skills-title">Skills</h3><p>{settings.config.skillRoots.length ? `已配置 ${settings.config.skillRoots.length} 个技能目录` : '尚未配置技能目录'}</p></div><button type="button" aria-haspopup="dialog" onClick={() => { setSkillRows(settings.config.skillRoots.length ? [...settings.config.skillRoots] : ['']); setSkillsError(''); setSkillsOpen(true); }}><Icon name="settings" size={14} />配置 Skills</button></div>
+          <div className="extension-section-heading"><div><IconHeading id="extension-skills-title" icon="book" tone="amber">Skills</IconHeading><p>{settings.config.skillRoots.length ? `已配置 ${settings.config.skillRoots.length} 个技能目录` : '尚未配置技能目录'}</p></div><button type="button" aria-haspopup="dialog" onClick={() => { setSkillRows(settings.config.skillRoots.length ? [...settings.config.skillRoots] : ['']); setSkillsError(''); setSkillsOpen(true); }}><Icon name="settings" size={14} />配置 Skills</button></div>
           <p>按需读取 SKILL.md 和参考文件，不自动运行脚本。</p>
         </section>
         <section className="extension-section extension-mcp-section" aria-labelledby="extension-mcp-title">
-          <div className="extension-section-heading"><div><h3 id="extension-mcp-title">MCP 服务</h3><p>{settings.config.servers.length ? `已配置 ${settings.config.servers.length} 个服务 · ${settings.config.servers.filter(server => server.enabled).length} 个启用` : '添加 HTTP、SSE 或本机 stdio 服务，供普通对话与服务器对话使用。'}</p></div><button type="button" aria-haspopup="dialog" onClick={() => { setMcpDraft(formatMcpConfig(settings.config.servers)); setMcpError(''); setMcpOpen(true); }}><Icon name="settings" size={14} />配置 MCP</button></div>
+          <div className="extension-section-heading"><div><IconHeading id="extension-mcp-title" icon="extensions" tone="cyan">MCP 服务</IconHeading><p>{settings.config.servers.length ? `已配置 ${settings.config.servers.length} 个服务 · ${settings.config.servers.filter(server => server.enabled).length} 个启用` : '添加 HTTP、SSE 或本机 stdio 服务，供普通对话与服务器对话使用。'}</p></div><button type="button" aria-haspopup="dialog" onClick={() => { setMcpDraft(formatMcpConfig(settings.config.servers)); setMcpError(''); setMcpOpen(true); }}><Icon name="settings" size={14} />配置 MCP</button></div>
           {!!settings.config.servers.length && <p className="extension-mcp-summary">{settings.config.servers.slice(0, 4).map(server => server.name).join('、')}{settings.config.servers.length > 4 ? ` 等 ${settings.config.servers.length} 个服务` : ''}</p>}
         </section>
       </fieldset>
       <footer className="extension-save">{locked && <span>对话生成期间暂不可修改设置。</span>}<button type="submit" className="primary" title="只保存执行额度与子任务设置；MCP、Skills 在各自弹窗保存" disabled={busy || locked || dialogOpen}>{busy ? '保存中…' : '保存设置'}</button></footer>
     </form>}
-    {mcpOpen && settings && createPortal(<Modal title="配置 MCP 服务" className="mcp-config-dialog" onClose={closeMcp} dismissDisabled={busy}>
+    {mcpOpen && settings && createPortal(<Modal icon="extensions" iconTone="cyan" title="配置 MCP 服务" className="mcp-config-dialog" onClose={closeMcp} dismissDisabled={busy}>
       <form className="mcp-config-form" onSubmit={event => { event.preventDefault(); void saveMcp(); }} onKeyDown={event => {
         if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') { event.preventDefault(); void saveMcp(); }
         if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 'f') { event.preventDefault(); if (!busy && !locked) formatMcp(); }
@@ -198,7 +198,7 @@ export function AgentExtensionSettings({ locked = false }: { locked?: boolean })
         <footer className="mcp-config-footer"><span>{locked ? '对话生成期间暂不可修改配置。' : '保存后下次发送消息生效 · Ctrl+Enter 保存'}</span><button type="button" disabled={busy} onClick={closeMcp}>取消</button><button type="submit" className="primary" disabled={busy || locked}>{busy ? '保存中…' : '保存配置'}</button></footer>
       </form>
     </Modal>, document.body)}
-    {skillsOpen && settings && createPortal(<Modal title="配置 Skills 目录" className="skills-config-dialog" onClose={closeSkills} dismissDisabled={busy}>
+    {skillsOpen && settings && createPortal(<Modal icon="book" iconTone="amber" title="配置 Skills 目录" className="skills-config-dialog" onClose={closeSkills} dismissDisabled={busy}>
       <form className="mcp-config-form skills-config-form" onSubmit={event => { event.preventDefault(); void saveSkills(); }} onKeyDown={event => {
         if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') { event.preventDefault(); void saveSkills(); }
       }}>

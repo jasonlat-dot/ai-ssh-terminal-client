@@ -1,5 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { CSSProperties } from 'react';
+import { useStartupMinimum } from './state/useStartupMinimum';
+import { useStartupTransition } from './state/useStartupTransition';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useTheme } from './state/useTheme';
 import { useApplyClientAppearance } from './state/useClientAppearance';
@@ -76,6 +78,8 @@ import './components/AgentDesktopLayout.css';
 import './components/ProjectChatHistory.css';
 import './components/AgentComposer.css';
 import './components/AgentTranscript.css';
+import './components/CompactWorkspace.css';
+import './components/WorkspaceSettings.css';
 import { Icon } from './components/Ui';
 
 const RemoteTerminalView = lazy(() => import('./components/RemoteTerminalView').then(module => ({ default: module.RemoteTerminalView })));
@@ -102,6 +106,8 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
   const [sshSectionCollapsed, setSshSectionCollapsed] = useState(false);
   const [terminalDockCollapsed, setTerminalDockCollapsed] = useState(false);
   const [navCollapsed, setNavCollapsed] = useState(true);
+  const [compactWindow, setCompactWindow] = useState(() => window.innerWidth <= 760);
+  const [compactWorkspacePane, setCompactWorkspacePane] = useState<'chat' | 'terminal'>('chat');
   const [connectionSidebarCollapsed, setConnectionSidebarCollapsed] = useState(
     () => localStorage.getItem(CONNECTION_SIDEBAR_COLLAPSED_KEY) === 'true',
   );
@@ -184,7 +190,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
   const [dialog, setDialog] = useState<Dialog>(null);
   const [backendSettingsOpen, setBackendSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<RustSettingsSection>('general');
-  useEffect(() => { if (updateSettingsRequested) {setSettingsSection('general');setBackendSettingsOpen(true);} }, [updateSettingsRequested]);
+  useEffect(() => { if (updateSettingsRequested) {setSettingsSection('updates');setModelSettingsRequested(false);setBackendSettingsOpen(true);} }, [updateSettingsRequested]);
   const [attachmentPreviews] = useState(() => new AttachmentPreviews());
   const [chatDraft] = useState(() => new ChatAttachmentDraft(attachmentPreviews));
   const agentComposer = useRef<AgentComposerHandle>(null);
@@ -207,6 +213,27 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
   };
   const [commandCollapsed, setCommandCollapsed] = useState(true);
   const [agentCollapsed, setAgentCollapsed] = useState(false);
+  useEffect(() => {
+    const resize = () => {
+      const compact = window.innerWidth <= 760;
+      setCompactWindow(compact);
+      if (compact) {
+        setNavCollapsed(true);
+        setConnectionSidebarCollapsed(true);
+      }
+    };
+    // Only collapse on crossing into compact mode, not on every pixel of a drag.
+    const query = window.matchMedia('(max-width: 760px)');
+    resize();
+    query.addEventListener('change', resize);
+    return () => query.removeEventListener('change', resize);
+  }, []);
+  const showCompactPane = (pane: 'chat' | 'terminal') => {
+    setCompactWorkspacePane(pane);
+    if (pane === 'chat') setAgentCollapsed(false);
+    else setTerminalDockCollapsed(false);
+    if (compactWindow) setConnectionSidebarCollapsed(true);
+  };
   // 应用关闭流程的全局标志位：避免 Tauri onCloseRequested 与 in-page 关闭按钮、
   // 终端页签关闭等其他路径在快速关窗时重复触发清理。
   const closingApp = useRef(false);
@@ -1526,8 +1553,13 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     }catch(error){notify(error instanceof Error?error.message:'新建项目对话失败','error');}
     finally{scopeSwitchRef.current=false;setScopeSwitching(false);}
   };
-  return <div style={{ '--terminal-dock-width': `${terminalWidth}%`, '--command-width': `${commandWidth}px`, '--connection-sidebar-width': `${connectionSidebarWidth}px` } as CSSProperties} className={`app-shell agent-desktop ${terminalDockCollapsed && !agentCollapsed ? 'terminal-dock-collapsed' : ''} ${agentCollapsed ? 'agent-collapsed' : ''} ${navCollapsed ? 'nav-collapsed' : ''} ${connectionSidebarCollapsed ? 'host-sidebar-collapsed' : ''} ${navigation === '连接' ? 'connections-view' : 'terminal-view'} ${backendSettingsOpen ? 'settings-view' : ''}`}>
+  return <div data-compact-pane={agentCollapsed ? 'terminal' : compactWorkspacePane} style={{ '--terminal-dock-width': `${terminalWidth}%`, '--command-width': `${commandWidth}px`, '--connection-sidebar-width': `${connectionSidebarWidth}px` } as CSSProperties} className={`app-shell agent-desktop ${terminalDockCollapsed && !agentCollapsed ? 'terminal-dock-collapsed' : ''} ${agentCollapsed ? 'agent-collapsed' : ''} ${navCollapsed ? 'nav-collapsed' : ''} ${connectionSidebarCollapsed ? 'host-sidebar-collapsed' : ''} ${navigation === '连接' ? 'connections-view' : 'terminal-view'} ${backendSettingsOpen ? 'settings-view' : ''}`}>
     <AppHeader notify={notify} theme={theme} setTheme={setTheme} />
+    <div className="compact-workspace-switch" role="group" aria-label="工作区视图">
+      <button type="button" aria-pressed={!agentCollapsed && compactWorkspacePane === 'chat'} onClick={() => showCompactPane('chat')}><Icon name="bot" size={16} />对话</button>
+      <button type="button" aria-pressed={agentCollapsed || compactWorkspacePane === 'terminal'} onClick={() => showCompactPane('terminal')}><Icon name="terminal" size={16} />终端</button>
+    </div>
+    {compactWindow && !connectionSidebarCollapsed && !backendSettingsOpen && <button type="button" className="compact-sidebar-scrim" aria-label="收起工作区侧栏" onClick={() => setConnectionSidebarCollapsed(true)} />}
     <ActivityBar active={navigation} onSelect={name => { setBackendSettingsOpen(false); clearUpdateSettingsRequest(); navigate(name); }} onSettings={() => { setModelSettingsRequested(false); clearUpdateSettingsRequest(); setBackendSettingsOpen(value => !value); }} settingsOpen={backendSettingsOpen} collapsed={navCollapsed} toggleCollapsed={() => setNavCollapsed(value => !value)} settingsSection={settingsSection} onSettingsSection={section=>{setSettingsSection(section);setModelSettingsRequested(false);clearUpdateSettingsRequest();setBackendSettingsOpen(true);}} />
     {backendSettingsOpen && <BackendSettingsDialog currentUrl={backendUrl}
       section={settingsSection}
@@ -1547,10 +1579,10 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
           deleted={chat=>{if(chatSessionId.current===chat.sessionId){clearChat();setActiveProject(null);setProjectTerminalId('');}setProjectRevision(value=>value+1);notify(`已删除对话“${chat.title||'新对话'}”`,'success');}}
           removed={project=>{setChatProjects(old=>old.filter(item=>item.id!==project.id));if(activeProject?.id===project.id){setActiveProject(null);setProjectTerminalId('');}setProjectRevision(value=>value+1);notify(`已移除项目“${project.name}”，聊天记录已保留`,'success');}}
           locked={projectLocked} revision={String(projectRevision)+':'+activeChatSessionId+':'+String(chatBusy)}
-          newChat={p=>newProjectChat(p)} openChat={(chat,p)=>void openProjectChat(chat,p)}
+          newChat={p=>{if(compactWindow)showCompactPane('chat');newProjectChat(p);}} openChat={(chat,p)=>{if(compactWindow)showCompactPane('chat');void openProjectChat(chat,p);}}
           servers={()=>{setSshSectionCollapsed(false);setConnectionSidebarCollapsed(false);setBackendSettingsOpen(false);}}/>
       </section>
-      <ConnectionSidebar connections={{ ...connections, remove: removeHost }} sessions={sessions} connectingHostIds={connectingHostIds} activeHostId={active?.kind === 'ssh' ? active.connectionId : undefined} activeSessionId={activeId} terminal={id => {setTerminalDockCollapsed(false);selectHost(id);}} cancelConnection={cancelHostConnection} activate={id => {setTerminalDockCollapsed(false);activateTerminalFromSidebar(id);}} create={openNewConnection} collapsed={sshSectionCollapsed} toggleCollapsed={toggleSshConnections} embedded />
+      <ConnectionSidebar connections={{ ...connections, remove: removeHost }} sessions={sessions} connectingHostIds={connectingHostIds} activeHostId={active?.kind === 'ssh' ? active.connectionId : undefined} activeSessionId={activeId} terminal={id => {setTerminalDockCollapsed(false);if(compactWindow)showCompactPane('terminal');selectHost(id);}} cancelConnection={cancelHostConnection} activate={id => {setTerminalDockCollapsed(false);if(compactWindow)showCompactPane('terminal');activateTerminalFromSidebar(id);}} create={openNewConnection} collapsed={sshSectionCollapsed} toggleCollapsed={toggleSshConnections} embedded />
     </aside>
     <PanelDivider value={connectionSidebarWidth} change={setConnectionSidebarWidth} side="left" unit="pixels"
       min={220} max={360} defaultValue={window.innerWidth <= 1280 ? 240 : 280} reservePixels={704}
@@ -1560,7 +1592,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     <main id="terminal-dock-content" hidden={navigation !== '命令'} className={`central-workspace ${!active ? 'no-session' : ''} ${commandCollapsed ? 'command-collapsed' : ''}`}>
       <TerminalWorkspace
         agentTerminalId={rustBuiltin?agentBoundTerminalId(canonicalHistory?.session,activeProject?projectTerminalId:'',sessions):undefined}
-        dockControls={<><span><Icon name="terminal" size={16}/>SSH 终端</span><div><button type="button" className="terminal-return-chat" aria-label="展开智能体对话" title="展开智能体对话" aria-controls="agent-panel-content" aria-expanded={false} onClick={() => setAgentCollapsed(false)}><Icon name="bot" size={15}/><span>展开对话</span></button><button type="button" aria-label={terminalDockCollapsed ? '展开终端面板' : '收起终端面板'} aria-expanded={!terminalDockCollapsed} onClick={() => {setTerminalDockCollapsed(value => !value);setAgentCollapsed(false);}}><Icon name={terminalDockCollapsed ? 'left' : 'right'} size={16}/></button></div></>}
+        dockControls={<><span><Icon name="terminal" size={16}/>SSH 终端</span><div><button type="button" className="terminal-return-chat" aria-label="展开智能体对话" title="展开智能体对话" aria-controls="agent-panel-content" aria-expanded={false} onClick={() => {if(compactWindow)showCompactPane('chat');else setAgentCollapsed(false);}}><Icon name="bot" size={15}/><span>展开对话</span></button><button type="button" aria-label={terminalDockCollapsed ? '展开终端面板' : '收起终端面板'} aria-expanded={!terminalDockCollapsed} onClick={() => {setTerminalDockCollapsed(value => !value);setAgentCollapsed(false);}}><Icon name={terminalDockCollapsed ? 'left' : 'right'} size={16}/></button></div></>}
         commandControls={<TerminalCommandBar mode={commandMode} changeMode={mode => {
           setCommandMode(mode);
           if (mode === 'selected' && commandMode === 'single' && activeId) setCommandTargetIds(previous => previous.length ? previous : [activeId]);
@@ -1643,7 +1675,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
         commandCollapsed={commandCollapsed}
         toggleCommands={() => setCommandCollapsed(value => !value)}
         agentCollapsed={agentCollapsed}
-        toggleAgent={() => setAgentCollapsed(value => !value)}
+        toggleAgent={() => {if(compactWindow)showCompactPane('chat');else setAgentCollapsed(value => !value);}}
       />
       <CommandShelf commands={commands} category={category} setCategory={setCategory} fill={fill} run={command => { void requestRun(command); }} copy={copy} add={() => setDialog('command')}
         disabled={broadcastBusy || (commandMode === 'single' ? !canRun : !commandPlan.targets.length)} collapsed={commandCollapsed} broadcast={commandMode !== 'single'}
@@ -1728,7 +1760,7 @@ export default function App() {
   const [connectionRevision, setConnectionRevision] = useState(0);
   const [updateSettingsRequested, setUpdateSettingsRequested] = useState(false);
   const [backendReady, setBackendReady] = useState(() => !desktop);
-  const [startupBypassed, setStartupBypassed] = useState(false);
+  const startupMinimumElapsed = useStartupMinimum(desktop);
   const [startupPhase, setStartupPhase] = useState<StartupPhase>(desktop ? 'checking' : 'ready');
   const [startupMessage, setStartupMessage] = useState('正在读取工作区状态…');
   const [startupLogDirectory, setStartupLogDirectory] = useState<string | null>(null);
@@ -1748,7 +1780,6 @@ export default function App() {
     checkedAt: null,
   });
   const startupHealthAbort = useRef<AbortController | null>(null);
-  const readyTimer = useRef<number | null>(null);
   const changeBackend = (url: string) => {
     setBackendUrl(saveBackendUrl(url));
     // 重新初始化工作区时重建界面并取消旧实例请求。
@@ -1761,33 +1792,17 @@ export default function App() {
     return selected;
   }, []);
 
-  useLayoutEffect(() => {
-    if (!desktop) return;
-    /*
-     * 主窗口由 Tauri 以 hidden 状态创建。React 完成首次提交后再显示，
-     * 避免用户看到 WebView 初始化期间的空内容或“没有数据”中间态。
-     */
-    void getCurrentWindow().show().catch(error => {
-      console.error('显示主窗口失败', error);
-    });
-  }, [desktop]);
-
-  const revealMain = useCallback((message: string) => {
-    setStartupPhase('ready');
-    setStartupMessage(message || '本地工作区已就绪');
-    if (readyTimer.current !== null) window.clearTimeout(readyTimer.current);
-    readyTimer.current = window.setTimeout(() => setBackendReady(true), 320);
-  }, []);
-
   /**
-   * 用 /api/health 探测一次，结果只用于启动页状态展示。
-   * - 不影响 phase 流转：phase 仍由内置进程状态快照/事件决定。
-   * - 不阻塞用户点击“继续进入”：health down 也允许继续（业务后端已能响应）。
+   * Native running state alone is insufficient: verify the actual instance over IPC.
+   * Every later status invalidates the previous probe before it can admit the workspace.
    */
   const runStartupHealthProbe = useCallback(async (targetUrl: string) => {
     startupHealthAbort.current?.abort();
     const controller = new AbortController();
     startupHealthAbort.current = controller;
+    setBackendReady(false);
+    setStartupPhase('starting');
+    setStartupMessage('正在确认本地工作区是否就绪…');
     setStartupHealth(previous => ({ ...previous, state: 'probing', backendUrl: targetUrl, message: null }));
     try {
       const snapshot = await probeBackendHealth({ backendUrl: targetUrl, signal: controller.signal, timeoutMs: 3000 });
@@ -1799,6 +1814,9 @@ export default function App() {
         message: snapshot.message,
         checkedAt: snapshot.checkedAt,
       });
+      setBackendReady(snapshot.ok);
+      setStartupPhase(snapshot.ok ? 'ready' : 'failed');
+      setStartupMessage(snapshot.ok ? '本地工作区已就绪' : snapshot.message || '本地工作区检查未通过，请重试');
     } catch (cause) {
       if (controller.signal.aborted) return;
       setStartupHealth(previous => ({
@@ -1807,13 +1825,15 @@ export default function App() {
         backendUrl: targetUrl,
         message: cause instanceof Error ? cause.message : String(cause),
       }));
+      setBackendReady(false);
+      setStartupPhase('failed');
+      setStartupMessage(`工作区检查失败：${errorMessage(cause)}`);
     } finally {
       if (startupHealthAbort.current === controller) startupHealthAbort.current = null;
     }
   }, []);
 
   useEffect(() => () => {
-    if (readyTimer.current !== null) window.clearTimeout(readyTimer.current);
     startupHealthAbort.current?.abort();
   }, []);
 
@@ -1827,14 +1847,10 @@ export default function App() {
       setStartupStarting(false);
       // 工作区状态与业务就绪状态分别检查；本地健康检查通过 IPC。
       void runStartupHealthProbe(syncBundledBackendUrl(status?.backendUrl));
-      revealMain(status?.message ?? '客户端界面已就绪');
       return;
     }
-    // running 后的短暂进入动画期间若进程退出，取消进入计时，不能带失败状态进入工作区。
-    if (readyTimer.current !== null) {
-      window.clearTimeout(readyTimer.current);
-      readyTimer.current = null;
-    }
+    startupHealthAbort.current?.abort();
+    setBackendReady(false);
     setStartupLogDirectory(status.status === 'failed' ? parentDirectory(status.logPath) : null);
     if (status.status === 'failed' || status.status === 'stopped') {
       setStartupStarting(false);
@@ -1844,24 +1860,29 @@ export default function App() {
     }
     setStartupPhase('starting');
     setStartupMessage(status.message || '正在等待本地工作区初始化…');
-  }, [revealMain, runStartupHealthProbe, syncBundledBackendUrl]);
+  }, [runStartupHealthProbe, syncBundledBackendUrl]);
+
+  const startupTransition = useStartupTransition(!desktop || (backendReady && startupMinimumElapsed), desktop);
+  const workspaceEntered = startupTransition.entered;
 
   useEffect(() => {
     if (!desktop) return;
     // 注册监听后只查一次快照；持续的 starting/running/failed/stopped 由 Rust 推送。
     return watchBundledBackendStatus(status => {
-      if (backendReady || startupBypassed) {
+      if (workspaceEntered) {
         if (status?.status === 'running') syncBundledBackendUrl(status.backendUrl);
         return;
       }
       applyStartupStatus(status);
     }, error => {
-      if (backendReady || startupBypassed) return;
+      if (workspaceEntered) return;
+      startupHealthAbort.current?.abort();
+      setBackendReady(false);
       setStartupPhase('failed');
       setStartupMessage(`无法读取本地工作区状态：${errorMessage(error)}`);
       setStartupLogDirectory(null);
     });
-  }, [backendReady, desktop, startupBypassed, applyStartupStatus, syncBundledBackendUrl]);
+  }, [workspaceEntered, desktop, applyStartupStatus, syncBundledBackendUrl]);
 
   const retryStartup = useCallback(async () => {
     setStartupRetrying(true);
@@ -1907,14 +1928,14 @@ export default function App() {
     if (target) void runStartupHealthProbe(target);
   }, [runStartupHealthProbe, startupHealth.backendUrl]);
 
-  const waitingForBackend = desktop && !backendReady && !startupBypassed;
+  const waitingForBackend = !workspaceEntered;
   const page = waitingForBackend && !updateSettingsRequested ? <StartupScreen
+      exiting={startupTransition.exiting}
       phase={startupPhase}
       message={startupMessage}
       logDirectory={startupLogDirectory}
       retrying={startupRetrying}
       onRetry={() => { void retryStartup(); }}
-      onContinue={() => setStartupBypassed(true)}
       onStart={() => { void startManually(); }}
       starting={startupStarting}
       health={startupHealth}
