@@ -11,7 +11,7 @@ export function modelPickerPosition({trigger,panel,composer,viewport,groupRows,m
   const width=Math.min(compact?340:520,available);
   const anchor=composer&&composer.right>composer.left?composer:trigger;
   const center=(anchor.left+anchor.right)/2;
-  const preferredLeft=!compact&&anchor===composer?anchor.left+12:center-width/2;
+  const preferredLeft=center-width/2+(!compact&&anchor===composer?32:0);
   const rows=compact?(level==='group'?groupRows:modelRows):Math.max(groupRows,modelRows);
   const desired=Math.min(340,48+rows*36);
   const above=trigger.top-14,below=viewport.height-trigger.bottom-14;

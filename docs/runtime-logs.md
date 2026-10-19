@@ -1,6 +1,6 @@
 # 运行日志与执行记录
 
-当前说明对应 v0.2.1 内置 Rust 后端。桌面宿主实际编译 `src-tauri/src/embedded_backend.rs`，后端库来自兄弟目录 `ai-ssh-terminal-server-rust`；旧 Java 生命周期实现文件不代表当前运行路径。
+当前说明对应 v0.2.2 内置 Rust 后端。桌面宿主实际编译 `src-tauri/src/embedded_backend.rs`，后端库来自兄弟目录 `ai-ssh-terminal-server-rust`；旧 Java 生命周期实现文件不代表当前运行路径。
 
 ## 文件日志
 

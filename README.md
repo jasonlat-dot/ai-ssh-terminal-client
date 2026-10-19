@@ -1,6 +1,6 @@
 # ShellPilot · 终端领航
 
-ShellPilot 是基于 React、TypeScript、Tauri 2 和 Rust 的 Windows 智能终端客户端。当前版本为 **v0.2.1**，支持本地 CMD、SSH 终端、SFTP 文件管理，以及带工具审批、子任务、MCP、Skills 和长期记忆的 AI 对话。
+ShellPilot 是基于 React、TypeScript、Tauri 2 和 Rust 的 Windows 智能终端客户端。当前版本为 **v0.2.2**，支持本地 CMD、SSH 终端、SFTP 文件管理，以及带工具审批、子任务、MCP、Skills 和长期记忆的 AI 对话。
 
 Rust 后端作为库直接链接进桌面程序，前端通过 Tauri IPC 调用同一应用内的服务。桌面版不启动本机 HTTP 监听，不需要填写后端地址，也不依赖 Java、JAR、JRE、Maven 或独立数据库服务。模型 API、远程 SSH 与 MCP 仍按各自配置连接。
 
@@ -40,6 +40,8 @@ AIShellTerminal/
 - MCP JSON 配置与高亮，支持 Streamable HTTP、旧版 SSE 和 stdio；Skills 目录按需读取。
 - 全局或服务器范围的长期记忆，支持筛选、编辑、启停与删除。
 - 图片、UTF-8 文本及可提取文字的 PDF 附件，长对话自动整理与历史恢复。
+- 一个渠道配置多个模型，对话内切换模型并保留记录；按兼容协议选择推理强度。
+- 按 Trace ID 定位失败请求日志，默认保留 7 天；展开工具可读取并复制已保存的完整输出。
 - 明暗主题、壁纸与字体设置、紧凑窗口布局、统一操作提示及应用更新。
 
 Chat Completions、Claude Messages 与 Responses 支持文字、附件和工具调用；按协议自动保留推理字段或思考签名，历史恢复与上下文整理保留所需的尾部状态。Gemini 使用 OpenAI 兼容入口，供应商能力和入口说明见 [模型设置](docs/agent-model-settings.md)。扫描 PDF/OCR、Office 内容解析、旧 Java 数据自动导入及递归子任务不在当前支持范围。SFTP 使用独立连接，终端 `sudo` 不会自动改变文件连接的身份，需要在文件窗口选择访问身份。
@@ -89,7 +91,7 @@ dev、tauri、build、preview 脚本会选择兼容的 Node 运行时；可用 `
 
 普通安装包：
 
-Windows 安装后的主程序为 `ShellPilot.exe`，开始菜单入口为 `ShellPilot`。安装和更新会补建缺失的开始菜单快捷方式（显式使用 `/NS` 禁用快捷方式时除外）。v0.2.1 使用正式应用标识并迁移旧工作区，安装前请从托盘退出旧版。
+Windows 安装后的主程序为 `ShellPilot.exe`，开始菜单入口为 `ShellPilot`。安装和更新会补建缺失的开始菜单快捷方式（显式使用 `/NS` 禁用快捷方式时除外）。v0.2.2 沿用正式应用标识及原工作区，安装前请从托盘退出旧版。
 
 ```powershell
 npm run bundle:nsis     # NSIS EXE
@@ -110,12 +112,12 @@ src-tauri/target/release/bundle/msi/ShellPilot_<版本>_x64_en-US.msi
 # 继续使用与配置公钥匹配的原有签名私钥；无密码时填空字符串。
 $env:TAURI_SIGNING_PRIVATE_KEY = '你的签名私钥文件绝对路径'
 $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = '你的私钥密码'
-npm run release:windows -- --notes docs/releases/v0.2.1.md
+npm run release:windows -- --notes docs/releases/v0.2.2.md
 ```
 
-发布脚本构建 Windows x64 NSIS 安装包、验证签名，并在 `release/v0.2.1/` 生成安装包、`.sig`、`latest.json`、发布说明与 SHA256 校验文件。脚本不会自动上传 GitHub 或安装更新，也不会覆盖已有的同版本发布目录。普通 `bundle:*` 不会生成完整的签名更新发布目录。
+发布脚本构建 Windows x64 NSIS 安装包、验证签名，并在 `release/v0.2.2/` 生成安装包、`.sig`、`latest.json`、发布说明与 SHA256 校验文件。脚本不会自动上传 GitHub 或安装更新，也不会覆盖已有的同版本发布目录。普通 `bundle:*` 不会生成完整的签名更新发布目录。
 
-将安装包、对应 `.sig` 与 `latest.json` 一起上传到 `v0.2.1` 的 GitHub 正式 Release。更新通道沿用原客户端仓库的 GitHub Releases；通道读取最新正式 Release，与代码分支无关。不要更换已有签名密钥。
+将安装包、对应 `.sig` 与 `latest.json` 一起上传到 `v0.2.2` 的 GitHub 正式 Release。更新通道沿用原客户端仓库的 GitHub Releases；通道读取最新正式 Release，与代码分支无关。不要更换已有签名密钥。
 
 “关于与更新”可以检查、下载并确认安装。开发模式不检查或安装更新；正式版启动后约 3 秒静默检查一次，无更新或失败不打扰，有更新时提示，不自动下载或安装。详见 [更新与发布说明](docs/client-updates.md)。
 
@@ -132,10 +134,11 @@ npm run release:windows -- --notes docs/releases/v0.2.1.md
 │   ├── shellpilot.sqlite3     连接、模型、对话、工具事件、记忆等
 │   └── attachments/           本地附件
 └── logs/
-    └── backend.log            工作区初始化、停止记录
+    ├── backend.log            工作区初始化、停止记录
+    └── agent/YYYY-MM-DD/<traceId>.log  请求诊断与对话正文
 ```
 
-v0.2.1 首次启动会在创建 WebView 前，将旧预览版目录复制到正式目录，包括数据库、附件、配置及 WebView 持久数据。旧目录保留为备份；已经初始化的正式目录不会被覆盖。原配置指向旧根目录内的位置会同步改为新路径，外部自定义数据目录保持原位置。旧 Java 版的 `%USERPROFILE%/.ai-ssh-terminal` 不在本次自动迁移范围内。
+从旧预览版首次升级时，启动会在创建 WebView 前，将旧预览版目录复制到正式目录，包括数据库、附件、配置及 WebView 持久数据。旧目录保留为备份；已经初始化的正式目录不会被覆盖。原配置指向旧根目录内的位置会同步改为新路径，外部自定义数据目录保持原位置。旧 Java 版的 `%USERPROFILE%/.ai-ssh-terminal` 不在本次自动迁移范围内。
 
 在“本地工作区”可调整数据目录、附件存储、容量与保留天数，并展开“数据与日志位置”查看实际路径。数据目录改动不会自动搬迁旧数据；重新初始化后使用新目录。配置文件与 `logs` 仍在应用根目录，不随数据目录移动。
 
@@ -175,7 +178,8 @@ cargo test --all-targets
 
 ## 相关说明
 
-- [v0.2.1 发布说明](docs/releases/v0.2.1.md)
+- [v0.2.2 发布说明](docs/releases/v0.2.2.md)
+- [v0.2.2 升级与发布](docs/releases/v0.2.2-upgrade.md)
 - [Rust 内置架构](docs/rust-backend.md)
 - [安装与数据目录](docs/INSTALL.md)
 - [运行日志与执行记录](docs/runtime-logs.md)

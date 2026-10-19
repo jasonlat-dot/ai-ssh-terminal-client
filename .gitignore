@@ -31,5 +31,5 @@ dist-ssr
 /.secrets/
 *.key
 /release/
-/docs/client-updates.md
 /docs/releases/v0.2.1-commit-notes.md
+/docs/client-updates.md

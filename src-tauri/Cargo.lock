@@ -5292,7 +5292,7 @@ checksum = "dc6fe69c597f9c37bfeeeeeb33da3530379845f10be461a66d16d03eca2ded77"
 
 [[package]]
 name = "shellpilot"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -5324,7 +5324,7 @@ dependencies = [
 
 [[package]]
 name = "shellpilot-server"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "async-stream",
  "axum",
