@@ -1,3 +1,4 @@
+import { useToastError } from './useToastError';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { sshApi, sshUserId, toHost, toRequest } from '../api/ssh';
 import type { ConnectionDraft } from '../api/ssh';
@@ -13,7 +14,7 @@ export function useSshConnections() {
   const [hosts, setHosts] = useState<Host[]>([]);
   const [busy, setBusy] = useState(false);
   const [loaded, setLoaded] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useToastError();
   const lock = useRef(false);
   const metadata = useRef(readMetadata());
   const decorate = useCallback((host: Host): Host => ({ ...host, environment: metadata.current[host.id]?.environment || '开发' }), []);

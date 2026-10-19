@@ -1,3 +1,4 @@
+import { useToastError } from '../state/useToastError';
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { agentApi } from '../api/agent';
@@ -33,15 +34,15 @@ export function ProjectChatHistory({hosts,project,sessionId,locked,revision,newC
 }) {
  const [projects,setProjects]=useState<AgentProject[]>([]);
  const [histories,setHistories]=useState<Record<string,ProjectChats>>({});
- const [error,setError]=useState('');const [loading,setLoading]=useState(false);
+ const [error,setError]=useToastError();const [loading,setLoading]=useState(false);
  const [expanded,setExpanded]=useState<Set<string>>(()=>new Set(['']));
  const [visibleCounts,setVisibleCounts]=useState<Record<string,number>>({});
- const [renameTarget,setRenameTarget]=useState<ProjectChat|null>(null),[renameTitle,setRenameTitle]=useState(''),[renameError,setRenameError]=useState(''),[renaming,setRenaming]=useState(false);
+ const [renameTarget,setRenameTarget]=useState<ProjectChat|null>(null),[renameTitle,setRenameTitle]=useState(''),[, setRenameError] = useToastError(),[renaming,setRenaming]=useState(false);
  const renamePending=useRef(false);
  const [deleteTarget,setDeleteTarget]=useState<ProjectChat|null>(null);
- const [deleting,setDeleting]=useState(false);const [deleteError,setDeleteError]=useState('');
+ const [deleting,setDeleting]=useState(false);const [, setDeleteError] = useToastError();
  const [removeTarget,setRemoveTarget]=useState<AgentProject|null>(null);
- const [removing,setRemoving]=useState(false);const [removeError,setRemoveError]=useState('');
+ const [removing,setRemoving]=useState(false);const [, setRemoveError] = useToastError();
  const [creating,setCreating]=useState(false);const [name,setName]=useState('');
  const [connection,setConnection]=useState('');const [saving,setSaving]=useState(false);
  const startCreate=()=>{if(locked)return;setConnection(hosts.find(host=>host.id===createConnectionId)?.id??hosts[0]?.id??'');setName('');setError('');setCreating(true);};
@@ -163,7 +164,7 @@ export function ProjectChatHistory({hosts,project,sessionId,locked,revision,newC
    </div>
    <nav className="project-sidebar-scroll" aria-label="对话记录" aria-busy={loading}>
     {loading&&!projects.length&&<p className="project-empty">正在读取记录…</p>}
-    {error&&<p role="alert" className="project-sidebar-error">{error}<button onClick={()=>setReload(v=>v+1)}>重试</button></p>}
+    {error&&<button type="button" onClick={()=>setReload(v=>v+1)}>重试读取历史</button>}
     {projects.map(p=><section key={p.id} className={'agent-project '+(project?.id===p.id?'active':'')}>
      <div className="project-folder-row"><button type="button" className="project-disclosure" title={(expanded.has(p.id)?'收起':'展开')+p.name} aria-label={(expanded.has(p.id)?'收起':'展开')+p.name} aria-expanded={expanded.has(p.id)} aria-controls={'project-chats-'+p.id}
       onClick={()=>setExpanded(old=>{const next=new Set(old);if(next.has(p.id))next.delete(p.id);else next.add(p.id);return next;})}><Icon name="folder" size={17} className="project-folder-icon"/><Icon name={expanded.has(p.id)?'down':'right'} size={13} className="project-folder-chevron"/></button>
@@ -184,7 +185,6 @@ export function ProjectChatHistory({hosts,project,sessionId,locked,revision,newC
   {removeTarget&&createPortal(<Modal icon="folder" iconTone="amber" title="移除项目？" className="project-delete-dialog" dismissDisabled={removing} onClose={()=>setRemoveTarget(null)}>
    <p className="project-delete-title">{removeTarget.name}</p>
    <p>仅移除项目分组。已有聊天、命令记录和工具输出都会保留，可在“未分组对话”中继续查看。服务器配置和对话的服务器绑定不会改变。</p>
-   {removeError&&<p role="alert" className="project-sidebar-error">{removeError}</p>}
    <footer><button type="button" data-autofocus disabled={removing} onClick={()=>setRemoveTarget(null)}>取消</button>
     <button type="button" className="project-confirm-delete" disabled={locked||removing||!!histories[removeTarget.id]?.items.some(chat=>chat.running)} onClick={()=>{
       if(locked||removing||histories[removeTarget.id]?.items.some(chat=>chat.running))return;
@@ -209,14 +209,12 @@ export function ProjectChatHistory({hosts,project,sessionId,locked,revision,newC
    }}>
     <label>对话标题<input autoFocus aria-label="对话标题" value={renameTitle} maxLength={160} disabled={renaming} onChange={event=>setRenameTitle(event.target.value)}/></label>
     <p className="project-rename-hint">最多 80 个字符</p>
-    {renameError&&<p role="alert" className="project-sidebar-error">{renameError}</p>}
     <footer><button type="button" className="outlined-button" disabled={renaming} onClick={()=>setRenameTarget(null)}>取消</button><button type="submit" className="primary-button" disabled={locked||isRunning(renameTarget)||renaming}>{renaming?'正在保存…':'保存'}</button></footer>
    </form>
   </Modal>}
   {deleteTarget&&createPortal(<Modal icon="trash" iconTone="danger" title="删除对话？" className="project-delete-dialog" dismissDisabled={deleting} onClose={()=>setDeleteTarget(null)}>
    <p className="project-delete-title">{deleteTarget.title||'新对话'}</p>
    <p>这条对话的聊天内容、命令记录和工具输出将一并删除，无法恢复。</p>
-   {deleteError&&<p role="alert" className="project-sidebar-error">{deleteError}</p>}
    <footer><button type="button" data-autofocus disabled={deleting} onClick={()=>setDeleteTarget(null)}>取消</button>
     <button type="button" className="project-confirm-delete" disabled={locked||isRunning(deleteTarget)||deleting} onClick={()=>{
       if(locked||isRunning(deleteTarget)||deleting)return;
@@ -233,7 +231,6 @@ export function ProjectChatHistory({hosts,project,sessionId,locked,revision,newC
      <label>项目名称<input autoFocus value={name} maxLength={100} onChange={event=>setName(event.target.value)} placeholder="例如：测试服务器"/></label>
      <label>已保存的服务器<Select label="项目服务器" value={connection} options={hosts.map(host=>({value:host.id,label:host.name+' · '+host.user+'@'+host.address}))} disabled={saving||!hosts.length} onChange={setConnection}/></label>
      <p className="project-create-hint">{!hosts.length?'请先在“管理服务器”中保存一台服务器。':'开始对话时自动连接此服务器，聊天记录按项目保存。'}</p>
-    {error&&<p role="alert" className="project-sidebar-error">{error}</p>}
     </div>
     <footer className="project-create-footer"><button type="button" className="project-manage-servers" disabled={saving} onClick={()=>{cancelCreate();servers();}}><Icon name="server" size={15}/><span>管理服务器</span></button><button type="submit" className="project-create-submit" disabled={saving||!connection||!name.trim()}>{saving?'正在创建…':created?'创建项目':'创建并开始对话'}<Icon name="right" size={15}/></button></footer>
    </form>

@@ -1,3 +1,4 @@
+import { useToastError } from './state/useToastError';
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { CSSProperties } from 'react';
 import { useStartupMinimum } from './state/useStartupMinimum';
@@ -173,7 +174,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
   const projectCreateFinished=useRef<(()=>void)|null>(null);
   const [connectionGuide,setConnectionGuide]=useState<ConnectionGuideState|null>(null);
   const [guideStarting,setGuideStarting]=useState(false);
-  const [guideError,setGuideError]=useState('');
+  const [,setGuideError]=useToastError();
   const [approvalState,setApprovalState]=useState<{sessionId:string;pending:boolean}>();
   const onApprovalChange=useCallback((sessionId:string,pending:boolean)=>{
     setApprovalState(previous=>!pending&&previous?.sessionId!==sessionId?previous:
@@ -278,7 +279,6 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
   const reconnectingAttempts = useRef(new Map<string, SshConnectAttempt>());
   const [connectingHostIds, setConnectingHostIds] = useState<Set<string>>(() => new Set());
   const tabLastUsedAt = useRef(new Map<string, number>());
-  const [terminalError, setTerminalError] = useState('');
   const [connectAfterSave, setConnectAfterSave] = useState(false);
   const active = sessions.find(session => session.id === activeId);
   const host = hosts.find(item => item.id === active?.connectionId) ?? active?.host;
@@ -432,7 +432,6 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
       if (version === historyRefreshVersion.current) setHistoryLoading(false);
     }
   }, [backendUrl, rustBuiltin]);
-  useEffect(() => { if (connections.error) notify(connections.error, 'error'); }, [connections.error, notify]);
   useEffect(() => {
     let cancelled = false;
     const controller = new AbortController();
@@ -827,7 +826,6 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
   const closeTerminalSession = async (tabId: string) => {
     const session = sessionsRef.current.find(item => item.id === tabId);
     if (!session) return true;
-    setTerminalError('');
     try {
       const runtime = terminalClients.current.get(tabId);
       const shouldClose = !!session.terminalSessionId && (!runtime?.disconnected || session.manuallyClosed) && !runtime?.closed;
@@ -847,7 +845,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
       return true;
     } catch (error) {
       const message = error instanceof Error ? error.message : '关闭终端失败';
-      setTerminalError(message); notify(message, 'error'); return false;
+      notify(message, 'error'); return false;
     }
   };
   const removeHost = async (hostId: string) => {
@@ -891,7 +889,6 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
       return;
     }
     setDialog(null);
-    setTerminalError('');
     setDisconnectTarget({ tabId: id, host: hosts.find(item => item.id === session.connectionId) ?? session.host, allowDisconnectOnly });
   };
   const confirmDisconnect = async (keepTab = false) => {
@@ -1786,7 +1783,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     }} />}
     {connectionGuide?.open && !connectionGuide.task && <ConnectionGuide state={connectionGuide} hosts={hosts} projects={chatProjects}
       modelReady={!!selectedAgent && agentModels.some(model=>model.agentId===selectedAgent.agentId)} connected={guideConnected}
-      busy={projectLocked||guideStarting||connections.busy} error={guideError}
+      busy={projectLocked||guideStarting||connections.busy}
       onClose={()=>setConnectionGuide(previous=>previous?{...previous,open:false}:previous)} onStep={guideStep}
       onConnection={id=>{setGuideError('');setConnectionGuide(previous=>previous?{...previous,connectionId:id,projectId:''}:previous);}}
       onProject={id=>{setGuideError('');setConnectionGuide(previous=>previous?{...previous,projectId:id}:previous);}}
@@ -1799,7 +1796,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
       if(connectionGuide?.task==='connection')setConnectionGuide(previous=>previous?{...previous,task:null,step:1,connectionId:saved.id,projectId:''}:previous);
       if (connectAfterSave) void selectHost(saved.id, saved);
     }} />}
-    {disconnectTarget && <DisconnectDialog key={disconnectTarget.tabId} host={hosts.find(item => item.id === disconnectTarget.host.id) ?? disconnectTarget.host} connected={sessions.find(session => session.id === disconnectTarget.tabId)?.connected === true} busy={false} error={terminalError} close={() => setDisconnectTarget(null)} confirm={() => confirmDisconnect()} disconnectOnly={disconnectTarget.allowDisconnectOnly ? () => confirmDisconnect(true) : undefined} />}
+    {disconnectTarget && <DisconnectDialog key={disconnectTarget.tabId} host={hosts.find(item => item.id === disconnectTarget.host.id) ?? disconnectTarget.host} connected={sessions.find(session => session.id === disconnectTarget.tabId)?.connected === true} busy={false} close={() => setDisconnectTarget(null)} confirm={() => confirmDisconnect()} disconnectOnly={disconnectTarget.allowDisconnectOnly ? () => confirmDisconnect(true) : undefined} />}
   </div>;
 }
 

@@ -1,3 +1,4 @@
+import { loadToastErrorHooks } from './helpers/toast-errors.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
@@ -207,9 +208,11 @@ function ui(initial = {}, component = 'ClientUpdateSettings') {
   const beforeInstall = async () => calls.push('save');
   let announce;
   const node = (type, props) => ({ type, props });
+  const hooks = { useState: initial => { const i = cursor++; if (!(i in slots)) slots[i] = typeof initial === 'function' ? initial() : initial;
+      return [slots[i], value => { slots[i] = value; }]; }, useEffect() {} };
   const module = load(`components/${component}.tsx`, name => {
-    if (name === 'react') return { useState: initial => { const i = cursor++; if (!(i in slots)) slots[i] = initial;
-      return [slots[i], value => { slots[i] = value; }]; } };
+    if (name === '../state/useToastError') return loadToastErrorHooks(hooks);
+    if (name === 'react') return hooks;
     if (name === 'react/jsx-runtime') return { jsx: node, jsxs: node };
     if (name === '../state/useClientUpdater') return { useClientUpdater: () => state, useStartupUpdateCheck: callback => { announce = callback; }, clientUpdater: {
       check: async () => calls.push('check'), download: async () => calls.push('download'), discard: async () => calls.push('discard'),

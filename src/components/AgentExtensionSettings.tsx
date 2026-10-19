@@ -1,3 +1,4 @@
+import { useToastError } from '../state/useToastError';
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { defaultExecutionLimits, extensionApi, type ExecutionLimits, type ExtensionSettings } from '../api/agentExtensions';
@@ -38,13 +39,13 @@ export function AgentExtensionSettings({ locked = false }: { locked?: boolean })
   const [savedSettings, setSavedSettings] = useState<ExtensionSettings | null>(null);
   const [limits, setLimits] = useState<LimitDraft>(() => draftLimits(defaultExecutionLimits));
   const [busy, setBusy] = useState(true);
-  const [error, setError] = useState('');
+  const [error, setError] = useToastError();
   const [mcpDraft, setMcpDraft] = useState(() => formatMcpConfig([]));
-  const [mcpError, setMcpError] = useState('');
+  const [mcpError, setMcpError] = useToastError();
   const [mcpOpen, setMcpOpen] = useState(false);
   const [skillsOpen, setSkillsOpen] = useState(false);
   const [skillRows, setSkillRows] = useState<string[]>(['']);
-  const [skillsError, setSkillsError] = useState('');
+  const [skillsError, setSkillsError] = useToastError();
   const dialogOpen = mcpOpen || skillsOpen;
   const accept = (value: ExtensionSettings) => {
     const executionLimits = { ...defaultExecutionLimits, ...value.config.executionLimits };
@@ -106,7 +107,7 @@ export function AgentExtensionSettings({ locked = false }: { locked?: boolean })
       accept(await extensionApi.save({ ...savedSettings, revision: settings.revision, config: { ...savedSettings.config, executionLimits, subAgents: settings.config.subAgents } }, 'execution'));
       notify('执行额度与子任务设置已保存，下次发送消息时生效。', 'success');
     }
-    catch (cause) { const message = cause instanceof Error ? cause.message : String(cause); setError(message); notify(message, 'error'); }
+    catch (cause) { const message = cause instanceof Error ? cause.message : String(cause); setError(message); }
     finally { setBusy(false); }
   };
   const saveMcp = async () => {
@@ -121,7 +122,7 @@ export function AgentExtensionSettings({ locked = false }: { locked?: boolean })
       setSavedSettings(result);
       setSettings(current => current ? { ...result, config: { ...result.config, subAgents: current.config.subAgents } } : result);
       setMcpDraft(formatMcpConfig(result.config.servers)); setMcpOpen(false); notify('MCP 配置已保存，下次发送消息时生效。', 'success');
-    } catch (cause) { const message = cause instanceof Error ? cause.message : String(cause); setMcpError(message); notify(message, 'error'); }
+    } catch (cause) { const message = cause instanceof Error ? cause.message : String(cause); setMcpError(message); }
     finally { setBusy(false); }
   };
   const saveSkills = async () => {
@@ -136,7 +137,7 @@ export function AgentExtensionSettings({ locked = false }: { locked?: boolean })
       setSavedSettings(result);
       setSettings(current => current ? { ...result, config: { ...result.config, subAgents: current.config.subAgents } } : result);
       setSkillsOpen(false); setSkillRows(result.config.skillRoots.length ? [...result.config.skillRoots] : ['']); notify('Skills 目录已保存，下次发送消息时生效。', 'success');
-    } catch (cause) { const message = cause instanceof Error ? cause.message : String(cause); setSkillsError(message); notify(message, 'error'); }
+    } catch (cause) { const message = cause instanceof Error ? cause.message : String(cause); setSkillsError(message); }
     finally { setBusy(false); }
   };
   const limitInput = (key: keyof ExecutionLimits, label: string) => {
@@ -156,7 +157,7 @@ export function AgentExtensionSettings({ locked = false }: { locked?: boolean })
   };
   return <div className="agent-extension-settings">
     <header className="extension-heading"><IconHeading as="h2" icon="extensions" tone="blue">工具与 Skills</IconHeading><p>管理执行额度与扩展工具，沿用当前对话的审批边界。</p></header>
-    {error && <div className="extension-feedback settings-error" role="alert"><span>{error}</span><button type="button" onClick={load} disabled={busy}>重新读取</button></div>}
+    {error && !settings && <button type="button" onClick={load} disabled={busy}>重新读取工具设置</button>}
     {!settings && busy && <p role="status">正在读取工具设置…</p>}
     {settings && <form inert={dialogOpen} onSubmit={event => { event.preventDefault(); void save(); }}>
       <fieldset disabled={busy || locked || dialogOpen} className="extension-form-fields">
@@ -193,7 +194,6 @@ export function AgentExtensionSettings({ locked = false }: { locked?: boolean })
           <p className="mcp-config-intro" id="mcp-json-help">把多个服务放进同一个 mcpServers 对象，最多 8 个。插入的示例默认停用，修改后设 enabled: true。</p>
           <div className="mcp-config-editor"><JsonCodeEditor id="mcp-json-config" label="MCP JSON 配置" describedBy="mcp-json-help" value={mcpDraft} onChange={updateMcp} disabled={busy || locked} invalid={!!mcpError} /></div>
         </fieldset>
-        {mcpError && <p className="mcp-config-error" role="alert">{mcpError}</p>}
         <details className="mcp-config-help"><summary>配置格式与已保存凭据</summary><p>HTTP 支持 url / baseUrl、headers 和 description；stdio 使用 command、args 和 env 对象。headers 与 env 的值加密保存，__SHELLPILOT_SAVED__ 表示沿用已保存值，替换可更新、删除字段可清除。更改服务名或目标须重新填写凭据。SSE 地址中的 Key 随 URL 保存在本地。</p></details>
         <footer className="mcp-config-footer"><span>{locked ? '对话生成期间暂不可修改配置。' : '保存后下次发送消息生效 · Ctrl+Enter 保存'}</span><button type="button" disabled={busy} onClick={closeMcp}>取消</button><button type="submit" className="primary" disabled={busy || locked}>{busy ? '保存中…' : '保存配置'}</button></footer>
       </form>
@@ -207,7 +207,7 @@ export function AgentExtensionSettings({ locked = false }: { locked?: boolean })
           <div className="skills-directory-list" aria-label="Skills 目录列表">
             {skillRows.map((path, index) => <div className="skills-directory-row" data-invalid={skillsError.startsWith(`第 ${index + 1} 个目录`) || undefined} key={index}>
               <span className="skills-directory-index" aria-hidden="true">{String(index + 1).padStart(2, '0')}</span><Icon name="folder" size={16} />
-              <input aria-label={`技能目录 ${index + 1}`} aria-describedby={skillsError ? 'skills-directory-help skills-directory-error' : 'skills-directory-help'} aria-invalid={skillsError.startsWith(`第 ${index + 1} 个目录`)} data-autofocus={index === 0 || undefined} value={path} spellCheck={false} autoComplete="off" placeholder={'例如 C:\\Users\\你的用户名\\.agents\\skills'} onChange={event => changeSkillRow(index, event.target.value)} onPaste={event => {
+              <input aria-label={`技能目录 ${index + 1}`} aria-describedby="skills-directory-help" aria-invalid={skillsError.startsWith(`第 ${index + 1} 个目录`)} data-autofocus={index === 0 || undefined} value={path} spellCheck={false} autoComplete="off" placeholder={'例如 C:\\Users\\你的用户名\\.agents\\skills'} onChange={event => changeSkillRow(index, event.target.value)} onPaste={event => {
                 const text = event.clipboardData.getData('text');
                 if (!/[\r\n]/.test(text)) return;
                 event.preventDefault();
@@ -221,7 +221,6 @@ export function AgentExtensionSettings({ locked = false }: { locked?: boolean })
           </div>
           <p className="mcp-config-intro">只配置技能目录，不自动执行脚本或授予工具权限。留空并保存可清除目录配置。</p>
         </fieldset>
-        {skillsError && <p id="skills-directory-error" className="mcp-config-error" role="alert">{skillsError}</p>}
         <footer className="mcp-config-footer"><span>{locked ? '对话生成期间暂不可修改配置。' : '保存后下次发送消息生效 · Ctrl+Enter 保存'}</span><button type="button" disabled={busy} onClick={closeSkills}>取消</button><button type="submit" className="primary" disabled={busy || locked}>{busy ? '保存中…' : '保存目录'}</button></footer>
       </form>
     </Modal>, document.body)}

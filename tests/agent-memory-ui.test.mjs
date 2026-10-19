@@ -1,3 +1,4 @@
+import { loadToastErrorHooks } from './helpers/toast-errors.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
@@ -19,7 +20,7 @@ const settle = () => new Promise(setImmediate);
 
 function harness(overrides = {}, scope = { agentId: '', sessionId: '' }, component = 'AgentMemoryDialog') {
   const slots = [], pendingEffects = [], cleanups = new Map(); let cursor = 0, tree;
-  const calls = { lists: [], saves: [], deletes: [], notices: [] };
+  const calls = { errors: [], lists: [], saves: [], deletes: [], notices: [] };
   const api = {
     projects: async () => [{ id: 'p', name: '测试服务器', identity, connectionId: 'ssh' }],
     memories: async () => ({ target: null, items: [] }),
@@ -43,7 +44,7 @@ function harness(overrides = {}, scope = { agentId: '', sessionId: '' }, compone
   const node = (type, props) => ({ type, props });
   const leaf = () => null;
   const context = vm.createContext({ exports: {}, Error, TextEncoder, crypto, Date, document: { body: {} }, require(name) {
-    if (name === 'react') return hooks;
+    if (name === '../state/useToastError') return loadToastErrorHooks(hooks,(message,type)=>calls.errors.push({message,type}));if (name === 'react') return hooks;
     if (name === 'react/jsx-runtime') return { jsx: node, jsxs: node };
     if (name === 'react-dom') return { createPortal: children => node('portal', { children }) };
     if (name === '../api/agent') return { agentApi };
@@ -123,7 +124,7 @@ test('版本冲突保留编辑文字，刷新后保留文字并采用新版本',
   await settle(); h.render(); h.find(node => node.props['aria-label'] === '编辑记忆：日志位置').props.onClick(); h.render();
   h.input('记忆内容', '保留的输入'); h.submit(); await settle(); h.render();
   assert.equal(h.find(node => node.props['aria-label'] === '记忆内容').props.value, '保留的输入');
-  assert.match(h.text(), /其他窗口更改/);
+  assert.match(h.calls.errors.at(-1).message, /其他窗口更改/);
   current = { ...base, revision: 7 }; h.button('刷新').props.onClick(); h.render(); await settle(); h.render();
   h.submit(); await settle();
   assert.equal(h.calls.saves[1][2].revision, 7); assert.equal(h.calls.saves[1][2].content, '保留的输入');
@@ -191,8 +192,8 @@ test('分页只显示当前页，搜索与状态筛选回到第一页', async ()
 test('读取失败可重试，UTF-8 超长内容在发送前拒绝，卸载后异步响应不写新范围', async () => {
   let failed = true;
   const h = harness({ memories: async () => { if (failed) throw new Error('读取失败'); return { target: null, items: [] }; } });
-  await settle(); h.render(); assert.match(h.text(), /读取失败/); failed = false;
+  await settle(); h.render(); assert.match(h.calls.errors.at(-1).message, /读取失败/); failed = false;
   h.button('刷新').props.onClick(); h.render(); await settle(); h.render(); h.button('新建记忆').props.onClick(); h.render();
   h.input('记忆标题', '中'.repeat(41)); h.input('记忆内容', '内容'); h.submit(); h.render();
-  assert.equal(h.calls.saves.length, 0); assert.match(h.text(), /过长/); h.unmount();
+  assert.equal(h.calls.saves.length, 0); assert.match(h.calls.errors.at(-1).message, /过长/); h.unmount();
 });

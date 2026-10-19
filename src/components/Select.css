@@ -64,3 +64,7 @@
   .ui-select-trigger, .ui-select-trigger > svg { transition: none; }
   .ui-select-menu { animation: none; }
 }
+
+.ui-select-label-with-icon { display:inline-flex; align-items:center; gap:8px; min-width:0; max-width:100%; vertical-align:middle; }
+.ui-select-label-with-icon > svg { flex-shrink:0; }
+.ui-select-label-with-icon > span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }

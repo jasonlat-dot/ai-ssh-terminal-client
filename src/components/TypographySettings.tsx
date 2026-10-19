@@ -1,3 +1,4 @@
+import { useErrorToast } from '../state/useToastError';
 import { useEffect, useState } from 'react';
 import { DEFAULT_TYPOGRAPHY, normalizeFontFamily, normalizeFontWeight, readClientTypography, resetClientTypography, setClientFontFamily,
   setClientFontWeight, UI_FONT_FAMILIES } from '../state/clientTypography';
@@ -19,7 +20,8 @@ function WeightControl({ role, value }: { role: 'normalWeight' | 'boldWeight'; v
   function commit(text: string) {
     const weight = text.trim() ? normalizeFontWeight(Number(text)) : null;
     setInvalid(weight === null);
-    if (weight === null || weight === value) return;
+    if (weight === null) { notify('请输入 100–1000 的整数。', 'error'); return; }
+    if (weight === value) return;
     if (setClientFontWeight(role, weight)) notify('字体粗细已自动保存。', 'success');
     else { setDraft(String(current)); notify(readClientTypography().error ?? '字体粗细保存失败。', 'error'); }
   }
@@ -27,17 +29,17 @@ function WeightControl({ role, value }: { role: 'normalWeight' | 'boldWeight'; v
   return <div className="appearance-typography-row">
     <label htmlFor={`ui-${role}`} className="appearance-control-label"><Icon name="type" size={14} />{label}</label>
     <input id={`ui-${role}`} type="number" className="settings-control" min={100} max={1000} step={1}
-      value={draft} aria-invalid={invalid} aria-describedby={invalid ? `ui-${role}-error` : 'ui-font-help'}
+      value={draft} aria-invalid={invalid} aria-describedby="ui-font-help"
       onChange={event => { const next = event.target.value; setDraft(next); setInvalid(false);
         if (next && normalizeFontWeight(Number(next)) !== null) commit(next); }}
       onBlur={() => { if (draft !== String(current)) commit(draft); }}
       onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); commit(draft); } }} />
-    {invalid && <p id={`ui-${role}-error`} className="appearance-color-error" role="alert">请输入 100–1000 的整数。</p>}
   </div>;
 }
 
 export function TypographySettings() {
   const settings = useClientTypography();
+  useErrorToast(settings.error);
   const known = settings.family !== null && UI_FONT_FAMILIES.some(name => name === settings.family);
   const [custom, setCustom] = useState(!!settings.family && !known);
   const [draft, setDraft] = useState(settings.family ?? '');
@@ -49,7 +51,8 @@ export function TypographySettings() {
   }, [settings.family]);
   const commitFamily = () => {
     const family = normalizeFontFamily(draft); setInvalid(!family);
-    if (!family || family === settings.family) return;
+    if (!family) { notify('请输入单个本机字体名称，不支持路径或 CSS 片段。', 'error'); return; }
+    if (family === settings.family) return;
     if (setClientFontFamily(family)) notify('界面字体已自动保存。', 'success');
     else { setDraft(settings.family ?? ''); notify(readClientTypography().error ?? '界面字体保存失败。', 'error'); }
   };
@@ -68,12 +71,10 @@ export function TypographySettings() {
       <input id="ui-custom-font" className="settings-control" value={draft} maxLength={80} placeholder="输入已安装的字体名称"
         aria-invalid={invalid} aria-describedby="ui-font-help" onChange={event => { setDraft(event.target.value); setInvalid(false); }}
         onBlur={commitFamily} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); commitFamily(); } }} />
-      {invalid && <p className="appearance-color-error" role="alert">请输入单个本机字体名称，不支持路径或 CSS 片段。</p>}
     </div>}
     <WeightControl key={`normal-${resetGeneration}`} role="normalWeight" value={settings.normalWeight} /><WeightControl key={`bold-${resetGeneration}`} role="boldWeight" value={settings.boldWeight} />
     <p id="ui-font-help" className="appearance-help">字重 100–1000；字体未安装或不支持该字重时使用可用的替代效果。不改变终端、代码和公式字体。</p>
     <button type="button" className="ghost-button" disabled={!settings.family && settings.normalWeight === null && settings.boldWeight === null}
       onClick={() => { if (resetClientTypography()) { setCustom(false); setDraft(''); setInvalid(false); setResetGeneration(value => value + 1); notify('已恢复默认字体与粗细。', 'success'); } else notify(readClientTypography().error ?? '恢复字体失败。', 'error'); }}><Icon name="refresh" size={13} />恢复默认字体与粗细</button>
-    {settings.error && <p className="appearance-color-error" role="alert">{settings.error}</p>}
   </section>;
 }

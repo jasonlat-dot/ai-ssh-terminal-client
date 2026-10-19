@@ -1,3 +1,4 @@
+import { useErrorToast } from '../state/useToastError';
 import { useEffect, useState } from 'react';
 import { DEFAULT_TEXT_COLORS, normalizeTextColor, readClientTextColors, resetClientTextColors, setClientTextColor } from '../state/clientTextColors';
 import { notify } from '../state/notifications';
@@ -13,6 +14,7 @@ function TextColorControl({ theme, role, color, custom }: { theme: TextColorThem
   const commit = (value: string) => {
     const normalized = normalizeTextColor(value);
     setInvalid(!normalized);
+    if (!normalized) { notify('请输入 #RGB 或 #RRGGBB。', 'error'); return; }
     if (normalized) {
       if (normalized === color && custom) return;
       if (setClientTextColor(theme, role, normalized)) { setHex(normalized.toUpperCase()); notify('文字颜色已自动保存。', 'success'); }
@@ -24,7 +26,7 @@ function TextColorControl({ theme, role, color, custom }: { theme: TextColorThem
     <input type="color" className="appearance-color-swatch" aria-label={`选择${label}颜色`} value={color}
       onChange={event => commit(event.target.value)} />
     <input id={`text-${role}-hex`} className="settings-control appearance-color-hex" value={hex} maxLength={7}
-      aria-label={`${label} HEX`} aria-invalid={invalid} aria-describedby={invalid ? `text-${role}-error` : undefined}
+      aria-label={`${label} HEX`} aria-invalid={invalid}
       spellCheck={false} autoCapitalize="off" autoCorrect="off" placeholder="#25364C"
       onChange={event => {
         const next = event.target.value; setHex(next); setInvalid(false);
@@ -32,13 +34,13 @@ function TextColorControl({ theme, role, color, custom }: { theme: TextColorThem
         if (/^#[\da-f]{6}$/i.test(next)) commit(next);
       }} onBlur={() => { if (hex !== color.toUpperCase()) commit(hex); }}
       onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); commit(hex); } }} />
-    {invalid && <p id={`text-${role}-error`} className="appearance-color-error" role="alert">请输入 #RGB 或 #RRGGBB。</p>}
   </div>;
 }
 
 /** 与画面选区确认保存独立，当前主题颜色即时保存；不需要重启或有壁纸才能使用。 */
 export function TextColorSettings() {
   const { palettes, theme, error } = useClientTextColors();
+  useErrorToast(error);
   const palette = palettes[theme];
   const defaults = { ...DEFAULT_TEXT_COLORS[theme] };
   // 读取根主题的实际默认值，包含壁纸可读性保护；自定义变量只作用于界面容器，不污染根值。
@@ -55,6 +57,5 @@ export function TextColorSettings() {
     <p className="appearance-help">浅色、深色分别保存。终端输出、代码高亮、状态提示和实心按钮文字保持原配色。</p>
     <button type="button" className="ghost-button" disabled={!palette.primary && !palette.secondary}
       onClick={() => { if (resetClientTextColors(theme)) notify('已恢复当前主题的默认文字颜色。', 'success'); else notify(readClientTextColors().error ?? '恢复文字颜色失败。', 'error'); }}><Icon name="refresh" size={13} />恢复当前主题文字颜色</button>
-    {error && <p className="appearance-color-error" role="alert">{error}</p>}
   </section>;
 }

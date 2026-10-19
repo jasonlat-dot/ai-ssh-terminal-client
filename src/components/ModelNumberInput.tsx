@@ -51,14 +51,16 @@ const settings = {
   retention: {presets:[0,7,30,90,180,365].map(value=>({value,short:value===0?'长期':`${value} 天`,label:value===0?'长期保留':`${value} 天`,description:value===0?'不自动删除':'自动清理过期附件'})),min:0,max:3650},
 };
 
-type Props = { id: string; label: string; disabled: boolean } & (
+type Props = { id: string; label: string; disabled: boolean; maximum?: number } & (
   { kind: 'temperature'; value: number | null; onChange: (value: number | null) => void }
   | { kind: Exclude<keyof typeof settings, 'temperature'>; value: number; onChange: (value: number) => void }
 );
 /** 精确数值始终可编辑；预设只快捷填写数值，不改变实际单位或限制。 */
 export function ModelNumberInput(props: Props) {
   const { id, label, value, kind, disabled } = props;
-  const {presets,min,max} = settings[kind];
+  const {min} = settings[kind];
+  const max = props.maximum ?? settings[kind].max;
+  const presets = settings[kind].presets.filter(option => option.value === '' || max === undefined || option.value <= max);
   const selectedValue = value ?? '';
   const selected = presets.find(option => option.value === selectedValue);
   const options = selected ? presets : [

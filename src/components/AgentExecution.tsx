@@ -1,3 +1,4 @@
+import { useToastError, useErrorToast } from '../state/useToastError';
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { agentApi, type ExecutionPolicy, type ExecutionReceipt, type OutputReference, type OutputRange } from '../api/agent';
@@ -14,7 +15,9 @@ const approvalModes=[
 const policyLabel=(policy:ExecutionPolicy|null)=>policy?.mode==='deny'?'已禁止执行':approvalModes.find(item=>item.mode===policy?.mode)?.label??'读取权限…';
 
 export function ExecutionPolicyMenu({policy,disabled,error,retry,select,scopeLabel='当前对话'}:{policy:ExecutionPolicy|null;disabled:boolean;error?:string;retry:()=>void;select:(mode:ExecutionPolicy['mode'])=>void;scopeLabel?:string}){
-  const [open,setOpen]=useState(false);const root=useRef<HTMLDivElement>(null);
+  const [open,setOpen]=useState(false);
+  useErrorToast(error);
+  const root=useRef<HTMLDivElement>(null);
   useEffect(()=>{if(disabled)setOpen(false);},[disabled]);
   useEffect(()=>{
     if(!open)return;
@@ -43,7 +46,7 @@ export function ExecutionPolicyMenu({policy,disabled,error,retry,select,scopeLab
         <Icon name={item.icon} size={17}/><span><strong>{item.label}</strong><small>{item.description}</small></span>{policy?.mode===item.mode&&<Icon name="check" size={16}/>}</button>)}
       <p className="execution-policy-footnote">适用于{scopeLabel}的工具操作 · 各工具仍受其访问边界约束</p>
     </div>
-    {error&&<p className="execution-policy-error" role="alert">{error}<button type="button" onClick={retry}>重试</button></p>}
+    {error&&<button type="button" onClick={retry}>重试</button>}
   </div>;
 }
 
@@ -81,7 +84,7 @@ export function decodeOutput(range:OutputRange){
 }
 function OutputView({reference}:{reference:OutputReference}){
   const scope=useContext(ExecutionContext);
-  const [range,setRange]=useState<OutputRange|null>(null);const [error,setError]=useState('');const [busy,setBusy]=useState(false);const [hex,setHex]=useState(false);
+  const [range,setRange]=useState<OutputRange|null>(null);const [error,setError]=useToastError({suppressRepeated:true});const [busy,setBusy]=useState(false);const [hex,setHex]=useState(false);
   const mounted=useRef(true);useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;};},[]);
   const load=async(offset:number)=>{
     if(!scope||busy)return;setBusy(true);setError('');
@@ -99,7 +102,7 @@ function OutputView({reference}:{reference:OutputReference}){
       {decoded.lossy&&!hex&&<p>本段包含非 UTF-8 字节或跨段字符，可切换十六进制查看原始数据。</p>}
       <div className="execution-actions"><button type="button" disabled={busy||range.offset===0} onClick={()=>void load(Math.max(0,range.offset-4096))}>上一段</button>
       <button type="button" disabled={busy||range.eof} onClick={()=>void load(range.nextOffset)}>下一段</button></div></>}
-    {error&&<p className="execution-error" role="alert">{error}<button type="button" disabled={busy} onClick={()=>void load(range?.offset??0)}>重试读取</button></p>}
+    {error&&<button type="button" disabled={busy} onClick={()=>void load(range?.offset??0)}>重试读取</button>}
   </div>;
 }
 export function NativeToolOutput({output}:{output:string}){
@@ -175,9 +178,9 @@ function ExtensionApprovalCard({receipt,disabled,act}:{receipt:ExtensionReceipt;
 export function AgentExecution({scope,approvalTarget,policyTarget,onPendingChange,onApprovalChange}:{scope:ExecutionScope;approvalTarget?:HTMLElement|null;policyTarget?:HTMLElement|null;onPendingChange?:(pending:boolean)=>void;onApprovalChange?:(sessionId:string,pending:boolean)=>void}){
   const [extensions,setExtensions]=useState<ExtensionReceipt[]>([]);
   const [receipts,setReceipts]=useState<ExecutionReceipt[]>([]);const [policy,setPolicy]=useState<ExecutionPolicy|null>(null);
-  const [error,setError]=useState('');const [action,setAction]=useState('');const [expanded,setExpanded]=useState(false);const [more,setMore]=useState(false);
+  const [error,setError]=useToastError({suppressRepeated:true});const [action,setAction]=useState('');const [expanded,setExpanded]=useState(false);const [more,setMore]=useState(false);
   const [reload,setReload]=useState(0);const alive=useRef(true);const loadedOlder=useRef(false);
-  const [policyError,setPolicyError]=useState('');
+  const [policyError,setPolicyError]=useToastError();
   const policyScope=useRef('');
   const serverScope=scope.server??!!(scope.target||scope.taskId||scope.terminalId);
   const draftPolicy=!scope.sessionId?scope.draftPolicy:undefined;
@@ -254,10 +257,10 @@ export function AgentExecution({scope,approvalTarget,policyTarget,onPendingChang
       {more&&receipts.length<500&&<button type="button" disabled={!!action} onClick={()=>void loadMore()}>加载更早记录</button>}
       {receipts.length>=500&&<p>已显示最近 500 条审批；各轮工具记录仍可从聊天历史查看。</p>}
     </div>}
-    {error&&<p className="execution-error" role="alert">{error}<button type="button" onClick={()=>setReload(v=>v+1)}>重试</button></p>}
+    {error&&<button type="button" onClick={()=>setReload(v=>v+1)}>重试</button>}
     {!approvalTarget&&extensionCard}
-    {approvalTarget&&pending.length===0&&extensionCard&&createPortal(<div className="composer-approval" aria-label="MCP 工具审批">{extensionCard}{error&&<p className="execution-error" role="alert">{error}</p>}</div>,approvalTarget)}
+    {approvalTarget&&pending.length===0&&extensionCard&&createPortal(<div className="composer-approval" aria-label="MCP 工具审批">{extensionCard}</div>,approvalTarget)}
     {policyTarget&&createPortal(policyMenu,policyTarget)}
-    {approvalTarget&&pending.length>0&&createPortal(<div className="composer-approval" aria-label="命令审批">{pending.length>1&&<p>有 {pending.length} 条命令等待确认</p>}<ApprovalCard key={pending[0].id} receipt={pending[0]} disabled={!!action} act={(id,decision)=>void act(id,decision)}/>{error&&<p className="execution-error" role="alert">{error}</p>}</div>,approvalTarget)}
+    {approvalTarget&&pending.length>0&&createPortal(<div className="composer-approval" aria-label="命令审批">{pending.length>1&&<p>有 {pending.length} 条命令等待确认</p>}<ApprovalCard key={pending[0].id} receipt={pending[0]} disabled={!!action} act={(id,decision)=>void act(id,decision)}/></div>,approvalTarget)}
   </section>;
 }

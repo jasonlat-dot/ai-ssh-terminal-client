@@ -1,3 +1,4 @@
+import { loadToastErrorHooks } from './helpers/toast-errors.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
@@ -23,7 +24,7 @@ function harness(initial, options = {}) {
   };
   const context = vm.createContext({ exports: {}, Error, Number, Object, String, URL, document: { body: {} },
     require(name) {
-      if (name === '../state/notifications') return { notify: (message, type) => notices.push({ message, type }) };
+      if (name === '../state/useToastError') return loadToastErrorHooks(hooks,(message,type)=>notices.push({message,type}));if (name === '../state/notifications') return { notify: (message, type) => notices.push({ message, type }) };
       if (name === 'react') return hooks;
       if (name === 'react-dom') return { createPortal: node => node };
       if (name === './JsonCodeEditor') return { JsonCodeEditor: 'json-editor' };
@@ -74,7 +75,7 @@ test('Invalid blank, fractional and out of range quotas cannot be saved', async 
   for (const value of ['', '1', '257', '2.5', 'abc']) {
     const h = await loaded(); let tree = h.render();
     all(tree).find(node => node.props['aria-label'] === '主对话模型请求轮数').props.onChange({ target: { value } });
-    submit(h.render()); await h.flush(); assert.equal(h.saved.length, 0); assert.match(text(h.render()), /2–256/);
+    submit(h.render()); await h.flush(); assert.equal(h.saved.length, 0); assert.match(h.notices.at(-1).message, /2–256/);
   }
 });
 
@@ -89,8 +90,8 @@ test('Locked settings block saving and show the quota explanation and separate s
 });
 
 test('Load and save failures stay visible without claiming the configuration was saved', async () => {
-  const broken = harness(fixture(), { failLoad: true }); broken.render(); await broken.flush(); assert.match(text(broken.render()), /读取失败/);
-  const h = await loaded({ failSave: true }); submit(h.render()); await h.flush(); assert.match(text(h.render()), /设置已变化/); assert.doesNotMatch(text(h.render()), /已保存，下一次/);
+  const broken = harness(fixture(), { failLoad: true }); broken.render(); await broken.flush(); broken.render();assert.match(broken.notices.at(-1).message, /读取失败/);
+  const h = await loaded({ failSave: true }); submit(h.render()); await h.flush(); assert.match(h.notices.at(-1).message, /设置已变化/); assert.doesNotMatch(text(h.render()), /已保存，下一次/);
 });
 
 test('Legacy settings without quota fields receive the recommended defaults on save', async () => {
@@ -166,11 +167,11 @@ test('JSON editor saves multiple services together with custom headers and stdio
   assert.equal(h.saved[1].config.servers[1].connectionValues.env.ACCESS_KEY,savedMcpValue);
 });
 
-test('JSON parse failures remain beside editor and preserve draft without echoing credentials', async () => {
+test('JSON parse failures use Toast and preserve draft without echoing credentials', async () => {
   const h=await loaded();const draft='{"mcpServers":{"docs":{"headers":{"Authorization":"Bearer fixture-secret"},}}}';
   editJson(h,draft);submit(h.render());await h.flush();
   assert.equal(h.saved.length,0);assert.equal(editor(h).props.value,draft);assert.equal(editor(h).props.invalid,true);
-  const alert=all(h.render()).find(node=>node.props.role==='alert');assert.match(text(alert),/格式错误/);assert.ok(!text(alert).includes('fixture-secret'));
+  const alert=h.notices.at(-1);assert.match(alert.message,/格式错误/);assert.equal(alert.type,'error');assert.ok(!alert.message.includes('fixture-secret'));assert.equal(all(h.render()).find(node=>node.props.role==='alert'),undefined);
   editJson(h,{mcpServers:{}});assert.equal(editor(h).props.invalid,false);
   submit(h.render());await h.flush();assert.deepEqual(h.saved[0].config.servers,[]);
 });
@@ -182,7 +183,7 @@ test('Formatting and inserting disabled examples preserve the existing configura
   let root=JSON.parse(editor(h).props.value);
   assert.ok(root.mcpServers.docs);assert.equal(root.mcpServers.filesystem.enabled,false);assert.ok(root.mcpServers['filesystem-2']);
   editJson(h,JSON.stringify(root));button('格式化 JSON').props.onClick();assert.ok(editor(h).props.value.includes('\n  "mcpServers"'));
-  editJson(h,'{');button('stdio').props.onClick();assert.equal(editor(h).props.value,'{');assert.match(text(h.render()),/格式错误/);
+  editJson(h,'{');button('stdio').props.onClick();assert.equal(editor(h).props.value,'{');assert.match(h.notices.at(-1).message,/格式错误/);
 });
 
 test('Legacy saved tokens become placeholders and HTTP env settings migrate without exposing secrets', async () => {
@@ -195,7 +196,7 @@ test('Legacy saved tokens become placeholders and HTTP env settings migrate with
 test('Save failure retains edited JSON credentials without claiming success', async () => {
   const h=await loaded({failSave:true});const draft={mcpServers:{docs:{url:'https://example.com/mcp',headers:{Authorization:'Bearer fixture-private'}}}};
   editJson(h,draft);submit(h.render());await h.flush();
-  assert.ok(editor(h).props.value.includes('fixture-private'));assert.match(text(h.render()),/设置已变化/);assert.doesNotMatch(text(h.render()),/已保存，下一次/);
+  assert.ok(editor(h).props.value.includes('fixture-private'));assert.match(h.notices.at(-1).message,/设置已变化/);assert.doesNotMatch(text(h.render()),/已保存，下一次/);
 });
 
 test('MCP page shows only the summary and button, and cancel discards the dialog draft', async () => {
@@ -222,7 +223,7 @@ test('Dialog saves MCP independently while preserving unsaved quotas and subagen
   assert.deepEqual(h.saved[1].config.skillRoots,fixture().config.skillRoots);assert.equal(h.saved[1].config.subAgents,false);
 });
 
-test('Modal locks background form and supports keyboard format/save, with failed saves kept inside the dialog', async () => {
+test('Modal locks background form and supports keyboard format/save, with failed saves retaining the dialog', async () => {
   const h=await loaded({failSave:true});editor(h);
   assert.equal(all(h.render()).find(node=>node.type==='form').props.inert,true);
   assert.equal(all(h.render()).find(node=>node.props.className==='extension-form-fields').props.disabled,true);
@@ -231,7 +232,7 @@ test('Modal locks background form and supports keyboard format/save, with failed
   editJson(h,'{"mcpServers":{}}');hotkey({key:'F',shiftKey:true});assert.match(editor(h).props.value,/\n/);
   hotkey({key:'Enter'});await h.flush();assert.equal(prevented,2);assert.equal(h.saved.length,1);
   const modal=all(h.render()).find(node=>node.type==='modal');assert.ok(modal);
-  assert.ok(all(modal).some(node=>node.props.role==='alert'&&/设置已变化/.test(text(node))));
+  assert.match(h.notices.at(-1).message,/设置已变化/);assert.equal(all(modal).some(node=>node.props.role==='alert'),false);
 });
 
 test('Skills directory rows support multiline paste, add/remove and cancel without saving', async () => {
@@ -267,13 +268,13 @@ test('Skills saves independently and preserves quota/subagent drafts and the lat
 test('Skills validates the indicated row, bounds multiline paste, preserves failed drafts and can clear all directories', async () => {
   const h=await loaded();openSkills(h);
   skillsInputs(h)[0].props.onChange({target:{value:'relative/path'}});submit(h.render());await h.flush();
-  assert.equal(h.saved.length,0);assert.match(text(h.render()),/第 1 个目录须为本机绝对路径/);
+  assert.equal(h.saved.length,0);assert.match(h.notices.at(-1).message,/第 1 个目录须为本机绝对路径/);
   assert.equal(skillsInputs(h)[0].props['aria-invalid'],true);
   skillsInputs(h)[0].props.onPaste({clipboardData:{getData:()=>Array.from({length:17},(_,i)=>`C:/Skills/${i}`).join('\n')},preventDefault(){}});
-  assert.match(text(h.render()),/最多配置 16/);assert.equal(skillsInputs(h).length,1);
+  assert.match(h.notices.at(-1).message,/最多配置 16/);assert.equal(skillsInputs(h).length,1);
   all(h.render()).find(node=>node.props['aria-label']==='移除技能目录 1').props.onClick();submit(h.render());await h.flush();
   assert.deepEqual(h.saved[0].config.skillRoots,[]);
   const failed=await loaded({failSave:true});openSkills(failed);skillsInputs(failed)[0].props.onChange({target:{value:'C:/KeepDraft'}});
   submit(failed.render());await failed.flush();assert.equal(skillsInputs(failed)[0].props.value,'C:/KeepDraft');
-  assert.ok(all(all(failed.render()).find(node=>node.type==='modal')).some(node=>node.props.role==='alert'&&/设置已变化/.test(text(node))));
+  assert.match(failed.notices.at(-1).message,/设置已变化/);assert.ok(all(failed.render()).find(node=>node.type==='modal'));
 });

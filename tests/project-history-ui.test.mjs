@@ -1,3 +1,4 @@
+import { loadToastErrorHooks } from './helpers/toast-errors.mjs';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import test from 'node:test';
@@ -15,7 +16,7 @@ function harness(){
   setTimeout(callback){const id=++timerId;timers.set(id,callback);return id;},clearTimeout(id){timers.delete(id);},
   addEventListener(name,callback){if(!listeners.has(name))listeners.set(name,new Set());listeners.get(name).add(callback);},removeEventListener(name,callback){listeners.get(name)?.delete(callback);},
   getComputedStyle(){return {fontFamily:'Microsoft YaHei UI'};}};
- const actions=[],api={projects:async()=>[p,q],projectChats:async id=>({items:id===p.id?[a]:id===q.id?[b]:[g],nextAfter:null}),
+ const notices=[],actions=[],api={projects:async()=>[p,q],projectChats:async id=>({items:id===p.id?[a]:id===q.id?[b]:[g],nextAfter:null}),
   createProject:async(name,connectionId)=>{actions.push(['create',name,connectionId]);return {...p,id:'created',name,connectionId};}};
  const props={hosts:[{id:'A',name:'服务器 A',address:'a.test',user:'tester'},{id:'B',name:'服务器 B',address:'b.test',user:'tester'}],project:null,sessionId:'',view:'chat',locked:false,revision:'initial',connected:false,
   newChat:project=>actions.push(['new',project]),openChat:(chat,project)=>actions.push(['open',chat,project]),reconnect:()=>actions.push(['reconnect']),
@@ -30,7 +31,7 @@ function harness(){
  const compiled=ts.transpileModule(readFileSync(new URL('../src/components/ProjectChatHistory.tsx',import.meta.url),'utf8'),
   {compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText;
  const context=vm.createContext({exports:{},window,document:{body:{}},require:name=>{
-  if(name==='react')return hooks;
+  if(name==='../state/useToastError')return loadToastErrorHooks(hooks,(message,type)=>notices.push({message,type}));if(name==='react')return hooks;
   if(name==='../state/notifications')return {notify(){}};
   if(name==='react-dom')return {createPortal:content=>content};
   if(name==='react/jsx-runtime')return {jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props})};
@@ -53,7 +54,7 @@ function harness(){
  function find(predicate){return all(predicate)[0];}
  function button(label){return find(n=>n.type==='button'&&(n.props['aria-label']===label||n.props.children===label));}
  render();
- return {props,actions,api,render,find,all,button,runTimers(){const pending=[...timers.values()];timers.clear();pending.forEach(callback=>callback());},emit(name,event={}){listeners.get(name)?.forEach(callback=>callback(event));},unmount(){slots.forEach(slot=>slot?.cleanup?.());},async settle(){await new Promise(resolve=>setImmediate(resolve));render();}};
+ return {props,actions,notices,api,render,find,all,button,runTimers(){const pending=[...timers.values()];timers.clear();pending.forEach(callback=>callback());},emit(name,event={}){listeners.get(name)?.forEach(callback=>callback(event));},unmount(){slots.forEach(slot=>slot?.cleanup?.());},async settle(){await new Promise(resolve=>setImmediate(resolve));render();}};
 }
 test('Sidebar groups persisted A/B/general history and clicks retain exact session/model/project',async()=>{
  const ui=harness();await ui.settle();
@@ -103,11 +104,11 @@ test('A failed guided project save keeps its form open and does not advance the 
  ui.find(n=>n.type==='input').props.onChange({target:{value:'指引项目'}});ui.render();
  ui.find(n=>n.type==='form').props.onSubmit({preventDefault(){}});await ui.settle();
  assert.equal(advanced,0);assert.ok(ui.find(n=>n.type==='modal'&&n.props.title==='新建服务器项目'));
- assert.ok(ui.find(n=>n.props.role==='alert'));assert.equal(ui.actions.length,0);
+ assert.equal(ui.notices.at(-1)?.type,'error');assert.equal(ui.find(n=>n.props.role==='alert'),undefined);assert.equal(ui.actions.length,0);
 });
 test('History loading failure is visible and does not create or connect chats',async()=>{
  const ui=harness();ui.api.projects=async()=>{throw new Error('数据库暂不可用');};ui.props.revision='retry';ui.render();await ui.settle();
- assert.ok(ui.find(n=>n.props.role==='alert'));assert.equal(ui.actions.length,0);
+ assert.equal(ui.notices.at(-1)?.type,'error');assert.equal(ui.find(n=>n.props.role==='alert'),undefined);assert.equal(ui.actions.length,0);
 });
 
 test('Project previews show five titles, reveal more without refetching, and collapse independently',async()=>{
@@ -169,7 +170,7 @@ test('Pagination failure keeps visible records and permits an explicit retry',as
  };
  ui.props.revision='failure';ui.render();await ui.settle();
  ui.button('显示更多A 服务器记录').props.onClick();await ui.settle();
- assert.ok(ui.find(n=>n.props.role==='alert'));assert.equal(ui.actions.length,0);
+ assert.equal(ui.notices.at(-1)?.type,'error');assert.equal(ui.find(n=>n.props.role==='alert'),undefined);assert.equal(ui.actions.length,0);
  assert.equal(ui.all(n=>n.type==='button'&&n.props.className?.includes('project-chat-row')).length,5);
  fail=false;ui.button('显示更多A 服务器记录').props.onClick();await ui.settle();
  assert.equal(ui.find(n=>n.props.role==='alert'),undefined);
@@ -201,7 +202,7 @@ test('Deletion is disabled during generation and a failure keeps records with an
  ui.button('删除对话：A 的完整历史').props.onClick();ui.render();assert.equal(ui.find(n=>n.type==='modal'),undefined);
  ui.props.locked=false;ui.render();ui.button('删除对话：A 的完整历史').props.onClick();ui.render();
  ui.find(n=>n.props.className==='project-confirm-delete').props.onClick();await ui.settle();
- assert.equal(calls,1);assert.ok(ui.find(n=>n.props.role==='alert'));
+ assert.equal(calls,1);assert.equal(ui.notices.at(-1)?.type,'error');assert.equal(ui.find(n=>n.props.role==='alert'),undefined);
  assert.ok(ui.find(n=>n.props.className==='project-confirm-delete'));
  assert.equal(ui.all(n=>n.type==='button'&&n.props.className?.includes('project-chat-row')).length,3);
  ui.props.locked=true;ui.render();assert.equal(ui.find(n=>n.props.className==='project-confirm-delete').props.disabled,true);
@@ -269,7 +270,7 @@ test('Busy projects cannot be removed; failed removal keeps the project and perm
  locked.props.onChange('remove');ui.render();assert.equal(ui.find(n=>n.type==='modal'),undefined);
  ui.props.locked=false;ui.render();ui.find(n=>n.props.label==='项目选项：A 服务器').props.onChange('remove');ui.render();
  ui.find(n=>n.props.className==='project-confirm-delete').props.onClick();await ui.settle();
- assert.equal(calls,1);assert.ok(ui.find(n=>n.props.role==='alert'));
+ assert.equal(calls,1);assert.equal(ui.notices.at(-1)?.type,'error');assert.equal(ui.find(n=>n.props.role==='alert'),undefined);
  assert.ok(ui.find(n=>n.props.label==='项目选项：A 服务器'));
  assert.ok(ui.find(n=>n.type==='modal'));
 });

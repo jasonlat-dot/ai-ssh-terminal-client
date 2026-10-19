@@ -1,3 +1,4 @@
+import { useToastError } from '../state/useToastError';
 import { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { agentApi, type AgentMemories, type AgentMemory, type AgentMemoryWrite, type AgentProject } from '../api/agent';
@@ -61,12 +62,12 @@ export function AgentMemoryButton({ scope, onNotice }: { scope: MemoryScope; onN
 export function AgentMemoryDialog({ scope, onClose, onNotice }: { scope: MemoryScope; onClose: () => void; onNotice?: (message: string) => void }) {
   const [projects, setProjects] = useState<AgentProject[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(true);
-  const [projectsError, setProjectsError] = useState('');
+  const [projectsError, setProjectsError] = useToastError();
   const [projectReload, setProjectReload] = useState(0);
   const [listing, setListing] = useState<AgentMemories | null>(null);
   const [loading, setLoading] = useState(true);
   const [reload, setReload] = useState(0);
-  const [error, setError] = useState('');
+  const [, setError] = useToastError();
   const [scopeFilter, setScopeFilter] = useState<ScopeFilter>('all');
   const [query, setQuery] = useState('');
   const [kindFilter, setKindFilter] = useState('all');
@@ -229,8 +230,7 @@ export function AgentMemoryDialog({ scope, onClose, onNotice }: { scope: MemoryS
   return <><Modal icon="book" iconTone="violet" title="长期记忆" className="agent-memory-dialog" active={!deleteTarget} dismissDisabled={!!saving || toggling.size > 0} onClose={onClose}>
     <div className={`agent-memory-body${draft ? ' is-editing' : ''}`}>
       <p className="agent-memory-intro">保存你确认的偏好与经验，供后续对话参考。记忆不会自动授予工具执行权限。</p>
-      {projectsError && <p className="agent-memory-error" role="alert">项目读取失败：{projectsError} <button type="button" onClick={() => setProjectReload(value => value + 1)}>重试项目列表</button></p>}
-      {error && <p className="agent-memory-error" role="alert">{error}</p>}
+      {projectsError && <button type="button" onClick={() => setProjectReload(value => value + 1)}>重试项目列表</button>}
       <div className="agent-memory-toolbar">{draft ? <div className="agent-memory-editor-heading"><button type="button" className="agent-memory-back" disabled={!!saving} onClick={cancelEdit}><Icon name="left" size={14} />记忆列表</button><span>{original ? '编辑记忆' : '新建记忆'}</span></div>
         : <label className="agent-memory-search"><Icon name="search" size={16} /><input type="search" aria-label="搜索记忆" placeholder="搜索标题、内容或服务器" value={query} disabled={filterLocked} onChange={event => { setQuery(event.target.value); resetPage(); }} /></label>}<div className="agent-memory-toolbar-actions">
         <button type="button" className="agent-memory-secondary" disabled={locked} aria-disabled={toggling.size > 0 || locked} onClick={refresh}><Icon name="refresh" size={14} />刷新</button>
@@ -283,7 +283,6 @@ export function AgentMemoryDialog({ scope, onClose, onNotice }: { scope: MemoryS
       <div className="agent-memory-delete-body">
         <strong>{deleteTarget.title}</strong><span className={`agent-memory-scope-badge ${scopeLabel(deleteTarget, projects).kind}`}>{scopeLabel(deleteTarget, projects).text}</span>
         <p>这条长期记忆将被永久删除，后续对话不再参考它。已有聊天记录会保留。</p>
-        {error && <p className="agent-memory-error" role="alert">{error}</p>}
       </div>
       <footer><button type="button" data-autofocus className="agent-memory-secondary" disabled={!!saving} onClick={cancelDelete}>取消</button>
         <button type="button" className="agent-memory-confirm-delete" disabled={locked} onClick={() => {

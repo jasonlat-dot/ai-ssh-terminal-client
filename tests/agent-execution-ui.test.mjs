@@ -1,3 +1,4 @@
+import { loadToastErrorHooks } from './helpers/toast-errors.mjs';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
@@ -14,7 +15,7 @@ function harness(api={},extensions={}){
     useEffect(effect,deps){const index=cursor++;if(!slots[index]||deps.some((value,i)=>value!==slots[index][i])){slots[index]=deps;effects.push(effect);}}};
   const context=vm.createContext({exports:{},Date,Error,JSON,Map,Array,Number,TextDecoder,Uint8Array,AbortController,document:{addEventListener(){},removeEventListener(){},activeElement:null},
     setTimeout:callback=>{timers.push(callback);return timers.length;},clearTimeout(){},
-    require(name){if(name==='react')return hooks;if(name==='react-dom')return {createPortal:children=>children};if(name==='react/jsx-runtime')return {jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props})};if(name==='../api/agent')return {agentApi:api};if(name==='../api/agentExtensions')return {extensionApi:{requests:async()=>[],...extensions}};if(name==='./Ui')return {Icon:()=>null};if(name==='./CopyTextButton')return {CopyTextButton:()=>null};if(name.endsWith('.css'))return {};throw new Error(name);}});
+    require(name){if(name==='../state/useToastError')return loadToastErrorHooks(hooks);if(name==='react')return hooks;if(name==='react-dom')return {createPortal:children=>children};if(name==='react/jsx-runtime')return {jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props})};if(name==='../api/agent')return {agentApi:api};if(name==='../api/agentExtensions')return {extensionApi:{requests:async()=>[],...extensions}};if(name==='./Ui')return {Icon:()=>null};if(name==='./CopyTextButton')return {CopyTextButton:()=>null};if(name.endsWith('.css'))return {};throw new Error(name);}});
   vm.runInContext(output,context);
   return {module:context.exports,timers,render(name,props){cursor=0;return context.exports[name](props);},flush(){while(effects.length)effects.shift()();}};
 }

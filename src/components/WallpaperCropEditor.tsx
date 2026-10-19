@@ -1,3 +1,4 @@
+import { useToastError, useErrorToast } from '../state/useToastError';
 import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties, KeyboardEvent, PointerEvent, ReactNode } from 'react';
 import { chooseClientWallpaper, prepareClientWallpaper, prepareSavedClientWallpaper, readClientAppearance } from '../state/clientAppearance';
@@ -57,7 +58,8 @@ export function WallpaperCropEditor({ file, onClose, externalBusy = false, onSav
   const [source, setSource] = useState<PreparedWallpaper | null>(null);
   const [limitedSource, setLimitedSource] = useState(false);
   const [savedRatio, setSavedRatio] = useState<number | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useToastError();
+  useErrorToast(externalError);
   const [saving, setSaving] = useState(false);
   const [view, setView] = useState<CropView>(INITIAL_CROP_VIEW);
   // 初始选区固定；窗口变化只更新“当前窗口”选项，不能悄悄改写已选画面或重新加载原图。
@@ -197,7 +199,7 @@ export function WallpaperCropEditor({ file, onClose, externalBusy = false, onSav
     onSavingChange?.(true);
     drag.current = null;
     setSaving(true);
-    setError(null);
+    setError('');
     try {
       const croppedFile = await exportWallpaperCrop(source, rect);
       const current: CropSettings = { ratio, view: normalizedView, fit };
@@ -230,7 +232,7 @@ export function WallpaperCropEditor({ file, onClose, externalBusy = false, onSav
     setRatio(baseline.ratio);
     setView({ ...baseline.view });
     setFit(baseline.fit);
-    setError(null);
+    setError('');
     notify('已还原到上次保存的壁纸画面。');
   }
 
@@ -321,6 +323,5 @@ export function WallpaperCropEditor({ file, onClose, externalBusy = false, onSav
       {readabilityControl}
       {limitedSource && <p className="wallpaper-crop-help" role="note">旧版图片已裁掉的部分无法恢复；更换原图后可保留全部区域。</p>}
     </aside>
-    {(error || externalError) && <div className="appearance-error wallpaper-crop-error" role="alert"><Icon name="alert" size={17} /><span>{error || externalError}</span></div>}
   </div>;
 }

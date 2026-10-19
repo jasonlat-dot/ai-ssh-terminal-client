@@ -1,5 +1,5 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
-import type { CSSProperties, KeyboardEvent } from 'react';
+import type { CSSProperties, KeyboardEvent, ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Icon } from './Ui';
 import './Select.css';
@@ -7,7 +7,7 @@ import './Select.css';
 type SelectOption<T> = { value: T; label: string; description?: string };
 
 /** 与表单输入框共用参数；弹层独立于滚动容器，支持键盘及屏幕阅读器。 */
-export function Select<T extends string | number>({ id, value, options, onChange, disabled = false, className = '', label, displayValue, menuMinWidth = 0, menuClassName = '', menuAlign = 'start' }: {
+export function Select<T extends string | number>({ id, value, options, onChange, disabled = false, className = '', label, displayValue, menuMinWidth = 0, menuClassName = '', menuAlign = 'start', renderIcon }: {
   id?: string;
   value: T;
   options: readonly SelectOption<T>[];
@@ -19,6 +19,7 @@ export function Select<T extends string | number>({ id, value, options, onChange
   menuMinWidth?: number;
   menuClassName?: string;
   menuAlign?: 'start' | 'end';
+  renderIcon?: (value: T) => ReactNode;
 }) {
   const generatedId = useId();
   const triggerId = id ?? generatedId;
@@ -129,20 +130,24 @@ export function Select<T extends string | number>({ id, value, options, onChange
     }
   };
 
+  const optionLabel = (option: SelectOption<T> | undefined, override?: string) => {
+    const text = override ?? option?.label ?? '请选择';
+    return option && renderIcon ? <span className="ui-select-label-with-icon">{renderIcon(option.value)}<span>{text}</span></span> : text;
+  };
   return <>
     <button ref={triggerRef} id={triggerId} type="button" role="combobox" className={`ui-select-trigger ${className}`}
       aria-label={label} aria-haspopup="listbox" aria-expanded={open} aria-controls={open ? listId : undefined}
       aria-activedescendant={open ? `${listId}-${activeIndex}` : undefined} disabled={disabled || !options.length}
       onClick={() => open ? setOpen(false) : show()} onKeyDown={onKeyDown}
       onBlur={() => setOpen(false)}>
-      <span>{displayValue ?? options[selectedIndex]?.label ?? '请选择'}</span><Icon name="down" size={15} />
+      <span>{optionLabel(options[selectedIndex], displayValue)}</span><Icon name="down" size={15} />
     </button>
     {open && createPortal(<div ref={menuRef} id={listId} className={`ui-select-menu ${menuClassName}`} role="listbox" aria-label={label}
       style={position ?? { visibility: 'hidden' }} onMouseDown={event => event.preventDefault()}>
       {options.map((option, index) => <div key={option.value} id={`${listId}-${index}`} role="option"
         aria-selected={option.value === value} className={`ui-select-option${index === activeIndex ? ' is-active' : ''}${option.value === value ? ' is-selected' : ''}`}
         onPointerMove={() => setActiveIndex(index)} onClick={() => choose(index)}>
-        <span>{option.label}</span>{option.description && <small className="ui-select-option-description">{option.description}</small>}{option.value === value && <Icon name="check" size={14} />}
+        <span>{optionLabel(option)}</span>{option.description && <small className="ui-select-option-description">{option.description}</small>}{option.value === value && <Icon name="check" size={14} />}
       </div>)}
     </div>, document.body)}
   </>;

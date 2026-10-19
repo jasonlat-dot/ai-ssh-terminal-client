@@ -1,3 +1,4 @@
+import { useToastError, useErrorToast } from '../state/useToastError';
 import { useState } from 'react';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { clientUpdater, useClientUpdater } from '../state/useClientUpdater';
@@ -11,8 +12,9 @@ const sizes = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 
 export function ClientUpdateSettings({ beforeInstall = async () => {} }: { beforeInstall?: () => Promise<void> }) {
   const state = useClientUpdater();
+  useErrorToast(state.error);
   const [confirming, setConfirming] = useState(false);
-  const [linkError, setLinkError] = useState('');
+  const [, setLinkError] = useToastError();
   const busy = ['initializing', 'checking', 'downloading', 'preparing', 'installing'].includes(state.phase);
   const enabled = state.config?.configured && state.config.supported && !state.config.development;
   const canCheck = enabled || (!state.config && state.phase === 'error' && isTauriRuntime());
@@ -32,7 +34,6 @@ export function ClientUpdateSettings({ beforeInstall = async () => {} }: { befor
         <p>更新只在确认后安装，不会自动关闭终端。</p></div><Badge icon="monitor">Windows</Badge></header>
       <div className="client-update-version"><strong>ShellPilot</strong><Badge tone="blue">v{state.config?.version ?? APP_VERSION}</Badge></div>
       <p className="client-update-status" role="status" aria-live="polite">{labels[state.phase]}</p>
-      {state.error && <p className="settings-banner is-error" role="alert"><Icon name="alert" size={14} />{state.error}</p>}
       {state.checkedAt && <small>上次检查：{new Date(state.checkedAt).toLocaleString()}</small>}
       <div className="client-update-actions">
         <button type="button" className="ghost-button" disabled={busy || !canCheck || state.verified}
@@ -68,7 +69,6 @@ export function ClientUpdateSettings({ beforeInstall = async () => {} }: { befor
         event.preventDefault(); setLinkError('');
         void openUrl(RELEASES_URL).catch(() => setLinkError('无法打开发布页面，请检查系统浏览器。'));
       }}>查看全部版本<Icon name="upRight" size={14} /></a>
-      {linkError && <p role="alert">{linkError}</p>}
       <small>旧版 0.1.4 需手动覆盖安装一次带更新功能的版本，之后才可在此升级。</small>
     </section>
   </div>;

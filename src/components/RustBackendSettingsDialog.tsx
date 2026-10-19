@@ -1,3 +1,4 @@
+import { useToastError } from '../state/useToastError';
 import { useEffect, useState } from 'react';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import {
@@ -41,7 +42,7 @@ export function RustBackendSettingsDialog({required=false,onClose,onSave,beforeC
   const [capacity,setCapacity]=useState('1024');
   const [retention,setRetention]=useState('0');
   const [busy,setBusy]=useState(false);
-  const [error,setError]=useState('');
+  const [, setError] = useToastError();
   useEffect(()=>{if(section)setTab(section);},[section]);
   useEffect(()=>{if(showUpdates)setTab('updates');},[showUpdates]);
   useEffect(()=>{if(modelSettingsRequested)setTab('models');},[modelSettingsRequested]);
@@ -101,7 +102,6 @@ export function RustBackendSettingsDialog({required=false,onClose,onSave,beforeC
         <div className="settings-nav-footer">{!required&&<button type="button" className="settings-rail-back" aria-label="返回终端" title="返回终端" onClick={onClose}><Icon name="left" size={19}/></button>}<strong>v{APP_VERSION}</strong><small>独立安装 · 独立数据</small></div>
       </aside>}
       <div className="settings-content-panel" data-section={tab==='models'?'model':tab}><section className={`settings-content ${tab==='models'?'rust-model-content':''}`} data-section={tab==='models'?'model':tab}>
-        {error&&<p className="settings-error" role="alert">{error}</p>}
         {tab==='appearance'&&<AppearanceSettings/>}
         {tab==='updates'&&<ClientUpdateSettings beforeInstall={beforeClientUpdate}/>}
         {tab==='extensions'&&<AgentExtensionSettings locked={modelSettingsLocked}/>}

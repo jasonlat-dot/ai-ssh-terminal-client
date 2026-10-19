@@ -1,3 +1,4 @@
+import { useToastError } from '../state/useToastError';
 import { useState } from 'react';
 import type { ConnectionDraft } from '../api/ssh';
 import type { Host } from '../types';
@@ -29,7 +30,7 @@ export function SshConnectionDialog({ connections, initial = blankSshConnection,
     // 只有用户准备好可信的 known_hosts 内容后才主动开启严格校验。
     strictHostKeyCheck: initial.strictHostKeyCheck ?? false,
   }));
-  const [error, setError] = useState('');
+  const [, setError] = useToastError();
   const editing = !!draft.id;
 
   const submit = async () => {
@@ -98,7 +99,6 @@ export function SshConnectionDialog({ connections, initial = blankSshConnection,
             </div>
           </details>
         </fieldset>
-        {error && <p role="alert" className="form-error">{error}</p>}
         <footer><div className="dialog-actions">
           <button type="button" className="outlined-button" disabled={busy} onClick={onClose}>取消</button><button type="submit" className="primary-button" disabled={busy}>{busy ? '保存中…' : editing ? '保存修改' : connectAfterSave ? '保存并连接' : '保存连接'}</button></div></footer>
       </form>

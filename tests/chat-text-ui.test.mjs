@@ -1,3 +1,4 @@
+import { loadToastErrorHooks } from './helpers/toast-errors.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
@@ -49,8 +50,10 @@ function composer({ upload = async file => result(file), send = async () => true
     useImperativeHandle(target, create) { target.current = create(); },
   };
   hooks.useLayoutEffect = hooks.useEffect;
+  const notices=[];
   const leaf = () => null;
   const { AgentPanel } = load('components/AgentPanel.tsx', name => {
+    if (name === '../state/useToastError') return loadToastErrorHooks(hooks,(message,type)=>notices.push({message,type}));
     if (name === 'react') return hooks;
     if (name === 'react-dom') return { createPortal: children => children };
     if (name === 'react/jsx-runtime') return { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) };
@@ -91,7 +94,7 @@ function composer({ upload = async file => result(file), send = async () => true
   }
   render(); render();
   const input = () => find(node => node.type === 'textarea');
-  return { api, chatDraft, ref, props, render, find, input,
+  return { notices, api, chatDraft, ref, props, render, find, input,
     change(text) { input().props.onChange({ target: { value: text } }); render(); },
     paste(text, files = [], start = input().props.value.length, end = start) {
       let prevented = false;
@@ -138,7 +141,7 @@ test('超限不丢草稿；上传中阻止发送，失败队列保留附件并�
   ui.change('已有问题');
   ui.paste('x'.repeat(100), Array.from({ length: 4 }, (_, i) => new File(['file'], `note${i}.txt`)));
   assert.equal(ui.chatDraft.getSnapshot().length, 0); assert.equal(ui.input().props.value, '已有问题');
-  assert.ok(ui.find(node => node.props.className === 'composer-attachment-error'));
+  assert.equal(ui.notices.at(-1).type,'error');assert.equal(ui.find(node => node.props.className === 'composer-attachment-error'),undefined);
   ui.paste('x'.repeat(100)); await ui.submit(); assert.equal(sends, 0);
   resolve(); await ui.settle(); await ui.submit(); await ui.settle();
   assert.equal(sends, 1); assert.ok(ui.find(node => node.props.className === 'composer-queue-item is-failed'));
@@ -213,7 +216,7 @@ test('停止后可恢复原请求而不自动发送；已有草稿不会被覆�
   const restore = () => ui.find(node => node.props.className === 'chat-restore-request');
   ui.change('当前草稿'); restore().props.onClick(); ui.render();
   assert.equal(ui.input().props.value,'当前草稿'); assert.equal(sends,0);
-  assert.ok(ui.find(node => node.props.className === 'composer-attachment-error'));
+  assert.equal(ui.notices.at(-1).type,'error');assert.equal(ui.find(node => node.props.className === 'composer-attachment-error'),undefined);
   ui.change(''); restore().props.onClick(); ui.render();
   assert.equal(ui.input().props.value,'原始问题'); assert.equal(sends,0);
   await ui.submit(); assert.equal(sends,1); assert.equal(ui.input().props.value,'');

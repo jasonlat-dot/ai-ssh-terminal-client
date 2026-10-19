@@ -81,7 +81,7 @@ npm run tauri dev
 
 只预览网页界面可运行 `npm run dev`，但普通浏览器无法使用桌面 IPC、本地终端、内置 SSH/SFTP 等原生功能，不能代替桌面联调。
 
-dev、tauri、build、preview 脚本会选择兼容的 Node 运行时；可用 `SHELLPILOT_NODE` 指定已有 `node.exe`，不会修改系统全局 Node。
+dev、tauri、build、preview 脚本会选择兼容的 Node 运行时；可用 `SHELLPILOT_NODE` 指定已有 `node.exe`，不会修改系统全局 Node。 Tauri dev/build 还会优先使用 PATH 中可运行的 Cargo；找不到时检查 `CARGO_HOME/bin` 和用户目录的 `.cargo/bin`，只补齐子进程环境，不修改系统 PATH。未安装或无法运行 Rust 工具链时给出明确提示。
 
 ## 构建和发布
 

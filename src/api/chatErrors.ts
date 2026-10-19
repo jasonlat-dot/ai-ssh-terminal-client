@@ -5,7 +5,7 @@ export class ChatRequestError extends Error {
 export function chatErrorGuidance(code?: string): string {
   switch (code) {
     case 'AGENT_APPROVAL_CHANGED': return '审批已过期或任务、权限已变化，请刷新执行记录并重新核对命令。';
-    case 'AGENT_TOOLS_UNSUPPORTED': return '当前工具执行链需要支持 Chat Completions 函数工具的模型；工具默认启用，无需另外开启。';
+    case 'AGENT_TOOLS_UNSUPPORTED': return '当前模型协议不支持工具调用，请使用支持工具的 Chat Completions 或 Claude Messages；工具默认启用。';
     case 'AGENT_INVALID_REQUEST': return '请求或工具参数定义未通过校验，本次生成未完成；请更新应用后手动重试。';
     case 'AGENT_TOOL_UNKNOWN': return '命令可能已执行，请先核查服务器状态；不会自动重试。';
     case 'AGENT_TOOL_LIMIT': return '本次处理已达到执行资源上限，请核对已有结果后再继续。';

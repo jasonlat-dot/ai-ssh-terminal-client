@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { modelApi, type ModelConfig, type ModelProfile } from '../api/models';
+import { modelProtocols } from '../api/modelProtocols';
 import { notify } from '../state/notifications';
 import { Select } from './Select';
 import { Icon } from './Ui';
@@ -41,7 +42,7 @@ export function ComposerReasoningControl({ modelId, revision, disabled, onSaving
   }, [modelId, revision, reload]);
 
   const choose = async (value: string) => {
-    if (disabled || loading || pending.current || !profile || profile.id !== modelId || !options.some(option => option.value === value)) return;
+    if (disabled || loading || pending.current || !profile || profile.id !== modelId || !modelProtocols[profile.config.provider].reasoning || !options.some(option => option.value === value)) return;
     const effort = (value || null) as ModelConfig['reasoningEffort'];
     if (profile.config.reasoningEffort === effort) return;
     const current = generation.current;
@@ -50,6 +51,7 @@ export function ComposerReasoningControl({ modelId, revision, disabled, onSaving
       // Merge into the latest saved model so changing effort cannot replace other settings with an old snapshot.
       const latest = (await modelApi.list()).find(item => item.id === modelId);
       if (!latest) throw new Error('当前模型配置已被删除，请重新选择模型。');
+      if (!modelProtocols[latest.config.provider].reasoning) throw new Error('当前协议不使用 OpenAI 推理强度，请重新读取模型设置。');
       const saved = await modelApi.save(latest.id, latest.revision, {
         ...latest.config, reasoningEffort: effort,
         capabilities: { ...latest.config.capabilities, reasoningEffort: effort !== null },
@@ -65,12 +67,13 @@ export function ComposerReasoningControl({ modelId, revision, disabled, onSaving
     }
   };
 
+  const supportsReasoning = !profile || modelProtocols[profile.config.provider].reasoning;
   const effort = profile?.config.reasoningEffort ?? '';
   const label = options.find(option => option.value === effort)?.label ?? '默认';
-  return <div className="composer-reasoning-control" title="推理强度保存到当前模型，用于后续请求；仅选择供应商支持的档位">
+  return <div className="composer-reasoning-control" title={supportsReasoning ? '推理强度保存到当前模型，用于后续请求；仅选择供应商支持的档位' : '此协议使用常规模式，不发送 OpenAI 推理强度参数'}>
     {!loading && !profile && modelId ? <button type="button" className="composer-reasoning-retry" disabled={disabled} onClick={() => setReload(value => value + 1)}><Icon name="refresh" size={13} />重试推理设置</button>
       : <Select label="推理强度" className="composer-reasoning-trigger" value={effort} options={options}
-        displayValue={saving ? '保存中…' : loading ? '推理 · 读取中' : `推理 · ${label}`} disabled={disabled || loading || saving || !profile}
+        displayValue={saving ? '保存中…' : loading ? '推理 · 读取中' : !supportsReasoning ? '常规模式' : `推理 · ${label}`} disabled={disabled || loading || saving || !profile || !supportsReasoning}
         menuMinWidth={220} menuAlign="end" menuClassName="composer-reasoning-menu" onChange={value => { void choose(value); }} />}
   </div>;
 }

@@ -50,6 +50,27 @@ export function runtimeEnvironment(executable, env = process.env) {
   return result;
 }
 
+/** Resolve an installed Rust toolchain for Tauri without changing the user's system PATH. */
+export function cargoEnvironment(env = process.env, {
+  home = homedir(), exists = existsSync,
+  usable = (executable, childEnv) => spawnSync(executable, ['--version'], {
+    env: childEnv, encoding: 'utf8', timeout: 5000, windowsHide: true,
+  }).status === 0,
+} = {}) {
+  const result = {...env};
+  if (usable('cargo', result)) return result;
+  const pathKey = Object.keys(result).find(key => key.toLowerCase() === 'path') || 'PATH';
+  const name = process.platform === 'win32' ? 'cargo.exe' : 'cargo';
+  const directories = [env.CARGO_HOME && join(env.CARGO_HOME, 'bin'), join(home, '.cargo', 'bin')];
+  for (const directory of new Set(directories.filter(Boolean))) {
+    const executable = join(directory, name);
+    if (!exists(executable)) continue;
+    const child = {...result, [pathKey]: [directory, result[pathKey] || ''].filter(Boolean).join(delimiter)};
+    if (usable(executable, child)) return child;
+  }
+  throw new Error('未找到可运行的 Cargo。请安装并配置 Rust 工具链，或将已有 Cargo 的 bin 目录加入 PATH 后重试。');
+}
+
 export function runTool(tool, args = []) {
   const packages = {vite: 'vite', tauri: '@tauri-apps/cli', tsc: 'typescript'};
   if (!Object.hasOwn(packages, tool)) throw new Error('未知开发工具：' + (tool || '(empty)'));
@@ -61,8 +82,10 @@ export function runTool(tool, args = []) {
   if (resolve(executable) !== resolve(process.execPath)) {
     console.log('[ShellPilot] 使用兼容 Node：' + executable);
   }
+  const childEnv = runtimeEnvironment(executable);
+  const needsCargo = tool === 'tauri' && ['dev', 'build'].includes(args[0]);
   const result = spawnSync(executable, [resolve(dirname(manifestPath), bin), ...args], {
-    stdio: 'inherit', env: runtimeEnvironment(executable),
+    stdio: 'inherit', env: needsCargo ? cargoEnvironment(childEnv) : childEnv,
   });
   if (result.error) throw result.error;
   return result.status ?? 1;

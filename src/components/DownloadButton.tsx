@@ -1,3 +1,4 @@
+import { useToastError } from '../state/useToastError';
 import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import { downloadUnavailable, nativeAttachmentReference, saveNativeAttachment, type UploadedFile } from '../api/files';
 import { Icon } from './Ui';
@@ -5,7 +6,7 @@ import './DownloadButton.css';
 
 /** The chat attachment download action is independent of any file-management UI. */
 export function DownloadButton({ file }: { file: Pick<UploadedFile, 'urlExpiresAt' | 'downloadUrl'> }) {
-  const [error, setError] = useState('');
+  const [, setError] = useToastError();
   const [busy, setBusy] = useState(false);
   const pending = useRef(false);
   const currentUrl = useRef(file.downloadUrl);
@@ -26,6 +27,5 @@ export function DownloadButton({ file }: { file: Pick<UploadedFile, 'urlExpiresA
   return <span className="uploaded-download">
     {unavailable ? <small>{unavailable}</small> : <a href={file.downloadUrl} onClick={download}
       aria-disabled={busy} aria-busy={busy} className="file-download-button"><Icon name="down" size={14}/>{busy ? '正在保存…' : '下载'}</a>}
-    {error && <small role="alert">{error}</small>}
   </span>;
 }

@@ -20,10 +20,10 @@ const steps = [
   { icon: 'chat', title: '开始项目对话', detail: '让 AI 在正确的服务器上工作' },
 ] as const;
 
-export function ConnectionGuide({ state, hosts, projects, modelReady, connected, busy, error,
+export function ConnectionGuide({ state, hosts, projects, modelReady, connected, busy,
   onClose, onStep, onConnection, onProject, onCreateConnection, onCreateProject, onModels, onStart, onFinish }: {
   state: ConnectionGuideState; hosts: Host[]; projects: AgentProject[]; modelReady: boolean;
-  connected: boolean; busy: boolean; error: string;
+  connected: boolean; busy: boolean;
   onClose: () => void; onStep: (step: ConnectionGuideStep) => void;
   onConnection: (id: string) => void; onProject: (id: string) => void;
   onCreateConnection: () => void; onCreateProject: () => void; onModels: () => void;
@@ -90,7 +90,6 @@ export function ConnectionGuide({ state, hosts, projects, modelReady, connected,
               : <p className="connection-onboarding-hint">左侧项目名称右侧的对话图标，也可以新建服务器对话。仅打开本地 CMD 不会绑定远程服务器。</p>}
             {state.step === 3 && !connected && <p className="connection-onboarding-error" role="status">服务器连接已断开，可以重新创建项目对话进行连接。</p>}
           </>}
-          {error && <p className="connection-onboarding-error" role="alert">{error}</p>}
         </div>
         <footer className="connection-onboarding-footer">
           <button type="button" className="connection-onboarding-back" disabled={busy} onClick={current === 0 ? onClose : () => onStep((current - 1) as ConnectionGuideStep)}>{current === 0 ? '稍后再看' : '上一步'}</button>

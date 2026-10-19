@@ -1,3 +1,4 @@
+import { useToastError, useErrorToast } from '../state/useToastError';
 import { Fragment, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { PointerEvent as ReactPointerEvent, Ref, ReactNode, HTMLAttributes } from 'react';
 import { createPortal } from 'react-dom';
@@ -267,7 +268,9 @@ export function AgentPanel({ ref, memoryScope, onMemoryNotice, sshConnections, c
     return()=>{cancelTooltipTimer();window.removeEventListener('keydown',key);window.removeEventListener('scroll',close,true);window.removeEventListener('resize',close);window.removeEventListener('blur',close);};
   },[]);
   const [draft, setDraft] = useState('');
-  const [attachmentError, setAttachmentError] = useState('');
+  const [, setAttachmentError] = useToastError();
+  useErrorToast(history.error);
+  useErrorToast(agentAvailability.error);
   const [sending, setSending] = useState(false);
   const [projectSelecting,setProjectSelecting]=useState(false);
   const [projectSelectionVersion,setProjectSelectionVersion]=useState(0);
@@ -599,7 +602,6 @@ export function AgentPanel({ ref, memoryScope, onMemoryNotice, sshConnections, c
       {!history.external && history.open && <section id="agent-history-list" className="agent-history-popover" aria-label="历史会话列表">
         <div className="agent-history-heading"><strong>历史会话</strong><button type="button" onClick={history.refresh} disabled={history.loading} aria-label="刷新历史会话"><Icon name="refresh" size={15} /></button></div>
         {history.content ?? <>
-        {history.error && <p className="agent-history-note error">{history.error}</p>}
         {history.loading && !history.sessions.length && <p className="agent-history-note">正在加载历史会话…</p>}
         {!history.loading && !history.error && !history.sessions.length && <p className="agent-history-note">暂无历史会话</p>}
         <div className="agent-history-items">
@@ -700,7 +702,7 @@ export function AgentPanel({ ref, memoryScope, onMemoryNotice, sshConnections, c
       </div>}
       {!agentAvailability.ready && <div className={`composer-agent-status ${agentAvailability.error ? 'error' : ''}`} data-accent={agentAvailability.error ? 'danger' : 'amber'} role="status">
         <Icon name={agentAvailability.error ? 'alert' : 'bot'} size={15} />
-        <span>{agentAvailability.loading ? '正在加载智能体，你可以先编辑草稿。' : agentAvailability.error || '智能体暂不可用，草稿可以继续编辑。'}</span>
+        <span>{agentAvailability.loading ? '正在加载智能体，你可以先编辑草稿。' : '智能体暂不可用，草稿可以继续编辑。'}</span>
         {!agentAvailability.loading && <button type="button" onClick={agentAvailability.retry}><Icon name="refresh" size={13} />重试加载</button>}
       </div>}
       {(!!attachments.length||!!pendingNative.length) && <DraftAttachments pending={pendingNative} items={attachments} draft={chatDraft} locked={editingLocked} report={setAttachmentError} />}
@@ -752,7 +754,6 @@ export function AgentPanel({ ref, memoryScope, onMemoryNotice, sshConnections, c
         {(busy||stopping)&&<button type="button" className="send-button stop-button" aria-label={stopping?'正在停止':'停止生成'} title="停止生成" onClick={()=>{setQueuePaused(true);stop();}} disabled={stopping}><Icon name="stop" size={16}/></button>}
         {(!(busy||stopping)||!!draft.trim()||attachments.length>0)&&<button type="submit" className="send-button" aria-label={busy||sending?'加入消息队列':'发送消息'} title={busy||sending?'加入队列，当前轮结束后自动发送':'发送消息'} disabled={(!draft.trim() && !attachments.length) || editingLocked || notReady || !agentAvailability.ready}><Icon name="arrowUp" size={20}/></button>}
       </div>
-      {attachmentError && <p className="composer-attachment-error" role="status">{attachmentError}</p>}
     </form></div>
   </aside></ExecutionContext.Provider>;
 }

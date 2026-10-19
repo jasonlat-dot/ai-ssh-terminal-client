@@ -3,12 +3,11 @@ import type { Host } from '../types';
 import { Icon, Modal } from './Ui';
 import './DisconnectDialog.css';
 
-export function DisconnectDialog({ host, connected, busy, error, close, confirm, disconnectOnly }: {
-  host: Host; connected: boolean; busy: boolean; error: string; close: () => void;
+export function DisconnectDialog({ host, connected, busy, close, confirm, disconnectOnly }: {
+  host: Host; connected: boolean; busy: boolean; close: () => void;
   confirm: () => Promise<boolean>;
   disconnectOnly?: () => Promise<boolean>;
 }) {
-  const [attempted, setAttempted] = useState(false);
   const [submitting, setSubmitting] = useState<'disconnect' | 'close' | null>(null);
   const locked = useRef(false);
   const pending = busy || submitting !== null;
@@ -16,7 +15,7 @@ export function DisconnectDialog({ host, connected, busy, error, close, confirm,
     if (pending || locked.current) return;
     const operation = action === 'disconnect' ? disconnectOnly : confirm;
     if (!operation) return;
-    locked.current = true; setSubmitting(action); setAttempted(true);
+    locked.current = true; setSubmitting(action);
     try { await operation(); }
     finally { locked.current = false; setSubmitting(null); }
   };
@@ -31,7 +30,6 @@ export function DisconnectDialog({ host, connected, busy, error, close, confirm,
         <div><dt>连接地址</dt><dd title={`${host.user}@${host.address}:${host.port ?? 22}`}>{host.user}@{host.address}:{host.port ?? 22}</dd></div>
       </dl>
     </div>
-    {attempted && error && !pending && <p role="alert" className="disconnect-error">{error} 终端已保留，请重试。</p>}
     <div className="disconnect-actions">
       <button data-autofocus className="outlined-button" disabled={pending} onClick={close}>取消</button>
       {disconnectOnly && <button type="button" className="disconnect-only" disabled={pending} onClick={() => void submit('disconnect')}>{submitting === 'disconnect' ? '正在断开…' : '断开'}</button>}

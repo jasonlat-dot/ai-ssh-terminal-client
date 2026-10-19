@@ -1,3 +1,4 @@
+import { loadToastErrorHooks } from './helpers/toast-errors.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
@@ -13,7 +14,7 @@ function loadModule(path, requireModule, globals = {}) {
   const compiled = ts.transpileModule(source, { compilerOptions: {
     module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX,
   } }).outputText;
-  const context = vm.createContext({ exports: {}, require: name => name.endsWith('/notifications') ? { notify() {} } : requireModule(name), ...globals });
+  const context = vm.createContext({ exports: {}, require: name => name.endsWith('/useToastError') ? loadToastErrorHooks(requireModule('react'),globals.toastNotify) : name.endsWith('/notifications') ? { notify() {} } : requireModule(name), ...globals });
   vm.runInContext(compiled, context);
   return context.exports;
 }
@@ -268,10 +269,10 @@ test('删除图片按钮在悬停和键盘聚焦时使用红色高亮，禁用�
   assert.match(styles, /@media \(prefers-reduced-motion: reduce\)[^}]*\.appearance-remove-image \{ transition: none;/s);
 });
 
-test('壁纸仍在时外部操作错误只显示一次，不重复堆叠两份提示', () => {
+test('壁纸仍在时不再渲染外部操作错误条，由 Toast 统一通知', () => {
   const html = renderAppearance({ ...appearance, error: '模拟恢复默认失败' });
-  assert.equal((html.match(/模拟恢复默认失败/g) ?? []).length, 1);
-  assert.equal((html.match(/role="alert"/g) ?? []).length, 1);
+  assert.equal((html.match(/模拟恢复默认失败/g) ?? []).length, 0);
+  assert.equal((html.match(/role="alert"/g) ?? []).length, 0);
 });
 
 /**
@@ -285,6 +286,7 @@ function editorHarness({ file, initialCrop, hasWallpaper = true, initializing = 
     addEventListener: (name, callback) => windowEvents.set(name, callback),
     removeEventListener: name => windowEvents.delete(name),
   };
+  const notices = [];
   let cursor = 0, tree, closeCount = 0, prepareCount = 0;
   const createNode = (type, props, key) => ({ type, props: props ?? {}, key });
   const fakeReact = {
@@ -337,7 +339,7 @@ function editorHarness({ file, initialCrop, hasWallpaper = true, initializing = 
     throw new Error(`Unexpected import: ${name}`);
   }
   const { WallpaperCropEditor } = loadModule('components/WallpaperCropEditor.tsx', requireModule, {
-    window: editorWindow, URL: { revokeObjectURL: url => revoked.push(url) },
+    toastNotify: (message,type) => notices.push({message,type}), window: editorWindow, URL: { revokeObjectURL: url => revoked.push(url) },
   });
   const props = { file, hasWallpaper, initializing, onSelectWallpaper, externalBusy, onClose: () => closeCount++, onSavingChange: value => busy.push(value) };
   function render() {
@@ -375,7 +377,7 @@ function editorHarness({ file, initialCrop, hasWallpaper = true, initializing = 
   }
   function unmount() { slots.forEach(slot => slot?.cleanup?.()); }
   render();
-  return { render, settle, resize, button, zoom, find, text: () => text(tree), unmount, busy, revoked, exports, saves, source,
+  return { notices, render, settle, resize, button, zoom, find, text: () => text(tree), unmount, busy, revoked, exports, saves, source,
     get closeCount() { return closeCount; }, get prepareCount() { return prepareCount; } };
 }
 
@@ -569,7 +571,7 @@ test('保存失败保留原图和未保存调整，控件不退出，可还原�
   harness.render();
   harness.button('保存画面').props.onClick();
   await harness.settle();
-  assert.match(harness.text(), /模拟保存失败/);
+  assert.match(harness.notices.at(-1).message, /模拟保存失败/);assert.doesNotMatch(harness.text(), /模拟保存失败/);
   assert.equal(harness.zoom().props.value, 2.3);
   assert.equal(harness.button('保存画面').props.disabled, false);
   assert.equal(harness.closeCount, 0);

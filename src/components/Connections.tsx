@@ -110,7 +110,6 @@ export function Connections({ connections, terminal, create, copy }: Props) {
           <span><Icon name="server" size={34} /></span>
           <div><strong>{deleting.name}</strong><small>{deleting.address}:{deleting.port ?? 22}</small></div>
         </div>
-        {apiError && <p role="alert" className="delete-dialog-error">{apiError}</p>}
         <footer className="delete-dialog-actions">
           <button data-autofocus disabled={busy} className="outlined-button" onClick={() => setDeleting(null)}>取消</button>
           <button disabled={busy} className="delete-dialog-confirm" onClick={async () => { if (await connections.remove(deleting.id)) { setDeleting(null); notify(`已删除 SSH 连接“${deleting.name}”`, 'success'); } }}>{busy ? '正在删除…' : '确认删除'}</button>
@@ -123,7 +122,7 @@ export function Connections({ connections, terminal, create, copy }: Props) {
       <label className="host-search"><Icon name="search" size={16} /><input aria-label="搜索连接" placeholder="搜索主机、IP 或用户" value={query} onChange={e => setQuery(e.target.value)} /></label>
       <IconButton className="connection-refresh" icon="refresh" label="刷新连接" disabled={busy} onClick={() => connections.refresh()} />
     </div>
-    <div className="connection-feedback" aria-live="polite">{busy && <span>正在同步连接…</span>}{apiError && <p role="alert" className="form-error">{apiError}</p>}</div>
+    <div className="connection-feedback" aria-live="polite">{busy && <span>正在同步连接…</span>}</div>
     <div className="connection-list" role="list">{filtered.map(h => <article className="ssh-host-row" key={h.id} role="listitem">
       <button className="host-row-main" disabled={busy} onClick={() => terminal(h.id)} aria-label={`为 ${h.name} 新建终端会话`}>
         <AccentIcon icon="server" size={19} className="host-symbol" />
