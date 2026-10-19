@@ -17,6 +17,7 @@ import { CopyMarkdownButton } from './CopyMarkdownButton';
 import { CopyTextButton } from './CopyTextButton';
 import { Select } from './Select';
 import { ComposerProjectPicker } from './ComposerProjectPicker';
+import { ModelPicker } from './ModelPicker';
 import { ComposerReasoningControl } from './ComposerReasoningControl';
 import { ChatAttachmentDraft, chatAttachmentPolicy, isLongChatText, pastedFiles, insertPastedText, validateChatContent } from '../state/chatAttachments';
 import { DraftAttachments, MessageAttachments } from './ChatAttachments';
@@ -39,6 +40,7 @@ function MessageTime({ timestamp, now, hint }: { timestamp?: number; now: number
 }
 
 function ToolActivity({ tool, copyable }: { tool: ChatToolActivity; copyable: boolean }) {
+  const [expanded, setExpanded] = useState(false);
   if (!isVisibleToolActivity(tool)) return null;
   const outputRead = tool.name === 'read_tool_output';
   const label = outputRead ? (tool.status === 'error' ? '读取失败' : '读取状态未知') : tool.status === 'running' ? '运行中'
@@ -52,17 +54,17 @@ function ToolActivity({ tool, copyable }: { tool: ChatToolActivity; copyable: bo
     <Icon name="down" size={13} className="tool-disclosure" />
   </>;
 
-  return <details className={`tool-activity ${tool.status}`} aria-label={`${title}：${label}`}>
+  return <details className={`tool-activity ${tool.status}`} aria-label={`${title}：${label}`} onToggle={event=>{if(event.target===event.currentTarget)setExpanded(event.currentTarget.open);}}>
     <summary>{header}</summary>
     {outputRead && <p className="tool-empty-result" role="status">{tool.status === 'error' ? '工具输出未能完整读取，分析结果可能不完整。' : '无法确认工具输出是否读取完整，分析结果可能不完整。'}</p>}
     <div className="tool-terminal-body"><div className="tool-terminal-heading"><span>{title === '执行命令' ? 'Shell' : title}</span>{copyable&&tool.command&&<CopyTextButton getText={()=>tool.command!} label="复制命令" iconOnly/>}</div>
     {tool.command&&<pre className="tool-full-command" tabIndex={0}>$ {tool.command}</pre>}
-    {tool.output ? <NativeToolOutput output={tool.output}/> : <p className="tool-empty-result">{tool.status==='running'?'等待命令输出与退出状态…':'工具没有返回文本。'}</p>}
-    {copyable && <div className="message-copy-actions tool-copy-actions">
-      {tool.command && <CopyTextButton getText={() => tool.command!} label="复制命令" successMessage="命令已复制" />}
-      {tool.output && <CopyTextButton getText={() => tool.output!} label="复制输出" successMessage="执行结果已复制" />}
-      <CopyMarkdownButton getText={() => toolToMarkdown(tool)} label="复制工具结果（Markdown）" />
-    </div>}</div>
+    {tool.output ? <NativeToolOutput output={tool.output} active={expanded} renderActions={(getText,ready)=>copyable&&<div className="message-copy-actions tool-copy-actions">
+      {tool.command&&<CopyTextButton getText={()=>tool.command!} label="复制命令" successMessage="命令已复制"/>}
+      <CopyTextButton getText={getText} disabled={!ready} label="复制输出" successMessage="执行结果已复制"/>
+      <CopyMarkdownButton getText={()=>toolToMarkdown({...tool,output:getText()})} disabled={!ready} label="复制工具结果（Markdown）"/>
+    </div>}/> : <p className="tool-empty-result">{tool.status==='running'?'等待命令输出与退出状态…':'工具没有返回文本。'}</p>}
+    </div>
   </details>;
 }
 
@@ -321,6 +323,7 @@ export function AgentPanel({ ref, memoryScope, onMemoryNotice, sshConnections, c
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previewCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const followOutputRef = useRef(true);
+  const [awayFromBottom, setAwayFromBottom] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const pasteNative = (field: HTMLTextAreaElement) => {
     if (editingLocked || nativeInputBusy.current) return;
@@ -367,6 +370,7 @@ export function AgentPanel({ ref, memoryScope, onMemoryNotice, sshConnections, c
       setDraft('');chatDraft.clear();
       if(!busy&&!stopping&&!sendingRef.current)setQueuePaused(false);
       followOutputRef.current = true;
+      setAwayFromBottom(false);
       setAttachmentError('');
     } catch (error) {
       if (scopeRef.current === scope) setAttachmentError((error as Error).message);
@@ -412,7 +416,8 @@ export function AgentPanel({ ref, memoryScope, onMemoryNotice, sshConnections, c
 
   useLayoutEffect(() => {
     followOutputRef.current = true;
-  }, [history.activeSessionId]);
+    setAwayFromBottom(false);
+  }, [history.activeSessionId, draftScope]);
 
   useLayoutEffect(() => {
     const container = scrollRef.current;
@@ -424,6 +429,7 @@ export function AgentPanel({ ref, memoryScope, onMemoryNotice, sshConnections, c
     if (!container) return;
     // 用户向上翻阅时暂停跟随；主动回到底部后恢复流式自动滚动。
     followOutputRef.current = container.scrollHeight - container.scrollTop - container.clientHeight <= 48;
+    setAwayFromBottom(!followOutputRef.current);
     const midpoint = container.scrollTop + container.clientHeight * .35;
     let closest = '', distance = Number.POSITIVE_INFINITY;
     for (const message of railMessages) {
@@ -433,6 +439,14 @@ export function AgentPanel({ ref, memoryScope, onMemoryNotice, sshConnections, c
       if (next < distance) { distance = next; closest = message.id; }
     }
     if (closest && closest !== activeMessageId) setActiveMessageId(closest);
+  };
+
+  const returnToLatest = () => {
+    const container = scrollRef.current;
+    if (!container) return;
+    container.scrollTop = container.scrollHeight;
+    followOutputRef.current = true;
+    setAwayFromBottom(false);
   };
 
   const jumpToMessage = (id: string, behavior: ScrollBehavior = 'smooth', highlight = true) => {
@@ -690,6 +704,12 @@ export function AgentPanel({ ref, memoryScope, onMemoryNotice, sshConnections, c
         {contextStatus?.phase === 'running' && !((busy || stopping) && lastMessage?.role === 'assistant' && lastMessage.id === contextStatus.requestId) &&
           <div className="assistant-message active"><div className="assistant-main"><ReplyLoading key={contextStatus.requestId} stopping={stopping} compacting /></div></div>}
       </div>
+      {awayFromBottom && !collapsed && messages.length > 0 && <button type="button"
+        className={`chat-return-latest${busy || stopping || recoveredRunning || contextStatus?.phase === 'running' ? ' is-generating' : ''}`}
+        aria-label="回到最新回复" title="回到最新回复" onClick={returnToLatest}>
+        <span className="chat-return-latest-dots" aria-hidden="true"><i/><i/><i/></span>
+        <span className="chat-return-latest-arrow" aria-hidden="true"><Icon name="arrowUp" size={20}/></span>
+      </button>}
       </div>
     </section>
 
@@ -756,9 +776,7 @@ export function AgentPanel({ ref, memoryScope, onMemoryNotice, sshConnections, c
         {!!attachments.length && <span className="composer-attachment-note">{attachments.length}/4 · 合计 ≤ 20 MB · 发送时解析</span>}
         {execution&&<div className="composer-policy-slot" ref={approvalPending?undefined:setPolicyTarget}/>}
         {models && <div className="agent-model-controls composer-model-controls">
-          <div className="agent-model-picker"><Select label="对话模型" value={selectedModel ?? ''} disabled={busy || stopping || disabled || !models.length}
-            options={models.length ? models.map(model => ({value:model.agentId,label:`${model.agentName}${model.modelName ? ` · ${model.modelName}` : ''}`})) : [{value:'',label:'请先添加模型'}]}
-            menuMinWidth={260} menuAlign="end" onChange={value => selectModel?.(value)}/></div>
+          <div className="agent-model-picker"><ModelPicker models={models} value={selectedModel??''} disabled={busy||stopping||disabled||!!recoveredRunning} onChange={value=>selectModel?.(value)}/></div>
           {reasoning && <ComposerReasoningControl modelId={selectedModel ?? ''} revision={reasoning.revision} disabled={locked || !!recoveredRunning} onSavingChange={reasoning.onSavingChange} />}
           <button className="agent-model-settings-button" type="button" aria-label="模型设置" title="模型设置" onClick={openModelSettings}><Icon name="settings" size={15}/></button>
           <AgentContextStatus status={contextStatus} error={contextError} retry={refreshContext} manual={manualCompaction}/>

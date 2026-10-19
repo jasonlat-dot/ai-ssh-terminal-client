@@ -116,7 +116,7 @@ cargo test --manifest-path ../ai-ssh-terminal-server-rust/Cargo.toml
 | GET agent/execution_requests | 用户/模型/会话隔离的审批历史，按原始游标分页，显示过期与授权撤销状态 |
 | POST agent/execution_decision | approveOnce / approveTaskCommand / deny / cancel / revoke；同任务相同命令授权最多 5 分钟 |
 | GET / POST agent/execution_policy | revision CAS 的 confirm / auto / fullAccess / deny；普通对话和服务器对话使用相同的对话级工具策略，禁止执行同时撤销已有授权 |
-| GET agent/execution_output | 只读已关联输出，字节 offset/limit，单次至多 64 KiB；UI 每段 4 KiB，支持十六进制 |
+| GET agent/execution_output | 只读已关联输出，字节 offset/limit，单次至多 64 KiB；展开工具时自动连续读取、合并后展示并复制完整执行文本 |
 
 切换终端页签不改变在途工具目标。SSH 命令使用同认证传输的独立无 PTY exec，不继承可见终端目录；停止生成不保证终止远端进程，admitted/unknown 均须先核查。禁用工具后仍可用文字讨论历史证据；断开 SSH 不影响已保存输出的读取。
 
@@ -150,3 +150,10 @@ cargo test --manifest-path ../ai-ssh-terminal-server-rust/Cargo.toml
 
 
 `bundled_backend_reveal_request_log(traceId)` 是桌面原生命令，独立于后端运行实例，仅在固定应用日志根目录解析 Trace ID，然后通过 Tauri opener 的原生 API 定位并选中文件。前端不传路径，不扩大 opener 的通用路径权限；未找到文件时返回明确中文错误，客户端显示在对应失败卡片内。
+
+
+## 多模型渠道
+
+GET / POST / DELETE agent/model_channels 分别读取、原子保存和删除用户自己的渠道配置。保存携带 id、revision、displayName、modelIds、update（公共 config 和密钥变更动作）；回复包含渠道修订版本及每个模型的稳定配置 ID。旧单模型配置不重写，作为单模型渠道返回。重复 ID、空列表、超量、过期版本及跨渠道子模型 ID 均被拒绝。
+
+agent/models 保留单模型读取与输入框强度保存；加入渠道后，该入口仅允许修改当前模型的推理强度，公共参数与密钥必须经渠道事务更新。任一成员参数保存都会使旧渠道修订版本过期。对话模型目录增加 channelId、provider 及实际 modelName；agent/change_model 继续使用各模型的稳定配置 ID，不把渠道 ID 与模型名拼接为临时会话标识。

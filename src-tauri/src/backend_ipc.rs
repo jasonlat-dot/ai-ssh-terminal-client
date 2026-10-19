@@ -167,6 +167,26 @@ pub async fn dispatch(
             services.agent.extension_decision(text(&body,"agentId")?.into(),text(&body,"userId")?.into(),text(&body,"sessionId")?.into(),text(&body,"id")?.into(),body["allow"].as_bool().ok_or_else(||Error::invalid("审批决定无效"))?).await.map_err(agent_error)?;
             Ok(json!(true))
         },
+        ("GET", "agent/model_channels") => {
+            let user=text(&params,"userId")?.to_owned();
+            value(models(&services,move|r|r.channels(&user)).await?)
+        }
+        ("POST", "agent/model_channels") => {
+            let user=text(&body,"userId")?.to_owned();
+            let id=text(&body,"id")?.to_owned();
+            let name=text(&body,"displayName")?.to_owned();
+            let revision=body["revision"].as_u64().ok_or_else(||Error::invalid("渠道版本无效"))?;
+            let update=serde_json::from_value(body["update"].clone()).map_err(|_|Error::invalid("渠道配置无效"))?;
+            let ids:Vec<String>=serde_json::from_value(body["modelIds"].clone()).map_err(|_|Error::invalid("模型 ID 列表无效"))?;
+            value(models(&services,move|r|r.save_channel(&id,&user,revision,update,&name,ids)).await?)
+        }
+        ("DELETE", "agent/model_channels") => {
+            let user=text(&body,"userId")?.to_owned();
+            let id=text(&body,"id")?.to_owned();
+            let revision=body["revision"].as_u64().ok_or_else(||Error::invalid("渠道版本无效"))?;
+            models(&services,move|r|r.delete_channel(&id,&user,revision)).await?;
+            Ok(json!(true))
+        }
         ("GET", "agent/models") => {
             let user = text(&params, "userId")?.to_owned();
             value(models(&services, move |r| r.list(&user)).await?)

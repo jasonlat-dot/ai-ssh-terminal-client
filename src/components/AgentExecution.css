@@ -143,16 +143,17 @@
 .execution-approval-menu.is-open .execution-menu-trigger svg { transform:rotate(180deg); }
 .execution-approval-menu .execution-menu-options { visibility:hidden; opacity:0; transform:translateY(6px) scale(.97); transform-origin:bottom right; transition:opacity 160ms ease,transform 220ms cubic-bezier(.2,.8,.2,1),visibility 0s 220ms; }
 .execution-approval-menu.is-open .execution-menu-options { visibility:visible; opacity:1; transform:translateY(0) scale(1); transition-delay:0s; }
-.execution-output-details { margin-top:10px; }
 .execution-review-note { display:flex; align-items:baseline; gap:6px; color:var(--theme-text-muted); font-size:12px; line-height:1.6; }
 /* The activity list/history owns scrolling; command and output details grow
    naturally instead of creating several nested vertical scroll traps. */
 .conversation-card .tool-activity pre,
 .execution-history .execution-receipt pre { max-height:none; overflow:visible; white-space:pre-wrap; overflow-wrap:anywhere; }
-.execution-output-details > summary { display:inline-flex; align-items:center; gap:6px; padding:4px 0; cursor:pointer; list-style:none; color:var(--theme-text-muted); font-size:11px; }
-.execution-output-details[open] > summary svg { transform:rotate(180deg); }
 @media (prefers-reduced-motion:reduce) { .execution-menu-trigger svg, .execution-approval-menu .execution-menu-options { transition:none; } }
 @container (max-width: 480px) { .execution-environment dl > div { grid-template-columns:1fr; gap:2px; } }
 @media (prefers-reduced-motion:reduce) { .execution-environment > summary svg, .execution-receipt .execution-cancel, .execution-receipt .execution-deny { transition:none; } .execution-receipt .execution-cancel:active:not(:disabled), .execution-receipt .execution-deny:active:not(:disabled) { transform:none; } }
 
 .execution-plan ol{list-style:none;padding:0;margin:8px 0}.execution-plan li{display:flex;align-items:flex-start;gap:8px;padding:6px 0;color:var(--theme-text-strong)}.execution-plan li svg{flex:none;margin-top:4px}.execution-plan li span{flex:1;min-width:0;overflow-wrap:anywhere}.execution-plan small{color:var(--theme-text-muted);white-space:nowrap}.execution-plan li[data-status=in_progress]{color:var(--ui-accent)}
+.execution-output-loading { padding:8px 0; color:var(--theme-text-muted); }
+.execution-output-error { color:var(--ui-danger-text); }
+.execution-output-error pre { color:var(--theme-text-muted); }
+.tool-copy-actions button:disabled { opacity:.45; cursor:default; }

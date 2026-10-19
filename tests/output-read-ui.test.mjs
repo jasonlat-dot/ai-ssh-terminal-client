@@ -6,6 +6,7 @@ import ts from 'typescript';
 import * as React from 'react';
 import * as jsx from 'react/jsx-runtime';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { toolToMarkdown } from '../src/state/chatMarkdown.ts';
 import { activitySummary, isVisibleToolActivity } from '../src/state/agentTranscript.ts';
 
 // Render the actual tool/transcript/child components; force the child disclosure
@@ -16,10 +17,11 @@ const functions = source.statements.filter(node => ts.isFunctionDeclaration(node
 const compiled = ts.transpileModule(`${functions.join('\n')}\nexports.components={ToolActivity,ActivityTranscript,AgentActivity,ReplyLoading};`, {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
 }).outputText;
-const context = vm.createContext({ exports: {}, require: () => jsx, activitySummary, isVisibleToolActivity,
+let expandedOverride = true;
+const context = vm.createContext({ exports: {}, require: () => jsx, activitySummary, isVisibleToolActivity, toolToMarkdown,
   Icon: () => null, AccentIcon: () => null, Badge: () => null, CopyTextButton: () => null, CopyMarkdownButton: () => null,
   NativeToolOutput: ({output}) => React.createElement('pre', null, output), MarkdownMessage: ({children}) => React.createElement('p', null, children),
-  useState: initial => [initial === false ? true : typeof initial === 'function' ? initial() : initial, () => {}], useEffect() {},
+  useState: initial => [initial === false ? expandedOverride : typeof initial === 'function' ? initial() : initial, value => {expandedOverride=value;}], useEffect() {},
 });
 vm.runInContext(compiled, context);
 const { ToolActivity, ActivityTranscript, AgentActivity, ReplyLoading } = context.exports.components;
@@ -54,4 +56,32 @@ test('Background output paging is not presented as an executing command in the l
   const tool = read('running', 'running');
   const html = render(ReplyLoading, { message: { text: '正在分析', tools: [tool], segments: activities([tool]) }, stopping: false });
   assert.doesNotMatch(html, /正在执行工具/); assert.match(html, /正在生成回复/);
+});
+
+
+test('工具展开直接激活原始输出，复制按钮使用解析后的完整文本且读取期间禁用',()=>{
+  const find=(node,predicate)=>{
+    if(Array.isArray(node)){for(const child of node){const result=find(child,predicate);if(result)return result;}return;}
+    if(!node?.props)return;
+    return predicate(node)?node:find(node.props.children,predicate);
+  };
+  const props={tool:{...command,output:JSON.stringify({ok:true,data:{stdout:'preview'}})},copyable:true};
+  expandedOverride=false;
+  let tree=ToolActivity(props);
+  let output=find(tree,node=>typeof node.props.renderActions==='function');
+  assert.equal(output.props.active,false);
+  const target={open:true};tree.props.onToggle({target,currentTarget:target});
+  tree=ToolActivity(props);output=find(tree,node=>typeof node.props.renderActions==='function');
+  assert.equal(output.props.active,true);
+  for(const ready of [false,true]){
+    const actions=output.props.renderActions(()=> 'full shell result\n',ready);
+    const copy=find(actions,node=>node.props.label==='复制输出');
+    assert.equal(copy.props.disabled,!ready);assert.equal(copy.props.getText(),'full shell result\n');
+    const markdown=find(actions,node=>node.props.label==='复制工具结果（Markdown）');
+    assert.equal(markdown.props.disabled,!ready);assert.match(markdown.props.getText(),/full shell result/);
+    assert.doesNotMatch(markdown.props.getText(),/preview|"ok"/);
+  }
+  // A nested disclosure event must not overwrite the command's own open state.
+  tree.props.onToggle({target:{open:false},currentTarget:{open:false}});
+  assert.equal(find(ToolActivity(props),node=>typeof node.props.renderActions==='function').props.active,true);
 });

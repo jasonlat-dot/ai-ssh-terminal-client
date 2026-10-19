@@ -4,13 +4,14 @@ import { createPortal } from 'react-dom';
 import type { ReactNode } from 'react';
 import { modelApi, newModelConfig } from '../api/models';
 import { applyModelProtocol, applyModelSupplier, modelProtocols, modelSuppliers, modelSupplierOptions, supplierProtocolOptions } from '../api/modelProtocols';
-import type { KeyChange, ModelConfig, ModelProfile } from '../api/models';
+import type { KeyChange, ModelConfig, ModelChannel } from '../api/models';
 import { AccentIcon, Badge, Icon, Modal, Toggle } from './Ui';
 import type { AccentTone, IconName } from './Ui';
 import { Select } from './Select';
 import { ModelSupplierIcon } from './ModelSupplierIcon';
 import { ModelNumberInput } from './ModelNumberInput';
 import { notify } from '../state/notifications';
+import { parseModelIds } from '../state/modelChannels';
 import './ModelSettings.css';
 
 const tokenCountFormat = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 2 });
@@ -23,17 +24,18 @@ function ModelField({ id, label, hint, children, wide = false, badge, icon, tone
 }
 
 export function ModelSettings({ changed, locked = false }: { changed?: () => void; locked?: boolean }) {
-  const [profiles, setProfiles] = useState<ModelProfile[]>([]);
+  const [profiles, setProfiles] = useState<ModelChannel[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useToastError();
-  const [editing, setEditing] = useState<ModelProfile | null>(null);
+  const [editing, setEditing] = useState<ModelChannel | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
   const [displayName, setDisplayName] = useState('');
   const [config, setConfig] = useState(newModelConfig);
   const [key, setKey] = useState('');
+  const [modelIds, setModelIds] = useState('');
   const [busy, setBusy] = useState(false);
   const [, setError] = useToastError();
-  const [deleting, setDeleting] = useState<ModelProfile | null>(null);
+  const [deleting, setDeleting] = useState<ModelChannel | null>(null);
   const [, setDeleteError] = useToastError();
   const protocolInfo = modelProtocols[config.provider];
   const supplier = protocolInfo.supplier;
@@ -42,16 +44,17 @@ export function ModelSettings({ changed, locked = false }: { changed?: () => voi
   const disabled = busy || loading || locked;
   useEffect(() => {
     let active = true;
-    void modelApi.list().then(items => { if (active) setProfiles(items); })
+    void modelApi.channels().then(items => { if (active) setProfiles(items); })
       .catch(cause => { if (active) setLoadError(cause instanceof Error ? cause.message : '加载失败'); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, []);
-  const select = (profile: ModelProfile | null) => {
+  const select = (profile: ModelChannel | null) => {
     if (disabled) return;
     setEditing(profile); setDisplayName(profile?.displayName ?? profile?.id ?? '');
     const next = profile?.config ?? newModelConfig();
     setConfig({...next, capabilities: {...next.capabilities, toolCalls: true, vision: true}});
+    setModelIds(profile?.models?.map(item=>item.model).join('\n') ?? next.model);
     setKey(''); setError(''); setEditorOpen(true);
   };
   const closeEditor = () => {
@@ -62,7 +65,7 @@ export function ModelSettings({ changed, locked = false }: { changed?: () => voi
   const reload = async () => {
     if (disabled) return;
     setLoading(true); setLoadError('');
-    try { setProfiles(await modelApi.list()); }
+    try { setProfiles(await modelApi.channels()); }
     catch (cause) { setLoadError(cause instanceof Error ? cause.message : '加载失败'); }
     finally { setLoading(false); }
   };
@@ -73,15 +76,16 @@ export function ModelSettings({ changed, locked = false }: { changed?: () => voi
       if (!displayName.trim()) throw new Error('请输入配置名称。');
       if (!config.baseUrl.trim()) throw new Error('请输入 API 基础地址。');
       if (config.temperature !== null && (!Number.isFinite(config.temperature) || config.temperature < 0 || config.temperature > protocolInfo.temperatureMax)) throw new Error(`Temperature 需在 0–${protocolInfo.temperatureMax} 之间。`);
+      const ids=parseModelIds(modelIds);
       const apiKey:KeyChange = key.trim() ? {action:'set',value:key.trim()} : {action:'keep'};
-      const saved = await modelApi.save(editing?.id ?? crypto.randomUUID(), editing?.revision ?? 0, config, apiKey, displayName.trim());
+      const saved = await modelApi.saveChannel(editing?.id ?? crypto.randomUUID(), editing?.revision ?? 0, {...config,model:ids[0]}, apiKey, displayName.trim(), ids);
       setProfiles(items => [...items.filter(profile => profile.id !== saved.id), saved].sort((a,b) => (a.displayName ?? a.id).localeCompare(b.displayName ?? b.id)));
       setEditorOpen(false); setKey(''); setError('');
       notify(saved.ready ? '模型配置已保存，连接将在发送消息时验证。' : '模型配置已保存；配置 API Key 后即可对话。', 'success'); changed?.();
     } catch (cause) { setError(cause instanceof Error ? cause.message : '保存失败'); }
     finally { setBusy(false); }
   };
-  const requestDelete = (profile: ModelProfile) => {
+  const requestDelete = (profile: ModelChannel) => {
     if (disabled) return;
     setDeleteError(''); setDeleting(profile);
   };
@@ -89,7 +93,7 @@ export function ModelSettings({ changed, locked = false }: { changed?: () => voi
     if (!deleting || disabled) return;
     setBusy(true); setDeleteError('');
     try {
-      await modelApi.delete(deleting.id, deleting.revision);
+      await modelApi.deleteChannel(deleting.id, deleting.revision);
       setProfiles(items => items.filter(profile => profile.id !== deleting.id));
       if (editing?.id === deleting.id) { setEditorOpen(false); setKey(''); }
       setDeleting(null); notify('模型配置已删除，已有历史会话仍保留。', 'success'); changed?.();
@@ -108,7 +112,7 @@ export function ModelSettings({ changed, locked = false }: { changed?: () => voi
           : <div className="model-profile-grid" aria-label="模型配置列表">{profiles.map(profile => {
             const protocol = modelProtocols[profile.config.provider];
             return <article className="model-profile-card" key={profile.id} aria-label={profile.displayName ?? profile.id}>
-              <div className="model-profile-heading"><span className="model-supplier-avatar"><ModelSupplierIcon supplier={protocol.supplier} size={22}/></span><div><h3 title={profile.displayName ?? profile.id}>{profile.displayName ?? profile.id}</h3><p title={profile.config.model}>{profile.config.model}</p></div><span className={`model-profile-state ${profile.ready ? 'ready' : ''}`}><i aria-hidden="true"/>{profile.ready ? '已配置' : '需要密钥'}</span></div>
+              <div className="model-profile-heading"><span className="model-supplier-avatar"><ModelSupplierIcon supplier={protocol.supplier} size={22}/></span><div><h3 title={profile.displayName ?? profile.id}>{profile.displayName ?? profile.id}</h3><p title={profile.models?.map(item=>item.model).join('、')??profile.config.model}>{profile.models?.length?`${profile.models.length} 个模型 · ${profile.models.map(item=>item.model).join('、')}`:profile.config.model}</p></div><span className={`model-profile-state ${profile.ready ? 'ready' : ''}`}><i aria-hidden="true"/>{profile.ready ? '已配置' : '需要密钥'}</span></div>
               <div className="model-profile-tags">
                 <Badge tone="blue">{protocol.name}</Badge>
                 <Badge tone="violet" className="model-profile-budget" title={`${profile.config.contextWindow.toLocaleString()} tokens`}>{`${tokenCountFormat.format(profile.config.contextWindow)} tokens`}</Badge>
@@ -133,20 +137,19 @@ export function ModelSettings({ changed, locked = false }: { changed?: () => voi
                   : <ModelField id="model-protocol-info" label="接口协议"><input id="model-protocol-info" className="settings-control" readOnly value={protocolInfo.name}/></ModelField>}
               </div>
               <div className="settings-fields-grid">
-                <ModelField id="model-name" label="配置名称" badge="PROFILE" icon="edit" tone="neutral"><input id="model-name" data-autofocus className="settings-control" value={displayName} maxLength={64} onChange={e => setDisplayName(e.target.value)} placeholder="例如：日常问答" /></ModelField>
-                <ModelField id="model-id" label="模型 ID" badge="MODEL" icon="bot" tone="violet"><input id="model-id" className="settings-control settings-control-mono" value={config.model} onChange={e => field('model', e.target.value)} placeholder="供应商提供的模型 ID" /></ModelField>
+                <ModelField id="model-name" label="供应商 / 渠道名称" badge="CHANNEL" icon="edit" tone="neutral"><input id="model-name" data-autofocus className="settings-control" value={displayName} maxLength={64} onChange={e => setDisplayName(e.target.value)} placeholder="例如：OpenAI、Claude 或我的中转" /></ModelField>
+                <ModelField id="model-effort" label="推理强度"><Select id="model-effort" label="推理强度" className="settings-control" menuClassName="model-reasoning-menu" menuMinWidth={220} value={config.reasoningEffort ?? ''} disabled={disabled} options={protocolInfo.effortOptions} onChange={value => setConfig(current => ({ ...current, reasoningEffort: value || null, capabilities: { ...current.capabilities, reasoningEffort: value !== '' } }))}/></ModelField>
                 <ModelField id="model-url" label="API 基础地址" wide badge="BASE URL" icon="network" tone="cyan" hint="包含 /v1 或代理前缀，不要包含密钥。"><input id="model-url" className="settings-control settings-control-mono" value={config.baseUrl} onChange={e => field('baseUrl', e.target.value)} placeholder={supplierInfo.basePlaceholder} /></ModelField>
-              </div>
-            </section>
-            <section className="model-form-section"><div className="model-section-title"><AccentIcon icon="key" tone="amber" size={17}/><h4>身份认证</h4><Badge tone="amber" icon="shield">敏感</Badge></div>
-              <ModelField id="model-api-key" label="API Key">
+              <ModelField id="model-api-key" label="API Key" wide hint="密钥加密保存；关闭后不发送，已存密钥保留。">
                 <div className="model-key-input-row">
                   <input id="model-api-key" className="settings-control settings-control-mono" type="password" autoComplete="new-password" spellCheck={false} value={key} onChange={e => setKey(e.target.value)} placeholder={editing?.apiKeyConfigured?'已配置，留空表示不修改':'未配置，请输入 API Key'}/>
                   <div className="model-key-toggle"><span>使用 API Key</span><Toggle label="此服务需要 API Key" value={config.requireApiKey} disabled={disabled} onChange={value=>field('requireApiKey',value)}/></div>
                 </div>
               </ModelField>
-              <p className="model-field-note">密钥加密保存；关闭后不发送，已存密钥保留。</p>
+                <ModelField id="model-id" label="模型 ID（可填多个）" wide badge="MODELS" icon="bot" tone="violet" hint="每行一个，也可用逗号分隔；这些模型共用此渠道的接口、密钥和参数。"><textarea id="model-id" className="settings-control settings-control-mono model-ids-input" rows={4} spellCheck={false} value={modelIds} onChange={e => setModelIds(e.target.value)} placeholder={'例如：\ngpt-6-luna\ngpt-6-sol'} /></ModelField>
+              </div>
             </section>
+
             </div><div className="model-form-column">
             <section className="model-form-section"><div className="model-section-title"><AccentIcon icon="signal" tone="violet" size={17}/><h4>接口与生成</h4><Badge tone="violet" icon="settings">参数</Badge></div><div className="settings-fields-grid">
               <ModelField id="model-path" label="接口相对路径" hint="与基础地址拼接，避免重复 /v1。"><input id="model-path" className="settings-control settings-control-mono" value={config.completionsPath} onChange={e => field('completionsPath', e.target.value)} /></ModelField>
@@ -175,7 +178,7 @@ export function ModelSettings({ changed, locked = false }: { changed?: () => voi
           </footer>
         </form>
       </Modal>}
-      {deleting && <Modal icon="trash" iconTone="danger" title="删除模型配置？" className="model-delete-dialog" dismissDisabled={busy} onClose={() => { if (!busy) setDeleting(null); }}>
+      {deleting && <Modal icon="trash" iconTone="danger" title="删除渠道配置？" className="model-delete-dialog" dismissDisabled={busy} onClose={() => { if (!busy) setDeleting(null); }}>
         <div className="model-delete-body">
           <div className="model-delete-target">
             <span className="model-supplier-avatar"><ModelSupplierIcon supplier={modelProtocols[deleting.config.provider].supplier} size={22}/></span>

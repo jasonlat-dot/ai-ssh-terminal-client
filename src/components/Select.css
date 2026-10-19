@@ -59,6 +59,24 @@
 .ui-select-option.is-active { color: var(--ui-highlight-text); background: var(--theme-hover); }
 .ui-select-option.is-selected { color: var(--ui-highlight-text); background: var(--ui-highlight-bg); font-weight: var(--weight-label); }
 .ui-select-option > svg { flex-shrink: 0; color: var(--ui-accent); }
+/* Keep the effort label intact even when the supporting text is longer. */
+:is(.composer-reasoning-menu, .model-reasoning-menu) .ui-select-option {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr) 14px;
+  gap: 10px;
+  padding: 8px 10px;
+}
+:is(.composer-reasoning-menu, .model-reasoning-menu) .ui-select-option > span { grid-column: 1; white-space: nowrap; }
+:is(.composer-reasoning-menu, .model-reasoning-menu) .ui-select-option-description {
+  grid-column: 2;
+  min-width: 0;
+  text-align: right;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  font-weight: var(--weight-body);
+  color: var(--theme-text-muted);
+}
+:is(.composer-reasoning-menu, .model-reasoning-menu) .ui-select-option > svg { grid-column: 3; }
 @keyframes ui-select-enter { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: translateY(0); } }
 @media (prefers-reduced-motion: reduce) {
   .ui-select-trigger, .ui-select-trigger > svg { transition: none; }

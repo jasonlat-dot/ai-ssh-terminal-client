@@ -122,9 +122,6 @@
 :root .chat-composer .composer-reasoning-control > :is(.composer-reasoning-trigger, .composer-reasoning-retry) { display:flex; align-items:center; gap:4px; width:auto; min-height:30px; height:30px; border:0; border-radius:7px; padding:0 6px; background:transparent; color:var(--theme-text-muted); font-family:var(--font-ui); font-size:12px; font-weight:var(--weight-body); box-shadow:none; white-space:nowrap; }
 .chat-composer .composer-reasoning-control > button:hover:not(:disabled) { color:var(--theme-text-strong); background:var(--theme-hover); }
 .composer-reasoning-trigger > svg { width:12px; }
-.composer-reasoning-menu .ui-select-option { display:grid; grid-template-columns:minmax(0,1fr) auto 14px; gap:10px; padding:8px 10px; }
-.composer-reasoning-menu .ui-select-option-description { font-size:11px; color:var(--theme-text-muted); }
-.composer-reasoning-menu .ui-select-option > svg { grid-column:3; }
 .agent-panel.conversation-only .chat-composer .composer-bottom-bar > .send-button {
   display: inline-flex;
   align-items: center;

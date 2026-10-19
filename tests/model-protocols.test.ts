@@ -17,8 +17,8 @@ test('Claude 协议切换使用原生路径、输出参数及能力，保留代�
   assert.equal(next.remoteCompaction, false);
   assert.equal(next.temperature, null);
   assert.equal(next.capabilities.temperature, false);
-  assert.equal(next.reasoningEffort, null);
-  assert.equal(next.capabilities.reasoningEffort, false);
+  assert.equal(next.reasoningEffort, 'high');
+  assert.equal(next.capabilities.reasoningEffort, true);
   assert.equal(next.capabilities.toolCalls, true);
   assert.equal(next.capabilities.vision, true);
   assert.equal(original.provider, 'openAiCompatible');
@@ -30,11 +30,26 @@ test('空地址切换 Claude 后保持留空，合法温度保留，目录覆盖
   assert.equal(next.baseUrl, '');
   assert.equal(next.temperature, 0.7);
   assert.equal(modelProtocols.anthropicMessages.temperatureMax, 1);
-  assert.equal(modelProtocols.anthropicMessages.reasoning, false);
+  assert.equal(modelProtocols.anthropicMessages.reasoning, true);
   assert.equal(modelProtocolOptions.length, 3);
   assert.equal(applyModelProtocol(next, 'openAiCompatible').completionsPath, 'chat/completions');
   assert.equal(applyModelProtocol(config, 'openAiResponses').completionsPath, 'responses');
   assert.equal(modelProtocols.openAiResponses.fixedOutput, 'max_output_tokens');
+});
+
+test('协议目录提供不同原生强度选项，切换协议清除不适用的档位', () => {
+  assert.deepEqual(modelProtocols.anthropicMessages.effortOptions.map(option => option.value), ['', 'low', 'medium', 'high', 'xhigh', 'max']);
+  assert.deepEqual(modelProtocols.openAiCompatible.effortOptions.map(option => option.value), ['', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh']);
+  for (const effort of ['none', 'minimal'] as const) {
+    const next = applyModelProtocol({...newModelConfig(), reasoningEffort: effort}, 'anthropicMessages');
+    assert.equal(next.reasoningEffort, null);
+    assert.equal(next.capabilities.reasoningEffort, false);
+  }
+  for (const protocol of ['openAiCompatible', 'openAiResponses'] as const) {
+    const next = applyModelProtocol({...newModelConfig(), provider: 'anthropicMessages', reasoningEffort: 'max'}, protocol);
+    assert.equal(next.reasoningEffort, null);
+    assert.equal(next.capabilities.reasoningEffort, false);
+  }
 });
 
 

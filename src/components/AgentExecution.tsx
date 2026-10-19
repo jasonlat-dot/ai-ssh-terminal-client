@@ -1,7 +1,9 @@
 import { useToastError, useErrorToast } from '../state/useToastError';
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { agentApi, type ExecutionPolicy, type ExecutionReceipt, type OutputReference, type OutputRange } from '../api/agent';
+import type { ReactNode } from 'react';
+import { parseToolOutput, readCompleteToolOutput } from '../state/toolOutput';
+import { agentApi, type ExecutionPolicy, type ExecutionReceipt } from '../api/agent';
 import { Icon, IconHeading } from './Ui';
 import { extensionApi, type ExtensionReceipt } from '../api/agentExtensions';
 import { CopyTextButton } from './CopyTextButton';
@@ -71,61 +73,46 @@ function commandExplanation(command:ExecutionReceipt['command']) {
   if(text==='pwd')return '显示当前终端所在的工作目录。';
   return '此命令未附用途说明，请结合上方完整命令确认操作。';
 }
-export function outputReferences(value:unknown):OutputReference[]{
-  if(!value||typeof value!=='object')return [];
-  const refs=(value as {outputs?:unknown}).outputs;
-  return Array.isArray(refs)?refs.filter((r):r is OutputReference=>!!r&&typeof r.id==='string'&&['stdout','stderr'].includes(r.channel)&&Number.isSafeInteger(r.size)&&r.size>=0&&typeof r.sha256==='string'):[];
-}
-export function decodeOutput(range:OutputRange){
-  const bytes=new Uint8Array(range.bytes);
-  let lossy=false;let text:string;
-  try{text=new TextDecoder('utf-8',{fatal:true}).decode(bytes);}catch{lossy=true;text=new TextDecoder().decode(bytes);}
-  return {text,lossy,hex:Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join(' ')};
-}
-function OutputView({reference}:{reference:OutputReference}){
+export function NativeToolOutput({output,active=true,renderActions}:{output:string;active?:boolean;renderActions?:(getText:()=>string,ready:boolean)=>ReactNode}){
   const scope=useContext(ExecutionContext);
-  const [range,setRange]=useState<OutputRange|null>(null);const [error,setError]=useToastError({suppressRepeated:true});const [busy,setBusy]=useState(false);const [hex,setHex]=useState(false);
-  const mounted=useRef(true);useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;};},[]);
-  const load=async(offset:number)=>{
-    if(!scope||busy)return;setBusy(true);setError('');
-    try{const data=await agentApi.executionOutput(scope.agentId,scope.sessionId,reference.id,offset);if(mounted.current)setRange(data);}
-    catch(e){if(mounted.current)setError(e instanceof Error?e.message:'读取失败');}
-    finally{if(mounted.current)setBusy(false);}
-  };
-  const decoded=range?decodeOutput(range):null;
-  return <div className="execution-output">
-    <div className="execution-output-heading"><strong>{reference.channel==='stdout'?'完整结果':'诊断信息'}</strong><span>{reference.size.toLocaleString()} 字节</span>
-      <button type="button" disabled={!scope||busy} onClick={()=>void load(0)}>{busy?'读取中…':range?'回到开头':'读取原始输出'}</button></div>
-    {range&&decoded&&<><div className="execution-output-toolbar"><span>字节 {range.offset}–{range.nextOffset} / {range.size}{range.eof?' · 已到末尾':''}</span>
-      <button type="button" onClick={()=>setHex(v=>!v)}>{hex?'显示文本':'十六进制'}</button></div>
-      <pre tabIndex={0}>{hex?decoded.hex:decoded.text||'（空输出）'}</pre>
-      {decoded.lossy&&!hex&&<p>本段包含非 UTF-8 字节或跨段字符，可切换十六进制查看原始数据。</p>}
-      <div className="execution-actions"><button type="button" disabled={busy||range.offset===0} onClick={()=>void load(Math.max(0,range.offset-4096))}>上一段</button>
-      <button type="button" disabled={busy||range.eof} onClick={()=>void load(range.nextOffset)}>下一段</button></div></>}
-    {error&&<button type="button" disabled={busy} onClick={()=>void load(range?.offset??0)}>重试读取</button>}
-  </div>;
-}
-export function NativeToolOutput({output}:{output:string}){
-  let value:Record<string,unknown>;
-  try{value=JSON.parse(output);}catch{return <pre>{output}</pre>;}
-  if(!value||typeof value!=='object'||typeof value.ok!=='boolean')return <pre>{output}</pre>;
-  const data=value.data as Record<string,unknown>|undefined;
-  if(!data||typeof data!=='object')return <pre>{output}</pre>;
-  const plan=Array.isArray(data.plan)?data.plan.filter((step):step is {step:string;status:string}=>!!step&&typeof step==='object'&&typeof step.step==='string'&&['pending','in_progress','completed'].includes(step.status)):[];
-  if(value.ok&&plan.length)return <div className="native-tool-output execution-plan" aria-label="任务计划">{typeof data.explanation==='string'&&data.explanation&&<p>{data.explanation}</p>}<ol>{plan.map((step,index)=><li key={index} data-status={step.status}><Icon name={step.status==='completed'?'check':step.status==='in_progress'?'refresh':'history'} size={14}/><span>{step.step}</span><small>{step.status==='completed'?'已完成':step.status==='in_progress'?'进行中':'待处理'}</small></li>)}</ol></div>;
-  const outputs=outputReferences(data);
-  const resultText=[data.stdout,data.stderr].filter((value):value is string=>typeof value==='string'&&!!value).join('\n');
+  const parsed=parseToolOutput(output);
+  const key=JSON.stringify([scope?.agentId,scope?.sessionId,output]);
+  const [result,setResult]=useState<{key:string;text:string;lossy:boolean}|null>(null);
+  const [failure,setFailure]=useState<{key:string;message:string}|null>(null);
+  const [attempt,setAttempt]=useState(0);
+  useEffect(()=>{
+    if(!active||!parsed.references.length||result?.key===key)return;
+    if(!scope){setFailure({key,message:'当前会话不可用，无法读取已保存的原始输出。'});return;}
+    const controller=new AbortController();
+    setFailure(null);
+    void readCompleteToolOutput(parsed,(reference,offset,limit,signal)=>agentApi.executionOutput(scope.agentId,scope.sessionId,reference.id,offset,limit,signal),controller.signal)
+      .then(value=>{if(!controller.signal.aborted)setResult({key,...value});})
+      .catch(error=>{if(!controller.signal.aborted)setFailure({key,message:error instanceof Error?error.message:'读取原始输出失败，请重试。'});});
+    return()=>controller.abort();
+  },[key,active,attempt,result?.key]);
+  const loaded=result?.key===key?result:null;
+  const error=failure?.key===key?failure.message:'';
+  const ready=!parsed.references.length||!!loaded;
+  const resultText=loaded?.text??(!parsed.references.length?parsed.text:'');
+  const actions=renderActions?.(()=>{if(!ready)throw new Error('原始输出尚未完整读取。');return resultText;},ready);
+  const {envelope:value,data}=parsed;
+  const plan=Array.isArray(data?.plan)?data.plan.filter((step):step is {step:string;status:string}=>!!step&&typeof step==='object'&&typeof step.step==='string'&&['pending','in_progress','completed'].includes(step.status)):[];
   return <div className="native-tool-output">
-    <div className="execution-result-status"><Icon name={value.ok?'check':'alert'} size={13}/><span>{typeof data.exitCode==='number'?`退出码 ${data.exitCode}`:value.ok?'工具完成':'工具未完成'}{typeof value.error==='string'?` · ${value.error}`:''}</span></div>
-    {data.outputTruncated===true&&<p className="execution-error">原始输出达到保存上限，仅保留已捕获部分。</p>}
-    {data.outputError===true&&<p className="execution-error">输出存储不完整，请核查已有证据。</p>}
-    {resultText&&<div className="execution-console"><div className="execution-console-heading"><span>执行结果</span><CopyTextButton getText={()=>resultText} label="复制执行结果" iconOnly/></div><pre tabIndex={0}>{resultText}</pre></div>}
-    {outputs.some(reference=>reference.size>0)&&<details className="execution-output-details"><summary>查看完整输出<Icon name="down" size={12}/></summary>{outputs.filter(reference=>reference.size>0).map(reference=><OutputView reference={reference} key={reference.id}/>)}</details>}
-    {!outputs.length&&typeof data.stdout!=='string'&&typeof data.stderr!=='string'&&<pre>{JSON.stringify(data,null,2)}</pre>}
+    {value&&<div className="execution-result-status"><Icon name={value.ok?'check':'alert'} size={13}/><span>{typeof data?.exitCode==='number'?`退出码 ${data.exitCode}`:value.ok?'工具完成':'工具未完成'}{typeof value.error==='string'?` · ${value.error}`:''}</span></div>}
+    {data?.outputTruncated===true&&<p className="execution-error">原始输出达到保存上限，仅保留已捕获部分。</p>}
+    {data?.outputError===true&&<p className="execution-error">输出存储不完整，请核查已有证据。</p>}
+    {!parsed.references.length&&data?.truncated===true&&<p className="execution-error">此历史仅保留输出摘要，未保存原始输出。</p>}
+    {value?.ok&&plan.length&&!parsed.references.length?<div className="execution-plan" aria-label="任务计划">{typeof data?.explanation==='string'&&data.explanation&&<p>{data.explanation}</p>}<ol>{plan.map((step,index)=><li key={index} data-status={step.status}><Icon name={step.status==='completed'?'check':step.status==='in_progress'?'refresh':'history'} size={14}/><span>{step.step}</span><small>{step.status==='completed'?'已完成':step.status==='in_progress'?'进行中':'待处理'}</small></li>)}</ol></div>
+      :ready?<div className="execution-console"><div className="execution-console-heading"><span>执行结果</span>{!renderActions&&<CopyTextButton getText={()=>resultText} label="复制执行结果" iconOnly/>}</div><pre tabIndex={0}>{resultText||'（空输出）'}</pre></div>
+      :error?<div className="execution-output-error" role="alert"><p>{error}</p><button type="button" onClick={()=>{setFailure(null);setAttempt(value=>value+1);}}>重试读取</button>{parsed.text&&<><p>已保留的输出摘要：</p><pre tabIndex={0}>{parsed.text}</pre></>}</div>
+      :<p className="execution-output-loading" role="status">{active?'正在读取完整执行结果…':'展开后读取执行结果。'}</p>}
+    {loaded?.lossy&&<p className="execution-error">输出包含非 UTF-8 字节，文本中的无效字节已替换。</p>}
+    {actions}
   </div>;
 }
 export function ApprovalCard({receipt,disabled,act}:{receipt:ExecutionReceipt;disabled:boolean;act:(id:string,action:'approveOnce'|'approveTaskCommand'|'deny'|'cancel'|'revoke')=>void}){
   const [menuOpen,setMenuOpen]=useState(false);
+  const [expanded,setExpanded]=useState(false);
   const pending=receipt.state==='pending'&&receipt.expiresAt>Date.now();
   const grant=receipt.grant;
   const content=<>
@@ -157,10 +144,10 @@ export function ApprovalCard({receipt,disabled,act}:{receipt:ExecutionReceipt;di
     {grant&&<div className="execution-actions"><span>{grant.revoked?'相同命令授权已撤销':grant.expiresAt<=Date.now()?'相同命令授权已过期':`相同命令授权至 ${new Date(grant.expiresAt).toLocaleTimeString()}`}</span>
       {!grant.revoked&&grant.expiresAt>Date.now()&&<button type="button" disabled={disabled} onClick={()=>act(receipt.id,'revoke')}>撤销相同命令授权</button>}</div>}
     {(receipt.state==='unknown'||receipt.state==='admitted')&&<p className="execution-error">命令可能已经执行。停止生成不保证终止远端进程，请先核查，避免重复修改。</p>}
-    {receipt.result!=null&&<NativeToolOutput output={JSON.stringify({ok:receipt.state==='completed',data:receipt.result})}/>}
+    {receipt.result!=null&&<NativeToolOutput active={pending||expanded} output={JSON.stringify({ok:receipt.state==='completed',data:receipt.result})}/>}
   </>;
   return <article className={`execution-receipt is-${receipt.state}${pending?' needs-confirmation':''}`} aria-label={`命令${approvalLabel(receipt)}`}>
-    {pending?content:<details className="execution-record"><summary><Icon name="terminal" size={14}/><span className="execution-record-state">{approvalLabel(receipt)}</span><code title={receipt.command.command}>{receipt.command.command}</code><Icon name="down" size={13} className="execution-chevron"/></summary><div className="execution-record-body">{content}</div></details>}
+    {pending?content:<details className="execution-record" onToggle={event=>{if(event.target===event.currentTarget)setExpanded(event.currentTarget.open);}}><summary><Icon name="terminal" size={14}/><span className="execution-record-state">{approvalLabel(receipt)}</span><code title={receipt.command.command}>{receipt.command.command}</code><Icon name="down" size={13} className="execution-chevron"/></summary><div className="execution-record-body">{content}</div></details>}
   </article>;
 }
 function ExtensionApprovalCard({receipt,disabled,act}:{receipt:ExtensionReceipt;disabled:boolean;act:(id:string,allow:boolean)=>void}){

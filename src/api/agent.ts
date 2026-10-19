@@ -12,6 +12,8 @@ export type AgentConfig = {
   modelName?: string;
   agentDesc: string;
   toolsAvailable?: boolean;
+  channelId?: string;
+  provider?: 'openAiCompatible'|'openAiResponses'|'anthropicMessages';
 };
 
 export type AgentToolStatus = 'running' | 'success' | 'error' | 'unknown';
@@ -338,7 +340,7 @@ export const agentApi = {
   executionDecision:(agentId:string,sessionId:string,id:string,action:'approveOnce'|'approveTaskCommand'|'deny'|'cancel'|'revoke')=>request<boolean>('execution_decision','POST',{agentId,sessionId,id,action,userId:sshUserId}),
   executionPolicy:(agentId:string,sessionId:string)=>request<ExecutionPolicy>('execution_policy','GET',undefined,undefined,{agentId,sessionId,userId:sshUserId}),
   setExecutionPolicy:(agentId:string,sessionId:string,policy:ExecutionPolicy)=>request<ExecutionPolicy>('execution_policy','POST',{agentId,sessionId,userId:sshUserId,...policy}),
-  executionOutput:(agentId:string,sessionId:string,outputId:string,offset=0)=>request<OutputRange>('execution_output','GET',undefined,undefined,{agentId,sessionId,userId:sshUserId,outputId,offset:String(offset),limit:'4096'}),
+  executionOutput:(agentId:string,sessionId:string,outputId:string,offset=0,limit=4096,signal?:AbortSignal)=>request<OutputRange>('execution_output','GET',undefined,signal,{agentId,sessionId,userId:sshUserId,outputId,offset:String(offset),limit:String(limit)}),
   attachment:(agentId:string,sessionId:string,fileId:string)=>request<{reference:{fileName:string;kind:string;pages:number|null;width:number|null;height:number|null};text:string|null;imageUrl:string|null}>('attachment','GET',undefined,undefined,{agentId,sessionId,fileId,userId:sshUserId}),
   memories:(agentId:string,sessionId:string,projectId?:string)=>request<AgentMemories>('memories','GET',undefined,undefined,{agentId,sessionId,userId:sshUserId,...(projectId?{projectId}:{})}),
   saveMemory:(agentId:string,sessionId:string,memory:AgentMemoryWrite,projectId?:string)=>request<AgentMemory>('memories','POST',{agentId,sessionId,userId:sshUserId,memory,...(projectId?{projectId}:{})}),

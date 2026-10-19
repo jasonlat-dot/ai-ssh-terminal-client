@@ -24,13 +24,13 @@ function panel(picker=async()=>{},paste=async()=>null){
   }});
   vm.runInContext(output,context);
   const props={chatDraft:{subscribe:()=>()=>{},getSnapshot:()=>[],ready:()=>[],clear(){},attach(){}},draftScope:1,messages:[],busy:false,stopping:false,disabled:false,collapsed:false,localTerminal:false,connected:false,history:{external:true,sessions:[],toggle(){}},models:[{agentId:'model',agentName:'test'}],agentAvailability:{ready:true},clear(){},stop(){assert.fail('queue must never stop the current turn');},send:async(text)=>{requests.push(text);return await new Promise(resolve=>{finish=resolve;});},steer:async(...args)=>{steers.push(args);}};
-  let tree;
-  const render=()=>{cursor=0;tree=context.exports.AgentPanel(props);for(const node of all(tree)){if(node.props.role==='tooltip'&&node.props.ref)node.props.ref.current={getBoundingClientRect:()=>({width:120,height:30})};}let limit=0;while(effects.length){if(++limit>100)throw Error('effect loop');effects.shift()();}return tree;};
+  let tree,scroller;
+  const render=()=>{cursor=0;tree=context.exports.AgentPanel(props);for(const node of all(tree)){if(scroller&&node.props['aria-label']==='聊天记录'&&node.props.ref)node.props.ref.current=scroller;if(node.props.role==='tooltip'&&node.props.ref)node.props.ref.current={getBoundingClientRect:()=>({width:120,height:30})};}let limit=0;while(effects.length){if(++limit>100)throw Error('effect loop');effects.shift()();}return tree;};
   const find=predicate=>all(tree).find(predicate);
   const type=text=>find(n=>n.type==='textarea').props.onChange({target:{value:text}});
   const submit=()=>find(n=>n.type==='form').props.onSubmit({preventDefault(){}});
   render();render();
-  return{props,requests,steers,notices,render,find,type,submit,finish:success=>finish(success),advance(ms){clock+=ms;for(const [id,timer] of [...timers])if(timer.at<=clock){timers.delete(id);timer.fn();}},dispatch(name,event){for(const fn of listeners.get(name)??[])fn(event);}};
+  return{props,requests,steers,notices,render,find,type,submit,get scroller(){return scroller;},scroll(top,total=1600,visible=400){scroller={scrollTop:top,scrollHeight:total,clientHeight:visible};const list=find(n=>n.props['aria-label']==='聊天记录');list.props.ref.current=scroller;list.props.onScroll();render();},finish:success=>finish(success),advance(ms){clock+=ms;for(const [id,timer] of [...timers])if(timer.at<=clock){timers.delete(id);timer.fn();}},dispatch(name,event){for(const fn of listeners.get(name)??[])fn(event);}};
 }
 test('Sending clears immediately, keeps editing enabled, and a busy follow-up enters the queue',async()=>{
   const p=panel();p.type('first');p.render();p.submit();p.render();p.render();
@@ -198,4 +198,29 @@ test('A request rejected before placement retains its draft and pauses the remai
  assert.ok(p.find(n=>n.props.className==='composer-queue-item is-failed'));
  p.find(n=>n.props['aria-label']==='编辑排队消息').props.onClick();p.render();
  assert.equal(p.find(n=>n.type==='textarea').props.value,'not yet accepted');
+});
+
+
+test('生成中翻看历史时显示浮动加载按钮，点击回到底部并恢复后续流式跟随',()=>{
+ const p=panel();p.props.busy=true;p.props.messages=[{id:'reply',role:'assistant',text:'partial'}];p.render();p.render();
+ assert.equal(p.find(n=>n.props['aria-label']==='回到最新回复'),undefined);
+ p.scroll(200);p.render();
+ const button=p.find(n=>n.props['aria-label']==='回到最新回复');assert.ok(button);assert.match(button.props.className,/is-generating/);
+ p.props.messages=[{id:'reply',role:'assistant',text:'more output'}];p.render();assert.equal(p.scroller.scrollTop,200);
+ button.props.onClick();p.render();assert.equal(p.scroller.scrollTop,p.scroller.scrollHeight);assert.equal(p.find(n=>n.props['aria-label']==='回到最新回复'),undefined);
+ p.scroller.scrollHeight=1800;p.props.messages=[{id:'reply',role:'assistant',text:'continued'}];p.render();assert.equal(p.scroller.scrollTop,1800);
+});
+
+test('回复结束后保留向下箭头，手动接近底部后隐藏；切换会话不遗留旧状态',()=>{
+ const p=panel();p.props.busy=true;p.props.messages=[{id:'reply',role:'assistant',text:'partial'}];p.render();p.scroll(100);p.render();
+ p.props.busy=false;p.render();assert.doesNotMatch(p.find(n=>n.props['aria-label']==='回到最新回复').props.className,/is-generating/);
+ p.scroll(1160);p.render();assert.equal(p.find(n=>n.props['aria-label']==='回到最新回复'),undefined);
+ p.scroll(100);p.render();assert.ok(p.find(n=>n.props['aria-label']==='回到最新回复'));
+ p.props.history={...p.props.history,activeSessionId:'other-chat'};p.props.messages=[];p.render();p.render();assert.equal(p.find(n=>n.props['aria-label']==='回到最新回复'),undefined);
+});
+
+test('收起面板不展示回到底部按钮，恢复中的请求保留加载状态',()=>{
+ const p=panel();p.props.messages=[{id:'reply',role:'assistant',text:'partial'}];p.props.recoveredRunning=true;p.render();p.scroll(100);p.render();
+ assert.match(p.find(n=>n.props['aria-label']==='回到最新回复').props.className,/is-generating/);
+ p.props.collapsed=true;p.render();assert.equal(p.find(n=>n.props['aria-label']==='回到最新回复'),undefined);
 });

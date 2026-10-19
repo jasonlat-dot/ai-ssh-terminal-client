@@ -6,10 +6,11 @@ export type ModelConfig = {
   contextWindow: number; outputReserve: number; safetyReserve: number; compactPercent: number;
   outputTokenParameter: 'maxCompletionTokens' | 'maxTokens';
   capabilities: { toolCalls: boolean; developerRole: boolean; temperature: boolean; reasoningEffort: boolean; vision: boolean };
-  temperature: number | null; reasoningEffort: 'none'|'minimal'|'low'|'medium'|'high'|'xhigh'|null;
+  temperature: number | null; reasoningEffort: 'none'|'minimal'|'low'|'medium'|'high'|'xhigh'|'max'|null;
   timeoutSeconds: number; maxResponseBytes: number; requireApiKey: boolean;
 };
 export type ModelProfile = { id: string; displayName?: string; revision: number; config: ModelConfig; apiKeyConfigured: boolean; ready: boolean };
+export type ModelChannel = ModelProfile & { models: {id:string;model:string}[] };
 export type KeyChange = { action: 'keep'|'clear' } | { action: 'set'; value: string };
 export const newModelConfig = (): ModelConfig => ({
   provider: 'openAiCompatible', remoteCompaction: false, baseUrl: '', completionsPath: 'chat/completions', model: '',
@@ -19,6 +20,10 @@ export const newModelConfig = (): ModelConfig => ({
   temperature: null, reasoningEffort: null, timeoutSeconds: 120, maxResponseBytes: 1048576, requireApiKey: true,
 });
 export const modelApi = {
+  channels: () => builtinRequest<ModelChannel[]>('agent/model_channels', 'GET', undefined, {userId:sshUserId}),
+  saveChannel: (id:string, revision:number, config:ModelConfig, apiKey:KeyChange, displayName:string, modelIds:string[]) =>
+    builtinRequest<ModelChannel>('agent/model_channels','POST',{id,revision,userId:sshUserId,displayName,modelIds,update:{config,apiKey}},{}),
+  deleteChannel: (id:string,revision:number) => builtinRequest<boolean>('agent/model_channels','DELETE',{id,revision,userId:sshUserId},{}),
   list: () => builtinRequest<ModelProfile[]>('agent/models', 'GET', undefined, { userId: sshUserId }),
   save: (id: string, revision: number, config: ModelConfig, apiKey: KeyChange, displayName?: string) =>
     builtinRequest<ModelProfile>('agent/models', 'POST', { id, revision, userId: sshUserId, update: { config, apiKey }, ...(displayName === undefined ? {} : { displayName }) }, {}),

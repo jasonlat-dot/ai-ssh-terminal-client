@@ -5,16 +5,6 @@ import { notify } from '../state/notifications';
 import { Select } from './Select';
 import { Icon } from './Ui';
 
-const options = [
-  { value: '', label: '默认', description: '不发送推理强度参数' },
-  { value: 'none', label: '关闭', description: 'none' },
-  { value: 'minimal', label: '极低', description: 'minimal' },
-  { value: 'low', label: '低', description: 'low' },
-  { value: 'medium', label: '中', description: 'medium' },
-  { value: 'high', label: '高', description: 'high' },
-  { value: 'xhigh', label: '很高', description: 'xhigh' },
-] as const;
-
 export function ComposerReasoningControl({ modelId, revision, disabled, onSavingChange }: {
   modelId: string; revision: number; disabled: boolean; onSavingChange: (saving: boolean) => void;
 }) {
@@ -41,6 +31,8 @@ export function ComposerReasoningControl({ modelId, revision, disabled, onSaving
     return () => { generation.current++; };
   }, [modelId, revision, reload]);
 
+  const protocol = profile ? modelProtocols[profile.config.provider] : null;
+  const options = protocol?.effortOptions ?? [];
   const choose = async (value: string) => {
     if (disabled || loading || pending.current || !profile || profile.id !== modelId || !modelProtocols[profile.config.provider].reasoning || !options.some(option => option.value === value)) return;
     const effort = (value || null) as ModelConfig['reasoningEffort'];
@@ -51,7 +43,7 @@ export function ComposerReasoningControl({ modelId, revision, disabled, onSaving
       // Merge into the latest saved model so changing effort cannot replace other settings with an old snapshot.
       const latest = (await modelApi.list()).find(item => item.id === modelId);
       if (!latest) throw new Error('当前模型配置已被删除，请重新选择模型。');
-      if (!modelProtocols[latest.config.provider].reasoning) throw new Error('当前协议不使用 OpenAI 推理强度，请重新读取模型设置。');
+      if (latest.config.provider !== profile.config.provider || !modelProtocols[latest.config.provider].effortOptions.some(option => option.value === value)) throw new Error('模型协议已变更，请重新读取推理设置。');
       const saved = await modelApi.save(latest.id, latest.revision, {
         ...latest.config, reasoningEffort: effort,
         capabilities: { ...latest.config.capabilities, reasoningEffort: effort !== null },
@@ -70,7 +62,7 @@ export function ComposerReasoningControl({ modelId, revision, disabled, onSaving
   const supportsReasoning = !profile || modelProtocols[profile.config.provider].reasoning;
   const effort = profile?.config.reasoningEffort ?? '';
   const label = options.find(option => option.value === effort)?.label ?? '默认';
-  return <div className="composer-reasoning-control" title={supportsReasoning ? '推理强度保存到当前模型，用于后续请求；仅选择供应商支持的档位' : '思考模式沿用供应商默认；自动保留并回传思考签名，不发送 OpenAI 推理强度参数'}>
+  return <div className="composer-reasoning-control" title={protocol?.effortHint ?? '推理强度保存到当前模型，下一条消息生效'}>
     {!loading && !profile && modelId ? <button type="button" className="composer-reasoning-retry" disabled={disabled} onClick={() => setReload(value => value + 1)}><Icon name="refresh" size={13} />重试推理设置</button>
       : <Select label="推理强度" className="composer-reasoning-trigger" value={effort} options={options}
         displayValue={saving ? '保存中…' : loading ? '推理 · 读取中' : !supportsReasoning ? '供应商默认' : `推理 · ${label}`} disabled={disabled || loading || saving || !profile || !supportsReasoning}

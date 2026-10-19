@@ -110,3 +110,5 @@
 
 .model-supplier-icon { display:block; flex-shrink:0; }
 .model-supplier-menu .ui-select-option { min-height:38px; gap:8px; }
+
+.model-ids-input { min-height:104px; height:auto; resize:vertical; line-height:1.7; white-space:pre; }

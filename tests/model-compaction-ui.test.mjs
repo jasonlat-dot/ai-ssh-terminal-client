@@ -5,6 +5,7 @@ import test from 'node:test';
 import vm from 'node:vm';
 import ts from 'typescript';
 import * as protocolUi from '../src/api/modelProtocols.ts';
+import * as channelUi from '../src/state/modelChannels.ts';
 import {newModelConfig} from '../src/api/models.ts';
 import {chatErrorGuidance} from '../src/api/chatErrors.ts';
 
@@ -27,6 +28,9 @@ function settings(legacyVision, options={}) {
     useEffect(effect,deps){const index=cursor++;if(!slots[index]||deps.some((value,i)=>value!==slots[index][i])){slots[index]=deps;effects.push(effect);}},
   };
   const api={list:async()=>options.items??[profile],save:async(...args)=>{saved.push(args);return {...profile,id:args[0],displayName:args[4],config:args[2],revision:args[1]+1};},delete:async(...args)=>{deleted.push(args);return true;},...options.api};
+  api.channels=(...args)=>api.list(...args);
+  api.saveChannel=async(...args)=>({...await api.save(...args),models:args[5].map((model,i)=>({id:i?`member-${i}`:args[0],model}))});
+  api.deleteChannel=(...args)=>api.delete(...args);
   const source=readFileSync(new URL('../src/components/ModelSettings.tsx',import.meta.url),'utf8');
   const output=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText;
   const leaf=()=>null;
@@ -36,6 +40,7 @@ function settings(legacyVision, options={}) {
     if(name==='../state/notifications')return {notify(...args){notices.push(args);}};
     if(name==='react/jsx-runtime')return {jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props})};
     if(name==='../api/modelProtocols')return protocolUi;
+    if(name==='../state/modelChannels')return channelUi;
     if(name==='../api/models')return {modelApi:api,newModelConfig};
     if(name==='./Ui')return {AccentIcon:leaf,Badge:leaf,Icon:leaf,Toggle:leaf,Modal:leaf};
     if(name==='./Select')return {Select:leaf};
@@ -185,7 +190,7 @@ test('Image input defaults on without a switch and legacy opt-out saves enabled'
 });
 
 
-test('Claude 原生协议在模型设置可选并保存 messages / max_tokens，禁用远端整理及 OpenAI 推理',async()=>{
+test('Claude 原生协议在模型设置可选并保存 messages / max_tokens，默认不发送强度及远端整理',async()=>{
   const ui=settings();ui.render();await ui.settle();
   const select=ui.find(node=>node.props.id==='model-supplier'&&node.props.options);
   assert.ok(select.props.options.some(option=>option.value==='anthropic'));
@@ -200,6 +205,22 @@ test('Claude 原生协议在模型设置可选并保存 messages / max_tokens，
   assert.equal(config.provider,'anthropicMessages');assert.equal(config.outputTokenParameter,'maxTokens');
   assert.equal(config.reasoningEffort,null);assert.equal(config.remoteCompaction,false);
   assert.equal(config.baseUrl,'https://example.test/v1/');assert.equal(ui.saved[0][3].action,'keep');
+});
+
+test('模型设置保存 Claude 原生强度，默认选项关闭参数发送',async()=>{
+  const ui=settings();ui.render();await ui.settle();
+  ui.find(node=>node.props.id==='model-supplier'&&node.props.options).props.onChange('anthropic');ui.render();
+  let control=ui.find(node=>node.props.id==='model-effort'&&node.props.options);
+  assert.deepEqual(Array.from(control.props.options,option=>option.value),['','low','medium','high','xhigh','max']);
+  control.props.onChange('max');ui.render();
+  assert.equal(ui.find(node=>node.props.id==='model-effort'&&node.props.options).props.value,'max');
+  ui.find(node=>node.type==='form').props.onSubmit({preventDefault(){}});await ui.settle();
+  assert.equal(ui.saved[0][2].reasoningEffort,'max');assert.equal(ui.saved[0][2].capabilities.reasoningEffort,true);
+  ui.openEdit();
+  control=ui.find(node=>node.props.id==='model-effort'&&node.props.options);
+  control.props.onChange('');ui.render();
+  ui.find(node=>node.type==='form').props.onSubmit({preventDefault(){}});await ui.settle();
+  assert.equal(ui.saved[1][2].reasoningEffort,null);assert.equal(ui.saved[1][2].capabilities.reasoningEffort,false);
 });
 
 
@@ -225,7 +246,7 @@ test('新建弹窗显示供应商地址提示，填写真实地址后保存并�
   assert.equal(ui.find(node=>node.props.id==='model-url'&&node.type==='input').props.value,'');
   assert.equal(ui.find(node=>node.props.id==='model-url'&&node.type==='input').props.placeholder,'https://api.anthropic.com/v1/');
   ui.find(node=>node.props.id==='model-name'&&node.type==='input').props.onChange({target:{value:'Claude 测试'}});
-  ui.find(node=>node.props.id==='model-id'&&node.type==='input').props.onChange({target:{value:'claude-test'}});
+  ui.find(node=>node.props.id==='model-id'&&node.type==='textarea').props.onChange({target:{value:'claude-test'}});
   ui.find(node=>node.props.id==='model-api-key'&&node.type==='input').props.onChange({target:{value:'fake-key'}});ui.render();
   ui.find(node=>node.type==='form').props.onSubmit({preventDefault(){}});await ui.settle();
   assert.equal(ui.saved.length,0);assert.match(ui.notices.at(-1)[0],/请输入 API 基础地址/);assert.equal(ui.find(node=>node.props.role==='alert'),undefined);
@@ -268,7 +289,7 @@ test('卡片删除需要确认；失败可重试，成功移除卡片并回到�
   const ui=settings(undefined,{autoOpen:false});ui.render();await ui.settle();
   const original=ui.api.delete;ui.api.delete=async()=>{throw new Error('模拟删除失败');};
   ui.find(node=>node.props.className==='model-card-delete').props.onClick();ui.render();
-  assert.equal(ui.deleted.length,0);assert.ok(ui.find(node=>node.props.title==='删除模型配置？'));
+  assert.equal(ui.deleted.length,0);assert.ok(ui.find(node=>node.props.title==='删除渠道配置？'));
   ui.find(node=>node.props.className==='danger-button').props.onClick();await ui.settle();
   assert.match(ui.notices.at(-1)[0],/模拟删除失败/);assert.ok(ui.find(node=>node.type==='article'));
   ui.api.delete=original;ui.find(node=>node.props.className==='danger-button').props.onClick();await ui.settle();
@@ -305,4 +326,32 @@ test('供应商菜单保留兼容名称，卡片仅显示品牌图标与协议�
   assert.equal(ui.find(node=>node.props.className==='model-provider-description'),undefined);
   supplier.props.onChange('anthropic');ui.render();
   assert.equal(ui.find(node=>node.props.id==='model-protocol-info'&&node.type==='input').props.value,'Messages');
+});
+
+test('渠道一次保存多个模型 ID，共享接口与密钥设置，卡片展示模型数量',async()=>{
+ const ui=settings();ui.render();await ui.settle();
+ ui.find(node=>node.props.id==='model-id'&&node.type==='textarea').props.onChange({target:{value:'model-one\nmodel-two, vendor/model-three'}});ui.render();
+ ui.find(node=>node.type==='form').props.onSubmit({preventDefault(){}});await ui.settle();
+ assert.deepEqual(Array.from(ui.saved[0][5]),['model-one','model-two','vendor/model-three']);
+ assert.equal(ui.saved[0][2].model,'model-one');assert.equal(ui.saved[0][3].action,'keep');
+ assert.match(ui.text(),/3 个模型/);ui.openEdit();
+ assert.equal(ui.find(node=>node.props.id==='model-id'&&node.type==='textarea').props.value,'model-one\nmodel-two\nvendor/model-three');
+});
+
+test('重复模型 ID 保存前报错，保留编辑草稿且不调用原生保存',async()=>{
+ const ui=settings();ui.render();await ui.settle();
+ ui.find(node=>node.props.id==='model-id'&&node.type==='textarea').props.onChange({target:{value:'same\nsame'}});ui.render();
+ ui.find(node=>node.type==='form').props.onSubmit({preventDefault(){}});await ui.settle();
+ assert.equal(ui.saved.length,0);assert.match(ui.notices.at(-1)[0],/重复/);
+ assert.equal(ui.find(node=>node.props.id==='model-id'&&node.type==='textarea').props.value,'same\nsame');
+});
+
+
+test('渠道名称与推理强度同排，基础地址、密钥、模型 ID 按顺序独占一行',async()=>{
+ const ui=settings();ui.render();await ui.settle();
+ const grid=ui.find(node=>node.props.className==='settings-fields-grid'&&Array.isArray(node.props.children)&&node.props.children.some(child=>child?.props?.id==='model-name'));
+ const fields=grid.props.children.filter(node=>node?.props?.id);
+ assert.deepEqual(Array.from(fields,node=>node.props.id),['model-name','model-effort','model-url','model-api-key','model-id']);
+ assert.equal(fields[1].props.hint,undefined);
+ for(const field of fields.slice(2))assert.equal(field.props.wide,true);
 });

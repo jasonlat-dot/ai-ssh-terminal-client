@@ -76,6 +76,23 @@
 /* A quiet Codex-style rail gives long conversations a smooth, message-level jump target. */
 .chat-messages-shell { position:relative; flex:1; min-height:0; min-width:0; }
 .chat-messages-shell > .chat-messages { height:100%; }
+.chat-return-latest { position:absolute; z-index:3; bottom:14px; left:50%; display:grid; place-items:center; width:40px; height:40px; padding:0; transform:translateX(-50%); border:1px solid var(--line); border-radius:50%; background:var(--theme-panel); color:var(--theme-text-muted); box-shadow:0 2px 10px color-mix(in srgb,var(--theme-shadow) 35%,transparent); cursor:pointer; transition:color 160ms ease,background 160ms ease,box-shadow 160ms ease; }
+.chat-return-latest:hover { background:var(--theme-hover); color:var(--theme-text-strong); }
+.chat-return-latest:active:not(:disabled) { transform:translateX(-50%) scale(.98); }
+.chat-return-latest:focus-visible { outline:2px solid var(--ui-accent); outline-offset:3px; }
+.chat-return-latest-dots, .chat-return-latest-arrow { grid-area:1 / 1; display:flex; align-items:center; justify-content:center; gap:4px; transition:opacity 120ms ease; }
+.chat-return-latest-dots { opacity:0; }
+.chat-return-latest-arrow > svg { transform:rotate(180deg); }
+.chat-return-latest-dots > i { width:4px; height:4px; border-radius:50%; background:currentColor; }
+.chat-return-latest.is-generating .chat-return-latest-dots { opacity:1; }
+.chat-return-latest.is-generating .chat-return-latest-dots > i { animation:chat-return-latest-pulse 1.2s ease-in-out infinite; }
+.chat-return-latest.is-generating .chat-return-latest-dots > i:nth-child(2) { animation-delay:150ms; }
+.chat-return-latest.is-generating .chat-return-latest-dots > i:nth-child(3) { animation-delay:300ms; }
+.chat-return-latest.is-generating .chat-return-latest-arrow { opacity:0; }
+.chat-return-latest.is-generating:is(:hover,:focus-visible) .chat-return-latest-dots { opacity:0; }
+.chat-return-latest.is-generating:is(:hover,:focus-visible) .chat-return-latest-arrow { opacity:1; }
+@keyframes chat-return-latest-pulse { 0%,70%,100% { opacity:.4; transform:translateY(0); } 35% { opacity:1; transform:translateY(-2px); } }
+@media (prefers-reduced-motion:reduce) { .chat-return-latest, .chat-return-latest-dots, .chat-return-latest-arrow { transition:none; } .chat-return-latest.is-generating .chat-return-latest-dots > i { animation:none; } }
 .chat-messages .user-message-group, .chat-messages .assistant-message { scroll-margin-block:28px; }
 .chat-scroll-rail { position:absolute; z-index:2; top:50%; left:10px; width:36px; max-height:min(70vh,40rem,calc(100% - 36px)); display:flex; flex-direction:column; overflow-y:auto; overscroll-behavior:contain; scrollbar-width:none; pointer-events:auto; transform:translateY(-50%); }
 .chat-scroll-rail::-webkit-scrollbar { display:none; }

@@ -68,6 +68,7 @@ function composer({ upload = async file => result(file), send = async () => true
     if (name === './AgentEmptyState') return { AgentEmptyState: leaf };
     if (name === './AgentMemory') return { AgentMemoryButton: leaf };
     if (name === './ComposerProjectPicker') return { ComposerProjectPicker: leaf };
+    if (name === './ModelPicker') return { ModelPicker: leaf };
     if (name === './ComposerReasoningControl') return { ComposerReasoningControl: leaf };
     if (name === './AgentExecution') return { AgentExecution: leaf, NativeToolOutput: leaf, ExecutionContext: { Provider: leaf } };
     if (name === '../state/messageTime') return { messageTime: () => '' };

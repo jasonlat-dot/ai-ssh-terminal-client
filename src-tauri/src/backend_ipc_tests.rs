@@ -4,6 +4,24 @@ use super::*;
 mod protocol;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+#[tokio::test]
+async fn channel_ipc_saves_multiple_models_and_lists_stable_choices_without_credentials() {
+    let (_dir,services)=services().await;
+    save_test_model(&services,"http://127.0.0.1:1/v1/".into());
+    let existing=dispatch(services.clone(),"agent/models","GET",Value::Null,json!({"userId":"default"})).await.unwrap();
+    let original=existing.as_array().unwrap().iter().find(|p|p["id"]=="model").unwrap().clone();
+    let body=json!({"id":"model","userId":"default","revision":original["revision"],"displayName":"Test provider","modelIds":[original["config"]["model"].clone(),json!("alternate-model")],"update":{"config":original["config"],"apiKey":{"action":"keep"}}});
+    let channel=dispatch(services.clone(),"agent/model_channels","POST",body.clone(),Value::Null).await.unwrap();
+    assert_eq!(channel["models"].as_array().unwrap().len(),2);assert_eq!(channel["models"][0]["id"],"model");
+    let choices=dispatch(services.clone(),"agent/query_ai_agent_config_list","GET",Value::Null,json!({"userId":"default"})).await.unwrap();
+    assert_eq!(choices.as_array().unwrap().iter().filter(|m|m["channelId"]=="model").count(),2);
+    assert!(dispatch(services.clone(),"agent/model_channels","POST",body,Value::Null).await.is_err());
+    let listed=dispatch(services.clone(),"agent/model_channels","GET",Value::Null,json!({"userId":"default"})).await.unwrap();
+    assert_eq!(listed.as_array().unwrap().iter().filter(|c|c["id"]=="model").count(),1);
+    dispatch(services.clone(),"agent/model_channels","DELETE",json!({"userId":"default","id":"model","revision":channel["revision"]}),Value::Null).await.unwrap();
+    let profiles=dispatch(services,"agent/models","GET",Value::Null,json!({"userId":"default"})).await.unwrap();assert!(profiles.as_array().unwrap().iter().all(|p|p["channelId"]!="model"));
+}
+
 fn subscription() -> Arc<Subscription> {
     Arc::new(Subscription {
         stop: CancellationToken::new(),
