@@ -6,6 +6,7 @@ import vm from 'node:vm';
 import ts from 'typescript';
 import * as protocolUi from '../src/api/modelProtocols.ts';
 import * as channelUi from '../src/state/modelChannels.ts';
+import * as pinUi from '../src/state/modelPins.ts';
 import {newModelConfig} from '../src/api/models.ts';
 import {chatErrorGuidance} from '../src/api/chatErrors.ts';
 
@@ -18,6 +19,8 @@ test('New profiles use the chosen token, timeout and response defaults without s
 });
 
 function settings(legacyVision, options={}) {
+  const pinData=new Map();
+  const pinStorage=options.pinStorage??{getItem:key=>pinData.get(key)??null,setItem:(key,value)=>pinData.set(key,value)};
   const profile={id:'stable-profile',displayName:'日常模型',revision:7,config:{...newModelConfig(),baseUrl:'https://example.test/v1/',model:'text'},apiKeyConfigured:true,ready:true};
   if(legacyVision!==undefined)profile.config.capabilities.vision=legacyVision;
   const slots=[],effects=[],saved=[],deleted=[],notices=[];let cursor=0,tree,autoOpened=false,changed=0;
@@ -41,6 +44,8 @@ function settings(legacyVision, options={}) {
     if(name==='react/jsx-runtime')return {jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props})};
     if(name==='../api/modelProtocols')return protocolUi;
     if(name==='../state/modelChannels')return channelUi;
+    if(name==='../state/modelPins')return {...pinUi,loadModelPins:user=>pinUi.loadModelPins(user,pinStorage),saveModelPins:(user,pins)=>pinUi.saveModelPins(user,pins,pinStorage)};
+    if(name==='../api/ssh')return {sshUserId:'test-user'};
     if(name==='../api/models')return {modelApi:api,newModelConfig};
     if(name==='./Ui')return {AccentIcon:leaf,Badge:leaf,Icon:leaf,Toggle:leaf,Modal:leaf};
     if(name==='./Select')return {Select:leaf};
@@ -82,6 +87,70 @@ test('直接展示的自动整理比例支持常用档位并保存，保持配�
   assert.equal(ui.saved[0][3].action,'keep');assert.equal(ui.saved[0][4],'日常模型');
   assert.equal(ui.saved[0][2].baseUrl,'https://example.test/v1/');
 });
+test('配置卡片保留后端创建顺序，编辑不移动，新建追加到末尾',async()=>{
+  const make=(id,displayName)=>({id,displayName,revision:1,config:{...newModelConfig(),baseUrl:'https://example.test/v1/',model:'one'},apiKeyConfigured:false,ready:true});
+  const ui=settings(undefined,{items:[make('z-first','Z first'),make('a-second','A second')],autoOpen:false});
+  ui.render();await ui.settle();
+  const names=()=>Array.from(ui.find(node=>node.props.className==='model-profile-grid').props.children,card=>card.props['aria-label']);
+  assert.deepEqual(names(),['Z first','A second']);
+  ui.openEdit();ui.find(node=>node.props.id==='model-name'&&node.type==='input').props.onChange({target:{value:'ZZ renamed'}});ui.render();
+  ui.find(node=>node.type==='form').props.onSubmit({preventDefault(){}});await ui.settle();
+  assert.deepEqual(names(),['ZZ renamed','A second']);
+  ui.find(node=>node.props.className==='model-create primary-button').props.onClick();ui.render();
+  for(const [id,value] of [['model-name','0 new'],['model-url','https://example.test/v1/'],['model-id','new-model']]){
+    ui.find(node=>node.props.id===id&&['input','textarea'].includes(node.type)).props.onChange({target:{value}});ui.render();
+  }
+  ui.find(node=>node.type==='form').props.onSubmit({preventDefault(){}});await ui.settle();
+  assert.deepEqual(names(),['ZZ renamed','A second','0 new']);
+});
+
+test('供应商与渠道名称按并且筛选，兼容协议归组且保留创建顺序',async()=>{
+  const make=(id,displayName,provider)=>({id,displayName,revision:1,config:{...newModelConfig(),baseUrl:'https://example.test/v1/',model:'only-model-id',provider},apiKeyConfigured:false,ready:true});
+  const items=[make('z-first','Work Chat','openAiCompatible'),make('a-second','Work Claude','anthropicMessages'),make('m-third','Work Responses','openAiResponses')];
+  let reads=0;
+  const ui=settings(undefined,{autoOpen:false,api:{list:async()=>{reads++;return items;}}});ui.render();await ui.settle();
+  const names=()=>Array.from(ui.find(node=>node.props.className==='model-profile-grid')?.props.children??[],card=>card.props['aria-label']);
+  const supplier=value=>{ui.find(node=>node.props.id==='model-catalog-supplier').props.onChange(value);ui.render();};
+  const search=value=>{ui.find(node=>node.props['aria-label']==='搜索供应商 / 渠道名称').props.onChange({target:{value}});ui.render();};
+  supplier('openai');search('  WORK  ');assert.deepEqual(names(),['Work Chat','Work Responses']);
+  search('Claude');assert.deepEqual(names(),[]);assert.match(ui.text(),/没有匹配的模型配置/);assert.doesNotMatch(ui.text(),/还没有模型配置/);
+  supplier('anthropic');assert.deepEqual(names(),['Work Claude']);
+  ui.find(node=>node.props['aria-label']==='清空名称搜索').props.onClick();ui.render();assert.deepEqual(names(),['Work Claude']);
+  search('only-model-id');assert.deepEqual(names(),[],'search only matches the channel name, not the model ID');
+  ui.find(node=>node.props.className==='model-clear-filters').props.onClick();ui.render();
+  assert.deepEqual(names(),['Work Chat','Work Claude','Work Responses']);assert.equal(reads,1,'filtering does not refetch or change configuration');
+  supplier('openai');search('Responses');ui.find(node=>node.props['aria-label']==='刷新模型配置').props.onClick();await ui.settle();
+  assert.deepEqual(names(),['Work Responses']);assert.equal(reads,2);
+});
+
+test('最近置顶优先，取消恢复创建顺序，刷新和重新打开保留且筛选仍按并且匹配',async()=>{
+  const make=(id,provider='openAiCompatible')=>({id,displayName:id,revision:1,config:{...newModelConfig(),baseUrl:'https://example.test/v1/',model:'one',provider},apiKeyConfigured:false,ready:true});
+  const pinData=new Map(),pinStorage={getItem:key=>pinData.get(key)??null,setItem:(key,value)=>pinData.set(key,value)};
+  const options={items:[make('first'),make('second'),make('third','anthropicMessages')],pinStorage,autoOpen:false};
+  const ui=settings(undefined,options);ui.render();await ui.settle();
+  const names=view=>Array.from(view.find(node=>node.props.className==='model-profile-grid')?.props.children??[],card=>card.props['aria-label']);
+  const toggle=label=>{ui.find(node=>node.props['aria-label']===label).props.onClick();ui.render();};
+  toggle('置顶 second');toggle('置顶 third');assert.deepEqual(names(ui),['third','second','first']);
+  assert.equal(ui.find(node=>node.props['aria-label']==='取消置顶 third').props['aria-pressed'],true);
+  ui.find(node=>node.props['aria-label']==='刷新模型配置').props.onClick();await ui.settle();assert.deepEqual(names(ui),['third','second','first']);
+  const reopened=settings(undefined,options);reopened.render();await reopened.settle();assert.deepEqual(names(reopened),['third','second','first']);
+  ui.find(node=>node.props.id==='model-catalog-supplier').props.onChange('openai');ui.render();
+  assert.deepEqual(names(ui),['second','first'],'hidden supplier pins do not bypass the active filter');
+  ui.find(node=>node.props['aria-label']==='搜索供应商 / 渠道名称').props.onChange({target:{value:'first'}});ui.render();assert.deepEqual(names(ui),['first']);
+  ui.find(node=>node.props.className==='model-clear-filters').props.onClick();ui.render();
+  toggle('取消置顶 second');assert.deepEqual(names(ui),['third','first','second']);
+  toggle('取消置顶 third');assert.deepEqual(names(ui),['first','second','third']);
+  assert.equal(ui.saved.length,0);assert.equal(ui.changed,0,'pinning is a local display preference, not a model configuration edit');
+});
+
+test('置顶偏好写入失败保留原排序并提示错误，不误报保存成功',async()=>{
+  const pinStorage={getItem:()=>null,setItem(){throw new Error('storage full');}};
+  const ui=settings(undefined,{autoOpen:false,pinStorage});ui.render();await ui.settle();
+  ui.find(node=>node.props['aria-label']==='置顶 日常模型').props.onClick();ui.render();
+  assert.equal(ui.find(node=>node.props['aria-label']==='置顶 日常模型').props['aria-pressed'],false);
+  assert.ok(ui.notices.some(([message])=>message.includes('置顶状态保存失败')));
+});
+
 test('模型设置锁定时整理参数沿用原表单禁用状态',async()=>{
   const ui=settings();ui.render();await ui.settle();ui.props.locked=true;ui.render();
   assert.equal(ui.find(node=>node.type==='fieldset').props.disabled,true);

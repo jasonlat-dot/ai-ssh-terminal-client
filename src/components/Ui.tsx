@@ -25,6 +25,7 @@ const paths = {
   extensions: 'M9 3H5a2 2 0 0 0-2 2v4h2a3 3 0 1 1 0 6H3v4a2 2 0 0 0 2 2h4v-2a3 3 0 1 1 6 0v2h4a2 2 0 0 0 2-2v-4h-2a3 3 0 1 1 0-6h2V5a2 2 0 0 0-2-2h-4v2a3 3 0 1 1-6 0V3z',
   tabs: 'M3 8h14v12H3z M7 4h14v12 M7 12h6 M10 9v6',
   star: 'M7 5.5A2.5 2.5 0 0 1 9.5 3h5A2.5 2.5 0 0 1 17 5.5V21l-5-3.2L7 21z',
+  pin: 'M16 3H8v6l-3 4h14l-3-4V3z M12 13v8',
   edit: 'M13.5 5.5 18.5 10.5 M5 19l3.8-.8L20 6a2.1 2.1 0 0 0-3-3L5.8 15.2z M4 21h16',
   terminal: 'M4 5h16v14H4z M8 9l3 3-3 3 M13 15h3',
   folder: 'M3 7V5h6l2 3h10v12H3z',

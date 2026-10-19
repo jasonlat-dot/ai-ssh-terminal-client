@@ -5,5 +5,8 @@
 .startup-update-version > svg { color: var(--ui-accent); }
 .startup-update-content p { margin: 0; }
 .startup-update-content small { color: var(--muted); line-height: 1.6; }
-.startup-update-notes { margin: 0; padding: 14px; max-height: min(260px, 35vh); overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--font-ui); line-height: 1.75; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; }
+.startup-update-notes { margin: 0; padding: 14px; max-height: min(260px, 35vh); overflow: auto; white-space: normal; overflow-wrap: anywhere; font-family: var(--font-ui); line-height: 1.75; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; }
+.startup-update-notes .markdown-body { font-size:14px; line-height:1.75; }
+.startup-update-notes .markdown-body p { margin-bottom:14px; }
+.startup-update-notes .markdown-body > :last-child { margin-bottom:0; }
 .startup-update-content .dialog-actions { flex-wrap: wrap; margin-top: 0; }

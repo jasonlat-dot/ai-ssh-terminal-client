@@ -202,14 +202,21 @@ test('release validation rejects private/invalid keys, prereleases, paths and mi
   assert.throws(() => makeManifest({ version: '0.1.6', installerName: 'client_0.1.6_x64-setup.exe', signature: sig, date: 'invalid' }));
 });
 
-function ui(initial = {}, component = 'ClientUpdateSettings') {
+const releaseNotesReceipt = load('state/releaseNotes.ts');
+const currentRelease = { version: '0.2.2', notes: '# 当前版本\n\n- 离线更新说明' };
+function ui(initial = {}, component = 'ClientUpdateSettings', storage = { getItem: () => currentRelease.version, setItem() {} }) {
   let state = { phase: 'available', config, version: '0.1.6', notes: '<script>alert(1)</script>', downloaded: 0, total: null, verified: false, error: '', checkedAt: null, ...initial };
-  const calls = [], slots = []; let cursor = 0, tree;
+  const calls = [], slots = [], effects = []; let cursor = 0, tree, changed = false;
   const beforeInstall = async () => calls.push('save');
   let announce;
   const node = (type, props) => ({ type, props });
   const hooks = { useState: initial => { const i = cursor++; if (!(i in slots)) slots[i] = typeof initial === 'function' ? initial() : initial;
-      return [slots[i], value => { slots[i] = value; }]; }, useEffect() {} };
+      return [slots[i], value => { const next = typeof value === 'function' ? value(slots[i]) : value; changed ||= next !== slots[i]; slots[i] = next; }]; },
+    useEffect(callback, deps) { const i = cursor++, previous = slots[i];
+      if (!previous || !deps || deps.some((value, index) => value !== previous.deps?.[index])) {
+        slots[i] = { deps }; effects.push(() => { previous?.cleanup?.(); slots[i].cleanup = callback(); });
+      }
+    } };
   const module = load(`components/${component}.tsx`, name => {
     if (name === '../state/useToastError') return loadToastErrorHooks(hooks);
     if (name === 'react') return hooks;
@@ -220,16 +227,24 @@ function ui(initial = {}, component = 'ClientUpdateSettings') {
     } };
     if (name === '../state/runtime') return { isTauriRuntime: () => true };
     if (name === '../config/appRuntime') return { APP_VERSION: '0.2.1' };
+    if (name === '../config/currentRelease') return { CURRENT_RELEASE: currentRelease };
+    if (name === '../state/releaseNotes') return releaseNotesReceipt;
     if (name === './Ui') return { Badge: 'badge', Icon: 'icon', Modal: 'modal' };
+    if (name === './MarkdownMessage') return { MarkdownMessage: 'markdown-message' };
     if (name === '@tauri-apps/plugin-opener') return { openUrl: async () => calls.push('open') };
     if (name.endsWith('.css')) return {};
     throw new Error(name);
-  });
+  }, { localStorage: storage });
   function nodes(item) { if (Array.isArray(item)) return item.flatMap(child => nodes(child));
     if (!item || typeof item !== 'object') return []; return [item, ...nodes(item.props.children)]; }
   function text(item) { if (Array.isArray(item)) return item.map(text).join(''); if (!item || typeof item !== 'object') return typeof item === 'string' ? item : '';
     return text(item.props.children); }
-  function render(patch = {}) { state = { ...state, ...patch }; cursor = 0; tree = module[component]({ beforeInstall, onViewUpdate: () => calls.push('view') }); }
+  function render(patch = {}) { state = { ...state, ...patch }; let passes = 0;
+    do { changed = false; cursor = 0; tree = module[component]({ beforeInstall, onViewUpdate: () => calls.push('view') });
+      while (effects.length) effects.shift()();
+    } while (changed && ++passes < 10);
+    assert.ok(passes < 10, 'effects must settle');
+  }
   render(); return { calls, render, announce: version => announce(version), nodes: () => nodes(tree), button: label => nodes(tree).find(x => x.type === 'button' && text(x) === label) };
 }
 
@@ -238,7 +253,8 @@ test('startup prompt persists until dismissed; viewing uses the guarded settings
   view.announce('0.1.6'); view.render();
   assert.equal(view.nodes().find(x => x.type === 'modal').props.title, '发现客户端新版本');
   const notes = view.nodes().find(x => x.props.className === 'startup-update-notes');
-  assert.equal(notes.props.children, '<script>alert(1)</script>'); assert.equal(notes.props.dangerouslySetInnerHTML, undefined);
+  assert.equal(notes.type, 'div'); assert.equal(notes.props.children.type, 'markdown-message');
+  assert.equal(notes.props.children.props.children, '<script>alert(1)</script>'); assert.equal(notes.props.dangerouslySetInnerHTML, undefined);
   view.render(); assert.ok(view.button('稍后再说'));
   view.button('稍后再说').props.onClick(); view.render(); assert.equal(view.nodes().length, 0); assert.deepEqual(view.calls, []);
   view.announce('0.1.6'); view.render(); view.button('查看并下载更新').props.onClick(); view.render();
@@ -255,12 +271,59 @@ test('startup prompt does not show stale versions or manual check failures', () 
   assert.match(app, /beforeClientUpdate=\{prepareForClientUpdate\}/);
   assert.match(dialog, /if\(showUpdates\)setTab\('updates'\)/);
 });
-test('UI blocks unavailable updates, allows configuration-error retry, and renders escaped notes', () => {
+
+test('current release notes remain available offline, after checking current, and after discarding an update', () => {
+  const view = ui({ version: '', notes: '', config: { ...config, version: currentRelease.version }, phase: 'current' });
+  const currentNotes = () => view.nodes().find(node => node.props['aria-label'] === '当前版本更新说明');
+  assert.ok(currentNotes());
+  assert.ok(view.nodes().some(node => node.type === 'markdown-message' && node.props.children === currentRelease.notes));
+  for (const phase of ['checking', 'error', 'disabled', 'idle']) { view.render({ phase }); assert.ok(currentNotes()); }
+  view.render({ phase: 'available', version: '0.2.3', notes: '# 下一版本' });
+  assert.equal(view.nodes().filter(node => node.type === 'markdown-message').length, 2);
+  view.button('暂不更新').props.onClick(); assert.deepEqual(view.calls, ['discard']);
+  view.render({ phase: 'idle', version: '', notes: '' }); assert.ok(currentNotes());
+  assert.equal(view.nodes().filter(node => node.type === 'markdown-message').length, 1);
+});
+
+test('first installed-version launch shows local notes once; closing persists acknowledgment across remounts', () => {
+  const saved = new Map(), storage = { getItem: key => saved.get(key) ?? null, setItem: (key, value) => saved.set(key, value) };
+  const initial = { phase: 'current', config: { ...config, version: currentRelease.version }, version: '', notes: '' };
+  const view = ui({ ...initial, config: null }, 'StartupUpdatePrompt', storage);
+  assert.equal(view.nodes().length, 0);
+  view.render(initial);
+  assert.equal(view.nodes().find(node => node.type === 'modal').props.title, '本次更新内容');
+  assert.ok(view.nodes().some(node => node.type === 'markdown-message' && node.props.children === currentRelease.notes));
+  assert.equal(saved.size, 0, 'opening does not mark the notice read');
+  view.nodes().find(node => node.type === 'modal').props.onClose(); view.render();
+  assert.equal(view.nodes().length, 0);
+  assert.equal(releaseNotesReceipt.shouldShowReleaseNotes(currentRelease.version, storage), false);
+  assert.equal(releaseNotesReceipt.shouldShowReleaseNotes('0.2.3', storage), true);
+  assert.equal(ui(initial, 'StartupUpdatePrompt', storage).nodes().length, 0);
+  assert.deepEqual(view.calls, []);
+});
+
+test('current-version notice queues new-version availability and does not appear in dev or when storage is unreadable', () => {
+  let seen = null; const storage = { getItem: () => seen, setItem: (_, value) => { seen = value; } };
+  const initial = { config: { ...config, version: currentRelease.version }, version: '0.2.3', notes: '# 新版本' };
+  const view = ui(initial, 'StartupUpdatePrompt', storage);
+  view.announce('0.2.3'); view.render();
+  assert.equal(view.nodes().filter(node => node.type === 'modal').length, 1);
+  assert.equal(view.nodes().find(node => node.type === 'modal').props.title, '本次更新内容');
+  view.button('查看版本说明').props.onClick(); view.render();
+  assert.deepEqual(view.calls, ['view']);
+  assert.equal(view.nodes().find(node => node.type === 'modal').props.title, '发现客户端新版本');
+  assert.equal(ui({ ...initial, config: { ...initial.config, development: true } }, 'StartupUpdatePrompt', { getItem: () => null }).nodes().length, 0);
+  const broken = { getItem() { throw new Error('unavailable'); }, setItem() { throw new Error('unavailable'); } };
+  assert.equal(ui(initial, 'StartupUpdatePrompt', broken).nodes().length, 0);
+  assert.doesNotThrow(() => releaseNotesReceipt.acknowledgeReleaseNotes(currentRelease.version, broken));
+});
+test('UI blocks unavailable updates, allows configuration-error retry, and uses the safe Markdown renderer for notes', () => {
   const disabled = ui({ config: { ...config, configured: false }, phase: 'disabled' });
   assert.equal(disabled.button('检查更新').props.disabled, true); assert.equal(disabled.button('下载更新').props.disabled, true);
   const retry = ui({ config: null, phase: 'error', version: '' }); assert.equal(retry.button('检查更新').props.disabled, false);
   const view = ui(); const notes = view.nodes().find(x => x.props.className === 'client-update-notes');
-  assert.equal(notes.props.children, '<script>alert(1)</script>'); assert.equal(notes.props.dangerouslySetInnerHTML, undefined);
+  assert.equal(notes.type, 'div'); assert.equal(notes.props.children.type, 'markdown-message');
+  assert.equal(notes.props.children.props.children, '<script>alert(1)</script>'); assert.equal(notes.props.dangerouslySetInnerHTML, undefined);
 });
 test('UI requires second confirmation, cancel does not install, busy state disables actions', () => {
   const view = ui({ phase: 'downloaded', verified: true });

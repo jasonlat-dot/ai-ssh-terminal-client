@@ -5,6 +5,8 @@ import { clientUpdater, useClientUpdater } from '../state/useClientUpdater';
 import { isTauriRuntime } from '../state/runtime';
 import { Badge, Icon, IconHeading } from './Ui';
 import { APP_VERSION } from '../config/appRuntime';
+import { CURRENT_RELEASE } from '../config/currentRelease';
+import { MarkdownMessage } from './MarkdownMessage';
 import './ClientUpdateSettings.css';
 
 const RELEASES_URL = 'https://github.com/jasonlat-dot/ai-ssh-terminal-client/releases';
@@ -29,6 +31,7 @@ export function ClientUpdateSettings({ beforeInstall = async () => {} }: { befor
     downloading: '正在下载并校验更新…', downloaded: '更新包已下载，签名校验通过', preparing: '正在保存会话并准备安装…',
     installing: '正在启动安装程序…', error: '更新操作未完成' };
   return <div className="client-update-settings">
+    <div className="client-update-overview">
     <section className="client-update-card" aria-labelledby="client-update-title">
       <header><div><IconHeading as="h2" id="client-update-title" icon="refresh" tone="blue">关于与更新</IconHeading>
         <p>更新只在确认后安装，不会自动关闭终端。</p></div><Badge icon="monitor">Windows</Badge></header>
@@ -60,8 +63,6 @@ export function ClientUpdateSettings({ beforeInstall = async () => {} }: { befor
         </div>
       </div>}
     </section>
-    {state.version && <section className="client-update-card"><IconHeading icon="file" tone="amber">v{state.version} 更新说明</IconHeading>
-      {state.date && <small>{state.date}</small>}<pre className="client-update-notes">{state.notes || '此版本未提供更新说明。'}</pre></section>}
     <section className="client-update-card"><IconHeading icon="github" tone="neutral">发布来源</IconHeading>
       <p>jasonlat-dot / ai-ssh-terminal-client · GitHub Releases</p>
       <a href={RELEASES_URL} target="_blank" rel="noopener noreferrer" className="client-update-release-link" onClick={event => {
@@ -71,5 +72,10 @@ export function ClientUpdateSettings({ beforeInstall = async () => {} }: { befor
       }}>查看全部版本<Icon name="upRight" size={14} /></a>
       <small>旧版 0.1.4 需手动覆盖安装一次带更新功能的版本，之后才可在此升级。</small>
     </section>
+    </div>
+    {state.version && state.version !== CURRENT_RELEASE.version && <section className="client-update-card"><IconHeading icon="file" tone="amber">待更新版本 v{state.version} 更新说明</IconHeading>
+      {state.date && <small>{state.date}</small>}<div className="client-update-notes"><MarkdownMessage>{state.notes || '此版本未提供更新说明。'}</MarkdownMessage></div></section>}
+    <section className="client-update-card" aria-label="当前版本更新说明"><IconHeading icon="file" tone="blue">当前版本 v{CURRENT_RELEASE.version} 更新说明</IconHeading>
+      <small>随应用提供，可离线查看。</small><div className="client-update-notes"><MarkdownMessage>{CURRENT_RELEASE.notes}</MarkdownMessage></div></section>
   </div>;
 }

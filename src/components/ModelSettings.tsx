@@ -3,7 +3,9 @@ import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { ReactNode } from 'react';
 import { modelApi, newModelConfig } from '../api/models';
+import { sshUserId } from '../api/ssh';
 import { applyModelProtocol, applyModelSupplier, modelProtocols, modelSuppliers, modelSupplierOptions, supplierProtocolOptions } from '../api/modelProtocols';
+import type { ModelSupplier } from '../api/modelProtocols';
 import type { KeyChange, ModelConfig, ModelChannel } from '../api/models';
 import { AccentIcon, Badge, Icon, Modal, Toggle } from './Ui';
 import type { AccentTone, IconName } from './Ui';
@@ -12,6 +14,7 @@ import { ModelSupplierIcon } from './ModelSupplierIcon';
 import { ModelNumberInput } from './ModelNumberInput';
 import { notify } from '../state/notifications';
 import { parseModelIds } from '../state/modelChannels';
+import { loadModelPins, orderPinnedModels, saveModelPins } from '../state/modelPins';
 import './ModelSettings.css';
 
 const tokenCountFormat = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 2 });
@@ -25,6 +28,9 @@ function ModelField({ id, label, hint, children, wide = false, badge, icon, tone
 
 export function ModelSettings({ changed, locked = false }: { changed?: () => void; locked?: boolean }) {
   const [profiles, setProfiles] = useState<ModelChannel[]>([]);
+  const [pinnedIds, setPinnedIds] = useState(() => loadModelPins(sshUserId));
+  const [supplierFilter, setSupplierFilter] = useState<ModelSupplier | 'all'>('all');
+  const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useToastError();
   const [editing, setEditing] = useState<ModelChannel | null>(null);
@@ -42,6 +48,18 @@ export function ModelSettings({ changed, locked = false }: { changed?: () => voi
   const supplierInfo = modelSuppliers[supplier];
   const protocolOptions = supplierProtocolOptions(supplier);
   const disabled = busy || loading || locked;
+  const searchTerm = search.trim().toLocaleLowerCase();
+  const filteredProfiles = orderPinnedModels(profiles, pinnedIds).filter(profile =>
+    (supplierFilter === 'all' || modelProtocols[profile.config.provider].supplier === supplierFilter)
+    && (profile.displayName ?? profile.id).toLocaleLowerCase().includes(searchTerm));
+  const hasFilters = supplierFilter !== 'all' || searchTerm.length > 0;
+  const clearFilters = () => { setSupplierFilter('all'); setSearch(''); };
+  const togglePin = (id: string) => {
+    const next = pinnedIds.includes(id) ? pinnedIds.filter(value => value !== id)
+      : [id, ...pinnedIds.filter(value => profiles.some(profile => profile.id === value))];
+    try { saveModelPins(sshUserId, next); setPinnedIds(next); }
+    catch { setError('置顶状态保存失败，请重试。'); }
+  };
   useEffect(() => {
     let active = true;
     void modelApi.channels().then(items => { if (active) setProfiles(items); })
@@ -79,7 +97,9 @@ export function ModelSettings({ changed, locked = false }: { changed?: () => voi
       const ids=parseModelIds(modelIds);
       const apiKey:KeyChange = key.trim() ? {action:'set',value:key.trim()} : {action:'keep'};
       const saved = await modelApi.saveChannel(editing?.id ?? crypto.randomUUID(), editing?.revision ?? 0, {...config,model:ids[0]}, apiKey, displayName.trim(), ids);
-      setProfiles(items => [...items.filter(profile => profile.id !== saved.id), saved].sort((a,b) => (a.displayName ?? a.id).localeCompare(b.displayName ?? b.id)));
+      setProfiles(items => items.some(profile => profile.id === saved.id)
+        ? items.map(profile => profile.id === saved.id ? saved : profile)
+        : [...items, saved]);
       setEditorOpen(false); setKey(''); setError('');
       notify(saved.ready ? '模型配置已保存，连接将在发送消息时验证。' : '模型配置已保存；配置 API Key 后即可对话。', 'success'); changed?.();
     } catch (cause) { setError(cause instanceof Error ? cause.message : '保存失败'); }
@@ -95,6 +115,12 @@ export function ModelSettings({ changed, locked = false }: { changed?: () => voi
     try {
       await modelApi.deleteChannel(deleting.id, deleting.revision);
       setProfiles(items => items.filter(profile => profile.id !== deleting.id));
+      if (pinnedIds.includes(deleting.id)) {
+        const next = pinnedIds.filter(id => id !== deleting.id);
+        setPinnedIds(next);
+        try { saveModelPins(sshUserId, next); }
+        catch { notify('配置已删除，但置顶偏好未能保存。', 'error'); }
+      }
       if (editing?.id === deleting.id) { setEditorOpen(false); setKey(''); }
       setDeleting(null); notify('模型配置已删除，已有历史会话仍保留。', 'success'); changed?.();
     } catch (cause) { setDeleteError(cause instanceof Error ? cause.message : '删除失败'); }
@@ -105,20 +131,37 @@ export function ModelSettings({ changed, locked = false }: { changed?: () => voi
       <header className="model-catalog-heading"><div><strong className="ui-icon-heading"><AccentIcon icon="bot" tone="violet" size={17}/>模型配置<Badge tone="neutral">{profiles.length}</Badge></strong></div>
         <div className="model-catalog-actions"><button type="button" className="outlined-button model-refresh" aria-label="刷新模型配置" disabled={disabled} onClick={() => void reload()}><Icon name="refresh" size={15}/></button><button type="button" className="model-create primary-button" disabled={disabled} onClick={() => select(null)}><Icon name="plus" size={15}/>新建配置</button></div>
       </header>
+      {profiles.length > 0 && !loadError && <div className="model-catalog-filters" role="search" aria-label="筛选模型配置">
+        <div className="model-catalog-filter-controls">
+          <div className="model-catalog-supplier-filter"><label htmlFor="model-catalog-supplier">供应商</label>
+            <Select<ModelSupplier | 'all'> id="model-catalog-supplier" label="筛选供应商" value={supplierFilter} disabled={loading || busy}
+              options={[{value:'all',label:'全部供应商'},...modelSupplierOptions]} onChange={setSupplierFilter}
+              renderIcon={value => value === 'all' ? <Icon name="network" size={16}/> : <ModelSupplierIcon supplier={value} size={17}/>}/>
+          </div>
+          <label className="model-catalog-search"><Icon name="search" size={17}/><input type="search" aria-label="搜索供应商 / 渠道名称" placeholder="搜索供应商 / 渠道名称" value={search} disabled={loading || busy} onChange={event => setSearch(event.target.value)}/>
+            {search && <button type="button" aria-label="清空名称搜索" disabled={loading || busy} onClick={() => setSearch('')}><Icon name="close" size={14}/></button>}
+          </label>
+        </div>
+        <div className="model-catalog-filter-summary"><span role="status" aria-live="polite">显示 <strong>{filteredProfiles.length}</strong> / {profiles.length} 个渠道</span>
+          {hasFilters && <button type="button" className="model-clear-filters" disabled={loading || busy} onClick={clearFilters}><Icon name="refresh" size={13}/>清除筛选</button>}
+        </div>
+      </div>}
       {loadError && <button type="button" className="outlined-button" disabled={disabled} onClick={() => void reload()}>重新加载模型配置</button>}
       {locked && <div className="model-feedback" role="status"><Icon name="history" size={16}/><span>请等待回复结束或停止生成后再修改模型。</span></div>}
       <div className="model-catalog-body">
         {loading ? <div className="model-loading" role="status"><i/><i/><i/><span>正在读取配置…</span></div> : loadError ? null : !profiles.length ? <div className="model-list-empty"><AccentIcon icon="bot" tone="violet" size={30}/><strong>还没有模型配置</strong><p>添加模型配置，开始对话。</p><button type="button" className="model-create primary-button" disabled={disabled} onClick={() => select(null)}><Icon name="plus" size={15}/>新建配置</button></div>
-          : <div className="model-profile-grid" aria-label="模型配置列表">{profiles.map(profile => {
+          : !filteredProfiles.length ? <div className="model-list-empty model-list-no-match"><AccentIcon icon="search" tone="blue" size={26}/><strong>没有匹配的模型配置</strong><p>试试其他供应商或渠道名称。</p><button type="button" className="outlined-button model-clear-filters" onClick={clearFilters}>清除筛选</button></div>
+          : <div className="model-profile-grid" aria-label="模型配置列表">{filteredProfiles.map(profile => {
             const protocol = modelProtocols[profile.config.provider];
-            return <article className="model-profile-card" key={profile.id} aria-label={profile.displayName ?? profile.id}>
+            const pinned = pinnedIds.includes(profile.id);
+            return <article className="model-profile-card" data-pinned={pinned || undefined} key={profile.id} aria-label={profile.displayName ?? profile.id}>
               <div className="model-profile-heading"><span className="model-supplier-avatar"><ModelSupplierIcon supplier={protocol.supplier} size={22}/></span><div><h3 title={profile.displayName ?? profile.id}>{profile.displayName ?? profile.id}</h3><p title={profile.models?.map(item=>item.model).join('、')??profile.config.model}>{profile.models?.length?`${profile.models.length} 个模型 · ${profile.models.map(item=>item.model).join('、')}`:profile.config.model}</p></div><span className={`model-profile-state ${profile.ready ? 'ready' : ''}`}><i aria-hidden="true"/>{profile.ready ? '已配置' : '需要密钥'}</span></div>
               <div className="model-profile-tags">
                 <Badge tone="blue">{protocol.name}</Badge>
                 <Badge tone="violet" className="model-profile-budget" title={`${profile.config.contextWindow.toLocaleString()} tokens`}>{`${tokenCountFormat.format(profile.config.contextWindow)} tokens`}</Badge>
               </div>
               <div className="model-profile-connection"><Badge tone="neutral" icon="network" className="model-profile-endpoint" title={profile.config.baseUrl}><span>{profile.config.baseUrl}</span></Badge></div>
-              <footer><button type="button" className="model-edit outlined-button" aria-label={`编辑 ${profile.displayName ?? profile.id}`} disabled={disabled} onClick={() => select(profile)}><Icon name="edit" size={14}/>编辑</button><button type="button" className="model-card-delete" aria-label={`删除 ${profile.displayName ?? profile.id}`} disabled={disabled} onClick={() => requestDelete(profile)}><Icon name="trash" size={14}/>删除</button></footer>
+              <footer><button type="button" className="model-pin" aria-pressed={pinned} aria-label={`${pinned ? '取消置顶' : '置顶'} ${profile.displayName ?? profile.id}`} disabled={busy || loading} onClick={() => togglePin(profile.id)}><Icon name="pin" size={14}/>{pinned ? '取消置顶' : '置顶'}</button><button type="button" className="model-edit outlined-button" aria-label={`编辑 ${profile.displayName ?? profile.id}`} disabled={disabled} onClick={() => select(profile)}><Icon name="edit" size={14}/>编辑</button><button type="button" className="model-card-delete" aria-label={`删除 ${profile.displayName ?? profile.id}`} disabled={disabled} onClick={() => requestDelete(profile)}><Icon name="trash" size={14}/>删除</button></footer>
             </article>;
           })}</div>}
       </div>
