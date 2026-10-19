@@ -56,6 +56,7 @@ struct Settings {
     max_storage_mib: u64,
     file_retention_days: u64,
     log_level: shellpilot_server::diagnostics::Level,
+    log_retention_days: u32,
 }
 impl Default for Settings {
     fn default() -> Self {
@@ -66,6 +67,7 @@ impl Default for Settings {
             max_storage_mib: 1024,
             file_retention_days: 0,
             log_level: shellpilot_server::diagnostics::Level::Info,
+            log_retention_days: 7,
         }
     }
 }
@@ -189,6 +191,10 @@ fn start_inner(app: &AppHandle) -> Result<BackendStatus, String> {
             .map_err(|e| e.to_string())?,
     );
     store.diagnostics.configure(root.join("logs/agent"), settings.log_level).map_err(|e|e.to_string())?;
+    store.diagnostics.set_retention_days(settings.log_retention_days).map_err(|e| e.to_string())?;
+    if let Err(error) = store.diagnostics.cleanup_expired() {
+        eprintln!("ShellPilot log cleanup failed: {:?}", error.kind());
+    }
     let instance = uuid::Uuid::new_v4();
     let url = format!("ipc://builtin/{instance}");
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -207,7 +213,22 @@ fn start_inner(app: &AppHandle) -> Result<BackendStatus, String> {
     append_log(&log, "initializing local workspace (IPC, no HTTP listener)");
     let thread = thread::spawn(move || {
         runtime.block_on(async {
-            stopping.cancelled().await;
+            let mut cleanup = tokio::time::interval(std::time::Duration::from_secs(3600));
+            cleanup.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            cleanup.tick().await; // Startup cleanup already ran above.
+            loop {
+                tokio::select! {
+                    biased;
+                    _ = stopping.cancelled() => break,
+                    _ = cleanup.tick() => {
+                        let diagnostics = services.store.diagnostics.clone();
+                        match tokio::task::spawn_blocking(move || diagnostics.cleanup_expired()).await {
+                            Ok(Ok(_)) => {},
+                            error => eprintln!("ShellPilot periodic log cleanup failed: {error:?}"),
+                        }
+                    }
+                }
+            }
             services.shutdown().await;
         });
         append_log(&log, "local workspace stopped");
@@ -311,6 +332,7 @@ fn view(app: &AppHandle) -> io::Result<BackendConfigView> {
         ),
         ("maxStorageMiB", settings.max_storage_mib.to_string()),
         ("logLevel", settings.log_level.text().into()),
+        ("logRetentionDays", settings.log_retention_days.to_string()),
         (
             "fileRetentionDays",
             settings.file_retention_days.to_string(),
@@ -348,6 +370,10 @@ fn view(app: &AppHandle) -> io::Result<BackendConfigView> {
 fn apply(settings: &mut Settings, values: BTreeMap<String, String>) -> io::Result<()> {
     for (key, value) in values {
         match key.as_str() {
+            "logRetentionDays" => {
+                settings.log_retention_days = value.parse().ok().filter(|v| (1..=3650).contains(v))
+                    .ok_or_else(|| io::Error::other("日志保留天数必须为 1 到 3650"))?;
+            }
             "logLevel" => {
                 settings.log_level = shellpilot_server::diagnostics::Level::parse(&value)
                     .ok_or_else(||io::Error::other("日志级别必须为 debug、info、warn 或 error"))?;
@@ -384,6 +410,15 @@ fn apply(settings: &mut Settings, values: BTreeMap<String, String>) -> io::Resul
     Ok(())
 }
 #[tauri::command]
+pub async fn bundled_backend_reveal_request_log(app: AppHandle, trace_id: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let directory = home(&app).map_err(|_| "无法获取应用日志目录。".to_owned())?.join("logs/agent");
+        let file = crate::request_logs::find(&directory, &trace_id)?;
+        tauri_plugin_opener::reveal_item_in_dir(file).map_err(|_| "无法打开文件管理器，日志可能已被清理，请稍后重试。".to_owned())
+    }).await.map_err(|_| "定位日志失败，请重试。".to_owned())?
+}
+
+#[tauri::command]
 pub async fn bundled_backend_config(app: AppHandle) -> Result<BackendConfigView, String> {
     tauri::async_runtime::spawn_blocking(move || view(&app).map_err(|e| e.to_string()))
         .await
@@ -403,6 +438,10 @@ pub async fn bundled_backend_save_config(
         persist(&path, &settings).map_err(|e| e.to_string())?;
         if let Some((_,services))=state.services.lock().unwrap().as_ref() {
             services.store.diagnostics.set_level(settings.log_level);
+            services.store.diagnostics.set_retention_days(settings.log_retention_days).map_err(|e| e.to_string())?;
+            if let Err(error) = services.store.diagnostics.cleanup_expired() {
+                eprintln!("ShellPilot log cleanup failed: {:?}", error.kind());
+            }
         }
         view(&app).map_err(|e| e.to_string())
     })
@@ -437,6 +476,19 @@ pub async fn bundled_backend_set_auto_start(app: AppHandle, enabled: bool) -> Re
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn log_retention_defaults_to_seven_days_and_validates_independently() {
+        let mut settings: Settings = serde_json::from_str(r#"{"fileRetentionDays":30}"#).unwrap();
+        assert_eq!(settings.log_retention_days, 7);
+        apply(&mut settings, BTreeMap::from([("logRetentionDays".into(), "14".into())])).unwrap();
+        let saved: Settings = serde_json::from_slice(&serde_json::to_vec(&settings).unwrap()).unwrap();
+        assert_eq!(saved.log_retention_days, 14);
+        assert_eq!(saved.file_retention_days, 30);
+        for invalid in ["0", "3651", "-1", "1.5", "invalid"] {
+            assert!(apply(&mut settings, BTreeMap::from([("logRetentionDays".into(), invalid.into())])).is_err());
+            assert_eq!(settings.log_retention_days, 14);
+        }
+    }
     #[test]
     fn diagnostic_level_defaults_validates_and_survives_settings_serialization() {
         use shellpilot_server::diagnostics::Level;

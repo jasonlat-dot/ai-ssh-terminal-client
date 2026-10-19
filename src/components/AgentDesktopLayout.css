@@ -119,7 +119,7 @@
 .agent-desktop.agent-collapsed .terminal-dock-heading .terminal-return-chat,
 .agent-desktop .terminal-toolbar .terminal-files-toggle.selected,
 .agent-desktop .terminal-toolbar .terminal-command-toggle.selected,
-.agent-desktop.agent-collapsed .terminal-toolbar .terminal-agent-toggle {
+.agent-desktop .terminal-toolbar .terminal-agent-toggle.selected {
   color: var(--ui-highlight-text); border-color: var(--ui-accent); background: var(--ui-highlight-bg);
 }
 .agent-desktop .terminal-tab-strip { min-width: 0; }

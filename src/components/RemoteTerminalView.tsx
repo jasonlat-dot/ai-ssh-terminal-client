@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { terminalDisconnectMessage } from '../state/remoteTerminal';
@@ -9,6 +10,8 @@ import { copyText, readClipboardText } from '../state/clipboard';
 import { isTauriRuntime } from '../state/runtime';
 import { ClipboardFeedback, useClipboardFeedback } from './ClipboardFeedback';
 import { Icon, IconButton } from './Ui';
+import { TerminalSelectionHint } from './TerminalSelectionHint';
+import { terminalSelectionBounds, terminalSelectionActionPosition } from '../state/terminalSelectionPosition';
 import '@xterm/xterm/css/xterm.css';
 import './TerminalSelection.css';
 
@@ -73,7 +76,8 @@ export function RemoteTerminalView({
   const [localReconnecting, setLocalReconnecting] = useState(false);
   const [pendingAttempt, setPendingAttempt] = useState(0);
   const [hasSelection, setHasSelection] = useState(false);
-  const [selectionAction, setSelectionAction] = useState<{ text: string; x: number; y: number } | null>(null);
+  const [selectionAction, setSelectionAction] = useState<{ text:string;anchor:{left:number;right:number;top:number;bottom:number} }|null>(null);
+  const [selectionActionPosition,setSelectionActionPosition]=useState<{left:number;top:number;fontFamily:string}|null>(null);
   const selectionActionRef = useRef<HTMLDivElement>(null);
   const [pasteFallback, setPasteFallback] = useState(false);
   const [pasteDraft, setPasteDraft] = useState('');
@@ -82,7 +86,7 @@ export function RemoteTerminalView({
   const pasteField = useRef<HTMLTextAreaElement>(null);
   const { feedback, showFeedback, clearFeedback } = useClipboardFeedback();
   const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
-  const copyShortcut = isMac ? '⌘C' : 'Ctrl+Shift+C';
+  const copyShortcut = isMac ? '⌘C' : 'Ctrl+C';
   const pasteShortcut = isMac ? '⌘V' : 'Ctrl+Shift+V';
   const systemPasteShortcut = isMac ? '⌘V' : 'Ctrl+V';
   const visibleRef = useRef(visible);
@@ -116,12 +120,19 @@ export function RemoteTerminalView({
     else showFeedback('未能添加，请查看对话框提示', 'error');
   };
   useEffect(() => { setSelectionAction(null); }, [visible, runtime]);
+  useLayoutEffect(()=>{
+    if(!selectionAction||!selectionActionRef.current)return;
+    const box=selectionActionRef.current.getBoundingClientRect();
+    const position=terminalSelectionActionPosition(selectionAction.anchor,box,{width:window.innerWidth,height:window.innerHeight});
+    const view=element.current?.closest('.remote-terminal-view');
+    setSelectionActionPosition({...position,fontFamily:view?window.getComputedStyle(view).fontFamily:'var(--font-ui)'});
+  },[selectionAction]);
   useEffect(() => {
     if (!selectionAction) return;
     const dismiss = (event: PointerEvent) => { if (!selectionActionRef.current?.contains(event.target as Node)) setSelectionAction(null); };
     const resize = () => setSelectionAction(null);
-    window.addEventListener('pointerdown', dismiss); window.addEventListener('resize', resize);
-    return () => { window.removeEventListener('pointerdown', dismiss); window.removeEventListener('resize', resize); };
+    window.addEventListener('pointerdown', dismiss); window.addEventListener('resize', resize); window.addEventListener('scroll',resize,true);
+    return () => { window.removeEventListener('pointerdown', dismiss); window.removeEventListener('resize', resize); window.removeEventListener('scroll',resize,true); };
   }, [selectionAction]);
 
   const copySelection = async () => {
@@ -224,7 +235,8 @@ export function RemoteTerminalView({
         const key = event.key.toLowerCase();
         const clipboardShortcut = !event.altKey && ((event.ctrlKey && event.shiftKey && !event.metaKey)
           || (event.metaKey && !event.ctrlKey));
-        if (clipboardShortcut && key === 'c') {
+        const selectedCopy = event.ctrlKey && !event.shiftKey && !event.altKey && !event.metaKey && terminal.hasSelection();
+        if (key === 'c' && (clipboardShortcut || selectedCopy)) {
           event.preventDefault();
           if (event.type === 'keydown' && !event.repeat) void copySelection();
           return false;
@@ -240,13 +252,14 @@ export function RemoteTerminalView({
           // Returning false only skips xterm's key translation (e.g. Ctrl+V -> ^V).
           return false;
         }
-        // Plain Ctrl+C always reaches the shell as SIGINT, even with a selection.
+        // With no selection, plain Ctrl+C keeps its normal terminal interrupt.
         return true;
       });
       const selection = terminal.onSelectionChange(() => {
         setHasSelection(terminal.hasSelection());
         setSelectionAction(null);
       });
+      const scroll=terminal.onScroll(()=>setSelectionAction(null));
       const unsubscribe = runtime?.subscribe(
         data => new Promise<void>(resolve => terminal.write(data, () => {
           if (visibleRef.current && !terminal.hasSelection()) terminal.scrollToBottom();
@@ -284,6 +297,7 @@ export function RemoteTerminalView({
         terminalElement.removeEventListener('wheel', zoomWithWheel, { capture: true });
         input.dispose();
         selection.dispose();
+        scroll.dispose();
         unsubscribe();
         terminal.dispose();
         term.current = null;
@@ -384,10 +398,10 @@ export function RemoteTerminalView({
       <div className="remote-terminal-clipboard" aria-label="终端剪贴板">
         <IconButton icon="copy" label={`复制选中文本 · ${copyShortcut}`} disabled={!hasSelection} onClick={() => { void copySelection(); }} />
         <IconButton icon="paste" label={`粘贴 · ${pasteShortcut}`} disabled={unavailable} onClick={() => { void pasteClipboard(); }} />
-        <button type="button" className="terminal-add-to-agent" disabled={!hasSelection || !canAddToAgent}
-          title="将选中文本添加到 Agent 草稿；100 字符及以上显示为文本卡片，不会自动发送"
-          onMouseDown={event => event.preventDefault()} onClick={() => addSelectionToAgent()}><Icon name="bot" size={14} />添加到对话</button>
-        <span className="terminal-shortcut-hint"><span>复制 <kbd>{copyShortcut}</kbd></span><span>粘贴 <kbd>{pasteShortcut}</kbd></span><span>中断 <kbd>Ctrl+C</kbd></span><span className="terminal-font-hint">字号 <kbd>{fontSize}px</kbd><small>Ctrl+滚轮</small></span></span>
+        <TerminalSelectionHint visible={visible} disabled={!hasSelection || !canAddToAgent}
+          description={!canAddToAgent ? '当前对话暂时无法添加内容，请稍后重试。' : !hasSelection ? '先用鼠标选中终端里的文字，再添加到当前对话草稿。' : '将选中的终端文字添加到当前对话草稿。'}
+          onAdd={() => addSelectionToAgent()} />
+        <span className="terminal-shortcut-hint"><span>复制选区 <kbd>{copyShortcut}</kbd></span><span>粘贴 <kbd>{pasteShortcut}</kbd></span><span>无选区中断 <kbd>Ctrl+C</kbd></span><span className="terminal-font-hint">字号 <kbd>{fontSize}px</kbd><small>Ctrl+滚轮</small></span></span>
         {!pasteFallback && <ClipboardFeedback feedback={feedback} />}
         {pasteFallback && <div className="terminal-paste-popover" role="dialog" aria-label="粘贴到终端" onKeyDown={event => {
           if (event.key === 'Escape') { event.stopPropagation(); setPasteFallback(false); setPasteDraft(''); term.current?.focus(); }
@@ -412,22 +426,24 @@ export function RemoteTerminalView({
       <span>{unavailableMessage}</span>
     </div>}
     {!unavailable && error && <div role="alert" className="remote-terminal-error">{error}<button disabled={!connected || !runtime || runtime.closed} onClick={() => { setError(''); runtime?.resume(); }}>重试读取</button></div>}
-    {selectionAction && <div ref={selectionActionRef} className="terminal-selection-action" role="toolbar" aria-label="终端选中文本操作"
-      style={{ left: selectionAction.x, top: selectionAction.y }} onMouseDown={event => event.preventDefault()}>
+    {selectionAction && createPortal(<div ref={selectionActionRef} className="terminal-selection-action" role="toolbar" aria-label="终端选中文本操作"
+      style={selectionActionPosition??{visibility:'hidden'}} onMouseDown={event => event.preventDefault()}>
       <button type="button" disabled={!canAddToAgent} onClick={() => addSelectionToAgent(selectionAction.text)}><Icon name="bot" size={14} />添加到对话</button>
       <button type="button" aria-label="关闭选区操作" onClick={() => setSelectionAction(null)}><Icon name="close" size={12} /></button>
-    </div>}
+    </div>,document.body)}
     <div className="remote-terminal-screen" ref={element} aria-label={local ? '本地 CMD 交互区' : '远程终端交互区'} onClick={() => term.current?.focus()}
       onWheelCapture={() => setSelectionAction(null)}
       onPointerUp={event => {
         if (event.button !== 0) return;
-        const node = event.currentTarget, terminal = term.current, x = event.clientX, y = event.clientY;
+        const node = event.currentTarget, terminal = term.current;
         requestAnimationFrame(() => {
           if (!visibleRef.current || term.current !== terminal || !node.isConnected) return;
           const text = terminal?.getSelection();
-          if (!text?.trim()) { setSelectionAction(null); return; }
-          const rect = node.closest('.remote-terminal-view')!.getBoundingClientRect();
-          setSelectionAction({ text, x: Math.max(6, Math.min(x - rect.left, rect.width - 190)), y: Math.max(6, Math.min(y - rect.top + 8, rect.height - 42)) });
+          const screen=terminal?.element?.querySelector<HTMLElement>('.xterm-screen');
+          if (!terminal||!text?.trim()||!screen) { setSelectionAction(null); return; }
+          const anchor=terminalSelectionBounds(terminal.getSelectionPosition(),terminal.buffer.active.viewportY,terminal.rows,terminal.cols,screen.getBoundingClientRect());
+          setSelectionActionPosition(null);
+          setSelectionAction(anchor?{text,anchor}:null);
         });
       }}
       onPasteCapture={event => {

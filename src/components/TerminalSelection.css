@@ -1,10 +1,28 @@
 .remote-terminal-view { position: relative; }
+.terminal-add-hint-anchor { display:inline-flex; flex-shrink:0; border-radius:5px; }
+.terminal-add-hint-anchor:focus-visible { outline:2px solid var(--ui-accent); outline-offset:2px; }
+.terminal-selection-hint {
+  position:fixed; z-index:var(--ui-popover-layer,60); width:304px; max-width:calc(100vw - 24px);
+  max-height:calc(100dvh - 24px); overflow:auto; box-sizing:border-box; padding:12px 14px;
+  border:1px solid color-mix(in srgb,var(--theme-text-strong) 14%,var(--theme-panel)); border-radius:12px;
+  background:var(--theme-panel); color:var(--theme-text-strong); font-family:var(--font-ui); font-size:13px; line-height:1.6;
+  box-shadow:0 4px 12px color-mix(in srgb,var(--theme-text-strong) 7%,transparent),0 12px 32px var(--theme-shadow);
+  animation:terminal-hint-enter 120ms ease-out;
+}
+.terminal-selection-hint-heading { display:flex; align-items:center; gap:7px; }
+.terminal-selection-hint-heading svg { color:var(--theme-accent-text); flex-shrink:0; }
+.terminal-selection-hint-heading strong { font-size:14px; font-weight:max(600,var(--weight-title,600)); }
+.terminal-selection-hint p { margin:7px 0; overflow-wrap:anywhere; }
+.terminal-selection-hint small { display:block; color:var(--theme-text-muted); font-size:12px; }
+@keyframes terminal-hint-enter { from { opacity:0; } to { opacity:1; } }
+@media (prefers-reduced-motion:reduce) { .terminal-selection-hint { animation:none; } }
 .remote-terminal-clipboard .terminal-add-to-agent {
   display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; padding: 4px 6px;
   border: 1px solid var(--line); border-radius: 5px; font-size: var(--font-small); color: var(--theme-accent-text); background: var(--theme-control);
 }
 .terminal-selection-action {
-  position: absolute; z-index: 5; display: flex; align-items: center; padding: 3px;
+  position: fixed; z-index: var(--ui-popover-layer,60); display: flex; align-items: center; padding: 3px;
+  max-width:calc(100vw - 16px); box-sizing:border-box; font-family:var(--font-ui);
   border: 1px solid var(--line-strong); border-radius: 8px; background: var(--theme-panel);
   box-shadow: 0 4px 16px #152b4826; color: var(--theme-text-strong);
 }

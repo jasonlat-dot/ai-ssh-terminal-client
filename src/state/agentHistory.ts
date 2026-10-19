@@ -38,7 +38,8 @@ export function turnMessages(turns: AgentTurn[]): ChatMessage[] {
       summary: states[turn.state] || undefined,
       segments: toolSegments(turn),
       error: turn.state === 'failed' || turn.state === 'interrupted',
-      errorCode: turn.errorCode ?? undefined },
+      errorCode: turn.errorCode ?? undefined,
+      errorMessage: turn.errorMessage ?? undefined },
   ]);
 }
 /** Bounded full history, never silently show the first page as the entire session. */

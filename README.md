@@ -42,7 +42,7 @@ AIShellTerminal/
 - 图片、UTF-8 文本及可提取文字的 PDF 附件，长对话自动整理与历史恢复。
 - 明暗主题、壁纸与字体设置、紧凑窗口布局、统一操作提示及应用更新。
 
-Responses 当前支持文字和附件输入，尚未开放工具调用。扫描 PDF/OCR、Office 内容解析、旧 Java 数据自动导入及递归子任务不在当前支持范围。SFTP 使用独立连接，终端 `sudo` 不会自动改变文件连接的身份，需要在文件窗口选择访问身份。
+Chat Completions、Claude Messages 与 Responses 支持文字、附件和工具调用；按协议自动保留推理字段或思考签名，历史恢复与上下文整理保留所需的尾部状态。Gemini 使用 OpenAI 兼容入口，供应商能力和入口说明见 [模型设置](docs/agent-model-settings.md)。扫描 PDF/OCR、Office 内容解析、旧 Java 数据自动导入及递归子任务不在当前支持范围。SFTP 使用独立连接，终端 `sudo` 不会自动改变文件连接的身份，需要在文件窗口选择访问身份。
 
 ## SSH 新手指引
 
@@ -149,9 +149,11 @@ SSH 凭据在 Windows 上使用当前用户 DPAPI 加密。客户端常用命令
 
 - 查看实际执行过程：打开对应对话历史，展开工具或子任务卡片、审批与原始输出。
 - 数据排查：SQLite 中的 `agent_chat_turns`、`agent_events`、`agent_outputs` / `agent_output_chunks`、`agent_workflow_events` 等保存不同层面的回合和工具记录；这些不是完整的模型 HTTP 流量日志。
-- 当前桌面宿主尚未将后端 `tracing` 诊断接入文件输出，单独设置 `RUST_LOG` 不能让 `backend.log` 自动出现模型或工具跟踪。
+- 请求日志写入 `logs/agent/YYYY-MM-DD/<traceId>.log`。在“本地工作区 → 诊断日志”切换级别；默认 INFO 包含用户消息与保存后的模型回复，附带连接名、实际模型 ID、状态及 Trace ID。正文在本机明文保存，分享前需脱敏；配置密钥、系统提示词和原始工具输出不额外写入。该目录不由 `RUST_LOG` 控制，`backend.log` 仍仅记录工作区生命周期。
 
 更多位置、查询与限制见 [运行日志与执行记录](docs/runtime-logs.md)。
+
+“诊断日志 → 日志保留时间”默认 7 天，独立保存后立即生效；工作区启动、日志设置保存及运行期间每小时清理过期的请求日志，兼容旧 `.json` / `.jsonl` 文件。新文件使用 `.log` 后缀，仍逐行追加 JSON 对象；数据库、附件和 backend.log 不在该清理范围内。
 
 ## 验证命令
 

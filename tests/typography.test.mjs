@@ -3,13 +3,14 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
 import ts from 'typescript';
+import { loadToastErrorHooks } from './helpers/toast-errors.mjs';
 
 const source = path => readFileSync(new URL(`../src/${path}`, import.meta.url), 'utf8');
 function load(path, requireModule = () => { throw new Error('Unexpected import'); }, globals = {}) {
   const compiled = ts.transpileModule(source(path), { compilerOptions: {
     module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX,
   } }).outputText;
-  const context = vm.createContext({ exports: {}, require: name => name.endsWith('/notifications') ? { notify() {} } : requireModule(name), ...globals });
+  const context = vm.createContext({ exports: {}, require: name => name.endsWith('/notifications') ? { notify: globals.notify ?? (() => {}) } : requireModule(name), ...globals });
   vm.runInContext(`(function(exports, require) {${compiled}\n})(exports, require);`, context);
   return { api: context.exports, context, compiled };
 }
@@ -110,7 +111,7 @@ test('根订阅只写字体专用属性；跨窗口存储同步，卸载删除�
 });
 
 function controls() {
-  const env = environment(), instances = new Map(); let current, tree;
+  const env = environment(), instances = new Map(), notices = []; let current, tree;
   const node = (type, props, key) => {
     if (typeof type !== 'function') return { type, props: props ?? {} };
     const previous = current, id = `${type.name}:${key ?? props?.role ?? ''}`;
@@ -128,13 +129,14 @@ function controls() {
   };
   const { api } = load('components/TypographySettings.tsx', name => {
     if (name === 'react') return hooks;
+    if (name === '../state/useToastError') return loadToastErrorHooks(hooks, message => notices.push(message));
     if (name === 'react/jsx-runtime') return { jsx: node, jsxs: node };
     if (name === './Ui') return { Icon: () => node('svg'), AccentIcon: () => node('svg'), Badge: props => node('span', props) };
     if (name === './Select') return { Select: props => node('font-select', props) };
     if (name === '../state/clientTypography') return env.api;
     if (name === '../state/useClientTypography') return { useClientTypography: env.api.readClientTypography };
     throw new Error(name);
-  });
+  }, { notify: message => notices.push(message) });
   function render() { tree = node(api.TypographySettings, {}); return tree; }
   function find(predicate, candidate) {
     if (arguments.length === 1) candidate = tree;

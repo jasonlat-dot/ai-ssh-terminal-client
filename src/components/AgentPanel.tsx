@@ -21,11 +21,11 @@ import { ComposerReasoningControl } from './ComposerReasoningControl';
 import { ChatAttachmentDraft, chatAttachmentPolicy, isLongChatText, pastedFiles, insertPastedText, validateChatContent } from '../state/chatAttachments';
 import { DraftAttachments, MessageAttachments } from './ChatAttachments';
 import { type NativeAttachmentProgress, pickNativeAttachments, pasteNativeAttachments } from '../api/files';
-import { chatErrorGuidance } from '../api/chatErrors';
+import { ChatFailure } from './ChatFailure';
 import { AgentExecution, ExecutionContext, NativeToolOutput, type ExecutionScope } from './AgentExecution';
 import { agentToMarkdown, messageToMarkdown, toolToMarkdown } from '../state/chatMarkdown';
 import { messageTime } from '../state/messageTime';
-import { transcriptBlocks, activitySummary, type ActivitySegment } from '../state/agentTranscript';
+import { transcriptBlocks, activitySummary, isVisibleToolActivity, type ActivitySegment } from '../state/agentTranscript';
 
 function AgentAvatar({ compact = false }: { compact?: boolean }) {
   return <span className={`agent-avatar ${compact ? 'compact' : ''}`}><img src={agentRobotAvatar} alt="Agent 机器人" /></span>;
@@ -39,10 +39,12 @@ function MessageTime({ timestamp, now, hint }: { timestamp?: number; now: number
 }
 
 function ToolActivity({ tool, copyable }: { tool: ChatToolActivity; copyable: boolean }) {
-  const label = tool.status === 'running' ? '运行中'
+  if (!isVisibleToolActivity(tool)) return null;
+  const outputRead = tool.name === 'read_tool_output';
+  const label = outputRead ? (tool.status === 'error' ? '读取失败' : '读取状态未知') : tool.status === 'running' ? '运行中'
     : tool.status === 'success' ? '已运行'
       : tool.status === 'error' ? '运行失败' : '结果未知';
-  const title = tool.name === 'executeCommand' || tool.name === 'ssh_execute' ? '执行命令' : tool.name === 'read_tool_output' ? '回查工具输出' : ({list_skills:'发现 Skills',read_skill:'读取 Skill',list_mcp_tools:'发现 MCP 工具',call_mcp_tool:'调用 MCP 工具',update_plan:'更新任务计划',delegate_agent:'委派子任务'} as Record<string,string>)[tool.name] ?? tool.name;
+  const title = tool.name === 'executeCommand' || tool.name === 'ssh_execute' ? '执行命令' : outputRead ? '读取工具输出' : ({list_skills:'发现 Skills',read_skill:'读取 Skill',list_mcp_tools:'发现 MCP 工具',call_mcp_tool:'调用 MCP 工具',update_plan:'更新任务计划',delegate_agent:'委派子任务'} as Record<string,string>)[tool.name] ?? tool.name;
   const header = <>
     <Icon name="terminal" size={14} />
     <span className="tool-run-label">{label}</span>
@@ -52,6 +54,7 @@ function ToolActivity({ tool, copyable }: { tool: ChatToolActivity; copyable: bo
 
   return <details className={`tool-activity ${tool.status}`} aria-label={`${title}：${label}`}>
     <summary>{header}</summary>
+    {outputRead && <p className="tool-empty-result" role="status">{tool.status === 'error' ? '工具输出未能完整读取，分析结果可能不完整。' : '无法确认工具输出是否读取完整，分析结果可能不完整。'}</p>}
     <div className="tool-terminal-body"><div className="tool-terminal-heading"><span>{title === '执行命令' ? 'Shell' : title}</span>{copyable&&tool.command&&<CopyTextButton getText={()=>tool.command!} label="复制命令" iconOnly/>}</div>
     {tool.command&&<pre className="tool-full-command" tabIndex={0}>$ {tool.command}</pre>}
     {tool.output ? <NativeToolOutput output={tool.output}/> : <p className="tool-empty-result">{tool.status==='running'?'等待命令输出与退出状态…':'工具没有返回文本。'}</p>}
@@ -75,6 +78,8 @@ function messageRailPreview(message: ChatMessage, messages: ChatMessage[], index
 }
 
 function ActivityTranscript({activities,copyable}:{activities:ActivitySegment[];copyable:boolean}) {
+  activities=activities.filter(item=>item.type!=='tool'||isVisibleToolActivity(item.tool));
+  if(!activities.length)return null;
   const hasRunning=activities.some(item=>(item.type==='tool'?item.tool:item.agent).status==='running');
   const hasIssue=activities.some(item=>['error','unknown'].includes((item.type==='tool'?item.tool:item.agent).status));
   return <details className={`activity-transcript${hasRunning?' is-running':''}${hasIssue?' has-issue':''}`}>
@@ -144,8 +149,8 @@ function ReplyLoading({ message, stopping, compacting = false }: { message?: Cha
     return () => window.clearInterval(timer);
   }, [startedAt]);
   const activeAgent = message?.segments?.some(segment => segment.type === 'agent' && segment.agent.status === 'running');
-  const activeTool = message?.tools?.some(tool => tool.status === 'running')
-    || message?.segments?.some(segment => segment.type === 'tool' && segment.tool.status === 'running');
+  const activeTool = message?.tools?.some(tool => tool.status === 'running' && isVisibleToolActivity(tool))
+    || message?.segments?.some(segment => segment.type === 'tool' && segment.tool.status === 'running' && isVisibleToolActivity(segment.tool));
   const hasText = Boolean(message?.text.trim() || message?.segments?.some(segment => segment.type === 'text' && segment.text.trim()));
   const label = stopping ? '正在停止…' : activeAgent ? '智能体正在协作' : activeTool ? '正在执行工具' : hasText ? '正在生成回复' : '';
   if (compacting) {
@@ -204,7 +209,7 @@ export function AgentPanel({ ref, memoryScope, onMemoryNotice, sshConnections, c
   messages: ChatMessage[];
   busy: boolean;
   stopping: boolean;
-  send: (text: string, attachments: ChatAttachment[]) => Promise<boolean>;
+  send: (text: string, attachments: ChatAttachment[], placed?:()=>void) => Promise<boolean>;
   steer?: (id:string,text:string,expectedRequestId:string)=>Promise<void>;
   stop: () => void;
   clear: () => void;
@@ -374,11 +379,12 @@ export function AgentPanel({ ref, memoryScope, onMemoryNotice, sshConnections, c
     if(!item)return;
     sendingRef.current=true;setSending(true);
     setQueue(previous=>previous.filter(value=>value.id!==item.id));
-    void send(item.text,item.files).then(success=>{
+    let placed=false;
+    void send(item.text,item.files,()=>{placed=true;}).then(success=>{
       if(scopeRef.current!==item.scope)return;
-      if(!success){setQueuePaused(true);setQueue(previous=>[{...item,state:'failed',error:'本次发送未完成，请查看对话记录后再决定是否重新发送。'},...previous]);}
+      if(!success){setQueuePaused(true);if(!placed)setQueue(previous=>[{...item,state:'failed',error:'尚未发送，请检查模型和连接后再提交。'},...previous]);}
     }).catch(error=>{
-      if(scopeRef.current===item.scope){setQueuePaused(true);setQueue(previous=>[{...item,state:'failed',error:error instanceof Error?error.message:'发送失败'},...previous]);}
+      if(scopeRef.current===item.scope){setQueuePaused(true);if(!placed)setQueue(previous=>[{...item,state:'failed',error:error instanceof Error?error.message:'发送失败'},...previous]);}
     }).finally(()=>{if(scopeRef.current===item.scope){sendingRef.current=false;setSending(false);}});
   },[queue,busy,stopping,sending,disabled,recoveredRunning,agentAvailability.ready,queuePaused,draftScope,send]);
 
@@ -656,7 +662,7 @@ export function AgentPanel({ ref, memoryScope, onMemoryNotice, sshConnections, c
               catch (error) { setAttachmentError((error as Error).message); }
             }}><Icon name="edit" size={14}/></button><CopyMarkdownButton getText={() => messageToMarkdown(message)} label="复制消息" iconOnly hint={{...tooltipEvents(`copy-message:${message.id}`,'复制消息',false),onActivate:()=>closeActionTooltip()}} /></div>
           </div>
-          : <div className={`assistant-message ${message.error ? 'error' : ''} ${(busy || stopping) && index === messages.length - 1 ? 'active' : ''}${highlightedMessageId === message.id ? ' chat-message-jump-highlight' : ''}`} key={message.id} ref={node => { if (node) messageRefs.current.set(message.id, node); else messageRefs.current.delete(message.id); }}>
+          : <div className={`assistant-message ${message.error ? 'is-failed' : ''} ${(busy || stopping) && index === messages.length - 1 ? 'active' : ''}${highlightedMessageId === message.id ? ' chat-message-jump-highlight' : ''}`} key={message.id} ref={node => { if (node) messageRefs.current.set(message.id, node); else messageRefs.current.delete(message.id); }}>
             <div className="assistant-main">
               {message.segments
                 ? transcriptBlocks(message.segments).map(segment => segment.type === 'text'
@@ -665,11 +671,17 @@ export function AgentPanel({ ref, memoryScope, onMemoryNotice, sshConnections, c
                 : <>
                   {(message.text || message.summary) && <div className="assistant-content">
                     {message.text && <MarkdownMessage streaming={(busy || stopping) && index === messages.length - 1}>{message.text}</MarkdownMessage>}
-                    {message.summary && <MarkdownMessage streaming={(busy || stopping) && index === messages.length - 1}>{message.summary}</MarkdownMessage>}
+                    {message.summary && !message.error && <MarkdownMessage streaming={(busy || stopping) && index === messages.length - 1}>{message.summary}</MarkdownMessage>}
                   </div>}
                   {message.tools?.length ? <ActivityTranscript activities={message.tools.map(tool=>({id:tool.id,type:'tool',tool}))} copyable={!((busy || stopping) && index === messages.length - 1)}/> : null}
                 </>}
-              {message.error && <p className="chat-error-guidance">{chatErrorGuidance(message.errorCode)}</p>}
+              {message.error && <ChatFailure message={message} traceId={models?message.id:undefined} disabled={locked} restore={()=>{
+                const request=messages.find(item=>item.id===`${message.id}:user`)??messages.slice(0,index).reverse().find(item=>item.role==='user');
+                if(!request)return;
+                if(draft.trim()||attachments.length){setAttachmentError('请先处理当前草稿，再恢复这条请求。');return;}
+                try{chatDraft.attach(request.attachments??[]);setDraft(request.text);textareaRef.current?.focus();}
+                catch(error){setAttachmentError((error as Error).message);}
+              }}/>}
               {(busy || stopping) && index === messages.length - 1
                 ? <ReplyLoading message={message} stopping={stopping} compacting={contextStatus?.phase === 'running' && contextStatus.requestId === message.id} />
                 : <div className="message-copy-actions chat-message-meta response"><CopyMarkdownButton getText={() => messageToMarkdown(message)} label="复制回复" iconOnly hint={{...tooltipEvents(`copy-reply:${message.id}`,'复制回复',false),onActivate:()=>closeActionTooltip()}} /><MessageTime timestamp={message.timestamp} now={messageNow} hint={text=>tooltipEvents(`message-time:${message.id}`,text,false)}/></div>}

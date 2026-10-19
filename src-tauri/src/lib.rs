@@ -8,6 +8,7 @@ mod client_update;
 mod command_store;
 mod data_migration;
 mod local_terminal;
+mod request_logs;
 mod sftp;
 mod sftp_commands;
 mod tray;
@@ -72,6 +73,7 @@ pub fn run() {
             bundled_backend::bundled_backend_restart,
             bundled_backend::bundled_backend_stop,
             bundled_backend::bundled_backend_config,
+            bundled_backend::bundled_backend_reveal_request_log,
             bundled_backend::bundled_backend_save_config,
             bundled_backend::bundled_backend_get_auto_start,
             bundled_backend::bundled_backend_set_auto_start,

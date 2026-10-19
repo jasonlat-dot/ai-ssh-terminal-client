@@ -44,6 +44,7 @@ export function RustBackendSettingsDialog({required=false,onClose,onSave,beforeC
   const [retention,setRetention]=useState('0');
   const [busy,setBusy]=useState(false);
   const [logLevel,setLogLevel]=useState<DiagnosticLogLevel>('info');
+  const [logRetention,setLogRetention]=useState(7);
   const [, setError] = useToastError();
   useEffect(()=>{if(section)setTab(section);},[section]);
   useEffect(()=>{if(showUpdates)setTab('updates');},[showUpdates]);
@@ -55,6 +56,7 @@ export function RustBackendSettingsDialog({required=false,onClose,onSave,beforeC
         if(!active)return;
         setConfig(view);
         setLogLevel((view?.values.logLevel?.value as DiagnosticLogLevel)??'info');
+        setLogRetention(Number(view?.values.logRetentionDays?.value??7));
         setDirectory(view?.values.dataDirectory?.value??'');setAutoStart(start??true);
         setFilesEnabled(view?.values.fileStorageEnabled?.value!=='false');
         setCapacity(view?.values.maxStorageMiB?.value??'1024');setRetention(view?.values.fileRetentionDays?.value??'0');
@@ -92,6 +94,17 @@ export function RustBackendSettingsDialog({required=false,onClose,onSave,beforeC
       if(!next)throw new Error('当前环境无法保存日志设置。');
       setConfig(next);setLogLevel(level);
       notify(`日志级别已设为 ${level.toUpperCase()}，立即生效。`,'success');
+    }catch(cause){setError(cause instanceof Error?cause.message:'日志设置保存失败。');}
+    finally{setBusy(false);}
+  };
+  const changeLogRetention=async(days:number)=>{
+    if(busy||days===logRetention)return;
+    setBusy(true);
+    try {
+      const next=await saveBundledBackendConfig({values:{logRetentionDays:String(days)}});
+      if(!next)throw new Error('当前环境无法保存日志设置。');
+      setConfig(next);setLogRetention(days);
+      notify(`日志保留时间已设为 ${days} 天，立即生效。`,'success');
     }catch(cause){setError(cause instanceof Error?cause.message:'日志设置保存失败。');}
     finally{setBusy(false);}
   };
@@ -159,8 +172,11 @@ export function RustBackendSettingsDialog({required=false,onClose,onSave,beforeC
                 <div className="workspace-preference-row"><div><strong>日志级别</strong><small>记录所选级别及更严重的事件，自动保存并立即生效。</small></div>
                   <Select<DiagnosticLogLevel> id="workspace-log-level" label="诊断日志级别" value={logLevel} disabled={busy} options={[{value:'debug',label:'DEBUG · 调试详情'},{value:'info',label:'INFO · 常规过程'},{value:'warn',label:'WARN · 警告与错误'},{value:'error',label:'ERROR · 仅错误'}]} onChange={level=>void changeLogLevel(level)}/>
                 </div>
+                <div className="workspace-preference-row"><div><strong>日志保留时间</strong><small>默认 7 天，按本地日期清理过期请求日志；保存后立即生效。</small></div>
+                  <Select<number> id="workspace-log-retention" label="日志保留时间" value={logRetention} disabled={busy} options={[1,3,7,14,30,90,365].map(days=>({value:days,label:`${days} 天`}))} onChange={days=>void changeLogRetention(days)}/>
+                </div>
                 <div className="workspace-log-location"><code>{config.traceLogDirectory??`${config.logDirectory}/agent`}</code><button type="button" className="ghost-button" onClick={()=>void openPath(config.traceLogDirectory??`${config.logDirectory}/agent`).catch(cause=>setError(String(cause)))}><Icon name="folder" size={14}/>打开日志目录</button></div>
-                <p className="workspace-diagnostics-note">同一次发送到回复结束共用一个 Trace ID，包含模型请求、工具审批和执行结果；DEBUG 增加请求结构与耗时，不保存密钥或原始消息正文。</p>
+                <p className="workspace-diagnostics-note">INFO 记录用户消息与模型回复，并标明连接名、模型和 Trace ID；DEBUG 增加请求结构与耗时。不记录配置密钥；对话正文会明文保存在本机日志中。</p>
               </section>
             </div>
             <footer className="workspace-preferences-save"><span><Icon name="alert" size={14}/>目录与附件设置在重新初始化后生效；重新初始化会断开当前连接。</span><button type="submit" className="primary-button" disabled={busy}>{busy?'处理中…':'保存设置'}</button></footer>

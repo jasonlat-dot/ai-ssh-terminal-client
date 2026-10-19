@@ -124,7 +124,7 @@ test('切回 Chat Completions 清除远端能力，锁定时协议和能力不�
   assert.equal(ui.find(node=>node.type==='input'&&node.props.id==='model-path').props.value,'chat/completions');
   ui.find(node=>node.type==='form').props.onSubmit({preventDefault(){}});await ui.settle();
   assert.equal(ui.saved[0][2].remoteCompaction,false);
-  assert.match(chatErrorGuidance('MODEL_CONTEXT_BINDING_CHANGED'),/新建会话/);
+  assert.match(chatErrorGuidance('MODEL_CONTEXT_BINDING_CHANGED'),/当前对话中切换模型/);
   assert.match(chatErrorGuidance('MODEL_RESPONSES_UNSUPPORTED'),/供应商/);
 });
 

@@ -61,3 +61,23 @@ test('原生日志目录打开权限仅限定到应用诊断目录',()=>{
   const permission=capability.permissions.find(value=>value.identifier==='opener:allow-open-path');
   assert.deepEqual(permission.allow,[{path:'$APPLOCALDATA/logs/agent'}]);
 });
+
+test('日志默认保留七天，单独保存并保留数据目录草稿',async()=>{
+  const h=harness();await h.settle();
+  const retention=()=>h.find(node=>node.props.id==='workspace-log-retention');
+  assert.equal(retention().props.value,7);
+  h.find(node=>node.props.id==='workspace-data-directory').props.onChange({target:{value:'D:/unsaved'}});h.render();
+  retention().props.onChange(14);await h.settle();
+  assert.equal(retention().props.value,14);
+  assert.deepEqual(JSON.parse(JSON.stringify(h.saved[0])),{values:{logRetentionDays:'14'}});
+  assert.equal(h.restarted,0);
+  assert.equal(h.find(node=>node.props.id==='workspace-data-directory').props.value,'D:/unsaved');
+});
+
+test('日志保留时间保存失败时恢复原值并允许重试',async()=>{
+  const h=harness(true);await h.settle();
+  h.find(node=>node.props.id==='workspace-log-retention').props.onChange(30);await h.settle();
+  const field=h.find(node=>node.props.id==='workspace-log-retention');
+  assert.equal(field.props.value,7);assert.equal(field.props.disabled,false);
+  assert.equal(h.notices.at(-1).type,'error');
+});

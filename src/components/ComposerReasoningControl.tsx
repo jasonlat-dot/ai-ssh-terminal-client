@@ -70,10 +70,10 @@ export function ComposerReasoningControl({ modelId, revision, disabled, onSaving
   const supportsReasoning = !profile || modelProtocols[profile.config.provider].reasoning;
   const effort = profile?.config.reasoningEffort ?? '';
   const label = options.find(option => option.value === effort)?.label ?? '默认';
-  return <div className="composer-reasoning-control" title={supportsReasoning ? '推理强度保存到当前模型，用于后续请求；仅选择供应商支持的档位' : '此协议使用常规模式，不发送 OpenAI 推理强度参数'}>
+  return <div className="composer-reasoning-control" title={supportsReasoning ? '推理强度保存到当前模型，用于后续请求；仅选择供应商支持的档位' : '思考模式沿用供应商默认；自动保留并回传思考签名，不发送 OpenAI 推理强度参数'}>
     {!loading && !profile && modelId ? <button type="button" className="composer-reasoning-retry" disabled={disabled} onClick={() => setReload(value => value + 1)}><Icon name="refresh" size={13} />重试推理设置</button>
       : <Select label="推理强度" className="composer-reasoning-trigger" value={effort} options={options}
-        displayValue={saving ? '保存中…' : loading ? '推理 · 读取中' : !supportsReasoning ? '常规模式' : `推理 · ${label}`} disabled={disabled || loading || saving || !profile || !supportsReasoning}
+        displayValue={saving ? '保存中…' : loading ? '推理 · 读取中' : !supportsReasoning ? '供应商默认' : `推理 · ${label}`} disabled={disabled || loading || saving || !profile || !supportsReasoning}
         menuMinWidth={220} menuAlign="end" menuClassName="composer-reasoning-menu" onChange={value => { void choose(value); }} />}
   </div>;
 }

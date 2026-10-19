@@ -132,6 +132,15 @@ test('多个 SSH 页签按下后由外层捕获指针，未拖动松手也能切
   assert.deepEqual(ui.selected, ['b', 'c', 'a', 'b']);
 });
 
+test('Agent toggle selected class and accessibility state follow whether the conversation is open',()=>{
+ const ui=workspace();ui.props.agentCollapsed=false;let toggles=0;
+ ui.props.toggleAgent=()=>{toggles++;ui.props.agentCollapsed=!ui.props.agentCollapsed;};
+ const button=()=>ui.all().find(node=>node.props.className?.includes('terminal-agent-toggle'));
+ ui.render();assert.match(button().props.className,/\bselected\b/);assert.equal(button().props['aria-pressed'],true);assert.equal(button().props['aria-expanded'],true);
+ button().props.onClick();ui.render();assert.doesNotMatch(button().props.className,/\bselected\b/);assert.equal(button().props['aria-pressed'],false);assert.equal(button().props['aria-expanded'],false);
+ button().props.onClick();ui.render();assert.match(button().props.className,/\bselected\b/);assert.equal(toggles,2);
+});
+
 test('Agent binding badge appears on exactly one native terminal even when profiles match',()=>{
  const w=workspace();w.props.sessions=[
   {id:'a',title:'同一服务器',kind:'ssh',connectionId:'shared',terminalSessionId:'native-a',connected:true},

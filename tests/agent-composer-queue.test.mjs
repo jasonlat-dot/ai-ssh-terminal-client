@@ -3,17 +3,19 @@ import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
 import test from 'node:test';
 import ts from 'typescript';
+import {loadToastErrorHooks} from './helpers/toast-errors.mjs';
 
 const output=ts.transpileModule(readFileSync(new URL('../src/components/AgentPanel.tsx',import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText;
 function all(node){if(Array.isArray(node))return node.flatMap(all);return node?.props?[node,...all(node.props.children)]:[];}
 const leaf=()=>null;
 function panel(picker=async()=>{},paste=async()=>null){
-  const slots=[],effects=[],timers=new Map(),listeners=new Map();let clock=0,timerId=0;let cursor=0;const requests=[],steers=[];let finish;
+  const slots=[],effects=[],notices=[],timers=new Map(),listeners=new Map();let clock=0,timerId=0;let cursor=0;const requests=[],steers=[];let finish;
   const hooks={useState(initial){const i=cursor++;if(!(i in slots))slots[i]=typeof initial==='function'?initial():initial;return[slots[i],value=>{slots[i]=typeof value==='function'?value(slots[i]):value;}];},useRef(initial){const i=cursor++;return slots[i]??(slots[i]={current:initial});},useEffect(effect,deps){const i=cursor++;if(!slots[i]||deps.some((value,j)=>value!==slots[i][j])){slots[i]=deps;effects.push(effect);}},useLayoutEffect(effect,deps){hooks.useEffect(effect,deps);},useImperativeHandle(){},useSyncExternalStore(_subscribe,get){return get();}};
   const context=vm.createContext({exports:{},crypto,Date,Error,Set,Map,Promise,document:{body:{},activeElement:null},window:{addEventListener(name,fn){if(!listeners.has(name))listeners.set(name,new Set());listeners.get(name).add(fn);},removeEventListener(name,fn){listeners.get(name)?.delete(fn);},setTimeout(fn,ms){const id=++timerId;timers.set(id,{fn,at:clock+ms});return id;},clearTimeout(id){timers.delete(id);}},requestAnimationFrame:fn=>fn(),require(name){
     if(name==='../api/files')return{pickNativeAttachments:picker,pasteNativeAttachments:paste};
     if(name==='react-dom')return{createPortal:node=>node};
     if(name==='react')return hooks;
+    if(name==='../state/useToastError')return loadToastErrorHooks(hooks,message=>notices.push(message));
     if(name==='react/jsx-runtime')return{jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props})};
     if(name==='./Ui')return{Icon:leaf,Badge:leaf,AccentIcon:leaf};
     if(name==='./AgentExecution')return{AgentExecution:leaf,ExecutionContext:{Provider:leaf}};
@@ -28,7 +30,7 @@ function panel(picker=async()=>{},paste=async()=>null){
   const type=text=>find(n=>n.type==='textarea').props.onChange({target:{value:text}});
   const submit=()=>find(n=>n.type==='form').props.onSubmit({preventDefault(){}});
   render();render();
-  return{props,requests,steers,render,find,type,submit,finish:success=>finish(success),advance(ms){clock+=ms;for(const [id,timer] of [...timers])if(timer.at<=clock){timers.delete(id);timer.fn();}},dispatch(name,event){for(const fn of listeners.get(name)??[])fn(event);}};
+  return{props,requests,steers,notices,render,find,type,submit,finish:success=>finish(success),advance(ms){clock+=ms;for(const [id,timer] of [...timers])if(timer.at<=clock){timers.delete(id);timer.fn();}},dispatch(name,event){for(const fn of listeners.get(name)??[])fn(event);}};
 }
 test('Sending clears immediately, keeps editing enabled, and a busy follow-up enters the queue',async()=>{
   const p=panel();p.type('first');p.render();p.submit();p.render();p.render();
@@ -110,7 +112,7 @@ test('Failed project selection keeps text and unlocks the selector for retry',as
  await new Promise(setImmediate);p.render();p.render();
  assert.equal(p.find(n=>n.type==='textarea').props.value,'保留此草稿');
  assert.equal(p.find(n=>Array.isArray(n.props.projects)&&typeof n.props.onChange==='function').props.disabled,false);
- assert.equal(p.find(n=>n.props.className==='composer-attachment-error').props.children,'连接失败');
+ assert.equal(p.notices.at(-1),'连接失败');
  fail=false;p.find(n=>Array.isArray(n.props.projects)&&typeof n.props.onChange==='function').props.onChange(project.id);await new Promise(setImmediate);p.render();p.render();
  assert.equal(calls,2);assert.equal(p.find(n=>n.props.className==='composer-attachment-error'),undefined);
 });
@@ -175,4 +177,25 @@ test('Escape and scope changes cancel pending hints; keyboard focus shows its hi
  let button=p.find(n=>n.props['aria-label']==='添加附件');button.props.onMouseEnter({currentTarget:anchor});p.dispatch('keydown',{key:'Escape'});p.advance(400);p.render();assert.equal(p.find(n=>n.props.role==='tooltip'),undefined);
  button=p.find(n=>n.props['aria-label']==='添加附件');button.props.onMouseEnter({currentTarget:anchor});p.props.draftScope=2;p.render();p.advance(400);p.render();assert.equal(p.find(n=>n.props.role==='tooltip'),undefined);
  button=p.find(n=>n.props['aria-label']==='添加附件');button.props.onFocus({currentTarget:anchor});p.render();assert.equal(p.find(n=>n.props.role==='tooltip').props.children,'添加文件等内容');button.props.onBlur();p.render();assert.equal(p.find(n=>n.props.role==='tooltip'),undefined);
+});
+
+
+test('A failed turn already placed in the conversation never returns to the composer queue',async()=>{
+ const p=panel();let finish;
+ p.props.send=async(text,_files,placed)=>{p.requests.push(text);placed();return await new Promise(resolve=>{finish=resolve;});};
+ p.type('inspect cpu');p.render();p.submit();p.render();p.render();
+ p.props.messages=[{id:'request:user',role:'user',text:'inspect cpu'},{id:'request',role:'assistant',text:'partial',error:true,errorCode:'MODEL_HTTP_ERROR',errorMessage:'HTTP 400'}];
+ finish(false);await new Promise(setImmediate);p.render();p.render();
+ assert.equal(p.requests.length,1);
+ assert.equal(p.find(n=>n.props['aria-label']==='待发送消息'),undefined);
+ assert.ok(p.find(n=>n.props.message?.error&&typeof n.props.restore==='function'));
+ assert.equal(p.find(n=>n.type==='textarea').props.value,'');
+});
+
+test('A request rejected before placement retains its draft and pauses the remaining queue',async()=>{
+ const p=panel();p.props.send=async()=>false;
+ p.type('not yet accepted');p.render();p.submit();p.render();await new Promise(setImmediate);p.render();
+ assert.ok(p.find(n=>n.props.className==='composer-queue-item is-failed'));
+ p.find(n=>n.props['aria-label']==='编辑排队消息').props.onClick();p.render();
+ assert.equal(p.find(n=>n.type==='textarea').props.value,'not yet accepted');
 });

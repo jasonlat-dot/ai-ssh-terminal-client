@@ -279,6 +279,9 @@ pub async fn dispatch(
                 .await
                 .map_err(agent_error)?,
         ),
+        ("POST", "agent/change_model") => value(services.agent.change_model(
+            text(&body,"userId")?.into(), text(&body,"sessionId")?.into(), text(&body,"agentId")?.into(), text(&body,"modelId")?.into(), body["revision"].as_u64().ok_or_else(||Error::invalid("revision is required"))?
+        ).await.map_err(agent_error)?),
         ("POST", "agent/rename_chat") => {
             services
                 .agent
@@ -834,7 +837,8 @@ async fn agent_stream_mode(
 ) -> Result<()> {
     let trace=services.store.diagnostics.trace(&request.request_id,&request.session_id,&request.agent_id);
     let fields=json!({"entry":"desktop_ipc","messageBytes":request.message.len(),"attachmentCount":request.attachments.len(),"executionEnabled":execution_enabled});
-    trace.request(fields,agent_stream_mode_inner(services,request,subscription,execution_enabled,send)).await
+    // Keep the instrumented chat state machine off the Windows IPC thread stack.
+    trace.request(fields,Box::pin(agent_stream_mode_inner(services,request,subscription,execution_enabled,send))).await
 }
 impl shellpilot_server::diagnostics::Failure for Error {
     fn diagnostic_code(&self)->&str {&self.code}

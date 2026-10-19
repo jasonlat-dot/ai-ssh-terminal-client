@@ -818,9 +818,6 @@
   background: #f7faff;
 }
 .tool-activity summary { min-height: 38px; padding: 8px 10px; }
-.tool-activity.running { border-color: #c9def6; background: #f3f8ff; }
-.tool-activity.success { border-color: #bfe4d9; background: #f3fbf8; }
-.tool-activity.error { border-color: #efc9ce; background: #fff7f8; }
 .assistant-message.active .assistant-content { border-color: #c9dcf3; }
 .assistant-main { display: flex; flex: 1; flex-direction: column; gap: 9px; min-width: 0; }
 .assistant-main > .tool-activities { margin: 0; }
@@ -1834,7 +1831,6 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.985); }
 :root[data-theme='dark'] .file-explorer-title strong,
 :root[data-theme='dark'] .file-source-heading strong { color: var(--text); }
 :root[data-theme='dark'] .user-message { color: #d9f5ed; background: #17443b; border-color: #2d695c; }
-:root[data-theme='dark'] .tool-activity,
 :root[data-theme='dark'] .agent-activity,
 :root[data-theme='dark'] .agent-activity-thought { color: var(--muted); background: #111c2b; border-color: var(--line); }
 :root[data-theme='dark'] .file-explorer-mark { color: #8dc2ff; background: #213b57; }
@@ -1947,7 +1943,6 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.985); }
 .agent-activity,
 .agent-activity-thought,
 .agent-history-item { color: var(--theme-text-muted); background: var(--theme-panel-soft); border-color: var(--line); box-shadow: 0 8px 22px var(--theme-shadow); }
-.tool-activity.running,
 .agent-activity.running,
 .markdown-body blockquote,
 .markdown-body th,

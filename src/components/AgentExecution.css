@@ -93,22 +93,29 @@
 .execution-console-heading { justify-content:space-between; padding:8px 12px 0; }
 .execution-console pre { margin:0; padding:8px 12px 12px; background:transparent; font-size:12px; line-height:1.8; scrollbar-width:thin; }
 .agent-execution summary::-webkit-details-marker { display:none; }
-.agent-execution summary:focus-visible, .conversation-card .tool-activity summary:focus-visible { outline:2px solid var(--ui-accent); outline-offset:2px; border-radius:6px; }
+.agent-execution summary:focus-visible { outline:2px solid var(--ui-accent); outline-offset:2px; border-radius:6px; }
+.conversation-card .tool-activity > summary:focus-visible { outline:1px solid #808080; outline-offset:2px; border-radius:4px; }
+.conversation-card .tool-activity > summary:focus:not(:focus-visible) { outline:none; box-shadow:none; }
 .conversation-card .tool-activity { border:0; border-radius:0; background:transparent; box-shadow:none; color:var(--theme-text-muted); overflow:visible; }
-.conversation-card .tool-activity > summary { display:flex; gap:7px; min-height:28px; padding:5px 0; font-size:12px; }
+.conversation-card .tool-activity > summary { display:flex; gap:6px; min-height:24px; padding:2px 0; font-size:13px; line-height:1.5; transition:color 160ms ease; }
 .conversation-card .tool-activity > summary:hover { color:var(--theme-text-strong); }
 .conversation-card .tool-activity .tool-run-label { flex:0 0 auto; }
 .conversation-card .tool-activity .tool-identity { flex:1; display:block; min-width:0; }
 .conversation-card .tool-activity .tool-identity code { display:block; padding:0; border:0; border-radius:0; background:transparent; color:inherit; font:inherit; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .conversation-card .tool-activity .tool-disclosure { flex-shrink:0; transition:transform .16s; }
 .conversation-card .tool-activity[open] > summary .tool-disclosure { transform:rotate(180deg); }
-.conversation-card .tool-terminal-body { padding:10px 12px; margin:4px 0 10px; border-radius:12px; background:var(--theme-control); }
+.conversation-card .tool-terminal-body { padding:8px 10px; margin:4px 0 8px; border:1px solid color-mix(in srgb,#808080 24%,transparent); border-radius:10px; background:color-mix(in srgb,var(--theme-panel) 90%,#808080); }
+.conversation-card .tool-terminal-body .execution-console { margin-top:6px; border-radius:0; background:transparent; }
+.conversation-card .tool-terminal-body .execution-console-heading { padding:0; min-height:22px; }
+.conversation-card .tool-terminal-body .execution-console pre { padding:4px 0; }
+.conversation-card .tool-terminal-body .execution-result-status { padding:3px 0; }
 .tool-terminal-heading { display:flex; align-items:center; justify-content:space-between; min-height:24px; font-size:11px; }
 .conversation-card .tool-activity pre { background:transparent; color:var(--theme-text-strong); border:0; font-size:12px; line-height:1.8; }
 .conversation-card .tool-activity .tool-full-command { margin:4px 0 8px; padding:0; }
 .conversation-card .tool-activity .tool-copy-actions { margin-top:8px; padding:6px 0 0; border-top:1px solid var(--line); }
 .conversation-card .tool-activity.running > summary > svg:first-child { animation:execution-pulse 1.6s ease-in-out infinite; }
 .conversation-card .tool-activity.error > summary > svg:first-child, .conversation-card .tool-activity.unknown > summary > svg:first-child { color:var(--ui-danger-text, #c7474a); }
+.conversation-card .tool-activity:is(.error,.unknown) > summary .tool-run-label { color:var(--ui-danger-text, #c7474a); }
 @keyframes execution-pulse { 50% { opacity:.35; } }
 @media (prefers-reduced-motion: reduce) { .conversation-card .tool-activity.running > summary > svg:first-child { animation:none; } }
 @container (max-width: 480px) { .agent-execution { margin:6px 10px; } .execution-receipt.needs-confirmation { padding:14px; border-radius:16px; } .execution-server { flex-basis:100%; } .execution-approval-footer { flex-wrap:wrap; } .execution-approval-actions { margin-left:auto; } .execution-command > .markdown-copy-control { opacity:1; } }

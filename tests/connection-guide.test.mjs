@@ -74,7 +74,8 @@ test('Creating a conversation is explicit; failed or disconnected connections ne
   assert.deepEqual(view.calls, []);
   view.button('创建服务器对话').props.onClick();
   assert.deepEqual(view.calls, [['Start', undefined]]);
-  assert.ok(view.nodes.find(item => item.props.role === 'alert'));
+  assert.equal(view.button('进入服务器对话'), undefined);
+  assert.equal(view.props.error, '连接失败');
   const disconnected = render({ state: { step: 3, connectionId: 'B', projectId: 'PB' } });
   assert.equal(disconnected.button('进入服务器对话'), undefined);
   assert.match(disconnected.text, /连接已断开/);

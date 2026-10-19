@@ -77,3 +77,12 @@ test('E3 restored child workflow nests original tool records under its parent an
   assert.equal(segments[0].agent.tools[0].status,'error');
   assert.equal(segments.filter(s=>s.type==='tool').length,0);
 });
+
+
+test('Failure detail and request trace survive native history without joining partial reply text',()=>{
+ const t=turn('failed');t.errorCode='MODEL_HTTP_ERROR';t.errorMessage='Model provider returned HTTP 400';
+ const assistant=turnMessages([t])[1];
+ assert.equal(assistant.errorMessage,t.errorMessage);assert.equal(assistant.errorCode,t.errorCode);
+ assert.equal(assistant.id,t.requestId);assert.equal(assistant.text,'partial');
+ assert.ok(!assistant.text.includes('HTTP 400'));assert.equal(assistant.errorLocalOnly,undefined);
+});

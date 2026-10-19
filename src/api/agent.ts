@@ -55,7 +55,7 @@ export type AgentTurn = {
   inputs?: AgentSteer[];
   attachments?: {fileId:string;fileName:string;contentType:string;size:number;sha256:string;kind:string;pages:number|null;width:number|null;height:number|null}[];
   requestId:string;message:string;target:{connectionId:string;terminalSessionId:string}|null;state:AgentTurnState;
-  partialText:string;resultText:string|null;errorCode:string|null;usage:{prompt_tokens:number;completion_tokens:number;total_tokens:number}|null;
+  partialText:string;resultText:string|null;errorCode:string|null;errorMessage?:string|null;usage:{prompt_tokens:number;completion_tokens:number;total_tokens:number}|null;
   cursor:number;createdAt:number;updatedAt:number;
   toolEvents?: NativeToolEvent[];
   startedToolCallIds?: string[];
@@ -295,6 +295,7 @@ async function chatStream(
 }
 
 export const agentApi = {
+  changeModel:(agentId:string,sessionId:string,modelId:string,revision:number)=>request<AgentSession>('change_model','POST',{agentId,sessionId,modelId,revision,userId:sshUserId}),
   steer:(agentId:string,sessionId:string,expectedRequestId:string,id:string,message:string)=>request<AgentSteer>('steer','POST',{agentId,sessionId,expectedRequestId,id,message,userId:sshUserId}),
   userId: sshUserId,
   list: (signal?: AbortSignal) => request<AgentConfig[]>('query_ai_agent_config_list', 'GET', undefined, signal, { userId: sshUserId }),

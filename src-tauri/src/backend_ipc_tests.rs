@@ -18,6 +18,77 @@ fn acknowledge(subscription: &Subscription, sequence: u64) {
 }
 
 #[tokio::test]
+async fn agent_stream_future_fits_windows_stack() {
+    let (_dir, services) = services().await;
+    let request = b5_request("missing-session", "stack-budget", "fixture");
+    let future = agent_stream_mode(services, request, subscription(), true, |_| Ok(()));
+    let bytes = std::mem::size_of_val(&future);
+    assert!(bytes < 32 * 1024, "IPC chat future occupies {bytes} bytes before polling");
+    assert!(future.await.is_err());
+}
+
+#[test]
+fn agent_stream_completes_and_logs_on_one_megabyte_stack() {
+    std::thread::Builder::new()
+        .stack_size(1024 * 1024)
+        .spawn(|| {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(async {
+                    let (dir, services) = services().await;
+                    let (base, requests, server) = b5_model_server().await;
+                    save_test_model(&services, base);
+                    for tools in [false, true] {
+                        let session = services.agent.create_session("model".into(), "default".into()).await.unwrap();
+                        let id = format!("small-stack-{tools}");
+                        let sub = subscription();
+                        let ack = sub.clone();
+                        let frames = Mutex::new(Vec::new());
+                        agent_stream_mode(services.clone(), b5_request(&session, &id, "continue"), sub, tools, |frame| {
+                            acknowledge(&ack, frame["sequence"].as_u64().unwrap());
+                            frames.lock().unwrap().push(frame);
+                            Ok(())
+                        }).await.unwrap();
+                        assert!(frames.lock().unwrap().iter().any(|frame| frame["payload"]["event"] == "done"));
+                        let log = dir.path().join("logs/agent")
+                            .join(chrono::Local::now().format("%Y-%m-%d").to_string())
+                            .join(format!("{id}.log"));
+                        let records: Vec<Value> = std::fs::read_to_string(log).unwrap().lines()
+                            .map(|line| serde_json::from_str(line).unwrap()).collect();
+                        assert_eq!(records.iter().filter(|row| row["event"] == "request.started").count(), 1);
+                        assert!(records.iter().any(|row| row["event"] == "model.request_completed"));
+                        assert_eq!(records.last().unwrap()["event"], "request.completed");
+                        let messages: Vec<_> = records.iter().filter(|row| row["event"] == "conversation.message").collect();
+                        assert_eq!(messages.len(), 2);
+                        assert_eq!(messages[0]["fields"]["role"], "user");
+                        assert_eq!(messages[0]["fields"]["message"], "continue");
+                        assert_eq!(messages[1]["fields"]["role"], "assistant");
+                        assert_eq!(messages[1]["fields"]["message"], "汉🙂");
+                        assert_eq!(messages[1]["fields"]["state"], "completed");
+                        assert!(messages[0]["fields"]["connectionName"].is_null());
+                        assert_eq!(messages[0]["fields"]["modelId"], "mock-model");
+                        let replay_ack = subscription();
+                        let replay_sub = replay_ack.clone();
+                        agent_stream_mode(services.clone(), b5_request(&session, &id, "continue"), replay_sub, tools, |frame| {
+                            acknowledge(&replay_ack, frame["sequence"].as_u64().unwrap());
+                            Ok(())
+                        }).await.unwrap();
+                        let replay_log = dir.path().join("logs/agent")
+                            .join(chrono::Local::now().format("%Y-%m-%d").to_string()).join(format!("{id}.log"));
+                        assert_eq!(std::fs::read_to_string(replay_log).unwrap().lines()
+                            .map(|line| serde_json::from_str::<Value>(line).unwrap())
+                            .filter(|row| row["event"] == "conversation.message").count(), 2);
+                    }
+                    assert_eq!(requests.lock().unwrap().len(), 2);
+                    services.shutdown().await;
+                    server.abort();
+                });
+        }).unwrap().join().unwrap();
+}
+
+#[tokio::test]
 async fn e3_extension_dispatch_keeps_config_revision_and_approval_ownership() {
     let (_dir, services)=services().await;
     let initial=dispatch(services.clone(),"agent/extensions_settings","GET",Value::Null,json!({"userId":"default"})).await.unwrap();
@@ -344,6 +415,37 @@ async fn model_configuration_ipc_scopes_revisions_and_validation() {
 }
 
 #[tokio::test]
+async fn change_model_dispatch_keeps_conversation_and_checks_owner_and_revision() {
+    let (_dir, services) = services().await;
+    save_test_model(&services, "http://127.0.0.1:1/v1/".into());
+    let models = shellpilot_server::agent::provider::ModelRepository::new(services.store.clone());
+    let profile = models.get("model", "default").unwrap();
+    models.save("second", "default", 0, shellpilot_server::agent::provider::ModelConfigUpdate {
+        config: profile.config,
+        api_key: shellpilot_server::agent::provider::KeyChange::Set {
+            value: shellpilot_server::agent::provider::SecretKey::new("fixture-key").unwrap(),
+        },
+    }).unwrap();
+    let id = services.agent.create_session("model".into(), "default".into()).await.unwrap();
+    let before = services.agent.history("model".into(), "default".into(), id.clone(), 0, 20).await.unwrap().session;
+    let request = json!({"userId":"default","agentId":"model","modelId":"second","sessionId":id,"revision":before.revision});
+    let mut foreign = request.clone(); foreign["userId"] = json!("other");
+    assert!(dispatch(services.clone(), "agent/change_model", "POST", foreign, Value::Null).await.is_err());
+    let mut stale = request.clone(); stale["revision"] = json!(before.revision + 99);
+    assert!(dispatch(services.clone(), "agent/change_model", "POST", stale, Value::Null).await.is_err());
+    let mut missing = request.clone(); missing.as_object_mut().unwrap().remove("revision");
+    assert!(dispatch(services.clone(), "agent/change_model", "POST", missing, Value::Null).await.is_err());
+    let changed = dispatch(services.clone(), "agent/change_model", "POST", request, Value::Null).await.unwrap();
+    assert_eq!(changed["id"], id);
+    assert_eq!(changed["agentId"], "second");
+    let after = services.agent.history("second".into(), "default".into(), id, 0, 20).await.unwrap().session;
+    assert_eq!(after.scope, before.scope);
+    assert_eq!(after.task, before.task);
+    assert_eq!(after.revision, before.revision + 1);
+    services.shutdown().await;
+}
+
+#[tokio::test]
 async fn model_name_edit_uses_stable_id_and_keeps_session_binding() {
     let (_dir, services) = services().await;
     save_test_model(&services, "http://127.0.0.1:1/v1/".into());
@@ -400,19 +502,11 @@ async fn model_configuration_ipc_never_returns_saved_key() {
     request["revision"] = json!(2);
     request["update"]["apiKey"] = json!({"action":"keep"});
     request["update"]["config"]["baseUrl"] = json!("http://127.0.0.1:2/v1/");
-    assert_eq!(
-        dispatch(
-            services.clone(),
-            "agent/models",
-            "POST",
-            request.clone(),
-            Value::Null
-        )
-        .await
-        .unwrap_err()
-        .status,
-        400
-    );
+    // Explicit model URL edits retain the encrypted key by the repository contract.
+    let moved = dispatch(services.clone(), "agent/models", "POST", request.clone(), Value::Null).await.unwrap();
+    assert_eq!(moved["apiKeyConfigured"], true);
+    assert!(!moved.to_string().contains("fake-test-key"));
+    request["revision"] = moved["revision"].clone();
     request["update"]["apiKey"] = json!({"action":"clear"});
     let cleared = dispatch(services, "agent/models", "POST", request, Value::Null)
         .await
@@ -1256,7 +1350,7 @@ async fn b5_dropped_native_subscription_recovers_partial_and_requires_an_explici
 }
 #[tokio::test]
 async fn b5_provider_protocol_failure_keeps_native_history_and_redacts_error_frames() {
-    let (_dir, services) = services().await;
+    let (dir, services) = services().await;
     let (base, requests, server) = b5_model_server().await;
     save_test_model(&services, base);
     let session = services
@@ -1287,6 +1381,16 @@ async fn b5_provider_protocol_failure_keeps_native_history_and_redacts_error_fra
     );
     replay.await.unwrap().unwrap_err();
     assert_eq!(requests.lock().unwrap().len(), 1);
+    let log = dir.path().join("logs/agent")
+        .join(chrono::Local::now().format("%Y-%m-%d").to_string())
+        .join("b5-protocol-failure.log");
+    let rows: Vec<Value> = std::fs::read_to_string(log).unwrap().lines()
+        .map(|line| serde_json::from_str(line).unwrap()).collect();
+    let messages: Vec<_> = rows.iter().filter(|row| row["event"] == "conversation.message").collect();
+    assert_eq!(messages.len(), 2);
+    assert_eq!(messages[1]["fields"]["state"], "failed");
+    assert_eq!(messages[1]["fields"]["message"], "汉🙂");
+    assert!(!serde_json::to_string(&rows).unwrap().contains("provider-private-error"));
     services.shutdown().await;
     server.abort();
 }

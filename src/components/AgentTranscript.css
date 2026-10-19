@@ -110,17 +110,17 @@
 .activity-transcript > summary > span { min-width:0; overflow-wrap:anywhere; }
 .activity-transcript > summary > svg { flex-shrink:0; }
 .activity-transcript > summary:hover { color:var(--theme-text-strong); }
-.activity-transcript > summary:focus-visible, .activity-transcript-list:focus-visible { outline:2px solid var(--ui-accent); outline-offset:3px; }
+.activity-transcript > summary:focus-visible, .activity-transcript-list:focus-visible { outline:1px solid #808080; outline-offset:3px; }
+.activity-transcript > summary:focus:not(:focus-visible) { outline:none; box-shadow:none; }
 .activity-transcript-chevron { transition:transform 180ms ease; }
 .activity-transcript[open] > summary .activity-transcript-chevron { transform:rotate(90deg); }
 .activity-transcript.has-issue > summary > svg:first-child { color:var(--ui-danger-text,#c7474a); }
 .activity-transcript.is-running > summary > svg:first-child { animation:execution-pulse 1.6s ease-in-out infinite; }
-.activity-transcript-list { max-height:min(340px,42vh); min-width:0; overflow:auto; margin-top:6px; padding:0 10px 2px 0; scrollbar-width:thin; scrollbar-color:var(--line-strong,var(--line)) transparent; overscroll-behavior:auto; }
+.activity-transcript-list { max-height:min(340px,42vh); min-width:0; overflow:auto; margin-top:4px; padding:0 10px 2px 0; scrollbar-width:thin; scrollbar-color:var(--line-strong,var(--line)) transparent; overscroll-behavior:auto; }
 .activity-transcript-list > .tool-activity { margin:0; }
 .activity-transcript-list > .agent-activity { margin:4px 0; }
-.conversation-card .activity-transcript-list .tool-activity > summary { min-height:28px; padding:4px 0; gap:6px; }
+.conversation-card .activity-transcript-list .tool-activity > summary { min-height:24px; padding:2px 0; gap:6px; }
 .conversation-card .activity-transcript-list .tool-activity .tool-identity code { font-family:inherit; font-size:13px; color:var(--theme-text-muted); }
-.conversation-card .activity-transcript-list .tool-activity .tool-terminal-body { margin-left:20px; }
 @media (prefers-reduced-motion:reduce) {
   .activity-transcript-chevron { transition:none; }
   .activity-transcript.is-running > summary > svg:first-child { animation:none; }

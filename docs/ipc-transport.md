@@ -108,7 +108,7 @@ cargo test --manifest-path ../ai-ssh-terminal-server-rust/Cargo.toml
 
 `builtin_agent_subscribe` 增加可选的宿主参数 `executionEnabled`（缺省 false），不混入模型请求或 chat::Request。文字与工具轮次共享会话互斥、持久 requestId 回执、停止、租约恢复和逐帧 ACK；工具轮次通过 schema 13 的 agent_tool_turns 标记，未完成的批次在恢复时保守闭合为 unknown，不重新发送。
 
-工具仅支持显式配置具备 function tools 能力的 Chat Completions 模型；Responses 继续保留文字能力。工具轮次的供应商请求是非流式的，Channel 仍逐帧传递真实工具调用、结果、上下文状态和最终回复。工具输出是有界预览，完整证据按原始字节回查。
+工具支持具备 function tools 能力的 Chat Completions、Messages 和 Responses 模型；原生协议策略处理 JSON / SSE 和思考续接，Channel 仍逐帧传递真实工具调用、结果、上下文状态和最终回复。工具输出是有界预览，完整证据按原始字节回查。
 
 | 原生业务入口 | 作用 |
 | --- | --- |
@@ -142,3 +142,11 @@ cargo test --manifest-path ../ai-ssh-terminal-server-rust/Cargo.toml
 
 
 聊天附件原生导入的 Channel 增加 `preparing` 事件（id、fileName、size），在整批预检成功后、存储上传前逐文件发送；`uploaded` 使用相同临时 id 关联完成。聊天系统选择器与复制文件复用同一预检/导入流程。前端据此呈现逐文件圆形准备指示，成功、失败、取消/普通文字粘贴完成时清理临时卡片，旧草稿范围的迟到进度不进入新会话。准备事件不携带文件正文或可执行路径，也不代表字节百分比。
+
+
+## 同一会话更换模型
+
+`POST agent/change_model` 携带当前 `userId/sessionId/agentId`、目标 `modelId` 和必需的会话 `revision`。原生层校验原会话的用户和模型归属，以及目标模型的可用性，并复用会话执行锁；拒绝并发切换、过期版本及未完成工具轮次，成功返回更新后的 Session。前端先提交再更新选择，不重建历史或任务。聊天历史 Turn 增加可空 `errorMessage`，与 `partialText` 分开保存，UI 错误卡片不修改模型原始正文。
+
+
+`bundled_backend_reveal_request_log(traceId)` 是桌面原生命令，独立于后端运行实例，仅在固定应用日志根目录解析 Trace ID，然后通过 Tauri opener 的原生 API 定位并选中文件。前端不传路径，不扩大 opener 的通用路径权限；未找到文件时返回明确中文错误，客户端显示在对应失败卡片内。

@@ -3,13 +3,14 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
 import ts from 'typescript';
+import { loadToastErrorHooks } from './helpers/toast-errors.mjs';
 
 const source = path => readFileSync(new URL(`../src/${path}`, import.meta.url), 'utf8');
 function load(path, requireModule, globals = {}) {
   const compiled = ts.transpileModule(source(path), { compilerOptions: {
     module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX,
   } }).outputText;
-  const context = vm.createContext({ exports: {}, require: name => name.endsWith('/notifications') ? { notify() {} } : requireModule(name), ...globals });
+  const context = vm.createContext({ exports: {}, require: name => name.endsWith('/notifications') ? { notify: globals.notify ?? (() => {}) } : requireModule(name), ...globals });
   vm.runInContext(`(function(exports, require) {\n${compiled}\n})(exports, require);`, context);
   return { api: context.exports, context, compiled };
 }
@@ -143,23 +144,24 @@ test('根安装监听真实主题与存储变更，卸载清理；不轮询、�
 
 /** 实际控件 hook 驱动器，验证不完整 HEX 不被提前提交，不读用户 DOM 或存储。 */
 function controlsHarness() {
-  const env = environment(), slots = [], effects = [];
+  const env = environment(), slots = [], effects = [], notices = [];
   let cursor = 0, tree, theme = 'light';
   const node = (type, props) => ({ type, props: props ?? {} });
   const hooks = {
-    useState(initial) { const index = cursor++; if (!(index in slots)) slots[index] = initial;
-      return [slots[index], value => { slots[index] = value; }]; },
+    useState(initial) { const index = cursor++; if (!(index in slots)) slots[index] = typeof initial === 'function' ? initial() : initial;
+      return [slots[index], value => { slots[index] = typeof value === 'function' ? value(slots[index]) : value; }]; },
     useEffect(callback, deps) { const index = cursor++; if (slots[index] && deps.every((value, i) => value === slots[index][i])) return;
       slots[index] = deps; effects.push(callback); },
   };
   const { api } = load('components/TextColorSettings.tsx', name => {
     if (name === 'react') return hooks;
+    if (name === '../state/useToastError') return loadToastErrorHooks(hooks, message => notices.push(message));
     if (name === 'react/jsx-runtime') return { jsx: node, jsxs: node };
     if (name === './Ui') return { Icon: () => node('svg'), AccentIcon: () => node('svg'), Badge: props => node('span', props) };
     if (name.endsWith('/clientTextColors')) return env.api;
     if (name.endsWith('/useClientTextColors')) return { useClientTextColors: () => ({ ...env.api.readClientTextColors(), theme }) };
     throw new Error(name);
-  });
+  }, { notify: message => notices.push(message) });
   function expand(value) {
     if (!value || typeof value !== 'object') return value;
     if (Array.isArray(value)) return value.map(expand);
@@ -179,7 +181,7 @@ function controlsHarness() {
   function render() { cursor = 0; tree = expand(api.TextColorSettings()); effects.splice(0).forEach(callback => callback()); }
   const input = role => nodes(tree).find(item => item.props.id === `text-${role}-hex`);
   render(); render();
-  return { env, input, render, text: () => text(tree), find: predicate => nodes(tree).find(predicate), changeTheme(value) { theme = value; render(); render(); } };
+  return { env, input, render, notices, text: () => text(tree), find: predicate => nodes(tree).find(predicate), changeTheme(value) { theme = value; render(); render(); } };
 }
 
 test('HEX 中间输入不写存储，无效值提示，六位即时保存，三位失焦规范化', () => {
@@ -188,7 +190,7 @@ test('HEX 中间输入不写存储，无效值提示，六位即时保存，三�
   assert.equal(ui.env.state.writes.length, 0);
   ui.input('primary').props.onBlur(); ui.render();
   assert.equal(ui.input('primary').props['aria-invalid'], true);
-  assert.match(ui.text(), /请输入 #RGB 或 #RRGGBB/);
+  assert.match(ui.notices.at(-1), /请输入 #RGB 或 #RRGGBB/);
   ui.input('primary').props.onChange({ target: { value: '#112233' } }); ui.render(); ui.render();
   assert.equal(ui.env.api.readClientTextColors().palettes.light.primary, '#112233');
   assert.equal(ui.input('primary').props['aria-invalid'], false);
@@ -221,7 +223,7 @@ test('颜色控件保存失败保留原值并显示错误，不假装已采用�
   ui.input('primary').props.onChange({ target: { value: '#123456' } }); ui.render(); ui.render();
   assert.equal(ui.env.api.readClientTextColors().palettes.light.primary, null);
   assert.equal(ui.input('primary').props.value, '#25364C');
-  assert.match(ui.text(), /无法保存文字颜色/);
+  assert.match(ui.notices.at(-1), /无法保存文字颜色/);
   ui.env.state.fail = false;
   ui.input('primary').props.onChange({ target: { value: '#123456' } }); ui.render(); ui.render();
   assert.equal(ui.env.api.readClientTextColors().palettes.light.primary, '#123456');

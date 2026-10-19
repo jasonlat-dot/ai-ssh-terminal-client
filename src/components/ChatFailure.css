@@ -1,0 +1,16 @@
+.chat-failure { width:100%; min-width:0; box-sizing:border-box; padding:14px 16px; border:1px solid color-mix(in srgb,var(--ui-danger-text,#b63b43) 27%,var(--theme-border)); border-radius:12px; background:color-mix(in srgb,var(--theme-control) 95%,var(--ui-danger-text,#b63b43) 5%); color:var(--theme-text-strong); }
+.chat-failure-heading { display:flex; align-items:center; gap:8px; color:var(--ui-danger-text,#b63b43); font-size:13px; line-height:1.5; }
+.chat-failure-heading strong { font-weight:600; }
+.chat-failure :is(.chat-failure-detail,.chat-failure-guidance,.chat-failure-retained) { margin:7px 0 0; font-size:12px; line-height:1.7; overflow-wrap:anywhere; }
+.chat-failure-detail { font-weight:550; }
+.chat-failure-retained { color:var(--theme-text-muted); }
+.chat-failure-footer { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px 16px; margin-top:12px; padding-top:10px; border-top:1px solid var(--theme-border); }
+.chat-failure-trace { display:flex; align-items:center; gap:7px; flex-wrap:wrap; min-width:0; color:var(--theme-text-muted); font-size:11px; }
+.chat-failure-trace code { font-family:var(--font-mono,monospace); font-size:11px; overflow-wrap:anywhere; }
+:root .chat-failure :is(.chat-failure-restore,.chat-failure-locate) { display:inline-flex; align-items:center; gap:6px; flex-shrink:0; min-height:30px; padding:5px 10px; border:1px solid var(--theme-border); border-radius:7px; background:var(--theme-control); color:var(--theme-text-strong); font-size:12px; transition:background 160ms,border-color 160ms; }
+:root .chat-failure :is(.chat-failure-restore,.chat-failure-locate):hover:not(:disabled) { background:var(--theme-hover); border-color:var(--theme-text-muted); }
+:root .chat-failure :is(.chat-failure-restore,.chat-failure-locate):focus-visible { outline:2px solid var(--accent-blue,#2670eb); outline-offset:2px; }
+.chat-failure :is(.chat-failure-restore,.chat-failure-locate):disabled { opacity:.5; }
+
+.chat-failure-actions { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin-left:auto; }
+.chat-failure-log-error { margin:9px 0 0; color:var(--ui-danger-text,#b63b43); font-size:12px; line-height:1.6; overflow-wrap:anywhere; }

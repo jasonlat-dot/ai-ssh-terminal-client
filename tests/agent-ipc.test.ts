@@ -399,3 +399,12 @@ test('Execution quota settings cross the native bridge as integers with user and
   assert.match(chatErrorGuidance('AGENT_TOOL_CALL_LIMIT'),/工具调用次数上限/);
   assert.match(chatErrorGuidance('AGENT_TOOL_CALL_LIMIT'),/不占工具次数/);
 });
+
+
+test('Model changes target the same owned conversation and carry its expected revision',async()=>{
+ const requests:any[]=[];harness((command,args)=>{assert.equal(command,'builtin_request');requests.push(args.request);return Promise.resolve({id:'existing',agentId:'new-model',revision:8});});
+ const result=await agentApi.changeModel('old-model','existing','new-model',7);
+ assert.equal(result.id,'existing');assert.equal(result.agentId,'new-model');
+ assert.equal(requests.length,1);assert.equal(requests[0].endpoint,'agent/change_model');
+ assert.deepEqual(requests[0].body,{agentId:'old-model',sessionId:'existing',modelId:'new-model',revision:7,userId:'default'});
+});

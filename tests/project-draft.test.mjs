@@ -18,6 +18,30 @@ const model={agentId:'model',agentName:'test',toolsAvailable:true};
 const project={id:'project',name:'server',connectionId:'saved-ssh'};
 const terminal={id:'tab',kind:'ssh',connectionId:'saved-ssh',terminalSessionId:'native-terminal',connected:true,connectionStatus:'connected'};
 
+test('Changing a model reuses a saved conversation after native commit without clearing messages or the draft',async()=>{
+ const next={...model,agentId:'next'};let history={session:{id:'same-chat',agentId:'model',revision:7,scope:{kind:'server'},task:{target:{connectionId:'saved-ssh'}}},turns:[{message:'keep history'}]};
+ const calls=[],selected={current:model},skip={current:''};let selectedState=model,revision=0;
+ const switchModel=action('changeConversationModel',{
+  projectLocked:false,scopeSwitchRef:{current:false},chatting:{current:false},stopPending:{current:false},reasoningSavingRef:{current:false},manualCompactionAbort:{current:null},
+  agentModels:[model,next],selectedAgentRef:selected,chatSessionId:{current:'same-chat'},rustBuiltin:true,canonicalHistory:history,skipModelReset:skip,
+  setScopeSwitching(){},setCanonicalHistory:update=>{history=update(history);},setSelectedAgent:value=>{selectedState=value;},setContextSnapshot(){},setContextError(){},setProjectRevision:update=>{revision=update(revision);},
+  agentApi:{changeModel:async(...args)=>{calls.push(args);assert.equal(selectedState,model,'UI only changes after native commit');return{...history.session,agentId:'next',revision:8};},history:()=>assert.fail('already loaded')},
+  notify:message=>assert.fail(message),clearChat:()=>assert.fail('must retain conversation'),newProjectChat:()=>assert.fail('must not create a chat'),
+ });
+ await switchModel('next');assert.equal(history.session.id,'same-chat');assert.equal(history.session.agentId,'next');assert.equal(history.turns[0].message,'keep history');
+ assert.deepEqual(calls,[['model','same-chat','next',7]]);assert.equal(selectedState,next);assert.equal(selected.current,next);assert.equal(skip.current,'next');assert.equal(revision,1);
+});
+
+test('Failed model change preserves the current model and conversation',async()=>{
+ const next={...model,agentId:'next'},selected={current:model},skip={current:''},gate={current:false},notices=[];let locked=false;
+ const switchModel=action('changeConversationModel',{
+  projectLocked:false,scopeSwitchRef:gate,chatting:{current:false},stopPending:{current:false},reasoningSavingRef:{current:false},manualCompactionAbort:{current:null},agentModels:[model,next],selectedAgentRef:selected,chatSessionId:{current:'same'},rustBuiltin:true,canonicalHistory:{session:{id:'same',revision:3}},skipModelReset:skip,
+  setScopeSwitching:value=>{locked=value;},setCanonicalHistory:()=>assert.fail('do not replace history'),setSelectedAgent:()=>assert.fail('keep original model'),
+  agentApi:{changeModel:async()=>{assert.equal(locked,true);throw Error('context changed');}},notify:message=>notices.push(message),
+ });
+ await switchModel('next');assert.equal(selected.current,model);assert.equal(skip.current,'');assert.equal(locked,false);assert.equal(gate.current,false);assert.deepEqual(notices,['context changed']);
+});
+
 test('Selecting a project connects but never creates or opens a persistent history session',async()=>{
  const connected=[],cleared=[];
  const choose=action('newProjectChat',{
