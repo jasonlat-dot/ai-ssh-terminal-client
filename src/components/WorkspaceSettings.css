@@ -99,3 +99,11 @@
 }
 @media (max-width: 700px) { :root .rust-settings .settings-content[data-section='general'] { padding: 12px 14px; } }
 @media (prefers-reduced-motion: reduce) { .workspace-preferences .workspace-location-details > summary > svg:last-child { transition: none; } }
+
+.workspace-diagnostics { grid-column:1 / -1; }
+.workspace-diagnostics .ui-select { flex:0 0 200px; }
+.workspace-log-location { display:flex; align-items:center; flex-wrap:wrap; gap:10px; }
+.workspace-log-location code { flex:1; min-width:0; color:var(--settings-text-muted); font-size:11px; overflow-wrap:anywhere; }
+.workspace-log-location button { display:inline-flex; align-items:center; gap:6px; min-height:32px; padding:6px 10px; border:1px solid var(--settings-border); border-radius:7px; white-space:nowrap; }
+.workspace-diagnostics-note { margin:12px 0 0; color:var(--settings-text-muted); font-size:11px; line-height:1.7; }
+@container workspace-preferences (max-width:500px) { .workspace-diagnostics .workspace-preference-row { flex-wrap:wrap; }.workspace-diagnostics .ui-select { flex:1 1 100%; } }

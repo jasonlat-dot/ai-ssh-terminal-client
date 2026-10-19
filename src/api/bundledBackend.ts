@@ -31,8 +31,11 @@ export type BundledBackendConfig = {
   sqliteFile: string;
   uploadDirectory: string;
   logDirectory: string;
+  traceLogDirectory?: string;
   engine?: string;
 };
+
+export type DiagnosticLogLevel = 'debug' | 'info' | 'warn' | 'error';
 
 export type BundledBackendConfigUpdate = {
   /** 只接受 Rust 侧白名单中的逻辑字段名；敏感字段空值表示保留原配置。 */

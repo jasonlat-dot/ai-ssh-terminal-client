@@ -1269,7 +1269,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
       if (version !== chatVersion.current) return false;
       const message = error instanceof Error ? error.message : 'Agent 对话失败';
       updateAssistant(current => ({ ...appendText(current, `${current.text ? '\n\n' : ''}${message}`), error: true, errorCode: error instanceof ChatRequestError ? error.code : undefined }));
-      notify(message, 'error');
+      notify(rustBuiltin ? `${message}\nTrace ID: ${assistantId}` : message, 'error');
       return false;
     } finally {
       if (chatAbort.current === controller) chatAbort.current = null;

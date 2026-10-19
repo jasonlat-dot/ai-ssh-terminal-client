@@ -828,6 +828,19 @@ async fn agent_stream(
     agent_stream_mode(services, request, subscription, false, send).await
 }
 async fn agent_stream_mode(
+    services: Arc<Services>, request: shellpilot_server::agent::chat::Request,
+    subscription: Arc<Subscription>, execution_enabled: bool,
+    send: impl Fn(Value) -> std::result::Result<(), ()> + Send + Sync,
+) -> Result<()> {
+    let trace=services.store.diagnostics.trace(&request.request_id,&request.session_id,&request.agent_id);
+    let fields=json!({"entry":"desktop_ipc","messageBytes":request.message.len(),"attachmentCount":request.attachments.len(),"executionEnabled":execution_enabled});
+    trace.request(fields,agent_stream_mode_inner(services,request,subscription,execution_enabled,send)).await
+}
+impl shellpilot_server::diagnostics::Failure for Error {
+    fn diagnostic_code(&self)->&str {&self.code}
+    fn cancelled(&self)->bool {matches!(self.code.as_str(),"AGENT_CANCELLED"|"AGENT_INTERRUPTED"|"BACKEND_UNAVAILABLE")}
+}
+async fn agent_stream_mode_inner(
     services: Arc<Services>,
     request: shellpilot_server::agent::chat::Request,
     subscription: Arc<Subscription>,

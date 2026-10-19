@@ -267,3 +267,7 @@ headers 和 env 对象中的值通过 Windows DPAPI 加密保存在本地，重�
 模型列表与供应商弹窗本次验证：模型配置/压缩参数相关 21 项定向测试、TypeScript 检查及 Vite 资源构建通过；未运行全量或 Rust 回归，实际界面视觉验收未完成。改动在 master，未提交、未打包。
 
 供应商展示精简：配置卡片使用对应品牌 SVG 替代机器人头像，移除重复页面/协议说明并收紧卡片间距。图标随主题文字着色，资源本地内置；来源与许可证见 `public/licenses/lobe-icons.txt`。本次仅 Select / 品牌图标 / 模型设置 25 项定向回归、TypeScript 与 Vite 构建通过，未运行全量或 Rust 回归。
+
+## 请求日志排查
+
+“本地工作区 → 诊断日志”可设置 DEBUG / INFO / WARN / ERROR，默认 INFO，自动保存并立即生效。每次发送的 requestId 贯穿模型调用、审批、工具执行与完成/失败，在日志中称为 traceId。日志按本地日期和 Trace ID 保存到设置页展示的专用目录；失败 Toast 包含对应 ID。日志只记录阶段及诊断元数据，原始正文与工具输出在对话历史中查看。更新本功能后需重启 `npm run tauri dev` 以载入新 Rust 库，后续切换日志级别无需重启。

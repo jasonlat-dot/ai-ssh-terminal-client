@@ -55,6 +55,7 @@ struct Settings {
     file_storage_enabled: bool,
     max_storage_mib: u64,
     file_retention_days: u64,
+    log_level: shellpilot_server::diagnostics::Level,
 }
 impl Default for Settings {
     fn default() -> Self {
@@ -64,6 +65,7 @@ impl Default for Settings {
             file_storage_enabled: true,
             max_storage_mib: 1024,
             file_retention_days: 0,
+            log_level: shellpilot_server::diagnostics::Level::Info,
         }
     }
 }
@@ -86,6 +88,7 @@ pub struct BackendConfigView {
     sqlite_file: String,
     upload_directory: String,
     log_directory: String,
+    trace_log_directory: String,
     engine: &'static str,
 }
 #[derive(Deserialize)]
@@ -185,6 +188,7 @@ fn start_inner(app: &AppHandle) -> Result<BackendStatus, String> {
         shellpilot_server::store::Store::open(&data.join("shellpilot.sqlite3"))
             .map_err(|e| e.to_string())?,
     );
+    store.diagnostics.configure(root.join("logs/agent"), settings.log_level).map_err(|e|e.to_string())?;
     let instance = uuid::Uuid::new_v4();
     let url = format!("ipc://builtin/{instance}");
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -306,6 +310,7 @@ fn view(app: &AppHandle) -> io::Result<BackendConfigView> {
             settings.file_storage_enabled.to_string(),
         ),
         ("maxStorageMiB", settings.max_storage_mib.to_string()),
+        ("logLevel", settings.log_level.text().into()),
         (
             "fileRetentionDays",
             settings.file_retention_days.to_string(),
@@ -336,12 +341,17 @@ fn view(app: &AppHandle) -> io::Result<BackendConfigView> {
             .into_owned(),
         upload_directory: data.join("attachments").to_string_lossy().into_owned(),
         log_directory: home(app)?.join("logs").to_string_lossy().into_owned(),
+        trace_log_directory: home(app)?.join("logs/agent").to_string_lossy().into_owned(),
         engine: "rust",
     })
 }
 fn apply(settings: &mut Settings, values: BTreeMap<String, String>) -> io::Result<()> {
     for (key, value) in values {
         match key.as_str() {
+            "logLevel" => {
+                settings.log_level = shellpilot_server::diagnostics::Level::parse(&value)
+                    .ok_or_else(||io::Error::other("日志级别必须为 debug、info、warn 或 error"))?;
+            }
             "dataDirectory" => {
                 let path = PathBuf::from(value.trim());
                 if !path.is_absolute() || value.contains('\0') {
@@ -391,6 +401,9 @@ pub async fn bundled_backend_save_config(
         let mut settings = load(&path).map_err(|e| e.to_string())?;
         apply(&mut settings, update.values).map_err(|e| e.to_string())?;
         persist(&path, &settings).map_err(|e| e.to_string())?;
+        if let Some((_,services))=state.services.lock().unwrap().as_ref() {
+            services.store.diagnostics.set_level(settings.log_level);
+        }
         view(&app).map_err(|e| e.to_string())
     })
     .await
@@ -424,6 +437,18 @@ pub async fn bundled_backend_set_auto_start(app: AppHandle, enabled: bool) -> Re
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn diagnostic_level_defaults_validates_and_survives_settings_serialization() {
+        use shellpilot_server::diagnostics::Level;
+        let mut settings:Settings=serde_json::from_str(r#"{"autoStart":false}"#).unwrap();
+        assert_eq!(settings.log_level,Level::Info);
+        for name in ["debug","info","warn","error"] {
+            apply(&mut settings,BTreeMap::from([("logLevel".into(),name.into())])).unwrap();
+            let saved:Settings=serde_json::from_slice(&serde_json::to_vec(&settings).unwrap()).unwrap();
+            assert_eq!(saved.log_level.text(),name);assert!(!saved.auto_start);
+        }
+        assert!(apply(&mut settings,BTreeMap::from([("logLevel".into(),"trace".into())])).is_err());
+    }
     #[test]
     fn validates_directory_and_supported_fields() {
         let mut settings = Settings::default();

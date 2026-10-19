@@ -1,11 +1,11 @@
 import { useToastError } from '../state/useToastError';
 import { useEffect, useState } from 'react';
-import { revealItemInDir } from '@tauri-apps/plugin-opener';
+import { openPath, revealItemInDir } from '@tauri-apps/plugin-opener';
 import {
   readBundledBackendConfig, readBundledBackendAutoStart, watchBundledBackendStatus,
   restartBundledBackend, stopBundledBackend,
   saveBundledBackendConfig, setBundledBackendAutoStart,
-  type BundledBackendConfig, type BundledBackendStatus,
+  type BundledBackendConfig, type BundledBackendStatus, type DiagnosticLogLevel,
 } from '../api/bundledBackend';
 import { APP_VERSION } from '../config/appRuntime';
 import { isTauriRuntime } from '../state/runtime';
@@ -13,6 +13,7 @@ import { AppearanceSettings } from './AppearanceSettings';
 import { ModelSettings } from './ModelSettings';
 import { AgentExtensionSettings } from './AgentExtensionSettings';
 import { ClientUpdateSettings } from './ClientUpdateSettings';
+import { Select } from './Select';
 import { ModelNumberInput } from './ModelNumberInput';
 import { Icon, Badge, Toggle, IconHeading, AccentIcon } from './Ui';
 import { WindowControls } from './WindowControls';
@@ -42,6 +43,7 @@ export function RustBackendSettingsDialog({required=false,onClose,onSave,beforeC
   const [capacity,setCapacity]=useState('1024');
   const [retention,setRetention]=useState('0');
   const [busy,setBusy]=useState(false);
+  const [logLevel,setLogLevel]=useState<DiagnosticLogLevel>('info');
   const [, setError] = useToastError();
   useEffect(()=>{if(section)setTab(section);},[section]);
   useEffect(()=>{if(showUpdates)setTab('updates');},[showUpdates]);
@@ -52,6 +54,7 @@ export function RustBackendSettingsDialog({required=false,onClose,onSave,beforeC
       .then(([view,start])=>{
         if(!active)return;
         setConfig(view);
+        setLogLevel((view?.values.logLevel?.value as DiagnosticLogLevel)??'info');
         setDirectory(view?.values.dataDirectory?.value??'');setAutoStart(start??true);
         setFilesEnabled(view?.values.fileStorageEnabled?.value!=='false');
         setCapacity(view?.values.maxStorageMiB?.value??'1024');setRetention(view?.values.fileRetentionDays?.value??'0');
@@ -79,6 +82,17 @@ export function RustBackendSettingsDialog({required=false,onClose,onSave,beforeC
       const next=await saveBundledBackendConfig({values:{dataDirectory:directory,fileStorageEnabled:String(filesEnabled),maxStorageMiB:capacity,fileRetentionDays:retention}});
       setConfig(next);notify('本地数据设置已保存，重新初始化工作区后生效。','success');
     } catch(cause){setError(cause instanceof Error?cause.message:String(cause));}
+    finally{setBusy(false);}
+  };
+  const changeLogLevel=async(level:DiagnosticLogLevel)=>{
+    if(busy||level===logLevel)return;
+    setBusy(true);
+    try {
+      const next=await saveBundledBackendConfig({values:{logLevel:level}});
+      if(!next)throw new Error('当前环境无法保存日志设置。');
+      setConfig(next);setLogLevel(level);
+      notify(`日志级别已设为 ${level.toUpperCase()}，立即生效。`,'success');
+    }catch(cause){setError(cause instanceof Error?cause.message:'日志设置保存失败。');}
     finally{setBusy(false);}
   };
   const toggleAutoStart=async()=>{
@@ -139,6 +153,14 @@ export function RustBackendSettingsDialog({required=false,onClose,onSave,beforeC
                   <div className="workspace-number-field"><label htmlFor="workspace-storage-capacity">容量上限<span>MiB</span></label><ModelNumberInput id="workspace-storage-capacity" label="附件容量" kind="storage" value={Number(capacity)} disabled={busy||!filesEnabled} onChange={value=>setCapacity(String(value))}/><small>默认 1 GiB，达到上限后停止接收新附件。</small></div>
                   <div className="workspace-number-field"><label htmlFor="workspace-storage-retention">保留时间<span>天</span></label><ModelNumberInput id="workspace-storage-retention" label="文件保留天数" kind="retention" value={Number(retention)} disabled={busy||!filesEnabled} onChange={value=>setRetention(String(value))}/><small>0 为长期保留；其他值将自动删除过期附件。</small></div>
                 </div>
+              </section>
+              <section className="workspace-preferences-group workspace-diagnostics" aria-labelledby="workspace-diagnostics-title">
+                <header className="workspace-group-heading"><AccentIcon className="workspace-section-icon" icon="file" tone="blue" size={18}/><div><h3 id="workspace-diagnostics-title">诊断日志</h3><p>按日期与 Trace ID 保存每次请求的处理过程</p></div></header>
+                <div className="workspace-preference-row"><div><strong>日志级别</strong><small>记录所选级别及更严重的事件，自动保存并立即生效。</small></div>
+                  <Select<DiagnosticLogLevel> id="workspace-log-level" label="诊断日志级别" value={logLevel} disabled={busy} options={[{value:'debug',label:'DEBUG · 调试详情'},{value:'info',label:'INFO · 常规过程'},{value:'warn',label:'WARN · 警告与错误'},{value:'error',label:'ERROR · 仅错误'}]} onChange={level=>void changeLogLevel(level)}/>
+                </div>
+                <div className="workspace-log-location"><code>{config.traceLogDirectory??`${config.logDirectory}/agent`}</code><button type="button" className="ghost-button" onClick={()=>void openPath(config.traceLogDirectory??`${config.logDirectory}/agent`).catch(cause=>setError(String(cause)))}><Icon name="folder" size={14}/>打开日志目录</button></div>
+                <p className="workspace-diagnostics-note">同一次发送到回复结束共用一个 Trace ID，包含模型请求、工具审批和执行结果；DEBUG 增加请求结构与耗时，不保存密钥或原始消息正文。</p>
               </section>
             </div>
             <footer className="workspace-preferences-save"><span><Icon name="alert" size={14}/>目录与附件设置在重新初始化后生效；重新初始化会断开当前连接。</span><button type="submit" className="primary-button" disabled={busy}>{busy?'处理中…':'保存设置'}</button></footer>
