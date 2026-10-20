@@ -1,5 +1,6 @@
-Lobe Icons — OpenAI and Claude marks
+Lobe Icons — OpenAI, Claude, DeepSeek and Zhipu (GLM) marks
 Source: https://github.com/lobehub/lobe-icons/tree/master/packages/static-svg/icons
+Zhipu vector: https://github.com/lobehub/lobe-icons/blob/master/src/Zhipu/components/Mono.tsx
 
 MIT License
 

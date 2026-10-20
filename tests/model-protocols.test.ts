@@ -111,7 +111,7 @@ test('各供应商留空地址使用同一提示默认值，Google 默认 v1beta
   for (const {value:supplier} of modelSupplierOptions) {
     for (const {value:provider} of supplierProtocolOptions(supplier)) {
       const config=applyModelProtocol(applyModelSupplier(newModelConfig(),supplier),provider);
-      const expected=modelBasePlaceholder(config);assert.match(expected,supplier==='google'?/\/v1beta$/:/\/v1$/);
+      const expected=modelBasePlaceholder(config);assert.match(expected,supplier==='google'?/\/v1beta$/:supplier==='glm'&&provider==='openAiCompatible'?/\/paas\/v4$/:/\/v1$/);
       if(supplier==='google')assert.equal(expected,'https://generativelanguage.googleapis.com/v1beta');
       assert.equal(resolvedModelBaseUrl(config),expected);assert.equal(config.baseUrl,'');
       assert.equal(resolvedModelBaseUrl({...config,baseUrl:'   '}),expected);
@@ -119,4 +119,23 @@ test('各供应商留空地址使用同一提示默认值，Google 默认 v1beta
       assert.equal(resolvedModelBaseUrl({...config,baseUrl:'  https://proxy.test/custom/v1beta/  '}),'https://proxy.test/custom/v1beta/');
     }
   }
+});
+
+test('GLM 独立身份复用双协议，采用智谱地址、温度范围与推理目录，保留代理和模型 ID', () => {
+  const original={...newModelConfig(),model:'custom-alias',temperature:1.7,reasoningEffort:'medium' as const,baseUrl:'https://proxy.test/custom/'};
+  const config=applyModelSupplier(original,'glm');
+  assert.equal(config.supplier,'glm');assert.equal(config.model,'custom-alias');assert.equal(config.baseUrl,original.baseUrl);
+  assert.equal(config.temperature,null);assert.equal(config.reasoningEffort,null);assert.equal(config.outputTokenParameter,'maxTokens');
+  assert.deepEqual(supplierProtocolOptions('glm').map(option=>option.value),['openAiCompatible','anthropicMessages']);
+  for(const provider of ['openAiCompatible','anthropicMessages'] as const) {
+    const next=applyModelProtocol({...config,temperature:0.7,reasoningEffort:'max'},provider);
+    assert.equal(modelSupplier(next),'glm');assert.equal(next.temperature,0.7);assert.equal(next.reasoningEffort,'max');
+    assert.equal(modelBasePlaceholder(next),provider==='openAiCompatible'?'https://open.bigmodel.cn/api/paas/v4':'https://open.bigmodel.cn/api/anthropic/v1');
+    assert.deepEqual(modelProtocolInfo(next).effortOptions.map(option=>option.value),['','none','low','high','max']);
+    assert.equal(modelProtocolInfo(next).temperatureMax,1);assert.match(modelProtocolInfo(next).effortHint,/不能关闭/);
+  }
+  assert.equal(applyModelProtocol(config,'openAiResponses').supplier,undefined);
+  assert.equal(applyModelSupplier(config,'openai').supplier,undefined);
+  assert.equal(applyModelSupplier(config,'deepseek').supplier,'deepseek');
+  assert.equal(original.temperature,1.7);assert.equal(original.reasoningEffort,'medium');
 });

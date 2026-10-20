@@ -26,7 +26,7 @@ function selectHarness(renderIcon) {
 }
 
 test('供应商品牌图标使用本地 SVG，Claude 显示暖橙色放射标志并作为装饰隐藏',()=>{
-  const icons=['openai','anthropic','google','deepseek'].map(supplier=>renderToStaticMarkup(React.createElement(ModelSupplierIcon,{supplier,size:22})));
+  const icons=modelSupplierOptions.map(({value:supplier})=>renderToStaticMarkup(React.createElement(ModelSupplierIcon,{supplier,size:22})));
   for(const html of icons){assert.match(html,/viewBox="0 0 24 24"/);assert.match(html,/aria-hidden="true"/);assert.match(html,/<path\b[^>]*\bd="M/);assert.doesNotMatch(html,/<image|<script|https?:/);}
   assert.match(icons[0],/fill="currentColor"/);
   assert.match(icons[1],/fill="#D97757"/);assert.match(icons[1],/fill-rule="nonzero"/);
@@ -35,6 +35,7 @@ test('供应商品牌图标使用本地 SVG，Claude 显示暖橙色放射标志
   for(const color of ['#4285F4','#34A853','#FBBC05','#EA4335'])assert.ok(icons[2].includes(`fill="${color}"`));
   assert.equal((icons[2].match(/<path /g)||[]).length,4);
   assert.match(icons[3],/data-supplier="deepseek"/);assert.match(icons[3],/fill="#4D6BFE"/);assert.match(icons[3],/<path d="M23\.748/);
+  assert.match(icons[4],/data-supplier="glm"/);assert.match(icons[4],/<path d="M11\.991/);assert.notEqual(icons[4],icons[0]);
 });
 
 test('Select 在当前值和菜单选项展示图标，供应商菜单没有说明列',()=>{

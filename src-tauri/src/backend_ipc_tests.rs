@@ -2898,3 +2898,33 @@ async fn deepseek_supplier_ipc_roundtrips_channels_choices_and_saved_key_discove
     }
     server.abort();
 }
+
+#[tokio::test]
+async fn glm_supplier_ipc_roundtrips_channels_choices_and_saved_key_discovery() {
+    use axum::{http::HeaderMap,routing::get,Json,Router};
+    let (_dir,services)=services().await;
+    let listener=tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address=format!("http://{}",listener.local_addr().unwrap());
+    let app=Router::new().route("/proxy/chat/models",get(|headers:HeaderMap|async move {assert_eq!(headers["authorization"],"Bearer glm-ipc-fixture");Json(json!({"data":[{"id":"model-one","name":"First"}]}))}))
+        .route("/proxy/messages/models",get(|headers:HeaderMap|async move {assert_eq!(headers["x-api-key"],"glm-ipc-fixture");assert!(!headers.contains_key("authorization"));Json(json!({"data":[{"id":"model-two"}],"has_more":false}))}));
+    let server=tokio::spawn(async move{axum::serve(listener,app).await.unwrap();});
+    save_test_model(&services,format!("{address}/proxy/chat/"));
+    let listed=dispatch(services.clone(),"agent/models","GET",Value::Null,json!({"userId":"default"})).await.unwrap();
+    let original=listed.as_array().unwrap().iter().find(|p|p["id"]=="model").unwrap()["config"].clone();
+    for (index,protocol) in ["openAiCompatible","anthropicMessages"].iter().enumerate() {
+        let id=format!("glm-{index}");let mut config=original.clone();
+        config["supplier"]="glm".into();config["provider"]=(*protocol).into();config["requireApiKey"]=true.into();
+        config["baseUrl"]=format!("{address}/proxy/{}/",if index==0{"chat"}else{"messages"}).into();
+        config["completionsPath"]=if index==0{"chat/completions"}else{"messages"}.into();
+        let saved=dispatch(services.clone(),"agent/model_channels","POST",json!({"id":id,"userId":"default","revision":0,"displayName":"GLM","modelIds":["model-one","model-two"],"update":{"config":config,"apiKey":{"action":"set","value":"glm-ipc-fixture"}}}),Value::Null).await.unwrap();
+        assert_eq!(saved["config"]["supplier"],"glm");assert_eq!(saved["config"]["provider"],*protocol);assert_eq!(saved["config"]["outputTokenParameter"],"maxTokens");assert!(!saved.to_string().contains("glm-ipc-fixture"));
+        let models=dispatch(services.clone(),"agent/query_ai_agent_config_list","GET",Value::Null,json!({"userId":"default"})).await.unwrap();
+        let members:Vec<_>=models.as_array().unwrap().iter().filter(|m|m["channelId"]==id).collect();assert_eq!(members.len(),2);assert!(members.iter().all(|m|m["supplier"]=="glm"&&m["provider"]==*protocol));
+        let found=dispatch(services.clone(),"agent/model_catalog","POST",json!({"userId":"default","query":{"supplier":"glm","provider":protocol,"baseUrl":config["baseUrl"],"requireApiKey":true,"apiKey":{"action":"keep"},"channelId":id,"revision":saved["revision"]}}),Value::Null).await.unwrap();
+        assert_eq!(found[0]["id"],if index==0{"model-one"}else{"model-two"});
+        let mut edited=saved["config"].clone();edited["reasoningEffort"]="high".into();edited["capabilities"]["reasoningEffort"]=true.into();
+        let updated=dispatch(services.clone(),"agent/model_channels","POST",json!({"id":id,"userId":"default","revision":saved["revision"],"displayName":"GLM updated","modelIds":["model-one","model-two"],"update":{"config":edited,"apiKey":{"action":"keep"}}}),Value::Null).await.unwrap();
+        assert_eq!(updated["models"],saved["models"]);assert_eq!(updated["apiKeyConfigured"],true);assert_eq!(updated["config"]["supplier"],"glm");
+    }
+    server.abort();
+}

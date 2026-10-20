@@ -30,7 +30,7 @@ export const modelProtocols: Record<ModelConfig['provider'], ProtocolDescriptor>
 };
 export const modelProtocolOptions = Object.entries(modelProtocols).map(([value, protocol]) => ({value: value as ModelConfig['provider'], label: protocol.label}));
 export function applyModelProtocol(config: ModelConfig, provider: ModelConfig['provider']): ModelConfig {
-  const supplier = config.supplier === 'deepseek' && !supplierProtocolOptions('deepseek').some(option => option.value === provider) ? undefined : config.supplier;
+  const supplier = config.supplier && !modelSuppliers[config.supplier].protocols.includes(provider) ? undefined : config.supplier;
   const protocol = modelProtocolInfo({...config, provider, supplier});
   const temperature = config.temperature !== null && config.temperature > protocol.temperatureMax ? null : config.temperature;
   const reasoningEffort = protocol.effortOptions.some(option => option.value === config.reasoningEffort) ? config.reasoningEffort : null;
@@ -44,26 +44,34 @@ export function applyModelProtocol(config: ModelConfig, provider: ModelConfig['p
 
 
 /** Supplier identity persists independently from its reusable wire protocol. Legacy configs infer it from provider. */
-export const modelSuppliers: Record<ModelSupplier, {label: string; defaultProtocol: ModelConfig['provider']; protocols: ModelConfig['provider'][]; basePlaceholder: string}> = {
+type SupplierDescriptor = {label: string; defaultProtocol: ModelConfig['provider']; protocols: ModelConfig['provider'][]; basePlaceholder: string;
+  protocolBases?: Partial<Record<ModelConfig['provider'], string>>; overrides?: Partial<ProtocolDescriptor>};
+const thinkingEfforts: EffortOption[] = [defaultEffort, {value: 'none', label: '关闭', description: '关闭思考'},
+  ...sharedEfforts.filter(option => option.value === 'low' || option.value === 'high'), {value: 'max', label: '最高', description: 'max，需模型支持'}];
+export const modelSuppliers: Record<ModelSupplier, SupplierDescriptor> = {
   openai: {label: 'OpenAI 兼容', defaultProtocol: 'openAiCompatible', protocols: ['openAiCompatible', 'openAiResponses'], basePlaceholder: 'https://api.openai.com/v1'},
   anthropic: {label: 'Anthropic 兼容', defaultProtocol: 'anthropicMessages', protocols: ['anthropicMessages'], basePlaceholder: 'https://api.anthropic.com/v1'},
   google: {label: 'Google 兼容', defaultProtocol: 'googleGemini', protocols: ['googleGemini'], basePlaceholder: 'https://generativelanguage.googleapis.com/v1beta'},
-  deepseek: {label: 'DeepSeek', defaultProtocol: 'openAiCompatible', protocols: ['openAiCompatible', 'anthropicMessages'], basePlaceholder: 'https://api.deepseek.com/v1'},
+  deepseek: {label: 'DeepSeek', defaultProtocol: 'openAiCompatible', protocols: ['openAiCompatible', 'anthropicMessages'], basePlaceholder: 'https://api.deepseek.com/v1',
+    protocolBases: {anthropicMessages: 'https://api.deepseek.com/anthropic/v1'},
+    overrides: {fixedOutput: 'max_tokens', temperatureMax: 2, description: '使用 DeepSeek 接口，支持对话、工具调用和思考续接。',
+      effortOptions: thinkingEfforts, effortHint: '默认使用上游设置；关闭思考或选择模型支持的强度。思考模式下 Temperature 不生效。'}},
+  glm: {label: 'GLM / 智谱', defaultProtocol: 'openAiCompatible', protocols: ['openAiCompatible', 'anthropicMessages'], basePlaceholder: 'https://open.bigmodel.cn/api/paas/v4',
+    protocolBases: {anthropicMessages: 'https://open.bigmodel.cn/api/anthropic/v1'},
+    overrides: {fixedOutput: 'max_tokens', temperatureMax: 1, description: '使用 GLM / 智谱接口，支持对话、工具调用和思考续接。',
+      effortOptions: thinkingEfforts.map(option => option.value === 'none' ? {...option, description: '需模型支持'} : option),
+      effortHint: '默认使用上游设置；强度需模型支持，部分模型强制思考，不能关闭。较早模型请保持默认。'}},
 };
 export function modelSupplier(config: {supplier?: ModelSupplier; provider: ModelConfig['provider']}): ModelSupplier {
   return config.supplier ?? modelProtocols[config.provider].supplier;
 }
-const deepSeekEfforts: EffortOption[] = [defaultEffort, {value: 'none', label: '关闭', description: '关闭思考'},
-  ...sharedEfforts.filter(option => option.value === 'low' || option.value === 'high'), {value: 'max', label: '最高', description: 'max，需模型支持'}];
 export function modelProtocolInfo(config: {supplier?: ModelSupplier; provider: ModelConfig['provider']}): ProtocolDescriptor {
-  const protocol = modelProtocols[config.provider];
-  return modelSupplier(config) === 'deepseek' ? {...protocol, supplier: 'deepseek', fixedOutput: 'max_tokens', temperatureMax: 2,
-    description: '使用 DeepSeek 接口，支持对话、工具调用和思考续接。', effortOptions: deepSeekEfforts,
-    effortHint: '默认使用上游设置；关闭思考或选择模型支持的强度。思考模式下 Temperature 不生效。'} : protocol;
+  const supplier = modelSupplier(config);
+  return {...modelProtocols[config.provider], ...modelSuppliers[supplier].overrides, supplier};
 }
 export function modelBasePlaceholder(config: {supplier?: ModelSupplier; provider: ModelConfig['provider']}) {
-  return modelSupplier(config) === 'deepseek' && config.provider === 'anthropicMessages'
-    ? 'https://api.deepseek.com/anthropic/v1' : modelSuppliers[modelSupplier(config)].basePlaceholder;
+  const supplier = modelSuppliers[modelSupplier(config)];
+  return supplier.protocolBases?.[config.provider] ?? supplier.basePlaceholder;
 }
 /** Resolve only at the operation boundary so an empty draft stays visibly empty. */
 export function resolvedModelBaseUrl(config: Pick<ModelConfig, 'supplier' | 'provider' | 'baseUrl'>): string {
@@ -75,5 +83,6 @@ export function supplierProtocolOptions(supplier: ModelSupplier) {
 }
 export function applyModelSupplier(config: ModelConfig, supplier: ModelSupplier): ModelConfig {
   if (modelSupplier(config) === supplier) return config;
-  return applyModelProtocol({...config, supplier: supplier === 'deepseek' ? supplier : undefined}, modelSuppliers[supplier].defaultProtocol);
+  const provider = modelSuppliers[supplier].defaultProtocol;
+  return applyModelProtocol({...config, supplier: supplier === modelProtocols[provider].supplier ? undefined : supplier}, provider);
 }

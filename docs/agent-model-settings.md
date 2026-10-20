@@ -423,6 +423,29 @@ DeepSeek 定向验收结果：前端供应商/配置/筛选/品牌/模型发现�
 
 所有供应商的地址输入框继续显示 placeholder，空白草稿不会被自动填入文字；留空或仅空格时，保存与“查询上游模型”共用 resolvedModelBaseUrl 读取该提示地址。显式填写的地址优先，仅去除首尾空白，不强行添加版本或替换自定义代理前缀；无效非空地址仍由原生校验拒绝。
 
-默认提示按供应商配置（Google 为 /v1beta，其余为 /v1）：OpenAI `https://api.openai.com/v1`、Anthropic `https://api.anthropic.com/v1`、Google `https://generativelanguage.googleapis.com/v1beta`、DeepSeek Chat `https://api.deepseek.com/v1`、DeepSeek Messages `https://api.deepseek.com/anthropic/v1`。Google GenerateContent 默认使用 v1beta；已填的 v1、v1beta 或其他代理地址保持原样。原生仍会规范化末尾 / 供相对路径拼接，不改变实际 API 版本。
+默认提示按供应商配置：OpenAI `https://api.openai.com/v1`、Anthropic `https://api.anthropic.com/v1`、Google `https://generativelanguage.googleapis.com/v1beta`、DeepSeek Chat `https://api.deepseek.com/v1`、DeepSeek Messages `https://api.deepseek.com/anthropic/v1`；GLM 地址见下节。Google GenerateContent 默认使用 v1beta；已填的 v1、v1beta 或其他代理地址保持原样。原生仍会规范化末尾 / 供相对路径拼接，不改变实际 API 版本。
 
 本轮仅前端地址解析/文案与相关测试修改，49 项定向测试、TypeScript 和 diff 检查通过；不改 Rust 生产逻辑，不调用真实上游、不重新执行无关原生测试或打包。版本依据：[Google API 版本说明](https://ai.google.dev/gemini-api/docs/api-versions)。
+
+## GLM / 智谱独立供应商（2026-10-20）
+
+在模型配置选择“GLM / 智谱”，可配置 Chat Completions 或 Messages，以及同一渠道下的多个模型 ID。设置卡片、供应商筛选、渠道菜单、模型行和当前模型均展示本地智谱图标。已有 OpenAI 兼容渠道不会按名称或域名自动改为 GLM，需编辑后选择供应商。
+
+| 协议 | 留空地址使用的默认值 | 相对路径 | 鉴权 |
+| --- | --- | --- | --- |
+| Chat Completions | `https://open.bigmodel.cn/api/paas/v4` | `chat/completions` | Bearer |
+| Messages | `https://open.bigmodel.cn/api/anthropic/v1` | `messages` | x-api-key |
+
+默认使用智谱国内标准接口；其他区域或中转请填写对应完整基础地址。空草稿继续只显示提示，保存和查询时才解析默认值；不替换自定义地址，不按模型 ID 猜地址或协议。渠道多模型、搜索与供应商并且筛选、置顶、会话内模型切换和密钥留空保留沿用现有机制。
+
+输出使用 `max_tokens`，温度范围为 0–1。推理选项为默认、关闭、低、高、最高：默认不额外发送思考/强度字段；显式关闭发送 `thinking.type=disabled`，其余档位启用思考，并按所选协议发送 `reasoning_effort` 或 `output_config.effort`。这些选项需上游模型支持；强制思考的模型不可选择关闭，较早模型没有强度控制时请使用默认。具体窗口与最大输出按实际模型配置，不硬编码模型名单或自动降档重试。
+
+工具续聊完整保留原始思考内容、签名和调用 ID，在原生层按供应商/协议/模型/地址/凭据隔离；思考原文不混入可见回复和诊断日志。GLM Messages 可接受无签名思考，通用 Anthropic 的原有签名要求保留。两协议均使用本地语义摘要压缩；本次 GLM 独立入口暂未开放 Responses。
+
+“查询上游模型”保持只读、已存密钥复用、搜索、逐项/全部添加与取消旧请求。查询当前基础地址下的 `models`，鉴权和分页按所选协议处理，不将 Messages 地址自动改为 Chat 地址。智谱公开文档未承诺统一的 models 目录；若官方接口或中转不提供列表，查询会提示原有 Trace 错误，已有模型保持，可直接手动输入多个模型 ID。不会伪造成功列表或探测其他地址。
+
+接口依据：[OpenAI 兼容](https://docs.bigmodel.cn/cn/guide/develop/openai/introduction)、[Claude 兼容](https://docs.bigmodel.cn/cn/guide/develop/claude/introduction)、[思考模式与续聊要求](https://docs.bigmodel.cn/cn/guide/capabilities/thinking-mode)、[推理强度与模型限制](https://docs.bigmodel.cn/cn/guide/capabilities/thinking)。图标来自 Lobe Icons 的 Zhipu SVG，MIT 许可随应用保留。
+
+包含原生代码修改，需要完全退出托盘程序后重新运行 `npm run tauri dev`。本轮使用回环模拟服务、临时数据库和合成测试 Key；真实 GLM / 中转与桌面视觉需另行验收，未打包或发布。
+
+GLM 本轮定向验证：前端 77 项、Rust provider/目录/工具续聊/摘要共 74 项、桌面 IPC 1 项通过；GLM 续聊覆盖两协议的 JSON/SSE 和五种思考设置。TypeScript、Vite 构建、Rust 生产库严格 Clippy 通过；版本仍为 0.2.2 / schema 24。

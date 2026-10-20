@@ -103,3 +103,13 @@ test('DeepSeek 两种协议使用独立思考档位并保留供应商身份，�
   ui.setProfile({config:{...ui.profile.config,supplier:undefined}});ui.control.props.onChange('high');await ui.settle();assert.equal(ui.saved.length,5);assert.equal(ui.notices.at(-1)[1],'error');
  }
 });
+
+test('GLM 双协议输入框推理保存保留供应商与 Key，拒绝不支持的档位',async()=>{
+ for(const provider of ['openAiCompatible','anthropicMessages']) {
+  const ui=harness(provider);ui.setProfile({config:{...ui.profile.config,supplier:'glm'}});ui.render();await ui.settle();
+  assert.deepEqual(Array.from(ui.control.props.options,option=>option.value),['','none','low','high','max']);
+  for(const value of ['minimal','medium','xhigh'])ui.control.props.onChange(value);
+  await ui.settle();assert.equal(ui.saved.length,0);
+  for(const value of ['none','low','high','max','']) {ui.control.props.onChange(value);await ui.settle();assert.equal(ui.saved.at(-1)[2].supplier,'glm');assert.equal(ui.saved.at(-1)[2].reasoningEffort,value||null);assert.equal(ui.saved.at(-1)[3].action,'keep');}
+ }
+});

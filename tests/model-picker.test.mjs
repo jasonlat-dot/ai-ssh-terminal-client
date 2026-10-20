@@ -84,3 +84,11 @@ test('DeepSeek 身份独立于 OpenAI 协议，在渠道、模型和当前值均
  assert.deepEqual(groups.map(group=>ui.all(group).find(node=>node.props.supplier).props.supplier),['deepseek','openai']);
  assert.ok(ui.all().filter(node=>node.props.role==='menuitemradio').every(row=>ui.all(row).find(node=>node.props.supplier).props.supplier==='deepseek'));
 });
+
+test('GLM 的渠道、具体模型和当前值一致使用智谱图标，与兼容协议分组隔离',()=>{
+ const ui=harness();ui.props.models=ui.props.models.map(model=>({...model,provider:'openAiCompatible',supplier:model.channelId==='a'?'glm':undefined}));
+ ui.render();assert.equal(ui.all(ui.trigger).find(node=>node.props.supplier).props.supplier,'glm');
+ ui.trigger.props.onClick();ui.render();ui.render();
+ assert.deepEqual(ui.all().filter(node=>node.props.role==='menuitem').map(group=>ui.all(group).find(node=>node.props.supplier).props.supplier),['glm','openai']);
+ assert.ok(ui.all().filter(node=>node.props.role==='menuitemradio').every(row=>ui.all(row).find(node=>node.props.supplier).props.supplier==='glm'));
+});

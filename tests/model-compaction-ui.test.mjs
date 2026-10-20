@@ -389,7 +389,7 @@ test('供应商菜单保留兼容名称，卡片仅显示品牌图标与协议�
   assert.equal(ui.find(node=>node.props.className==='model-profile-budget').props.title,'256,000 tokens');
   assert.doesNotMatch(ui.text(),/管理对话使用|配置保存后/);
   ui.openEdit();const supplier=ui.find(node=>node.props.id==='model-supplier'&&node.props.options);
-  assert.deepEqual(supplier.props.options.map(item=>item.label),['OpenAI 兼容','Anthropic 兼容','Google 兼容','DeepSeek']);
+  assert.deepEqual(supplier.props.options.map(item=>item.label),['OpenAI 兼容','Anthropic 兼容','Google 兼容','DeepSeek','GLM / 智谱']);
   assert.ok(supplier.props.options.every(item=>!item.description));
   assert.equal(supplier.props.renderIcon('anthropic').props.supplier,'anthropic');
   assert.equal(ui.find(node=>node.props.className==='model-provider-description'),undefined);
@@ -476,13 +476,32 @@ test('供应商筛选按显式 DeepSeek 身份区分同协议渠道，卡片展�
  assert.ok(ui.find(node=>node.props.supplier==='deepseek'));assert.ok(!ui.find(node=>node.type==='article'&&node.props['aria-label']==='openai'));
 });
 
+test('GLM 双协议配置保存及恢复，供应商和名称并且筛选，保留 Key 与代理',async()=>{
+ for(const provider of ['openAiCompatible','anthropicMessages']) {
+  const config={...protocolUi.applyModelSupplier(newModelConfig(),'glm'),provider,model:'alias',baseUrl:'https://proxy.test/glm/'};
+  const items=[{id:'glm',revision:3,displayName:'智谱生产',ready:true,apiKeyConfigured:true,config},
+    {id:'openai',revision:1,displayName:'智谱测试',ready:true,apiKeyConfigured:true,config:{...newModelConfig(),model:'alias'}}];
+  const ui=settings(undefined,{items,autoOpen:false});ui.render();await ui.settle();
+  ui.find(node=>node.props.id==='model-catalog-supplier'&&node.props.options).props.onChange('glm');ui.render();
+  assert.equal(ui.find(node=>node.type==='article').props['aria-label'],'智谱生产');assert.ok(ui.find(node=>node.props.supplier==='glm'));
+  ui.find(node=>node.props['aria-label']==='搜索供应商 / 渠道名称').props.onChange({target:{value:'测试'}});ui.render();assert.equal(ui.find(node=>node.type==='article'),undefined);
+  ui.find(node=>node.props['aria-label']==='搜索供应商 / 渠道名称').props.onChange({target:{value:'生产'}});ui.render();ui.openEdit();
+  assert.equal(ui.find(node=>node.props.id==='model-supplier'&&node.props.options).props.value,'glm');
+  assert.equal(ui.find(node=>node.props.id==='model-protocol'&&node.props.options).props.value,provider);
+  ui.find(node=>node.props.id==='model-effort'&&node.props.options).props.onChange('high');ui.render();
+  ui.find(node=>node.type==='form').props.onSubmit({preventDefault(){}});await ui.settle();
+  assert.equal(ui.saved[0][0],'glm');assert.equal(ui.saved[0][1],3);assert.equal(ui.saved[0][2].supplier,'glm');
+  assert.equal(ui.saved[0][2].provider,provider);assert.equal(ui.saved[0][2].baseUrl,config.baseUrl);assert.equal(ui.saved[0][3].action,'keep');
+ }
+});
+
 
 test('各供应商与协议地址留空可保存，保存使用提示默认值且草稿始终不自动回填',async()=>{
  for(const {value:supplier} of protocolUi.modelSupplierOptions) for(const {value:provider} of protocolUi.supplierProtocolOptions(supplier)) {
   const ui=settings(undefined,{autoOpen:false,items:[]});ui.render();await ui.settle();ui.find(node=>node.props.className?.split(' ').includes('model-create')).props.onClick();ui.render();
   ui.find(node=>node.props.id==='model-supplier'&&node.props.options).props.onChange(supplier);ui.render();
   ui.find(node=>node.props.id==='model-protocol'&&node.props.options)?.props.onChange(provider);ui.render();
-  const url=ui.find(node=>node.props.id==='model-url'&&node.type==='input');assert.equal(url.props.value,'');assert.match(url.props.placeholder,supplier==='google'?/\/v1beta$/:/\/v1$/);
+  const url=ui.find(node=>node.props.id==='model-url'&&node.type==='input');assert.equal(url.props.value,'');assert.equal(url.props.placeholder,protocolUi.modelBasePlaceholder({supplier,provider}));
   ui.find(node=>node.props.id==='model-name'&&node.type==='input').props.onChange({target:{value:'Default endpoint'}});
   ui.find(node=>node.props.id==='model-id'&&node.type==='textarea').props.onChange({target:{value:'example-model'}});
   ui.find(node=>node.props.id==='model-api-key'&&node.type==='input').props.onChange({target:{value:'fixture-key'}});ui.render();
