@@ -1,0 +1,18 @@
+.terminal-app-menu { flex-shrink: 0; }
+.app-header .terminal-menu-trigger { display: inline-flex; align-items: center; gap: 7px; padding: 6px 10px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--theme-text-strong); font: inherit; font-size: 13px; cursor: pointer; }
+.app-header .terminal-menu-trigger:hover, .app-header .terminal-menu-trigger[aria-expanded='true'] { background: var(--theme-hover); border-color: var(--line); }
+.terminal-menu-trigger:focus-visible, .terminal-command-menu button:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; }
+.terminal-command-menu { position: fixed; z-index: var(--ui-popover-layer); width: min(284px, calc(100vw - 16px)); max-height: calc(100vh - 16px); overflow-y: auto; padding: 5px; border: 1px solid var(--line); border-radius: 10px; color: var(--theme-text-strong); background: var(--theme-panel); box-shadow: var(--ui-menu-shadow); font-family: var(--font-ui); font-size: 13px; }
+.terminal-menu-caption { overflow: hidden; padding: 8px 9px; color: var(--theme-text-muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.terminal-menu-group { padding: 4px 0; border-top: 1px solid var(--line); }
+.terminal-command-menu button { display: flex; align-items: center; justify-content: space-between; gap: 20px; width: 100%; min-height: 32px; padding: 6px 9px; border: 0; border-radius: 5px; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.terminal-command-menu button:hover:not(:disabled), .terminal-command-menu button:focus-visible { background: var(--theme-hover); }
+.terminal-command-menu button:disabled { opacity: .4; cursor: default; }
+.terminal-command-menu button.is-danger { color: var(--theme-danger-text, #cf514b); }
+.terminal-command-menu kbd { color: var(--theme-text-muted); font: inherit; font-size: 11px; white-space: nowrap; }
+.terminal-menu-font { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 32px; padding: 6px 9px; }
+.terminal-menu-font small { margin-left: 4px; color: var(--theme-text-muted); font-size: 11px; }
+.terminal-menu-footnote, .terminal-menu-empty { margin: 0; padding: 8px 9px; color: var(--theme-text-muted); font-size: 11px; line-height: 1.6; }
+.terminal-menu-footnote { border-top: 1px solid var(--line); }
+.remote-terminal-view > .terminal-feedback-anchor { position: absolute; top: 8px; left: 12px; z-index: 30; }
+.terminal-feedback-anchor > .clipboard-feedback, .terminal-feedback-anchor > .terminal-paste-popover { top: 0; left: 0; }

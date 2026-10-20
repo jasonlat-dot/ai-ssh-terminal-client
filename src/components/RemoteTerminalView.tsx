@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import type { KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
@@ -10,12 +11,13 @@ import { copyText, readClipboardText } from '../state/clipboard';
 import { isTauriRuntime } from '../state/runtime';
 import { ClipboardFeedback, useClipboardFeedback } from './ClipboardFeedback';
 import { Icon, IconButton } from './Ui';
-import { TerminalSelectionHint } from './TerminalSelectionHint';
+import { useTerminalTarget } from './TerminalActionsContext';
 import { terminalSelectionBounds, terminalSelectionActionPosition } from '../state/terminalSelectionPosition';
 import '@xterm/xterm/css/xterm.css';
 import './TerminalSelection.css';
 
 type Props = {
+  title?: string;
   runtime?: TerminalRuntime;
   local?: boolean;
   visible: boolean;
@@ -67,7 +69,7 @@ function currentTerminalTheme() {
 }
 
 export function RemoteTerminalView({
-  runtime, local = false, visible, focused = true, connected, transportAvailable, disconnectReason, reconnectAllowed, reconnectAttempts,
+  title, runtime, local = false, visible, focused = true, connected, transportAvailable, disconnectReason, reconnectAllowed, reconnectAttempts,
   reconnecting, manuallyClosed, onDisconnected, onTransportChange, onReconnectExhausted, reconnect, cancelReconnect, disconnect, addToAgent, canAddToAgent,
 }: Props) {
   const element = useRef<HTMLDivElement>(null);
@@ -87,7 +89,7 @@ export function RemoteTerminalView({
   const { feedback, showFeedback, clearFeedback } = useClipboardFeedback();
   const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
   const copyShortcut = isMac ? '⌘C' : 'Ctrl+C';
-  const pasteShortcut = isMac ? '⌘V' : 'Ctrl+Shift+V';
+  const pasteShortcut = isMac ? '⌘V' : 'Ctrl+V';
   const systemPasteShortcut = isMac ? '⌘V' : 'Ctrl+V';
   const visibleRef = useRef(visible);
   visibleRef.current = visible;
@@ -163,10 +165,10 @@ export function RemoteTerminalView({
     if (!terminal || !target || !allowInput.current) return;
     try {
       const text = await readClipboardText();
-      if (term.current !== terminal || activeRuntime.current !== target || !allowInput.current || !visibleRef.current) return;
+      if (term.current !== terminal || activeRuntime.current !== target || !allowInput.current || !visibleRef.current || !focusedRef.current) return;
       pasteText(text);
     } catch {
-      if (term.current !== terminal || activeRuntime.current !== target || !allowInput.current || !visibleRef.current) return;
+      if (term.current !== terminal || activeRuntime.current !== target || !allowInput.current || !visibleRef.current || !focusedRef.current) return;
       clearFeedback();
       setPasteFallback(true);
     }
@@ -202,7 +204,7 @@ export function RemoteTerminalView({
       terminal.loadAddon(fit);
       terminal.open(terminalElement);
       term.current = terminal;
-      if (visibleRef.current && focusedRef.current && allowInput.current) terminal.focus();
+      if (visibleRef.current && focusedRef.current && (allowInput.current || !local)) terminal.focus();
 
       /** 修改字号后立即重新适配行列数，并把新的终端尺寸同步给 CMD 或 SSH 会话。 */
       const applyFontSize = (nextFontSize: number) => {
@@ -307,8 +309,10 @@ export function RemoteTerminalView({
   }, [runtime]);
 
   useEffect(() => {
-    if (!visible || !focused || unavailable) return;
+    if (!visible || !focused) return;
     const control = document.activeElement;
+    // A disconnected terminal still needs focus for the reconnect key, without taking it from chat or another pane.
+    if (unavailable && control && control !== document.body && !element.current?.closest('.terminal-session-pane')?.contains(control)) return;
     // Clicking a pane's select/toolbar/paste field must not steal its keyboard focus.
     if (control?.matches('select, button, textarea, input') && element.current?.closest('.terminal-session-pane')?.contains(control)) return;
     term.current?.focus();
@@ -361,7 +365,7 @@ export function RemoteTerminalView({
         }
       }
       if (!cancelled) {
-        setError(`自动重连已达到 ${AUTO_RECONNECT_DELAYS.length} 次，请点击“重新连接”。`);
+        setError(`自动重连已达到 ${AUTO_RECONNECT_DELAYS.length} 次。`);
         exhaustedHandler.current(AUTO_RECONNECT_DELAYS.length);
       }
     };
@@ -385,23 +389,46 @@ export function RemoteTerminalView({
     }
   };
 
+  const handleTerminalKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (selectionAction && event.key === 'Escape') {
+      setSelectionAction(null); event.preventDefault(); event.stopPropagation(); return;
+    }
+    if (local || !sessionUnavailable || !visible || !focused) return;
+    // Scope this to xterm, preserving clipboard/app shortcuts and normal focus navigation.
+    if (!(event.target instanceof Element) || !event.target.closest('.remote-terminal-screen')) return;
+    if (event.ctrlKey || event.metaKey || event.altKey || event.isDefaultPrevented() || event.nativeEvent.isComposing
+      || ['Shift', 'Control', 'Alt', 'Meta', 'AltGraph', 'CapsLock', 'NumLock', 'ScrollLock', 'Tab', 'Escape', 'Dead', 'Process', 'Unidentified'].includes(event.key)) return;
+    // Consume the initiating key before xterm translates it; never queue it for the new shell.
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.repeat || isReconnecting || reconnectingRef.current) return;
+    void reconnectNow();
+  };
+
   const attempt = Math.max(pendingAttempt, reconnectAttempts, 1);
   const unavailableMessage = isReconnecting
     ? `正在进行第 ${attempt} 次连接并创建新的终端会话…`
-    : error || terminalDisconnectMessage(disconnectReason, reconnectAllowed);
+    : `${error || terminalDisconnectMessage(disconnectReason, reconnectAllowed)}${local ? '' : ' 在终端内按任意键重新连接。'}`;
   const canCancelConnection = !local && !manuallyClosed && (isReconnecting || (!connected && pendingAttempt > 0 && reconnectAllowed));
 
-  return <div className="remote-terminal-view" hidden={!visible} onKeyDownCapture={event => {
-    if (selectionAction && event.key === 'Escape') { setSelectionAction(null); event.preventDefault(); event.stopPropagation(); }
-  }}>
-    <div className="remote-terminal-tools">
-      <div className="remote-terminal-clipboard" aria-label="终端剪贴板">
-        <IconButton icon="copy" label={`复制选中文本 · ${copyShortcut}`} disabled={!hasSelection} onClick={() => { void copySelection(); }} />
-        <IconButton icon="paste" label={`粘贴 · ${pasteShortcut}`} disabled={unavailable} onClick={() => { void pasteClipboard(); }} />
-        <TerminalSelectionHint visible={visible} disabled={!hasSelection || !canAddToAgent}
-          description={!canAddToAgent ? '当前对话暂时无法添加内容，请稍后重试。' : !hasSelection ? '先用鼠标选中终端里的文字，再添加到当前对话草稿。' : '将选中的终端文字添加到当前对话草稿。'}
-          onAdd={() => addSelectionToAgent()} />
-        <span className="terminal-shortcut-hint"><span>复制选区 <kbd>{copyShortcut}</kbd></span><span>粘贴 <kbd>{pasteShortcut}</kbd></span><span>无选区中断 <kbd>Ctrl+C</kbd></span><span className="terminal-font-hint">字号 <kbd>{fontSize}px</kbd><small>Ctrl+滚轮</small></span></span>
+  useTerminalTarget(visible && focused, {
+    title: title || (local ? '本地终端' : 'SSH 终端'), fontSize,
+    commands: [
+      { id: 'copy', label: '复制选中文本', group: 'clipboard', shortcut: copyShortcut, disabled: !hasSelection,
+        reason: '请先选中终端里的文字', run: () => { term.current?.focus(); return copySelection(); } },
+      { id: 'paste', label: '粘贴', group: 'clipboard', shortcut: pasteShortcut, disabled: unavailable,
+        reason: '终端连接后可粘贴', run: () => { term.current?.focus(); return pasteClipboard(); } },
+      { id: 'add', label: '添加到对话', group: 'clipboard', disabled: !hasSelection || !canAddToAgent,
+        reason: !canAddToAgent ? '当前对话暂时无法添加内容' : '请先选中终端里的文字',
+        run: () => { addSelectionToAgent(); term.current?.focus(); } },
+      ...(!local ? [{ id: canCancelConnection ? 'cancel' : 'reconnect', label: canCancelConnection ? '取消连接' : isReconnecting ? '正在重连…' : '重新连接',
+        group: 'connection' as const, disabled: !canCancelConnection && isReconnecting, run: canCancelConnection ? cancelReconnect : reconnectNow }] : []),
+      { id: 'disconnect', label: local ? '关闭终端' : sessionUnavailable ? '关闭页签' : '断开连接', group: 'connection', danger: true, run: disconnect },
+    ],
+  });
+
+  return <div className="remote-terminal-view" hidden={!visible} onKeyDownCapture={handleTerminalKeyDown}>
+    <div className="terminal-feedback-anchor">
         {!pasteFallback && <ClipboardFeedback feedback={feedback} />}
         {pasteFallback && <div className="terminal-paste-popover" role="dialog" aria-label="粘贴到终端" onKeyDown={event => {
           if (event.key === 'Escape') { event.stopPropagation(); setPasteFallback(false); setPasteDraft(''); term.current?.focus(); }
@@ -412,12 +439,6 @@ export function RemoteTerminalView({
           <button type="button" disabled={!pasteDraft || unavailable} onClick={() => pasteText(pasteDraft)}>粘贴到终端</button>
         </div>}
       </div>
-      <div className="remote-terminal-tool-actions">
-      {canCancelConnection
-        ? <button className="remote-terminal-reconnect" onClick={cancelReconnect}><Icon name="close" size={13} />取消连接</button>
-        : !local && <button className="remote-terminal-reconnect" disabled={isReconnecting} onClick={() => { void reconnectNow(); }}>{isReconnecting ? '正在重连…' : '重新连接'}</button>}
-      <button className="remote-terminal-disconnect" onClick={disconnect}>{local ? '关闭终端' : sessionUnavailable ? '关闭页签' : '断开连接'}</button>
-    </div></div>
     {transportUnavailable && !isReconnecting ? <div role="status" className="remote-terminal-error is-unreachable">
       <Icon name="alert" size={15} /><span>{error || '后端服务暂不可达，正在重试读取原会话；连接恢复后将自动继续。'}</span>
       <button disabled={!runtime || runtime.closed || runtime.disconnected} onClick={() => { setError(''); runtime?.resume(); }}>重试读取</button>

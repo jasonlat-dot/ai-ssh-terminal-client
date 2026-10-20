@@ -38,7 +38,6 @@ export function TerminalCommandBar({ mode, changeMode, sessions, selectedIds, to
       <Select label="命令执行范围" className="terminal-command-mode" value={mode} disabled={busy} onChange={changeMode}
         options={[{ value: 'single', label: '当前终端' }, { value: 'all', label: '全部终端' }, { value: 'selected', label: '勾选终端' }]} />
       {mode !== 'single' && <Badge tone="amber" icon="alert">{busy ? '广播 · 正在提交' : `广播 · ${targetCount} 个可用终端`}</Badge>}
-      <Badge tone="blue" icon="bot" className="terminal-command-agent">Agent 始终单终端</Badge>
     </div>
     {mode === 'selected' && <div className="terminal-command-targets" role="group" aria-label="广播目标终端">
       {sessions.map((session, index) => <label key={session.id} data-selected={selectedIds.includes(session.id)} title={`${session.title} · ${session.address}`}>

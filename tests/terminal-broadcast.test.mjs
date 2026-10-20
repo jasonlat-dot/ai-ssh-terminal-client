@@ -195,12 +195,15 @@ test('输入随内容及宽度自动增高并能收缩；高度变化不循环�
   assert.match(css, /white-space: pre-wrap; overflow-wrap: anywhere; overflow-x: hidden; overflow-y: auto/);
 });
 
-test('Agent 单终端说明采用主题高亮徽标，不再内联显示操作结果', () => {
-  const ui = commandBar({ result: '已提交 2 个终端' });
-  const badge = ui.nodes.find(item => item.props.className === 'terminal-command-agent');
-  assert.equal(badge.type, 'Badge'); assert.equal(badge.props.tone, 'blue'); assert.equal(badge.props.icon, 'bot');
-  assert.equal(badge.props.children, 'Agent 始终单终端');
-  assert.ok(!ui.nodes.some(item => item.props.role === 'status'), 'operation feedback belongs to the application Toast');
+test('命令目标栏移除 Agent 单终端提示，广播状态和 Toast 反馈保留', () => {
+  for (const mode of ['single', 'all', 'selected']) {
+    const ui = commandBar({ mode, result: '已提交 2 个终端' });
+    assert.ok(!ui.nodes.some(item => item.props.className === 'terminal-command-agent'));
+    const badges = ui.nodes.filter(item => item.type === 'Badge');
+    assert.equal(badges.length, mode === 'single' ? 0 : 1);
+    if (mode !== 'single') assert.equal(badges[0].props.tone, 'amber');
+    assert.ok(!ui.nodes.some(item => item.props.role === 'status'), 'operation feedback belongs to the application Toast');
+  }
 });
 
 test('实际 App 提交入口：成功使用 Toast，失败或跳过保留错误提醒', async () => {

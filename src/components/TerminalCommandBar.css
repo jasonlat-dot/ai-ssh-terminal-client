@@ -1,7 +1,6 @@
 .terminal-command-bar { flex-shrink: 0; padding: 6px 12px; border-bottom: 1px solid var(--line); font-size: var(--font-small); color: var(--theme-text-muted); }
 .terminal-command-scope { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .terminal-command-scope > span:first-child { display: inline-flex; align-items: center; gap: 5px; }
-.terminal-command-agent { margin-left: auto; }
 .terminal-command-scope .terminal-command-mode { width: 8rem; height: 28px; padding: 4px 8px; font-size: var(--font-small); background: transparent; }
 .terminal-command-targets { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .terminal-command-targets > label { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; padding: 4px 8px; border: 1px solid var(--line); border-radius: 5px; cursor: pointer; }

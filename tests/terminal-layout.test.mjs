@@ -236,9 +236,9 @@ test('分屏仍按 session.id 常驻所有终端，不过滤/复制视图；只�
   assert.match(app, /<section key=\{session\.id\} className="terminal-session-pane" hidden=\{!visible\}/);
   assert.match(app, /visible=\{visible && navigation === '命令'\} focused=\{session\.id === activeId\}/);
   assert.match(app, /selectTerminalTab\(id, replaceTerminalPane/);
-  assert.match(view, /if \(!visible \|\| !focused \|\| unavailable\) return/);
+  assert.match(view, /if \(!visible \|\| !focused\) return/);
   assert.match(view, /control\?\.matches\('select, button, textarea, input'\)/);
-  assert.match(view, /if \(visibleRef.current && focusedRef.current && allowInput.current\) terminal.focus\(\)/);
+  assert.match(view, /if \(visibleRef.current && focusedRef.current && \(allowInput.current \|\| !local\)\) terminal.focus\(\)/);
   assert.match(css, /\.terminal-session-pane\[hidden\]/);
   assert.match(css, /grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
   assert.match(css, /grid-template-rows: repeat\(2, minmax\(0, 1fr\)\)/);

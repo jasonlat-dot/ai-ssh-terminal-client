@@ -3,6 +3,7 @@ import type { ThemePreference } from '../state/useTheme';
 import { Icon } from './Ui';
 import type { IconName } from './Ui';
 import { dragAppWindow } from '../state/appWindow';
+import { TerminalMenu } from './TerminalMenu';
 import { WindowControls } from './WindowControls';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { isTauriRuntime } from '../state/runtime';
@@ -21,6 +22,7 @@ export function AppHeader({ notify, theme, setTheme }: {
   return <header className="app-header" onMouseDown={dragAppWindow}>
     <div className="brand"><img className="brand-mark" src="/agent-ssh-header.svg" alt="" draggable={false} /><div><strong>ShellPilot</strong><small>SSH 终端与智能体工作区</small></div></div>
     <span className="app-version-badge">v{APP_VERSION}</span>
+    <TerminalMenu />
     <div className="profile">
       <div className="theme-switcher" role="group" aria-label="界面主题">
         {([

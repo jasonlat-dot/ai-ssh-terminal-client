@@ -715,7 +715,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     } : session;
     sessionsRef.current = sessionsRef.current.map(cancelState);
     setSessions(previous => previous.map(cancelState));
-    if (!quiet) notify('已取消连接，可点击“重新连接”再试。');
+    if (!quiet) notify('已取消连接，可在终端内按任意键重新连接。');
   };
   const reconnectTerminal = async (
     sessionId: string,
@@ -1690,7 +1690,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
               <button type="button" title="只显示此终端" onClick={() => { selectTerminalTab(session.id); setTerminalLayout('single'); }}>单窗口</button>
             </div>
             <Suspense fallback={visible ? <p>正在加载终端…</p> : null}>
-            <RemoteTerminalView key={runtime?.sessionId ?? `${session.id}:disconnected`} runtime={runtime} visible={visible && navigation === '命令'} focused={session.id === activeId}
+            <RemoteTerminalView title={session.title} key={runtime?.sessionId ?? `${session.id}:disconnected`} runtime={runtime} visible={visible && navigation === '命令'} focused={session.id === activeId}
               local={session.kind === 'local'}
               canAddToAgent={!chatBusy && !chatStopping && !historyLoadingId && !recoveredRunning}
               addToAgent={text => {

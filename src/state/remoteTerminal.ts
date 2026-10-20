@@ -15,12 +15,12 @@ export type TerminalDisconnectEvent = {
 
 export function terminalDisconnectMessage(reason: TerminalDisconnectReason | null, reconnectAllowed: boolean) {
   switch (reason) {
-    case 'IDLE_TIMEOUT': return '终端因长时间未操作已断开，请点击重新连接';
+    case 'IDLE_TIMEOUT': return '终端因长时间未操作已断开。';
     case 'CLIENT_CLOSED': return '终端连接已关闭。';
-    case 'SESSION_NOT_FOUND': return '终端会话已失效，请手动重新连接';
-    case 'READER_ERROR': return reconnectAllowed ? '终端读取异常，正在尝试自动重连。' : '终端读取异常，请点击重新连接。';
-    case 'CHANNEL_DISCONNECTED': return reconnectAllowed ? 'SSH Channel 已断开，正在尝试自动重连。' : 'SSH Channel 已断开，请点击重新连接。';
-    default: return reconnectAllowed ? '终端连接已断开，正在尝试自动重连。' : '终端连接已断开，请点击重新连接。';
+    case 'SESSION_NOT_FOUND': return '终端会话已失效。';
+    case 'READER_ERROR': return reconnectAllowed ? '终端读取异常，正在尝试自动重连。' : '终端读取异常。';
+    case 'CHANNEL_DISCONNECTED': return reconnectAllowed ? 'SSH Channel 已断开，正在尝试自动重连。' : 'SSH Channel 已断开。';
+    default: return reconnectAllowed ? '终端连接已断开，正在尝试自动重连。' : '终端连接已断开。';
   }
 }
 
@@ -266,7 +266,7 @@ export class RemoteTerminal implements TerminalRuntime {
   }
 
   private assertWritable() {
-    if (this.closed || this.closing || this.manuallyClosed) throw new Error('终端会话已关闭，请点击“重新连接”恢复会话。');
+    if (this.closed || this.closing || this.manuallyClosed) throw new Error('终端会话已关闭，请重新连接。');
     if (this.disconnected) throw new Error('终端连接已断开，请先重新连接。');
     if (!this.transportAvailable) throw new Error('本地工作区暂不可用，请重试读取或重新初始化。');
     if (this.paused) throw new Error('终端读取已暂停，请先重试读取。');
@@ -294,7 +294,7 @@ export class RemoteTerminal implements TerminalRuntime {
     this.closing = true;
     try {
       await terminalApi.close(this.sessionId, undefined, this.backendUrl);
-      this.report?.('终端会话已关闭，可点击“重新连接”重新建立会话。');
+      this.report?.('终端会话已关闭。');
     } finally {
       this.closed = true;
       this.closing = false;

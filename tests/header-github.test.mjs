@@ -13,6 +13,7 @@ function header({ tauri = false, fail = false } = {}) {
   const context = vm.createContext({ exports: {}, require: name => {
     if (name === 'react/jsx-runtime') return { jsx: node, jsxs: node };
     if (name === './Ui') return { Icon: () => null };
+    if (name === './TerminalMenu') return { TerminalMenu: () => null };
     if (name === './WindowControls') return { WindowControls: () => null };
     if (name === './NavigationButton') return { NavigationButton: () => null };
     if (name === '../config/settingsNavigation') return { settingsNavigation: [] };

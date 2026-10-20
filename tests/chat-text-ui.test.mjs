@@ -183,7 +183,7 @@ test('本地与 SSH 共用选区入口，读取 xterm 选区而非页面选择�
   const terminal = source('components/RemoteTerminalView.tsx'), app = source('App.tsx');
   assert.match(terminal, /term\.current\?\.getSelection\(\)/);
   assert.match(terminal, /terminal-selection-action[\s\S]*添加到对话/);
-  assert.match(terminal, /disabled=\{!hasSelection \|\| !canAddToAgent\}/);
+  assert.match(terminal, /disabled: !hasSelection \|\| !canAddToAgent/);
   assert.match(app, /local=\{session.kind === 'local'\}[\s\S]*addToAgent=/);
   assert.match(app, /agentComposer.current\?\.addText\(text, 'terminal'\)/);
   assert.match(app, /setAgentCollapsed\(false\)/);
