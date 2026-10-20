@@ -1,3 +1,4 @@
+import type { ModelConfig } from './models';
 import { sshUserId } from './ssh.ts';
 import { ChatRequestError } from './chatErrors.ts';
 import { builtinRequest, NativeRequestError } from './builtin';
@@ -13,7 +14,7 @@ export type AgentConfig = {
   agentDesc: string;
   toolsAvailable?: boolean;
   channelId?: string;
-  provider?: 'openAiCompatible'|'openAiResponses'|'anthropicMessages';
+  provider?: ModelConfig['provider'];
 };
 
 export type AgentToolStatus = 'running' | 'success' | 'error' | 'unknown';

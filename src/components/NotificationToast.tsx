@@ -15,7 +15,7 @@ export function NotificationToast({ notice, close, durationMs = DEFAULT_NOTICE_D
   closeRef.current = close;
   const closeAfter = notice.durationMs ?? durationMs;
   useEffect(() => {
-    if (hovered || focused || details) return;
+    if (closeAfter <= 0 || hovered || focused || details) return;
     const timer = setTimeout(() => closeRef.current(), closeAfter);
     return () => clearTimeout(timer);
   }, [notice, closeAfter, hovered, focused, details]);

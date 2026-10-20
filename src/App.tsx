@@ -41,7 +41,7 @@ import type { TerminalCommandMode } from './state/terminalBroadcast';
 import { TerminalCommandBar } from './components/TerminalCommandBar';
 import { copyText } from './state/clipboard';
 import { NotificationCenter } from './components/NotificationToast';
-import { notify } from './state/notifications';
+import { beginNotice, notify } from './state/notifications';
 import { ConnectionSidebar } from './components/Connections';
 import { SshConnectionDialog } from './components/SshConnectionDialog';
 import { useSshConnections } from './state/useSshConnections';
@@ -534,11 +534,11 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
       opening.current.delete(tabId);
     }
   };
-  const openTerminalRuntime = async (attempt: SshConnectAttempt, stillWanted = () => true) => {
+  const openTerminalRuntime = async (attempt: SshConnectAttempt, stillWanted = () => true, timeoutSeconds?: number) => {
     let opened: Awaited<ReturnType<typeof terminalApi.connect>> | undefined;
     try {
       if (attempt.signal.aborted || !stillWanted()) throw new DOMException('SSH 连接已取消', 'AbortError');
-      opened = await attempt.open();
+      opened = await attempt.open(timeoutSeconds);
       if (!opened?.sessionId) throw new Error('应用未返回终端会话 ID');
       if (attempt.signal.aborted || !stillWanted()) throw new DOMException('SSH 连接已取消', 'AbortError');
       const runtime = new RemoteTerminal(opened, false, attempt.backendUrl);
@@ -565,20 +565,17 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
   const selectHost = async (id: string, suppliedHost?: Host) => {
     const nextHost = suppliedHost ?? hosts.find(item => item.id === id);
     if (!nextHost) return;
-    if (openingConnections.current.has(id)) {
-      notify(`${nextHost.name} 正在连接中，请等待当前连接请求完成。`, 'info', 5000);
-      return;
-    }
+    // The in-flight attempt already owns its pending notice; do not add a second stale timer.
+    if (openingConnections.current.has(id)) return;
     const tabId = crypto.randomUUID();
     const attempt = new SshConnectAttempt(id, backendUrl);
     const pending = { attempt, tabId };
     openingConnections.current.set(id, pending);
     setConnectingHostIds(current => new Set(current).add(id));
     opening.current.add(tabId);
+    const closeConnectingNotice = beginNotice(`正在连接 ${nextHost.name} 并打开远程终端，请稍候…`);
     try {
-      // 首次连接可能一直等待到 SSH 超时，提示在请求结束前保持可见，避免用户误以为没有响应而重复点击。
-      notify(`正在连接 ${nextHost.name} 并打开远程终端，请稍候…`, 'info', 60_000);
-      const runtime = await openTerminalRuntime(attempt, () => openingConnections.current.get(id) === pending);
+      const runtime = await openTerminalRuntime(attempt, () => openingConnections.current.get(id) === pending, nextHost.connectTimeout);
       if (attempt.signal.aborted || openingConnections.current.get(id) !== pending) {
         runtime.markManuallyClosed();
         attempt.cancel();
@@ -611,11 +608,12 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
       return openedSession;
     } catch (error) {
       if (!(error instanceof DOMException && error.name === 'AbortError')) {
-        notify(error instanceof Error ? error.message : '打开终端失败', 'error', 8000);
+        notify(`连接 ${nextHost.name} 失败：${error instanceof Error ? error.message : '打开终端失败'}`, 'error', 8000);
       }
       attempt.cancel();
     }
     finally {
+      closeConnectingNotice();
       if (openingConnections.current.get(id) === pending) {
         openingConnections.current.delete(id);
         setConnectingHostIds(current => {
@@ -764,7 +762,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
       // 重连要关闭旧后端 Channel，但不能把旧运行时标记为“用户主动关闭”，否则 stillWanted 会取消本次重连。
       if (previousRuntime?.sessionId) await terminalApi.close(previousRuntime.sessionId, attempt.signal, attempt.backendUrl)
         .catch(error => { if (attempt.signal.aborted) throw error; });
-      const runtime = await openTerminalRuntime(attempt, stillWanted);
+      const runtime = await openTerminalRuntime(attempt, stillWanted, session.host.connectTimeout);
       const currentSession = sessionsRef.current.find(item => item.id === sessionId);
       const currentRuntime = terminalClients.current.get(sessionId);
       if (!stillWanted() || !currentSession || currentSession.manuallyClosed || previousRuntime?.manuallyClosed

@@ -80,3 +80,16 @@ test('协议并发变更和保存失败保留原设置，不误报成功并释�
   assert.equal(ui.saved.length,0);assert.equal(ui.notices.at(-1)[1],'error');
   assert.equal(ui.control.props.displayValue,'推理 · 默认');assert.deepEqual(ui.busy,[true,false,true,false]);
 });
+
+
+test('Google 输入框复用协议目录保存四档 thinkingLevel，不接受 OpenAI 或 Claude 专属档位',async()=>{
+  const ui=harness('googleGemini');ui.render();await ui.settle();
+  assert.deepEqual(Array.from(ui.control.props.options,option=>option.value),['','minimal','low','medium','high']);
+  for(const value of ['none','xhigh','max'])ui.control.props.onChange(value);
+  await ui.settle();assert.equal(ui.saved.length,0);
+  for(const value of ['minimal','low','medium','high','']){
+    ui.control.props.onChange(value);await ui.settle();
+    assert.equal(ui.saved.at(-1)[2].provider,'googleGemini');assert.equal(ui.saved.at(-1)[2].reasoningEffort,value||null);
+    assert.equal(ui.saved.at(-1)[3].action,'keep');
+  }
+});

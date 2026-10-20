@@ -18,6 +18,14 @@ export function notify(message: string, type: NoticeType = 'info', durationMs?: 
     durationMs: durationMs !== undefined && Number.isFinite(durationMs) && durationMs > 0 ? durationMs : type === 'error' ? 6000 : 3500 };
   publish([...notices.filter(item => item.id !== notice.id), notice].slice(-4));
 }
+/** A pending operation owns a unique notice; 0 keeps it visible until explicitly closed. */
+export function beginNotice(message: string): () => void {
+  if (!message.trim()) return () => {};
+  const id = ++sequence;
+  const notice: Notice = { id, message, type: 'info', durationMs: 0 };
+  publish([...notices, notice].slice(-4));
+  return () => dismissNotice(id);
+}
 export function dismissNotice(id: number): void {
   if (notices.some(item => item.id === id)) publish(notices.filter(item => item.id !== id));
 }

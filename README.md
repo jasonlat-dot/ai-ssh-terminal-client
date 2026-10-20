@@ -44,7 +44,7 @@ AIShellTerminal/
 - 按 Trace ID 定位失败请求日志，默认保留 7 天；展开工具可读取并复制已保存的完整输出。
 - 明暗主题、壁纸与字体设置、紧凑窗口布局、统一操作提示及应用更新。
 
-Chat Completions、Claude Messages 与 Responses 支持文字、附件和工具调用；按协议自动保留推理字段或思考签名，历史恢复与上下文整理保留所需的尾部状态。Gemini 使用 OpenAI 兼容入口，供应商能力和入口说明见 [模型设置](docs/agent-model-settings.md)。扫描 PDF/OCR、Office 内容解析、旧 Java 数据自动导入及递归子任务不在当前支持范围。SFTP 使用独立连接，终端 `sudo` 不会自动改变文件连接的身份，需要在文件窗口选择访问身份。
+Chat Completions、Claude Messages、Responses 与 Google Gemini GenerateContent 支持文字、附件和工具调用；按协议自动保留推理字段或思考签名，历史恢复与上下文整理保留所需的尾部状态。Gemini 可选择原生 Google 入口或已有 OpenAI 兼容入口，供应商能力和入口说明见 [模型设置](docs/agent-model-settings.md)。扫描 PDF/OCR、Office 内容解析、旧 Java 数据自动导入及递归子任务不在当前支持范围。SFTP 使用独立连接，终端 `sudo` 不会自动改变文件连接的身份，需要在文件窗口选择访问身份。
 
 ## SSH 新手指引
 

@@ -16,3 +16,12 @@ test('选择器按稳定渠道 ID 分组，同名渠道和多个代理不串组�
   assert.equal(groups.find(group=>group.id==='legacy')?.models[0].agentId,'legacy');
   assert.equal(models[0].agentId,'one');
 });
+
+
+test('Google 原生渠道保持供应商协议并与同名 OpenAI 渠道隔离',()=>{
+  const groups=groupModels([{agentId:'google-a',agentName:'Proxy',modelName:'gemini-a',channelId:'google',provider:'googleGemini',agentDesc:''},
+    {agentId:'google-b',agentName:'Proxy',modelName:'gemini-b',channelId:'google',provider:'googleGemini',agentDesc:''},
+    {agentId:'openai-a',agentName:'Proxy',modelName:'alias',channelId:'openai',provider:'openAiCompatible',agentDesc:''}]);
+  assert.equal(groups.length,2);assert.equal(groups.find(g=>g.id==='google')?.provider,'googleGemini');
+  assert.deepEqual(groups.find(g=>g.id==='google')?.models.map(m=>m.agentId),['google-a','google-b']);
+});

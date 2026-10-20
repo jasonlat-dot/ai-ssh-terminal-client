@@ -389,7 +389,7 @@ test('供应商菜单保留兼容名称，卡片仅显示品牌图标与协议�
   assert.equal(ui.find(node=>node.props.className==='model-profile-budget').props.title,'256,000 tokens');
   assert.doesNotMatch(ui.text(),/管理对话使用|配置保存后/);
   ui.openEdit();const supplier=ui.find(node=>node.props.id==='model-supplier'&&node.props.options);
-  assert.deepEqual(supplier.props.options.map(item=>item.label),['OpenAI 兼容','Anthropic 兼容']);
+  assert.deepEqual(supplier.props.options.map(item=>item.label),['OpenAI 兼容','Anthropic 兼容','Google 兼容']);
   assert.ok(supplier.props.options.every(item=>!item.description));
   assert.equal(supplier.props.renderIcon('anthropic').props.supplier,'anthropic');
   assert.equal(ui.find(node=>node.props.className==='model-provider-description'),undefined);
@@ -423,4 +423,27 @@ test('渠道名称与推理强度同排，基础地址、密钥、模型 ID 按�
  assert.deepEqual(Array.from(fields,node=>node.props.id),['model-name','model-effort','model-url','model-api-key','model-id']);
  assert.equal(fields[1].props.hint,undefined);
  for(const field of fields.slice(2))assert.equal(field.props.wide,true);
+});
+
+
+test('Google 渠道从供应商弹窗配置多个模型，保持空地址提示、原生参数并可编辑恢复',async()=>{
+  const ui=settings(undefined,{autoOpen:false});ui.render();await ui.settle();ui.find(node=>node.props.className?.split(' ').includes('model-create')).props.onClick();ui.render();
+  const supplier=ui.find(node=>node.props.id==='model-supplier'&&node.props.options);
+  assert.ok(supplier.props.options.some(option=>option.value==='google'));
+  supplier.props.onChange('google');ui.render();
+  const url=ui.find(node=>node.props.id==='model-url'&&node.type==='input');
+  assert.equal(url.props.value,'');assert.equal(url.props.placeholder,'https://generativelanguage.googleapis.com/v1beta/');
+  assert.equal(ui.find(node=>node.props.id==='model-path'&&node.type==='input').props.value,'models');
+  assert.equal(ui.find(node=>node.props.id==='model-token-param'&&node.type==='input').props.value,'maxOutputTokens');
+  url.props.onChange({target:{value:'https://proxy.test/v1beta/'}});
+  ui.find(node=>node.props.id==='model-name'&&node.type==='input').props.onChange({target:{value:'Google'}});
+  ui.find(node=>node.props.id==='model-id'&&node.type==='textarea').props.onChange({target:{value:'gemini-test-a\ngemini-test-b'}});
+  ui.find(node=>node.props.id==='model-effort'&&node.props.options).props.onChange('high');
+  ui.render();ui.find(node=>node.type==='form').props.onSubmit({preventDefault(){}});await ui.settle();
+  const saved=ui.saved[0];assert.ok(saved);assert.equal(saved[2].provider,'googleGemini');
+  assert.equal(saved[2].reasoningEffort,'high');assert.equal(saved[2].outputTokenParameter,'maxTokens');
+  assert.deepEqual(Array.from(saved[5]),['gemini-test-a','gemini-test-b']);
+  const profile={id:saved[0],revision:1,displayName:'Google',ready:true,apiKeyConfigured:true,config:saved[2]};
+  const restored=settings(undefined,{items:[profile]});restored.render();await restored.settle();
+  assert.equal(restored.find(node=>node.props.id==='model-supplier'&&node.props.options).props.value,'google');
 });

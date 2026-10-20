@@ -63,3 +63,14 @@ test('渠道图标使用兼容协议品牌，不再显示渠道首字母',()=>{
  assert.equal(ui.all(ui.trigger).find(node=>node.props.supplier).props.supplier,'anthropic');
  assert.equal(ui.trigger.props.children[0].props.children[1].props.children,'third');
 });
+
+
+test('Google 原生渠道在当前值、分组与模型行复用品牌图标，窄窗口仍可选择',()=>{
+ const ui=harness(360);ui.props.models=ui.props.models.map(model=>({...model,provider:model.channelId==='b'?'googleGemini':'openAiCompatible'}));ui.props.value='b1';
+ ui.render();assert.equal(ui.all(ui.trigger).find(node=>node.props.supplier).props.supplier,'google');assert.equal(ui.all(ui.trigger).find(node=>node.props.supplier).props.variant,undefined);
+ ui.trigger.props.onClick();ui.render();ui.render();
+ const row=ui.find(node=>node.props.role==='menuitemradio');assert.equal(ui.all(row).find(node=>node.props.supplier).props.supplier,'google');assert.equal(ui.all(row).find(node=>node.props.supplier).props.variant,'model');
+ ui.find(node=>node.props['aria-label']==='返回供应商').props.onClick();ui.render();ui.render();
+ const group=ui.find(node=>node.props['data-group-index']===1);assert.equal(ui.all(group).find(node=>node.props.supplier).props.variant,undefined);
+ group.props.onClick();ui.render();ui.render();ui.find(node=>node.props.role==='menuitemradio').props.onClick();ui.render();assert.deepEqual(ui.selected,['b1']);assert.equal(ui.trigger.props['aria-expanded'],false);
+});

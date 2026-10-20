@@ -365,6 +365,23 @@ Messages 的输入框与模型设置共用协议目录，提供默认、低（lo
 
 ### 渠道图标与模型配置布局
 
-模型选择器按渠道所配置的兼容协议展示 OpenAI 或 Claude 图标，不再显示名称首字母。双栏菜单相对输入区居中后向右微调 32px，窄区域的单栏菜单保持居中；限制在聊天分栏和窗口边界内，按分栏实际可用宽度切换布局，窗口缩放与拖动分栏时重新定位。
+模型选择器按渠道所配置的兼容协议展示 OpenAI、Claude 或 Google 图标，不再显示名称首字母。双栏菜单相对输入区居中后向右微调 32px，窄区域的单栏菜单保持居中；限制在聊天分栏和窗口边界内，按分栏实际可用宽度切换布局，窗口缩放与拖动分栏时重新定位。
 
 配置页将供应商 / 渠道名称与推理强度放在同一行，移除强度下方说明；下方依次为独占一行的 API 基础地址、API Key 和模型 ID。窄布局自动调整为单列。此次仅前端变更；前端全量 538 项、TypeScript 与 Vite 构建通过，浏览器组件预览核对了宽分栏、窄分栏及配置弹窗。
+
+
+### Google Gemini 原生接口（2026-10-20）
+
+“新建配置 → 供应商 → Google 兼容”使用 GenerateContent 原生协议。基础地址默认留空，仅提示 `https://generativelanguage.googleapis.com/v1beta/`；填写实际官方或代理地址，API Key 和多个 Gemini 模型 ID 后保存，随后在对话模型菜单选择使用。已有 OpenAI 兼容入口仍可使用，不会自动转换旧配置。
+
+接口相对路径默认 `models`，程序自动追加模型 ID 和 `:generateContent` / `:streamGenerateContent?alt=sse`，不要把完整方法地址或密钥填入基础地址。可用 `models/` 前缀的模型 ID，保存时规范为实际 ID；各模型共用渠道密钥和参数，仍按选中模型发送请求。鉴权使用 `x-goog-api-key`，不把密钥放进 URL。
+
+输出参数显示 `maxOutputTokens`；强度提供默认 / minimal / low / medium / high，映射到 `generationConfig.thinkingConfig.thinkingLevel`。默认不发送思考配置，保留供应商行为；thinkingLevel 要求 Gemini 3 或更新且支持该档位的模型，较早模型保持默认。不按模型名猜测能力，不自动降档或重试。
+
+支持普通与流式文字、已有图片附件、工具调用、原样签名续接、会话内模型切换和本地语义摘要整理。PDF 继续沿用现有文本提取；Google 的原生文件上传、Vertex OAuth、实时语音、托管搜索及 Interactions 不在此次接入范围。没有数据库迁移或新运行依赖。需完全退出托盘旧进程，重新运行 `npm run tauri dev` 编译后测试。
+
+
+本轮 Google 直接相关前端 48 项、TypeScript 与 Vite 构建通过；Rust 46 项定向检查、生产库严格 Clippy 和桌面原生 tests 编译通过，覆盖原生签名工具续聊、错误/取消、上下文摘要、渠道 Key 与模型 URL、四协议会话内切换。只使用测试 Key、临时数据库和回环接口；未调用真实 Google 服务，实际桌面视觉验收未完成。未全量回归、未打包或提交。
+
+
+2026-10-20：Google 供应商分组和配置卡片使用本地四色 G；按用户澄清，下拉列表中的具体 Gemini 模型行保留原蓝色星形；输入框当前模型按用户最新要求使用四色 G。ModelSupplierIcon 用 supplier/model 展示类型区分，模型选择与配置行为不变。图标/菜单 9 项及 TypeScript 检查通过。

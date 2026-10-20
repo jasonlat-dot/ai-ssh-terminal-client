@@ -26,19 +26,21 @@ function selectHarness(renderIcon) {
 }
 
 test('供应商品牌图标使用本地 SVG，Claude 显示暖橙色放射标志并作为装饰隐藏',()=>{
-  const icons=['openai','anthropic'].map(supplier=>renderToStaticMarkup(React.createElement(ModelSupplierIcon,{supplier,size:22})));
-  for(const html of icons){assert.match(html,/viewBox="0 0 24 24"/);assert.match(html,/aria-hidden="true"/);assert.match(html,/<path d="M/);assert.doesNotMatch(html,/<image|<script|https?:/);}
+  const icons=['openai','anthropic','google'].map(supplier=>renderToStaticMarkup(React.createElement(ModelSupplierIcon,{supplier,size:22})));
+  for(const html of icons){assert.match(html,/viewBox="0 0 24 24"/);assert.match(html,/aria-hidden="true"/);assert.match(html,/<path\b[^>]*\bd="M/);assert.doesNotMatch(html,/<image|<script|https?:/);}
   assert.match(icons[0],/fill="currentColor"/);
   assert.match(icons[1],/fill="#D97757"/);assert.match(icons[1],/fill-rule="nonzero"/);
   assert.match(icons[1],/<path d="M4\.709 15\.955/);
-  assert.notEqual(icons[0],icons[1]);
+  assert.notEqual(icons[0],icons[1]);assert.match(icons[2],/data-supplier="google"/);assert.match(icons[2],/fill="#4285F4"/);assert.notEqual(icons[1],icons[2]);
+  for(const color of ['#4285F4','#34A853','#FBBC05','#EA4335'])assert.ok(icons[2].includes(`fill="${color}"`));
+  assert.equal((icons[2].match(/<path /g)||[]).length,4);
 });
 
 test('Select 在当前值和菜单选项展示图标，供应商菜单没有说明列',()=>{
   const ui=selectHarness(supplier=>React.createElement(ModelSupplierIcon,{supplier}));
   assert.match(ui.html(),/data-supplier="openai"/);
   ui.find('combobox').props.onClick();ui.render();
-  assert.equal((ui.html().match(/class="model-supplier-icon"/g)||[]).length,3);
+  assert.equal((ui.html().match(/class="model-supplier-icon"/g)||[]).length,modelSupplierOptions.length+1);
   assert.match(ui.html(),/Anthropic 兼容/);assert.doesNotMatch(ui.html(),/<small/);
   const option=ui.find('listbox').props.children[1];option.props.onClick();ui.render();
   assert.equal(ui.value,'anthropic');assert.match(ui.html(),/data-supplier="anthropic"/);assert.equal(ui.find('listbox'),undefined);
@@ -50,4 +52,13 @@ test('未传图标的 Select 保持文字展示、方向键选择和确认行为
   key('ArrowDown');ui.render();key('ArrowDown');ui.render();key('Enter');ui.render();
   assert.equal(ui.value,'anthropic');assert.equal(ui.find('listbox'),undefined);
   assert.doesNotMatch(ui.html(),/model-supplier-icon/);
+});
+
+
+test('Google 供应商使用四色 G，具体模型保留单色 Gemini 星形',()=>{
+ const supplier=renderToStaticMarkup(React.createElement(ModelSupplierIcon,{supplier:'google'}));
+ const model=renderToStaticMarkup(React.createElement(ModelSupplierIcon,{supplier:'google',variant:'model'}));
+ assert.match(supplier,/data-variant="supplier"/);assert.equal((supplier.match(/<path /g)||[]).length,4);
+ assert.match(model,/data-variant="model"/);assert.match(model,/fill="#4285F4"/);assert.match(model,/<path d="M12 0C10/);
+ assert.equal((model.match(/<path /g)||[]).length,1);assert.doesNotMatch(model,/#34A853|#FBBC05|#EA4335/);
 });

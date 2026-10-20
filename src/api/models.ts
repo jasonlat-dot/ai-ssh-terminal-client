@@ -2,7 +2,7 @@ import { builtinRequest } from './builtin';
 import { sshUserId } from './ssh';
 
 export type ModelConfig = {
-  provider: 'openAiCompatible'|'openAiResponses'|'anthropicMessages'; remoteCompaction?: boolean; baseUrl: string; completionsPath: string; model: string;
+  provider: 'openAiCompatible'|'openAiResponses'|'anthropicMessages'|'googleGemini'; remoteCompaction?: boolean; baseUrl: string; completionsPath: string; model: string;
   contextWindow: number; outputReserve: number; safetyReserve: number; compactPercent: number;
   outputTokenParameter: 'maxCompletionTokens' | 'maxTokens';
   capabilities: { toolCalls: boolean; developerRole: boolean; temperature: boolean; reasoningEffort: boolean; vision: boolean };

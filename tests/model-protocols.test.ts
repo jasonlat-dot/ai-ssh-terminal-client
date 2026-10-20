@@ -31,7 +31,7 @@ test('空地址切换 Claude 后保持留空，合法温度保留，目录覆盖
   assert.equal(next.temperature, 0.7);
   assert.equal(modelProtocols.anthropicMessages.temperatureMax, 1);
   assert.equal(modelProtocols.anthropicMessages.reasoning, true);
-  assert.equal(modelProtocolOptions.length, 3);
+  assert.equal(modelProtocolOptions.length, 4);
   assert.equal(applyModelProtocol(next, 'openAiCompatible').completionsPath, 'chat/completions');
   assert.equal(applyModelProtocol(config, 'openAiResponses').completionsPath, 'responses');
   assert.equal(modelProtocols.openAiResponses.fixedOutput, 'max_output_tokens');
@@ -69,4 +69,17 @@ test('供应商目录分离 OpenAI 两种协议与 Anthropic 原生协议', () =
   assert.equal(applyModelSupplier(proxy, 'anthropic').baseUrl,proxy.baseUrl);
   const responses = {...config, provider:'openAiResponses' as const};
   assert.equal(applyModelSupplier(responses, 'openai'),responses);
+});
+
+
+test('Google 使用独立原生协议和参数目录，切换保留地址并清除不支持的强度', () => {
+  assert.deepEqual(supplierProtocolOptions('google').map(option=>option.value), ['googleGemini']);
+  const original={...newModelConfig(),baseUrl:'https://proxy.test/gemini/v1beta/',remoteCompaction:true,reasoningEffort:'max' as const};
+  const config=applyModelSupplier(original,'google');
+  assert.equal(config.provider,'googleGemini');assert.equal(config.completionsPath,'models');
+  assert.equal(config.baseUrl,original.baseUrl);assert.equal(config.outputTokenParameter,'maxTokens');
+  assert.equal(config.remoteCompaction,false);assert.equal(config.reasoningEffort,null);
+  assert.deepEqual(modelProtocols.googleGemini.effortOptions.map(o=>o.value),['','minimal','low','medium','high']);
+  assert.equal(modelProtocols.googleGemini.fixedOutput,'maxOutputTokens');
+  assert.equal(applyModelSupplier(newModelConfig(),'google').baseUrl,'');
 });
