@@ -1,4 +1,4 @@
-import type { TerminalConnectionState } from '../api/terminal';
+import type { ResourceSnapshot, TerminalConnectionState } from '../api/terminal';
 import type { TerminalDisconnectEvent } from './remoteTerminal';
 
 /** xterm 视图所依赖的统一运行时接口，由远程 SSH 和本地 CMD 共同实现。 */
@@ -25,5 +25,6 @@ export interface TerminalRuntime {
   exec(command: string): Promise<void>;
   write(input: string): Promise<void>;
   resize(cols: number, rows: number): Promise<void>;
+  resources?(signal: AbortSignal): Promise<ResourceSnapshot>;
   close(): Promise<void>;
 }

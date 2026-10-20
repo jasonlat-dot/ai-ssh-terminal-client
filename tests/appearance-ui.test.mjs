@@ -21,6 +21,7 @@ function loadModule(path, requireModule, globals = {}) {
 
 const geometry = loadModule('state/wallpaperCrop.ts', () => { throw new Error('Unexpected geometry import'); });
 const textColors = loadModule('state/clientTextColors.ts', () => { throw new Error('Unexpected text color import'); });
+const themes = loadModule('state/themes.ts', () => { throw new Error('Unexpected theme import'); });
 const typography = loadModule('state/clientTypography.ts', () => { throw new Error('Unexpected typography import'); });
 const appearance = {
   ready: true, busy: false, error: null, wallpaperUrl: 'blob:current', wallpaperName: 'cat-wallpaper.webp',
@@ -40,6 +41,7 @@ function renderAppearance(snapshot) {
     if (name.endsWith('/clientAppearance')) return api;
     if (name.endsWith('/useClientAppearance')) return { useClientAppearance: () => snapshot };
     if (name.endsWith('/clientTextColors')) return textColors;
+    if (name.endsWith('/themes')) return themes;
     if (name.endsWith('/useClientTextColors')) return { useClientTextColors: () => ({ ...textColors.readClientTextColors(), theme: 'light' }) };
     if (name.endsWith('/clientTypography')) return typography;
     if (name.endsWith('/useClientTypography')) return { useClientTypography: typography.readClientTypography };

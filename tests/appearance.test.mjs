@@ -676,7 +676,8 @@ test('设置页独立背景变量与自定义选择器均覆盖，不影响 port
   assert.ok(!/--theme-panel\s*:/.test(variables.body), '不能把 portal 使用的根级主题底色也清空');
   const controls = wallpaperRules.find(rule => rule.selector.includes('.settings-control,') && rule.selector.includes('.ui-select-trigger,'));
   assert.match(controls.body, /background:\s*transparent/);
-  assert.ok(controls.selector.includes('button:not(:where(.primary-button, .danger-button, .model-delete-button, .toggle))'), '保存与删除操作须保留可见底色');
+  const excluded=controls.selector.match(/button:not\(:where\(([^)]*)\)\)/)?.[1]?.split(',').map(value=>value.trim())??[];
+  for(const action of ['.primary-button','.danger-button','.model-delete-button','.toggle'])assert.ok(excluded.includes(action), '保存与删除操作须保留可见底色');
   for (const selector of ['.settings-certificate-action', '.settings-certificate-icon', '.settings-input-suffix']) {
     assert.ok(controls.selector.includes(selector));
   }

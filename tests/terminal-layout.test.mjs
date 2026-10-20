@@ -141,6 +141,18 @@ test('Agent toggle selected class and accessibility state follow whether the con
  button().props.onClick();ui.render();assert.match(button().props.className,/\bselected\b/);assert.equal(toggles,2);
 });
 
+test('有终端时只保留工具栏对话入口；空终端状态仍可恢复对话，小窗使用对话页签',()=>{
+ const app=ts.createSourceFile('App.tsx',source('App.tsx'),ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX);let controls;
+ function visit(node){if(ts.isJsxAttribute(node)&&node.name.getText(app)==='dockControls')controls=node.initializer.expression.getText(app);ts.forEachChild(node,visit);}visit(app);assert.ok(controls);
+ const compiled=ts.transpileModule(`exports.render=(active,compactWindow)=>(${controls});`,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText;
+ const calls=[],context=vm.createContext({exports:{},terminalDockCollapsed:false,Icon:()=>null,setAgentCollapsed:value=>calls.push(['collapse',value]),setTerminalDockCollapsed(){},showCompactPane:value=>calls.push(['pane',value]),require:()=>({jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props})})});vm.runInContext(compiled,context);
+ const nodes=node=>Array.isArray(node)?node.flatMap(nodes):node?.props?[node,...nodes(node.props.children)]:[];
+ assert.equal(nodes(context.exports.render({id:'open'},false)).filter(node=>node.props.className==='terminal-return-chat').length,0);
+ for(const compact of [false,true]){const fallback=nodes(context.exports.render(null,compact)).find(node=>node.props.className==='terminal-return-chat');assert.ok(fallback);fallback.props.onClick();}
+ assert.deepEqual(calls,[['collapse',false],['pane','chat']]);
+ const ui=workspace();assert.equal(ui.all().filter(node=>node.props.className?.includes('terminal-agent-toggle')).length,1);
+});
+
 test('Agent binding badge appears on exactly one native terminal even when profiles match',()=>{
  const w=workspace();w.props.sessions=[
   {id:'a',title:'同一服务器',kind:'ssh',connectionId:'shared',terminalSessionId:'native-a',connected:true},

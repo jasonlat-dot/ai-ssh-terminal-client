@@ -142,8 +142,8 @@ export function Select<T extends string | number>({ id, value, options, onChange
       onBlur={() => setOpen(false)}>
       <span>{optionLabel(options[selectedIndex], displayValue)}</span><Icon name="down" size={15} />
     </button>
-    {open && createPortal(<div ref={menuRef} id={listId} className={`ui-select-menu ${menuClassName}`} role="listbox" aria-label={label}
-      style={position ?? { visibility: 'hidden' }} onMouseDown={event => event.preventDefault()}>
+    {open && createPortal(<div ref={menuRef} id={listId} className={`ui-select-menu ${menuClassName}`} role="listbox" aria-label={label} data-no-window-drag
+      style={position ?? { visibility: 'hidden' }} onMouseDown={event => { event.preventDefault(); event.stopPropagation(); }}>
       {options.map((option, index) => <div key={option.value} id={`${listId}-${index}`} role="option"
         aria-selected={option.value === value} className={`ui-select-option${index === activeIndex ? ' is-active' : ''}${option.value === value ? ' is-selected' : ''}`}
         onPointerMove={() => setActiveIndex(index)} onClick={() => choose(index)}>

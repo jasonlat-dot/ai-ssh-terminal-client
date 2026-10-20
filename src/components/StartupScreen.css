@@ -1,12 +1,12 @@
 .startup-screen {
-  --startup-bg: #f7faff;
-  --startup-ink: #183451;
-  --startup-muted: #6c8098;
-  --startup-accent: #296fd5;
-  --startup-line: #dce7f5;
-  --startup-soft: #eef5ff;
-  --startup-orbit: #b0c9e7;
-  --startup-glow: #c6e7fa;
+  --startup-bg: #f7f8fa;
+  --startup-ink: #344054;
+  --startup-muted: #667383;
+  --startup-accent: #4f75a7;
+  --startup-line: #e5e9ef;
+  --startup-soft: #edf3fa;
+  --startup-orbit: #b8c9dc;
+  --startup-glow: #dce7f3;
   display: grid;
   grid-template-rows: 64px minmax(0, 1fr) 52px;
   width: 100%; height: 100dvh; min-height: 0;
@@ -15,9 +15,9 @@
   font-family: var(--font-ui, 'Segoe UI', 'Microsoft YaHei UI', sans-serif);
 }
 :root[data-theme='dark'] .startup-screen {
-  --startup-bg: #0c1725; --startup-ink: #dceaf8; --startup-muted: #8ca2bb;
-  --startup-accent: #77b5ff; --startup-line: #243a50; --startup-soft: #182b40;
-  --startup-orbit: #335472; --startup-glow: #17527b;
+  --startup-bg: #303942; --startup-ink: #c8cdd0; --startup-muted: #a9b2b9;
+  --startup-accent: #9aafbf; --startup-line: #48535e; --startup-soft: #3b4650;
+  --startup-orbit: #627787; --startup-glow: #536c7d;
 }
 .startup-screen *, .startup-screen *::before, .startup-screen *::after { box-sizing: border-box; }
 .startup-header { display: flex; align-items: center; justify-content: space-between; min-width: 0; padding: 0 26px 0 32px; }

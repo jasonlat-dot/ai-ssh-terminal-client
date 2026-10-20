@@ -5,14 +5,18 @@ import vm from 'node:vm';
 import ts from 'typescript';
 
 const PROJECT_URL = 'https://github.com/jasonlat-dot/ai-ssh-terminal-server';
+const themeConfig = { exports: {} };
+vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/state/themes.ts', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText, themeConfig);
 function header({ tauri = false, fail = false } = {}) {
-  const calls = [], notifications = [];
+  const calls = [], notifications = [], themeChanges = [];
   const node = (type, props) => ({ type, props });
   const output = ts.transpileModule(readFileSync(new URL('../src/components/Shell.tsx', import.meta.url), 'utf8'),
     { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } }).outputText;
   const context = vm.createContext({ exports: {}, require: name => {
     if (name === 'react/jsx-runtime') return { jsx: node, jsxs: node };
     if (name === './Ui') return { Icon: () => null };
+    if (name === './Select') return { Select: () => null };
+    if (name === '../state/themes') return themeConfig.exports;
     if (name === './TerminalMenu') return { TerminalMenu: () => null };
     if (name === './WindowControls') return { WindowControls: () => null };
     if (name === './NavigationButton') return { NavigationButton: () => null };
@@ -27,13 +31,24 @@ function header({ tauri = false, fail = false } = {}) {
     throw new Error(name);
   } });
   vm.runInContext(output, context);
-  const tree = context.exports.AppHeader({ notify: text => notifications.push(text), theme: 'dark', setTheme() {} });
+  const tree = context.exports.AppHeader({ notify: text => notifications.push(text), theme: 'dark', setTheme: value => themeChanges.push(value) });
   function all(value) {
     if (Array.isArray(value)) return value.flatMap(all);
     return value?.props ? [value, ...all(value.props.children)] : [];
   }
-  return { calls, notifications, link: all(tree).find(item => item.type === 'a') };
+  return { calls, notifications, themeChanges, items: all(tree), link: all(tree).find(item => item.type === 'a') };
 }
+
+test('主题入口使用命名下拉框，移除跟随系统和日夜图标切换', () => {
+  const ui = header();
+  const selector = ui.items.find(item => item.props.label === '界面主题');
+  assert.equal(selector.props.value, 'dark');
+  assert.deepEqual(JSON.parse(JSON.stringify(selector.props.options)), [
+    { value: 'light', label: '柔光白' }, { value: 'dark', label: '暮雾灰' }, { value: 'night', label: '夜幕黑' },
+  ]);
+  selector.props.onChange('night'); assert.deepEqual(ui.themeChanges, ['night']);
+  assert.ok(!ui.items.some(item => ['sun', 'moon', 'monitor'].includes(item.props.name)));
+});
 
 test('头像入口替换为 jasonlat GitHub 链接；网页版使用安全新标签，不触发账户提示', () => {
   const ui = header();

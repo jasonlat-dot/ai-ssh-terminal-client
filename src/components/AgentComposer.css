@@ -15,6 +15,12 @@
   background: transparent;
   box-shadow: none;
 }
+/* A softer reading canvas; the composer keeps its own surface above it. */
+:root:not([data-theme='dark']):not([data-wallpaper='true']) :is(
+  .agent-panel.conversation-only,
+  .agent-panel.conversation-only > .conversation-card,
+  .agent-panel.conversation-only .conversation-card .chat-messages
+) { background: #f9f9f7; }
 .agent-panel.conversation-only.collapsed { border: 0; }
 .agent-panel.conversation-only .conversation-card .chat-messages {
   padding: 20px var(--agent-chat-inset) 12px;
@@ -267,3 +273,6 @@
 .composer-next-model button { flex-shrink:0; padding:2px 5px; border:0; border-radius:4px; background:transparent; color:inherit; font:inherit; cursor:pointer; }
 .composer-next-model button:hover { background:color-mix(in srgb,currentColor 9%,transparent); }
 .composer-next-model.has-error { background:color-mix(in srgb,var(--red,#d94b50) 8%,var(--theme-panel)); color:var(--red,#d94b50); }
+/* Soft Light keeps the existing send-button motion and dark-theme colors. */
+:root:not([data-theme='dark']) .agent-panel.conversation-only .chat-composer .composer-bottom-bar > .send-button { background: #4f75a7; }
+:root:not([data-theme='dark']) .agent-panel.conversation-only .chat-composer .send-button:hover:not(:disabled) { background: #416591; }

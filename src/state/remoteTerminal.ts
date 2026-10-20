@@ -280,6 +280,10 @@ export class RemoteTerminal implements TerminalRuntime {
     return this.enqueueWrite(async () => { this.assertWritable(); await this.request(() => terminalApi.write(this.sessionId, input, this.backendUrl)); });
   }
 
+  resources(signal: AbortSignal) {
+    // Monitoring failures must not alter the interactive terminal's connection state.
+    return terminalApi.resources(this.sessionId, signal, this.backendUrl);
+  }
   async resize(cols: number, rows: number) {
     if (this.closed || this.closing || this.paused || this.disconnected || this.manuallyClosed || !this.transportAvailable) return;
     const size = `${cols}:${rows}`;

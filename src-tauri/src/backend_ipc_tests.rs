@@ -5,6 +5,28 @@ mod protocol;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 #[tokio::test]
+async fn resource_monitor_dispatch_uses_the_existing_terminal_and_returns_unknown_initial_rates() {
+    let fixture = protocol::Fixture::new(Default::default()).await;
+    let (store, connection) = fixture.saved(false);
+    let services = Services::native(store, Default::default(), uuid::Uuid::new_v4());
+    let terminal = services.terminals.connect(protocol::open(&connection.connection_id)).await.unwrap();
+    let result = dispatch(services.clone(), "ssh/terminal/resources", "GET", Value::Null,
+        json!({"sessionId":terminal.session_id})).await.unwrap();
+    assert_eq!(result["supported"], true);
+    assert_eq!(result["stale"], false);
+    assert!(result["cpuPercent"].is_null());
+    assert_eq!(result["memoryUsedBytes"], 614400);
+    assert_eq!(result["disks"][0]["mountPoint"], "/");
+    assert_eq!(fixture.stats.connections.load(Ordering::SeqCst), 1);
+    assert!(fixture.stats.inputs.lock().unwrap().is_empty());
+    services.terminals.close(&terminal.session_id);
+    let missing = dispatch(services.clone(), "ssh/terminal/resources", "GET", Value::Null,
+        json!({"sessionId":terminal.session_id})).await.unwrap_err();
+    assert_eq!(missing.code, "S0003");
+    services.shutdown().await;
+}
+
+#[tokio::test]
 async fn channel_ipc_saves_multiple_models_and_lists_stable_choices_without_credentials() {
     let (_dir,services)=services().await;
     save_test_model(&services,"http://127.0.0.1:1/v1/".into());

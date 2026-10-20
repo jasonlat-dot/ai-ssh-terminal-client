@@ -3,6 +3,13 @@ import { apiRequest } from './client';
 import type { TerminalDisconnectReason } from '../types';
 
 export type TerminalOpen = { sessionId: string; connectionId: string; initialOutput: string };
+export type ResourceSnapshot = {
+  sampledAtMs: number; supported: boolean; stale: boolean; message: string | null;
+  cpuPercent: number | null; memoryTotalBytes: number | null; memoryUsedBytes: number | null;
+  uptimeSeconds: number | null; bootTimeSeconds: number | null;
+  network: { name: string; primary: boolean; receiveBytesPerSecond: number | null; transmitBytesPerSecond: number | null }[];
+  disks: { mountPoint: string; totalBytes: number; usedBytes: number; availableBytes: number; usePercent: number }[];
+};
 export interface TerminalConnectionState {
   sessionId: string;
   connectionId: string | null;
@@ -39,6 +46,9 @@ export const terminalApi = {
   write: (sessionId: string, input: string, baseUrl?: string) => bound<void>('write','POST',{sessionId,input},undefined,baseUrl),
   read: (sessionId: string, signal?: AbortSignal, baseUrl?: string) => bound<TerminalReadResult>('read','GET',undefined,{sessionId},baseUrl,signal),
   connected: (sessionId: string, baseUrl?: string) => bound<TerminalConnectionState>('connected','GET',undefined,{sessionId},baseUrl),
+  resources: (sessionId: string, signal?: AbortSignal, baseUrl?: string) => apiRequest<ResourceSnapshot>('ssh/terminal/resources', {
+    params: { sessionId }, signal, baseUrl, timeoutMs: 12_000, service: '服务器资源监控',
+  }),
   resize: (sessionId: string, cols: number, rows: number, baseUrl?: string) => bound<void>('resize','POST',{sessionId,cols,rows},undefined,baseUrl),
   close: async (sessionId: string, signal?: AbortSignal, baseUrl?: string) => {
     await bound<void>('close','POST',undefined,{sessionId},baseUrl,signal);

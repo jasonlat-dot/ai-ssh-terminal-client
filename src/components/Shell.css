@@ -1,4 +1,7 @@
 /* Expanded navigation needs space for both the icon and a complete label. */
+.header-theme-selector { display: flex; align-items: center; flex: 0 0 auto; }
+:root .app-header .theme-name-select { width: 110px; min-width: 0; height: 30px; padding: 5px 9px; border: 1px solid var(--line); border-radius: 8px; background: var(--theme-control); color: var(--theme-text-strong); font-size: 12px; }
+:root .app-header .theme-name-select:hover { background: var(--theme-hover); border-color: var(--line-strong); }
 :root .app-shell:not(.nav-collapsed) { --rail:208px; }
 :root .app-shell .activity-bar { min-height:0; overflow-x:hidden; overflow-y:auto; padding:10px 6px; gap:4px; scrollbar-width:thin; }
 :root .app-shell .activity-bar > button { position:relative; flex-shrink:0; width:100%; grid-template-columns:34px minmax(0,1fr); align-content:center; column-gap:10px; padding:5px; border-radius:9px; }

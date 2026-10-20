@@ -52,7 +52,7 @@
   background: color-mix(in srgb, var(--workspace-stop-color) 7%, var(--settings-panel));
 }
 .workspace-preferences .workspace-runtime-actions > .workspace-stop:hover:not(:disabled) { border-color: color-mix(in srgb, var(--workspace-stop-color) 45%, var(--settings-panel)); background: color-mix(in srgb, var(--workspace-stop-color) 12%, var(--settings-panel)); }
-:root[data-theme='dark'] .workspace-runtime-actions > .workspace-stop { --workspace-stop-color: #efa1aa; }
+:root[data-theme='dark'] .workspace-runtime-actions > .workspace-stop { --workspace-stop-color: #d3a09a; }
 .workspace-preferences .workspace-preferences-form { display: block; margin: 14px 0 0; min-width: 0; }
 .workspace-preferences .workspace-preferences-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; gap: 20px; }
 .workspace-preferences .workspace-preferences-primary { display: grid; align-content: start; gap: 20px; min-width: 0; }

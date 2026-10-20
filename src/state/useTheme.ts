@@ -1,36 +1,31 @@
 import { useLayoutEffect, useState } from 'react';
+import type { ThemePreference } from './themes';
 
-export type ThemePreference = 'system' | 'light' | 'dark';
+export type { ThemePreference } from './themes';
 
 const storageKey = 'agent-ssh-theme';
 
 function readTheme(): ThemePreference {
-  const saved = localStorage.getItem(storageKey);
-  return saved === 'light' || saved === 'dark' || saved === 'system' ? saved : 'system';
-}
-
-function resolveTheme(preference: ThemePreference): 'light' | 'dark' {
-  return preference === 'system'
-    ? window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
-    : preference;
+  try {
+    const saved = localStorage.getItem(storageKey);
+    if (saved === 'light' || saved === 'dark' || saved === 'night') return saved;
+    // Migrate the former system preference once; never subscribe to OS changes.
+    if (saved === 'system') return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  } catch { /* Unavailable preferences must not prevent startup. */ }
+  return 'light';
 }
 
 export function useTheme() {
-  const [theme, setTheme] = useState<ThemePreference>(readTheme);
+  const [savedTheme, setTheme] = useState<ThemePreference>(readTheme);
+  // Existing development windows can retain the old "system" state across hot reload.
+  const theme = savedTheme === 'light' || savedTheme === 'dark' || savedTheme === 'night' ? savedTheme : readTheme();
 
   useLayoutEffect(() => {
-    const media = window.matchMedia('(prefers-color-scheme: dark)');
-    const apply = () => {
-      const resolved = resolveTheme(theme);
-      document.documentElement.dataset.theme = resolved;
-      document.documentElement.dataset.themePreference = theme;
-      document.documentElement.style.colorScheme = resolved;
-    };
-
-    localStorage.setItem(storageKey, theme);
-    apply();
-    if (theme === 'system') media.addEventListener('change', apply);
-    return () => media.removeEventListener('change', apply);
+    const resolved = theme === 'light' ? 'light' : 'dark';
+    document.documentElement.dataset.theme = resolved;
+    document.documentElement.dataset.themePreference = theme;
+    document.documentElement.style.colorScheme = resolved;
+    try { localStorage.setItem(storageKey, theme); } catch { /* Keep the chosen theme usable in this window. */ }
   }, [theme]);
 
   return { theme, setTheme };

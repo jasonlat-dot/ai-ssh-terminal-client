@@ -10,10 +10,11 @@ function load(path, requireModule, globals = {}) {
   const compiled = ts.transpileModule(source(path), { compilerOptions: {
     module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX,
   } }).outputText;
-  const context = vm.createContext({ exports: {}, require: name => name.endsWith('/notifications') ? { notify: globals.notify ?? (() => {}) } : requireModule(name), ...globals });
+  const context = vm.createContext({ exports: {}, require: name => name.endsWith('/notifications') ? { notify: globals.notify ?? (() => {}) } : name.endsWith('/themes') ? themeDefinitions : requireModule(name), ...globals });
   vm.runInContext(`(function(exports, require) {\n${compiled}\n})(exports, require);`, context);
   return { api: context.exports, context, compiled };
 }
+const themeDefinitions = load('state/themes.ts', () => { throw new Error('Unexpected import'); }).api;
 function environment(raw) {
   const values = new Map(raw === undefined ? [] : [['agent-ssh-ui-text-colors-v1', raw]]);
   const state = { fail: false, writes: [] };
@@ -35,7 +36,7 @@ function root(theme = 'light') {
 
 test('默认跟随主题；HEX 校验支持三/六位，不接受透明色、CSS 函数或注入', () => {
   const { api } = environment();
-  assert.deepEqual(plain(api.readClientTextColors().palettes), { light: { primary: null, secondary: null }, dark: { primary: null, secondary: null } });
+  assert.deepEqual(plain(api.readClientTextColors().palettes), { light: { primary: null, secondary: null }, dark: { primary: null, secondary: null }, night: { primary: null, secondary: null } });
   assert.equal(api.normalizeTextColor(' #AbC '), '#aabbcc');
   assert.equal(api.normalizeTextColor('#AA1122'), '#aa1122');
   for (const invalid of ['red', 'transparent', '#11223344', '#12', 'var(--text)', '#123; background:url(x)', null, 123]) {
@@ -50,8 +51,25 @@ test('浅深主题及主辅角色独立，重启恢复；恢复当前主题不�
   api.setClientTextColor('dark', 'primary', '#ffffff');
   assert.deepEqual(plain(environment(values.get(api.TEXT_COLORS_KEY)).api.readClientTextColors()), plain(api.readClientTextColors()));
   api.resetClientTextColors('light');
-  assert.deepEqual(plain(api.readClientTextColors().palettes), { light: { primary: null, secondary: null }, dark: { primary: '#ffffff', secondary: null } });
+  assert.deepEqual(plain(api.readClientTextColors().palettes), { light: { primary: null, secondary: null }, dark: { primary: '#ffffff', secondary: null }, night: { primary: null, secondary: null } });
   assert.ok(state.writes.every(key => key === api.TEXT_COLORS_KEY), '不写主题选择、壁纸、后端地址或终端偏好');
+});
+
+test('夜幕黑文字颜色独立保存，旧双主题设置继续生效，切换两个暗色主题正确恢复', () => {
+  const env = environment(JSON.stringify({ version: 1, palettes: { dark: { primary: '#abc' } } }));
+  const element = root('dark');
+  env.api.setClientTextColor('night', 'primary', '#123456');
+  element.dataset.themePreference = 'night'; env.api.applyClientTextColors(element);
+  assert.equal(element.values.get('--client-text-primary'), '#123456');
+  element.dataset.themePreference = 'dark'; env.api.applyClientTextColors(element);
+  assert.equal(element.values.get('--client-text-primary'), '#aabbcc');
+  const restored = environment(env.values.get(env.api.TEXT_COLORS_KEY)).api;
+  assert.equal(restored.readClientTextColors().palettes.night.primary, '#123456');
+  restored.resetClientTextColors('night');
+  assert.equal(restored.readClientTextColors().palettes.dark.primary, '#aabbcc');
+  assert.equal(restored.readClientTextColors().palettes.night.primary, null);
+  const ui = controlsHarness(); ui.changeTheme('night');
+  assert.match(ui.text(), /夜幕黑/); assert.equal(ui.input('primary').props.value.toLowerCase(), '#dce1e8');
 });
 
 test('存储失败及非法输入不覆盖已有颜色，错误明确，重试成功后清除错误', () => {
@@ -130,7 +148,7 @@ test('根安装监听真实主题与存储变更，卸载清理；不轮询、�
   api.useApplyClientTextColors();
   env.api.setClientTextColor('light', 'primary', '#123456');
   assert.equal(element.values.get('--client-text-primary'), '#123456');
-  assert.deepEqual(plain(observers[0].options.attributeFilter), ['data-theme']);
+  assert.deepEqual(plain(observers[0].options.attributeFilter), ['data-theme', 'data-theme-preference']);
   element.dataset.theme = 'dark'; observers[0].callback();
   assert.equal(element.values.has('--client-text-primary'), false);
   env.values.set(env.api.TEXT_COLORS_KEY, JSON.stringify({ version: 1, palettes: { dark: { secondary: '#abc' } } }));
@@ -206,8 +224,8 @@ test('选择器实时保存，浅深主题切换控件正确同步；恢复只�
   const picker = () => ui.find(item => item.props['aria-label'] === '选择主要文字颜色');
   picker().props.onChange({ target: { value: '#345678' } }); ui.render(); ui.render();
   ui.changeTheme('dark');
-  assert.match(ui.text(), /深色主题/);
-  assert.equal(picker().props.value, '#dce8f6');
+  assert.match(ui.text(), /暮雾灰/);
+  assert.equal(picker().props.value, '#c8cdd0');
   picker().props.onChange({ target: { value: '#fedcba' } }); ui.render(); ui.render();
   const reset = ui.find(item => item.type === 'button');
   assert.equal(reset.props.disabled, false); reset.props.onClick(); ui.render(); ui.render();
@@ -222,7 +240,7 @@ test('颜色控件保存失败保留原值并显示错误，不假装已采用�
   ui.env.state.fail = true;
   ui.input('primary').props.onChange({ target: { value: '#123456' } }); ui.render(); ui.render();
   assert.equal(ui.env.api.readClientTextColors().palettes.light.primary, null);
-  assert.equal(ui.input('primary').props.value, '#25364C');
+  assert.equal(ui.input('primary').props.value, '#344054');
   assert.match(ui.notices.at(-1), /无法保存文字颜色/);
   ui.env.state.fail = false;
   ui.input('primary').props.onChange({ target: { value: '#123456' } }); ui.render(); ui.render();
@@ -258,6 +276,6 @@ test('终端欢迎页的普通标题、说明和指引按钮支持主辅颜色�
   // 覆盖只在用户设置对应颜色时开启，恢复默认仍由原浅/深主题及 hover 样式负责。
   const original = source('components/TerminalWelcome.css');
   assert.match(original, /\.welcome-create \{ color: var\(--ui-primary-text\);/);
-  assert.match(original, /\.welcome-ready \{[^}]*color: #009f8a/);
+  assert.match(original, /\.welcome-ready \{[^}]*color: #467f66/);
   assert.match(original, /:root\[data-theme='dark'\] \.terminal-welcome h2/);
 });

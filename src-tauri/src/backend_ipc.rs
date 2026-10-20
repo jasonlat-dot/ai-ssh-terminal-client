@@ -645,6 +645,10 @@ pub async fn dispatch(
         ("GET", "ssh/terminal/connected") => {
             value(services.terminals.connected(text(&params, "sessionId")?))
         }
+        ("GET", "ssh/terminal/resources") => run!(services
+            .terminals
+            .resources(text(&params, "sessionId")?)
+            .await),
         ("POST", "ssh/terminal/write") => run!(
             services
                 .terminals

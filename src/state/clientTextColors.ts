@@ -1,12 +1,13 @@
 /** 普通界面文字偏好独立于壁纸、后端和终端主题，只保存经过校验的 HEX。 */
-export type TextColorTheme = 'light' | 'dark';
+export type TextColorTheme = 'light' | 'dark' | 'night';
 export type TextColorRole = 'primary' | 'secondary';
 export type TextColorPalette = Record<TextColorRole, string | null>;
 export type ClientTextColors = { palettes: Record<TextColorTheme, TextColorPalette>; error: string | null };
 export const TEXT_COLORS_KEY = 'agent-ssh-ui-text-colors-v1';
 export const DEFAULT_TEXT_COLORS = {
-  light: { primary: '#25364c', secondary: '#65748a' },
-  dark: { primary: '#dce8f6', secondary: '#aec0d4' },
+  light: { primary: '#344054', secondary: '#667383' },
+  dark: { primary: '#c8cdd0', secondary: '#a9b2b9' },
+  night: { primary: '#dce1e8', secondary: '#949eac' },
 };
 
 /** 不接受 CSS 函数、透明色或任意样式片段，防止非法值污染界面。 */
@@ -17,11 +18,11 @@ export function normalizeTextColor(value: unknown): string | null {
   return /^#[\da-f]{3}$/.test(hex) ? `#${[...hex.slice(1)].map(char => char + char).join('')}` : null;
 }
 function readPalettes(): ClientTextColors['palettes'] {
-  const result: ClientTextColors['palettes'] = { light: { primary: null, secondary: null }, dark: { primary: null, secondary: null } };
+  const result: ClientTextColors['palettes'] = { light: { primary: null, secondary: null }, dark: { primary: null, secondary: null }, night: { primary: null, secondary: null } };
   try {
     const saved = JSON.parse(localStorage.getItem(TEXT_COLORS_KEY) ?? 'null');
     if (saved?.version !== 1) return result;
-    for (const theme of ['light', 'dark'] as const) {
+    for (const theme of ['light', 'dark', 'night'] as const) {
       for (const role of ['primary', 'secondary'] as const) result[theme][role] = normalizeTextColor(saved.palettes?.[theme]?.[role]);
     }
   } catch { /* 损坏或不可访问的偏好回退主题默认，不覆盖存储中的原数据。 */ }
@@ -31,6 +32,9 @@ type TextColorStore = { snapshot: ClientTextColors; subscribers: Set<() => void>
 // 热更新时旧根节点订阅与新设置组件仍共用同一快照，避免界面颜色与控件分裂。
 const colorsGlobal = globalThis as typeof globalThis & { __agentSshTextColorsV1?: TextColorStore };
 const store = colorsGlobal.__agentSshTextColorsV1 ??= { snapshot: { palettes: readPalettes(), error: null }, subscribers: new Set() };
+if (!store.snapshot.palettes.night) {
+  store.snapshot = { ...store.snapshot, palettes: { ...store.snapshot.palettes, night: { primary: null, secondary: null } } };
+}
 export const readClientTextColors = () => store.snapshot;
 export function subscribeClientTextColors(listener: () => void) {
   store.subscribers.add(listener);
@@ -60,7 +64,7 @@ export function setClientTextColor(theme: TextColorTheme, role: TextColorRole, v
   }
   return savePalette(theme, { ...store.snapshot.palettes[theme], [role]: color });
 }
-/** 只清除当前浅/深色主题的覆盖，另一主题和所有壁纸偏好保持不变。 */
+/** 只清除当前主题的覆盖，其他主题和所有壁纸偏好保持不变。 */
 export function resetClientTextColors(theme: TextColorTheme): boolean {
   return savePalette(theme, { primary: null, secondary: null });
 }
@@ -68,11 +72,14 @@ export function reloadClientTextColors() { publish({ palettes: readPalettes(), e
 
 /** 只更新专用变量，不修改 data-theme/data-wallpaper，不触发终端主题重绘。 */
 export function applyClientTextColors(root: HTMLElement, snapshot = readClientTextColors()) {
-  const palette = snapshot.palettes[root.dataset.theme === 'dark' ? 'dark' : 'light'];
+  const palette = snapshot.palettes[resolveTextColorTheme(root)];
   for (const role of ['primary', 'secondary'] as const) {
     const color = palette[role];
     root.dataset[role === 'primary' ? 'clientTextPrimary' : 'clientTextSecondary'] = color ? 'true' : 'false';
     if (color) root.style.setProperty(`--client-text-${role}`, color);
     else root.style.removeProperty(`--client-text-${role}`);
   }
+}
+export function resolveTextColorTheme(root: HTMLElement): TextColorTheme {
+  return root.dataset.themePreference === 'night' ? 'night' : root.dataset.theme === 'dark' ? 'dark' : 'light';
 }

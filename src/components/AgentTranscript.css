@@ -1,11 +1,11 @@
 /* Conversation prose follows content height; only executable content has its own surface. */
 .agent-panel.conversation-only {
-  --chat-prose: #242424;
-  --chat-user-surface: #eaf3ff;
+  --chat-prose: #344054;
+  --chat-user-surface: #edf3fa;
 }
 :root[data-theme='dark'] .agent-panel.conversation-only {
-  --chat-prose: #e4e4e7;
-  --chat-user-surface: #26354a;
+  --chat-prose: var(--theme-text-strong);
+  --chat-user-surface: #3b4650;
 }
 :root[data-client-text-primary='true'] .agent-panel.conversation-only { --chat-prose:var(--client-text-primary); }
 .agent-panel.conversation-only .conversation-card .assistant-message .assistant-content {

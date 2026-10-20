@@ -11,10 +11,12 @@ import { copyText, readClipboardText } from '../state/clipboard';
 import { isTauriRuntime } from '../state/runtime';
 import { ClipboardFeedback, useClipboardFeedback } from './ClipboardFeedback';
 import { Icon, IconButton } from './Ui';
+import { TerminalResources } from './TerminalResources';
 import { useTerminalTarget } from './TerminalActionsContext';
 import { terminalSelectionBounds, terminalSelectionActionPosition } from '../state/terminalSelectionPosition';
 import '@xterm/xterm/css/xterm.css';
 import './TerminalSelection.css';
+import './TerminalPalette.css';
 
 type Props = {
   title?: string;
@@ -56,16 +58,37 @@ function readTerminalFontSize() {
 
 const terminalThemes = {
   // xterm 的概览标尺用 canvas 绘制边线，未指定时为白色；隐藏原生滚动条并不能移除它。
-  light: { background: '#ffffff', foreground: '#243b60', cursor: '#246fe5', cursorAccent: '#ffffff', selectionBackground: '#cfe2ff', overviewRulerBorder: '#00000000', scrollbarSliderBackground: '#aebdd180', scrollbarSliderHoverBackground: '#91a6c1a6', scrollbarSliderActiveBackground: '#7890b3bf', black: '#243b60', red: '#be3434', green: '#00885e', yellow: '#946500', blue: '#276ac0', magenta: '#8750bb', cyan: '#008c9e', white: '#d2dceb' },
-  dark: { background: '#0d1624', foreground: '#d8e5f4', cursor: '#72adff', cursorAccent: '#0d1624', selectionBackground: '#31547a', overviewRulerBorder: '#00000000', scrollbarSliderBackground: '#52698380', scrollbarSliderHoverBackground: '#69839fa6', scrollbarSliderActiveBackground: '#7894b5bf', black: '#162235', red: '#ff7b72', green: '#45d3a6', yellow: '#e7bd65', blue: '#70a9ff', magenta: '#c099ff', cyan: '#56d4df', white: '#e5eef8' },
+  // Complete the bright ANSI palette too: otherwise bold/bright prompts fall
+  // back to xterm's neon green/yellow even with a softened light background.
+  light: { background: '#f8f9fb', foreground: '#303942', cursor: '#4f75a7', cursorAccent: '#f8f9fb', selectionBackground: '#dce7f3', selectionForeground: '#344054', overviewRulerBorder: '#00000000', scrollbarSliderBackground: '#8b98a780', scrollbarSliderHoverBackground: '#788798a6', scrollbarSliderActiveBackground: '#667383bf', black: '#344054', red: '#a35454', green: '#447c6a', yellow: '#916a36', blue: '#4c759f', magenta: '#79688f', cyan: '#417986', white: '#526174', brightBlack: '#667383', brightRed: '#a35454', brightGreen: '#447c6a', brightYellow: '#916a36', brightBlue: '#4c759f', brightMagenta: '#79688f', brightCyan: '#417986', brightWhite: '#303942' },
+  dark: { background: '#2c343b', foreground: '#c8cdd0', cursor: '#9aafbf', cursorAccent: '#2c343b', selectionBackground: '#58718b', selectionForeground: '#ffffff', overviewRulerBorder: '#00000000', scrollbarSliderBackground: '#71808c80', scrollbarSliderHoverBackground: '#8696a3a6', scrollbarSliderActiveBackground: '#9aafbfbc', black: '#66737d', red: '#e69b96', green: '#79c99e', yellow: '#e5c07b', blue: '#82b7f2', magenta: '#c8a2df', cyan: '#78cbd5', white: '#c8cdd0', brightBlack: '#929da5', brightRed: '#ffb4aa', brightGreen: '#9ce5b5', brightYellow: '#f3d79b', brightBlue: '#a5ceff', brightMagenta: '#dfbaf4', brightCyan: '#9fe3eb', brightWhite: '#f0f3f6' },
 };
 
-function currentTerminalTheme() {
+export function currentTerminalTheme() {
   const root = document.documentElement;
-  const theme = terminalThemes[root.dataset.theme === 'dark' ? 'dark' : 'light'];
+  const theme = root.dataset.themePreference === 'night' ? nightTerminalTheme : terminalThemes[root.dataset.theme === 'dark' ? 'dark' : 'light'];
   // 壁纸模式只移除 xterm 的独立底色，由 terminal-pane 绘制一次可调背景。
   // 字体、光标及 ANSI 配色仍跟随主题；不能对整个终端设置 opacity。
   return root.dataset.wallpaper === 'true' ? { ...theme, background: '#00000000' } : theme;
+}
+
+const nightTerminalTheme = {
+  background: '#161a20', foreground: '#cbd3dc', cursor: '#a8bce2', cursorAccent: '#161a20',
+  selectionBackground: '#3b5477', selectionForeground: '#ffffff', overviewRulerBorder: '#00000000',
+  scrollbarSliderBackground: '#56627680', scrollbarSliderHoverBackground: '#73839ba6', scrollbarSliderActiveBackground: '#a8bce2bc',
+  black: '#637081', red: '#ea9b98', green: '#7cd5a5', yellow: '#e8c17e', blue: '#85b7ff', magenta: '#c9a1ea', cyan: '#79cddb', white: '#dce1e8',
+  brightBlack: '#8694a5', brightRed: '#ffb7ae', brightGreen: '#a0ecc0', brightYellow: '#f5daa0', brightBlue: '#accfff', brightMagenta: '#e2bffa', brightCyan: '#a0e8f0', brightWhite: '#edf1f7',
+};
+
+function currentTerminalTypography() {
+  const dark = document.documentElement.dataset.theme === 'dark';
+  // Cascadia Mono supports intermediate weights; Consolas often renders 500 as regular.
+  return {
+    fontFamily: dark ? 'Consolas, "Courier New", monospace' : '"Cascadia Mono", "Cascadia Code", Consolas, "Courier New", monospace',
+    fontWeight: dark ? 400 : 500,
+    fontWeightBold: 700,
+    lineHeight: dark ? 1 : 1.2,
+  };
 }
 
 export function RemoteTerminalView({
@@ -198,7 +221,7 @@ export function RemoteTerminalView({
     const init = setTimeout(() => {
       const terminalElement = element.current;
       if (!terminalElement) return;
-      const terminal = new Terminal({ fontFamily: 'Consolas, "Courier New", monospace', fontSize: fontSizeRef.current, cursorBlink: true, cursorStyle: 'bar', cursorWidth: 2,
+      const terminal = new Terminal({ ...currentTerminalTypography(), fontSize: fontSizeRef.current, cursorBlink: true, cursorStyle: 'bar', cursorWidth: 2,
         scrollback: 5000, scrollOnUserInput: true, allowTransparency: true, allowProposedApi: false, overviewRuler: { width: 6 }, theme: currentTerminalTheme() });
       const fit = new FitAddon();
       terminal.loadAddon(fit);
@@ -289,8 +312,18 @@ export function RemoteTerminalView({
         }, 120);
       });
       observer.observe(terminalElement);
-      const themeObserver = new MutationObserver(() => { terminal.options.theme = currentTerminalTheme(); });
-      themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'data-wallpaper'] });
+      const themeObserver = new MutationObserver(() => {
+        terminal.options.theme = currentTerminalTheme();
+        const typography = currentTerminalTypography();
+        if (terminal.options.fontFamily !== typography.fontFamily || terminal.options.fontWeight !== typography.fontWeight || terminal.options.lineHeight !== typography.lineHeight) {
+          terminal.options = typography;
+          if (terminalElement.clientWidth && terminalElement.clientHeight) {
+            fit.fit();
+            if (runtime) void runtime.resize(terminal.cols, terminal.rows).catch(error => setError(error.message));
+          }
+        }
+      });
+      themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'data-theme-preference', 'data-wallpaper'] });
       cleanup = () => {
         clearTimeout(resizeTimer);
         observer.disconnect();
@@ -472,5 +505,6 @@ export function RemoteTerminalView({
         event.stopPropagation();
         pasteText(event.clipboardData.getData('text/plain'));
       }} />
+    {!local && runtime?.resources && <TerminalResources key={runtime.sessionId} runtime={runtime} visible={visible} connected={!unavailable} title={title || 'SSH 服务器'} />}
   </div>;
 }

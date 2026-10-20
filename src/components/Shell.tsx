@@ -12,6 +12,8 @@ import { settingsNavigation } from '../config/settingsNavigation';
 import { NavigationButton } from './NavigationButton';
 import './Shell.css';
 import { APP_VERSION } from '../config/appRuntime';
+import { THEME_OPTIONS } from '../state/themes';
+import { Select } from './Select';
 
 const PROJECT_GITHUB_URL = 'https://github.com/jasonlat-dot/ai-ssh-terminal-server';
 export function AppHeader({ notify, theme, setTheme }: {
@@ -24,12 +26,8 @@ export function AppHeader({ notify, theme, setTheme }: {
     <span className="app-version-badge">v{APP_VERSION}</span>
     <TerminalMenu />
     <div className="profile">
-      <div className="theme-switcher" role="group" aria-label="界面主题">
-        {([
-          ['system', 'monitor', '跟随系统'],
-          ['light', 'sun', '浅色模式'],
-          ['dark', 'moon', '深色模式'],
-        ] as const).map(([value, icon, label]) => <button type="button" key={value} className={theme === value ? 'selected' : ''} aria-label={label} title={label} aria-pressed={theme === value} onClick={() => setTheme(value)}><Icon name={icon} size={15} /></button>)}
+      <div className="header-theme-selector">
+        <Select label="界面主题" className="theme-name-select" value={theme} options={THEME_OPTIONS} onChange={setTheme} menuMinWidth={130} menuAlign="end" />
       </div>
       <span className="header-divider" />
       <a className="user-menu github-link" href={PROJECT_GITHUB_URL} target="_blank" rel="noopener noreferrer"

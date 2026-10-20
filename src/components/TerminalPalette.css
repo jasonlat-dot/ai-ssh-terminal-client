@@ -1,0 +1,7 @@
+/* Match the xterm canvas without tinting form fields or fading terminal text. */
+:root { --terminal-canvas-bg: #f8f9fb; --terminal-canvas-text: #303942; }
+:root[data-theme='dark'] { --terminal-canvas-bg: #2c343b; --terminal-canvas-text: #c8cdd0; }
+:root:not([data-wallpaper='true']) .app-shell :is(.terminal-pane, .remote-terminal-view) {
+  background: var(--terminal-canvas-bg);
+  color: var(--terminal-canvas-text);
+}

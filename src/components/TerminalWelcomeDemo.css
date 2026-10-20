@@ -1,26 +1,26 @@
 .terminal-demo-scene {
-  --demo-terminal-bg: linear-gradient(155deg, #fff, #f8fbff);
-  --demo-toolbar: #eef4fc; --demo-border: #d6e2f1; --demo-ink: #294563;
-  --demo-muted: #627893; --demo-subtle: #6a8099; --demo-accent: #376daf;
-  --demo-prompt: #087d93; --demo-success: #08795c; --demo-ai: #7756b1;
-  --demo-tool-bg: #f1f6fc; --demo-user-bg: #e8f0ff; --demo-user-ink: #2c5489;
-  --demo-user-line: #cbdcf5; --demo-avatar-bg: #eee9fa; --demo-hover: #e5edf8;
-  --demo-highlight: #ffffffb3; --demo-shadow: #335e8f14; --demo-connector: #c1d3e8;
-  --demo-ai-line: #d7e4f5; --demo-ai-text: #526b92; --demo-card: #fffffff2;
-  --demo-card-line: #d9e5f5; --demo-check-bg: #f8fbff; --demo-ssh-text: #526b92;
+  --demo-terminal-bg: linear-gradient(155deg, #fff, #f8f9fb);
+  --demo-toolbar: #f3f5f8; --demo-border: #dfe5ed; --demo-ink: #465466;
+  --demo-muted: #667383; --demo-subtle: #667383; --demo-accent: #4f75a7;
+  --demo-prompt: #447c6a; --demo-success: #467f66; --demo-ai: #79688f;
+  --demo-tool-bg: #f3f5f8; --demo-user-bg: #edf3fa; --demo-user-ink: #3d618e;
+  --demo-user-line: #dce7f3; --demo-avatar-bg: #f0edf5; --demo-hover: #f0f4f9;
+  --demo-highlight: #ffffffb3; --demo-shadow: #32455d14; --demo-connector: #cbd7e5;
+  --demo-ai-line: #e1e6ed; --demo-ai-text: #526174; --demo-card: #fffffff2;
+  --demo-card-line: #e1e6ed; --demo-check-bg: #f8f9fb; --demo-ssh-text: #526174;
   position: relative; isolation: isolate; width: min(100%, 630px); margin: 0 auto;
   text-align: left;
 }
 :root[data-theme='dark'] .terminal-demo-scene {
-  --demo-terminal-bg: linear-gradient(155deg, #1b2942, #111b30);
-  --demo-toolbar: #26344a7a; --demo-border: #364a65; --demo-ink: #dce7f7;
-  --demo-muted: #a9bad0; --demo-subtle: #92a9c4; --demo-accent: #a5b9e4;
-  --demo-prompt: #70cfdd; --demo-success: #8dcfba; --demo-ai: #c0adf0;
-  --demo-tool-bg: #0d172b85; --demo-user-bg: #344364; --demo-user-ink: #e4ecfa;
-  --demo-user-line: #455a7d; --demo-avatar-bg: #9180dd23; --demo-hover: #ffffff0c;
-  --demo-highlight: #a7b7ff1c; --demo-shadow: #02071135; --demo-connector: #3d5575;
-  --demo-ai-line: #344b66; --demo-ai-text: #c3d3e7; --demo-card: #16273bf2;
-  --demo-card-line: #344b66; --demo-check-bg: #16273b; --demo-ssh-text: #b9cce2;
+  --demo-terminal-bg: linear-gradient(155deg, #35404a, #2c343b);
+  --demo-toolbar: #3b46507a; --demo-border: #48535e; --demo-ink: #c8cdd0;
+  --demo-muted: #a9b2b9; --demo-subtle: #929da5; --demo-accent: #b4c5d1;
+  --demo-prompt: #9bbcc3; --demo-success: #a8c2b2; --demo-ai: #bcaed0;
+  --demo-tool-bg: #2c343b85; --demo-user-bg: #465460; --demo-user-ink: #c8cdd0;
+  --demo-user-line: #697e8e; --demo-avatar-bg: #bcaed023; --demo-hover: #ffffff0c;
+  --demo-highlight: #9aafbf1c; --demo-shadow: #1c232a35; --demo-connector: #697e8e;
+  --demo-ai-line: #586570; --demo-ai-text: #c8cdd0; --demo-card: #35404af2;
+  --demo-card-line: #586570; --demo-check-bg: #35404a; --demo-ssh-text: #b4c5d1;
 }
 .terminal-demo-particle-field { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: -1; }
 .terminal-demo-visual { --tilt-x: 0deg; --tilt-y: 0deg; --shift-x: 0px; --shift-y: 0px; position: relative; min-width: 0; padding: 54px 0 42px; perspective: 1200px; }

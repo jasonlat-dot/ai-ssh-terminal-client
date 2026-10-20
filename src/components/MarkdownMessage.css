@@ -1,5 +1,5 @@
 .markdown-message { min-width: 0; --syntax-keyword: #7950b8; --syntax-string: #18734e; --syntax-number: #b34c1b; --syntax-title: #2466aa; --syntax-comment: #65758b; }
-:root[data-theme='dark'] .markdown-message { --syntax-keyword: #c9a4ff; --syntax-string: #85d7ac; --syntax-number: #ffba91; --syntax-title: #8fc3ff; --syntax-comment: #9eafc3; }
+:root[data-theme='dark'] .markdown-message { --syntax-keyword: #bcaed0; --syntax-string: #a8c2b2; --syntax-number: #d1b08f; --syntax-title: #b4c5d1; --syntax-comment: #a9b2b9; }
 .markdown-message .markdown-body { font-size: 13px; line-height: 1.8; }
 .markdown-message .markdown-body :is(p, ul, ol, blockquote, table) { margin-bottom: 14px; }
 .markdown-message .markdown-body :is(h1, h2, h3, h4, h5, h6) { margin: 24px 0 12px; color: var(--theme-text-strong); line-height: 1.55; font-weight: var(--weight-title); letter-spacing: -.01em; }

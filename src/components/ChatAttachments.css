@@ -8,7 +8,7 @@
 .chat-attachment-body small { color: var(--theme-text-muted); font-size: 11px; }
 .chat-attachment-body p { margin: 0; font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; color: var(--theme-text-muted); }
 .chat-attachment.error .chat-attachment-body p { color: #be5252; }
-:root[data-theme='dark'] .chat-attachment.error .chat-attachment-body p { color: #ed9696; }
+:root[data-theme='dark'] .chat-attachment.error .chat-attachment-body p { color: #d3a09a; }
 .chat-attachment > .icon-button { width: 22px; height: 22px; flex-shrink: 0; color: var(--theme-text-muted); }
 .chat-attachment > .icon-button:is(:hover, :focus-visible):not(:disabled) { color: #cf4254; background: #cf42541a; }
 .chat-attachment-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }

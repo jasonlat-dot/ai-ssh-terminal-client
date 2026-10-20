@@ -1,16 +1,16 @@
 import { useLayoutEffect, useSyncExternalStore } from 'react';
-import { applyClientTextColors, readClientTextColors, reloadClientTextColors, subscribeClientTextColors, TEXT_COLORS_KEY } from './clientTextColors';
+import { applyClientTextColors, readClientTextColors, reloadClientTextColors, resolveTextColorTheme, subscribeClientTextColors, TEXT_COLORS_KEY } from './clientTextColors';
 import type { TextColorTheme } from './clientTextColors';
 
-const readResolvedTheme = (): TextColorTheme => document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
+const readResolvedTheme = (): TextColorTheme => resolveTextColorTheme(document.documentElement);
 function subscribeResolvedTheme(listener: () => void) {
   const observer = new MutationObserver(listener);
-  observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'data-theme-preference'] });
   return () => observer.disconnect();
 }
 export function useClientTextColors() {
   const colors = useSyncExternalStore(subscribeClientTextColors, readClientTextColors);
-  // 读取实际主题，跟随系统模式变更；不能再调用 useTheme 创建第二份主题控制器。
+  // Read the active named preset without creating a second theme controller.
   const theme = useSyncExternalStore(subscribeResolvedTheme, readResolvedTheme);
   return { ...colors, theme };
 }
@@ -22,7 +22,7 @@ export function useApplyClientTextColors() {
     const apply = () => applyClientTextColors(root);
     const release = subscribeClientTextColors(apply);
     const observer = new MutationObserver(apply);
-    observer.observe(root, { attributes: true, attributeFilter: ['data-theme'] });
+    observer.observe(root, { attributes: true, attributeFilter: ['data-theme', 'data-theme-preference'] });
     const reload = (event: StorageEvent) => { if (event.key === TEXT_COLORS_KEY || event.key === null) reloadClientTextColors(); };
     window.addEventListener('storage', reload);
     apply();

@@ -9,18 +9,24 @@
     <title>ShellPilot</title>
     <script>
       try {
-        const preference = localStorage.getItem('agent-ssh-theme') || 'system';
-        const dark = preference === 'dark' || (preference === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
+        const saved = localStorage.getItem('agent-ssh-theme');
+        const preference = saved === 'night' || saved === 'dark' || saved === 'light' ? saved
+          : saved === 'system' && matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        const dark = preference !== 'light';
         document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+        document.documentElement.dataset.themePreference = preference;
         document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
+        if (saved === 'system') localStorage.setItem('agent-ssh-theme', preference);
       } catch (_) {}
     </script>
     <link rel="stylesheet" href="/src/components/StartupScreen.css" />
+    <link rel="stylesheet" href="/src/night-theme.css" />
     <style>
       * { box-sizing: border-box; }
       html, body, #root { width: 100%; height: 100%; margin: 0; }
-      body { overflow: hidden; background: #f7faff; }
-      :root[data-theme='dark'] body { background: #0c1725; }
+      body { overflow: hidden; background: #f7f8fa; }
+      :root[data-theme='dark'] body { background: #303942; }
+      :root[data-theme-preference='night'] body { background: #101216; }
     </style>
   </head>
 
