@@ -6,7 +6,7 @@ import { modelApi, newModelConfig } from '../api/models';
 import { sshUserId } from '../api/ssh';
 import { applyModelProtocol, applyModelSupplier, modelProtocols, modelSupplier, modelProtocolInfo, modelBasePlaceholder, resolvedModelBaseUrl, modelSupplierOptions, supplierProtocolOptions } from '../api/modelProtocols';
 import type { ModelSupplier } from '../api/modelProtocols';
-import type { KeyChange, ModelConfig, ModelChannel } from '../api/models';
+import type { KeyChange, ModelConfig, ModelChannel, ModelChannelIssue } from '../api/models';
 import { AccentIcon, Badge, Icon, Modal, Toggle } from './Ui';
 import type { AccentTone, IconName } from './Ui';
 import { Select } from './Select';
@@ -30,6 +30,7 @@ function ModelField({ id, label, hint, children, wide = false, badge, icon, tone
 
 export function ModelSettings({ changed, locked = false }: { changed?: () => void; locked?: boolean }) {
   const [profiles, setProfiles] = useState<ModelChannel[]>([]);
+  const [issues, setIssues] = useState<ModelChannelIssue[]>([]);
   const [pinnedIds, setPinnedIds] = useState(() => loadModelPins(sshUserId));
   const [supplierFilter, setSupplierFilter] = useState<ModelSupplier | 'all'>('all');
   const [search, setSearch] = useState('');
@@ -63,7 +64,7 @@ export function ModelSettings({ changed, locked = false }: { changed?: () => voi
   };
   useEffect(() => {
     let active = true;
-    void modelApi.channels().then(items => { if (active) setProfiles(items); })
+    void modelApi.channelReport().then(report => { if (active) { setProfiles(report.items); setIssues(report.issues); } })
       .catch(cause => { if (active) setLoadError(cause instanceof Error ? cause.message : '加载失败'); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
@@ -84,7 +85,7 @@ export function ModelSettings({ changed, locked = false }: { changed?: () => voi
   const reload = async () => {
     if (disabled) return;
     setLoading(true); setLoadError('');
-    try { setProfiles(await modelApi.channels()); }
+    try { const report = await modelApi.channelReport(); setProfiles(report.items); setIssues(report.issues); }
     catch (cause) { setLoadError(cause instanceof Error ? cause.message : '加载失败'); }
     finally { setLoading(false); }
   };
@@ -128,7 +129,7 @@ export function ModelSettings({ changed, locked = false }: { changed?: () => voi
   };
   return <section className="model-settings" aria-label="模型设置">
     <div className="model-catalog" inert={editorOpen || !!deleting}>
-      <header className="model-catalog-heading"><div><strong className="ui-icon-heading"><AccentIcon icon="bot" tone="violet" size={17}/>模型配置<Badge tone="neutral">{profiles.length}</Badge></strong></div>
+      <header className="model-catalog-heading"><div><strong className="ui-icon-heading"><AccentIcon icon="bot" tone="violet" size={17}/>模型配置<Badge tone="neutral">{profiles.length + issues.length}</Badge></strong></div>
         <div className="model-catalog-actions"><button type="button" className="outlined-button model-refresh" aria-label="刷新模型配置" disabled={disabled} onClick={() => void reload()}><Icon name="refresh" size={15}/></button><button type="button" className="model-create primary-button" disabled={disabled} onClick={() => select(null)}><Icon name="plus" size={15}/>新建配置</button></div>
       </header>
       {profiles.length > 0 && !loadError && <div className="model-catalog-filters" role="search" aria-label="筛选模型配置">
@@ -148,8 +149,13 @@ export function ModelSettings({ changed, locked = false }: { changed?: () => voi
       </div>}
       {loadError && <button type="button" className="outlined-button" disabled={disabled} onClick={() => void reload()}>重新加载模型配置</button>}
       {locked && <div className="model-feedback" role="status"><Icon name="history" size={16}/><span>请等待回复结束或停止生成后再修改模型。</span></div>}
+      {!loading && !loadError && issues.length > 0 && <section className="model-config-issues" aria-label="异常模型配置">
+        <header><Icon name="alert" size={16}/><strong>{issues.length} 个渠道存在异常配置</strong><span>其他正常模型可继续使用</span></header>
+        {issues.map(issue => <article key={issue.id}><div><strong>{issue.displayName || issue.id}</strong><code>配置 ID：{issue.id}</code></div><p>{issue.message}</p></article>)}
+        <p className="model-config-issues-note">异常渠道暂停编辑，不会自动删除或重置。请使用支持该配置的版本处理，处理后点击上方刷新。</p>
+      </section>}
       <div className="model-catalog-body">
-        {loading ? <div className="model-loading" role="status"><i/><i/><i/><span>正在读取配置…</span></div> : loadError ? null : !profiles.length ? <div className="model-list-empty"><AccentIcon icon="bot" tone="violet" size={30}/><strong>还没有模型配置</strong><p>添加模型配置，开始对话。</p><button type="button" className="model-create primary-button" disabled={disabled} onClick={() => select(null)}><Icon name="plus" size={15}/>新建配置</button></div>
+        {loading ? <div className="model-loading" role="status"><i/><i/><i/><span>正在读取配置…</span></div> : loadError ? null : !profiles.length ? (issues.length ? null : <div className="model-list-empty"><AccentIcon icon="bot" tone="violet" size={30}/><strong>还没有模型配置</strong><p>添加模型配置，开始对话。</p><button type="button" className="model-create primary-button" disabled={disabled} onClick={() => select(null)}><Icon name="plus" size={15}/>新建配置</button></div>)
           : !filteredProfiles.length ? <div className="model-list-empty model-list-no-match"><AccentIcon icon="search" tone="blue" size={26}/><strong>没有匹配的模型配置</strong><p>试试其他供应商或渠道名称。</p><button type="button" className="outlined-button model-clear-filters" onClick={clearFilters}>清除筛选</button></div>
           : <div className="model-profile-grid" aria-label="模型配置列表">{filteredProfiles.map(profile => {
             const protocol = modelProtocols[profile.config.provider];

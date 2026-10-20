@@ -144,3 +144,13 @@
 .model-supplier-menu .ui-select-option { min-height:38px; gap:8px; }
 
 .model-ids-input { min-height:104px; height:auto; resize:vertical; line-height:1.7; white-space:pre; }
+.model-config-issues { margin:0 0 18px; padding:14px 16px; border:1px solid color-mix(in srgb,var(--ui-danger-text,#b84c55) 25%,var(--settings-panel)); border-radius:9px; color:var(--settings-text); background:color-mix(in srgb,var(--ui-danger-text,#b84c55) 4%,var(--settings-panel)); }
+.model-config-issues > header { display:flex; align-items:center; flex-wrap:wrap; gap:8px; font-size:13px; }
+.model-config-issues > header > svg { color:var(--ui-danger-text,#b84c55); flex-shrink:0; }
+.model-config-issues > header > span { color:var(--settings-text-muted); font-size:12px; }
+.model-config-issues > article { margin-top:12px; padding-top:12px; border-top:1px solid var(--settings-border); }
+.model-config-issues > article > div { display:flex; flex-wrap:wrap; align-items:baseline; gap:6px 12px; }
+.model-config-issues strong { font-size:13px; overflow-wrap:anywhere; }
+.model-config-issues code { color:var(--settings-text-muted); font-size:11px; overflow-wrap:anywhere; }
+.model-config-issues p { margin:6px 0 0; color:var(--settings-text-muted); font-size:12px; line-height:1.65; }
+.model-config-issues > .model-config-issues-note { margin-top:12px; }

@@ -13,6 +13,8 @@ export type ModelConfig = {
 };
 export type ModelProfile = { id: string; displayName?: string; revision: number; config: ModelConfig; apiKeyConfigured: boolean; ready: boolean };
 export type ModelChannel = ModelProfile & { models: {id:string;model:string}[] };
+export type ModelChannelIssue = {id: string; displayName: string; message: string};
+export type ModelChannelReport = {items: ModelChannel[]; issues: ModelChannelIssue[]};
 export type KeyChange = { action: 'keep'|'clear' } | { action: 'set'; value: string };
 export const newModelConfig = (): ModelConfig => ({
   provider: 'openAiCompatible', remoteCompaction: false, baseUrl: '', completionsPath: 'chat/completions', model: '',
@@ -25,6 +27,7 @@ export type CatalogModel = {id: string; displayName?: string};
 export type CatalogQuery = {supplier?: ModelSupplier; provider: ModelConfig['provider']; baseUrl: string; requireApiKey: boolean;
   apiKey: KeyChange; channelId: string | null; revision: number | null};
 export const modelApi = {
+  channelReport: () => builtinRequest<ModelChannelReport>('agent/model_channel_report', 'GET', undefined, {userId:sshUserId}),
   discover: (query: CatalogQuery, signal?: AbortSignal) =>
     builtinRequest<CatalogModel[]>('agent/model_catalog', 'POST', {userId:sshUserId, query}, {}, signal),
   channels: () => builtinRequest<ModelChannel[]>('agent/model_channels', 'GET', undefined, {userId:sshUserId}),

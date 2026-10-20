@@ -18,6 +18,10 @@ async fn channel_ipc_saves_multiple_models_and_lists_stable_choices_without_cred
     assert!(dispatch(services.clone(),"agent/model_channels","POST",body,Value::Null).await.is_err());
     let listed=dispatch(services.clone(),"agent/model_channels","GET",Value::Null,json!({"userId":"default"})).await.unwrap();
     assert_eq!(listed.as_array().unwrap().iter().filter(|c|c["id"]=="model").count(),1);
+    let report=dispatch(services.clone(),"agent/model_channel_report","GET",Value::Null,json!({"userId":"default"})).await.unwrap();
+    assert_eq!(report["items"],listed);assert_eq!(report["issues"],json!([]));
+    let other=dispatch(services.clone(),"agent/model_channel_report","GET",Value::Null,json!({"userId":"other"})).await.unwrap();
+    assert_eq!(other,json!({"items":[],"issues":[]}));
     dispatch(services.clone(),"agent/model_channels","DELETE",json!({"userId":"default","id":"model","revision":channel["revision"]}),Value::Null).await.unwrap();
     let profiles=dispatch(services,"agent/models","GET",Value::Null,json!({"userId":"default"})).await.unwrap();assert!(profiles.as_array().unwrap().iter().all(|p|p["channelId"]!="model"));
 }

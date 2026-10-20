@@ -18,6 +18,30 @@ test('New profiles use the chosen token, timeout and response defaults without s
   assert.equal(newModelConfig().safetyReserve,8192);assert.equal(newModelConfig().capabilities.temperature,false);
 });
 
+test('单条异常渠道独立提示名称和 ID，正常渠道仍可编辑且刷新后移除已恢复提示',async()=>{
+  const issues=[{id:'broken-channel',displayName:'较新版本渠道',message:'此模型配置无法读取或当前版本不支持；原始数据已保留。'}];
+  const ui=settings(undefined,{issues,autoOpen:false});ui.render();await ui.settle();
+  assert.match(ui.text(),/较新版本渠道/);assert.match(ui.text(),/配置 ID： broken-channel/);
+  assert.match(ui.text(),/其他正常模型可继续使用/);
+  const grid=ui.find(node=>node.props.className==='model-profile-grid');
+  assert.equal(grid.props.children.length,1);
+  assert.equal(grid.props.children[0].props['aria-label'],'日常模型');
+  ui.openEdit();assert.ok(ui.find(node=>node.type==='form'));
+  ui.find(node=>node.type==='button'&&ui.text(node)==='取消').props.onClick();ui.render();
+  issues.splice(0);
+  ui.find(node=>node.props['aria-label']==='刷新模型配置').props.onClick();await ui.settle();
+  assert.equal(ui.find(node=>node.props['aria-label']==='异常模型配置'),undefined);
+  assert.equal(ui.notices.length,0);
+});
+
+test('全部渠道异常时仍逐条展示，不误报没有配置，也不允许把异常渠道覆盖为空配置',async()=>{
+  const ui=settings(undefined,{items:[],issues:[{id:'broken',displayName:'旧配置',message:'配置不可读取'}],autoOpen:false});
+  ui.render();await ui.settle();
+  assert.match(ui.text(),/旧配置/);assert.doesNotMatch(ui.text(),/还没有模型配置/);
+  assert.equal(ui.find(node=>node.props.className?.split(' ').includes('model-edit')),undefined);
+  assert.equal(ui.saved.length,0);assert.equal(ui.deleted.length,0);
+});
+
 function settings(legacyVision, options={}) {
   const pinData=new Map();
   const pinStorage=options.pinStorage??{getItem:key=>pinData.get(key)??null,setItem:(key,value)=>pinData.set(key,value)};
@@ -32,6 +56,7 @@ function settings(legacyVision, options={}) {
   };
   const api={list:async()=>options.items??[profile],save:async(...args)=>{saved.push(args);return {...profile,id:args[0],displayName:args[4],config:args[2],revision:args[1]+1};},delete:async(...args)=>{deleted.push(args);return true;},...options.api};
   api.channels=(...args)=>api.list(...args);
+  api.channelReport=async()=>({items:await api.channels(),issues:options.issues??[]});
   api.saveChannel=async(...args)=>({...await api.save(...args),models:args[5].map((model,i)=>({id:i?`member-${i}`:args[0],model}))});
   api.deleteChannel=(...args)=>api.delete(...args);
   const source=readFileSync(new URL('../src/components/ModelSettings.tsx',import.meta.url),'utf8');

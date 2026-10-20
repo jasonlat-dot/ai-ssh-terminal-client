@@ -185,6 +185,10 @@ pub async fn dispatch(
             })?;
             value(entries)
         }
+        ("GET", "agent/model_channel_report") => {
+            let user=text(&params,"userId")?.to_owned();
+            value(models(&services,move|r|r.channel_report(&user)).await?)
+        }
         ("GET", "agent/model_channels") => {
             let user=text(&params,"userId")?.to_owned();
             value(models(&services,move|r|r.channels(&user)).await?)

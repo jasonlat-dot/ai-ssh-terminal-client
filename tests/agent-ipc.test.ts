@@ -23,6 +23,15 @@ function harness(handler:(command:string,args:any)=>unknown) {
 }
 const body={requestId:'turn-1',agentId:'model',userId:'default',sessionId:'chat',terminalSessionId:'',message:'hello'};
 
+test('模型配置报告通过原生 IPC 返回独立异常条目且保留用户范围',async()=>{
+  const report={items:[],issues:[{id:'unreadable',displayName:'较新配置',message:'当前版本不支持'}]};
+  const requests:any[]=[];
+  harness((command,args)=>{assert.equal(command,'builtin_request');requests.push(args.request);return Promise.resolve(report);});
+  assert.deepEqual(await modelApi.channelReport(),report);
+  assert.equal(requests[0].endpoint,'agent/model_channel_report');assert.equal(requests[0].method,'GET');
+  assert.deepEqual(requests[0].params,{userId:'default'});
+});
+
 test('Deleting a conversation is owner/model/session scoped and uses the native bridge',async()=>{
  const requests:any[]=[];
  harness((command,args)=>{assert.equal(command,'builtin_request');requests.push(args.request);return Promise.resolve(null);});
