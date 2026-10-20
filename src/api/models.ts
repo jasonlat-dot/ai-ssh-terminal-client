@@ -1,7 +1,9 @@
 import { builtinRequest } from './builtin';
 import { sshUserId } from './ssh';
 
+export type ModelSupplier = 'openai' | 'anthropic' | 'google' | 'deepseek';
 export type ModelConfig = {
+  supplier?: ModelSupplier;
   provider: 'openAiCompatible'|'openAiResponses'|'anthropicMessages'|'googleGemini'; remoteCompaction?: boolean; baseUrl: string; completionsPath: string; model: string;
   contextWindow: number; outputReserve: number; safetyReserve: number; compactPercent: number;
   outputTokenParameter: 'maxCompletionTokens' | 'maxTokens';
@@ -20,7 +22,7 @@ export const newModelConfig = (): ModelConfig => ({
   temperature: null, reasoningEffort: null, timeoutSeconds: 120, maxResponseBytes: 1048576, requireApiKey: true,
 });
 export type CatalogModel = {id: string; displayName?: string};
-export type CatalogQuery = {provider: ModelConfig['provider']; baseUrl: string; requireApiKey: boolean;
+export type CatalogQuery = {supplier?: ModelSupplier; provider: ModelConfig['provider']; baseUrl: string; requireApiKey: boolean;
   apiKey: KeyChange; channelId: string | null; revision: number | null};
 export const modelApi = {
   discover: (query: CatalogQuery, signal?: AbortSignal) =>

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { modelApi } from '../api/models';
+import { resolvedModelBaseUrl } from '../api/modelProtocols';
 import type { CatalogModel, CatalogQuery } from '../api/models';
 import { useToastError } from '../state/useToastError';
 import { addModelIds, selectedModelIds } from '../state/modelSelection';
@@ -18,7 +19,7 @@ export function ModelCatalogInput({value, onChange, query, disabled}: Props) {
     pending.current?.abort(); pending.current = null;
     setModels(null); setLoading(false); setSearch('');
     return () => { pending.current?.abort(); pending.current = null; };
-  }, [query.provider, query.baseUrl, query.requireApiKey, key, query.channelId, query.revision]);
+  }, [query.supplier, query.provider, query.baseUrl, query.requireApiKey, key, query.channelId, query.revision]);
   const selected = selectedModelIds(value, query.provider);
   const selectedSet = new Set(selected);
   const term = search.trim().toLocaleLowerCase();
@@ -30,12 +31,11 @@ export function ModelCatalogInput({value, onChange, query, disabled}: Props) {
   };
   const discover = async () => {
     if (disabled || pending.current) return;
-    if (!query.baseUrl.trim()) { setError('请先填写 API 基础地址。'); return; }
     if (query.requireApiKey && query.apiKey.action !== 'set' && !query.channelId) { setError('请先填写 API Key。'); return; }
     const controller = new AbortController(); pending.current = controller;
     setLoading(true); setError('');
     try {
-      const entries = await modelApi.discover(query, controller.signal);
+      const entries = await modelApi.discover({...query, baseUrl: resolvedModelBaseUrl(query)}, controller.signal);
       if (pending.current === controller && !controller.signal.aborted) { setModels(entries); setSearch(''); }
     } catch (error) {
       if (pending.current === controller && !controller.signal.aborted) setError(error instanceof Error ? error.message : '模型查询失败，请重试。');

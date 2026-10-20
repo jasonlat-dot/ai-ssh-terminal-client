@@ -4,7 +4,7 @@ import {createPortal} from 'react-dom';
 import type {AgentConfig} from '../api/agent';
 import {groupModels} from '../state/modelChannels';
 import {modelPickerPosition} from '../state/modelPickerPosition';
-import {modelProtocols} from '../api/modelProtocols';
+import {modelSupplier} from '../api/modelProtocols';
 import {ModelSupplierIcon} from './ModelSupplierIcon';
 import {Icon} from './Ui';
 import './Select.css';
@@ -86,19 +86,19 @@ export function ModelPicker({models,value,disabled,onChange}:{models:AgentConfig
   const {compact,...style}=position??{compact:false};
   return <>
     <button ref={trigger} type="button" className="ui-select-trigger model-picker-trigger" aria-label="对话模型" aria-haspopup="menu" aria-expanded={open} aria-controls={open?id:undefined} disabled={disabled||!models.length} onClick={()=>open?close():show()} onKeyDown={onKeyDown}>
-      <span className="ui-select-label-with-icon" title={selected?`${selected.agentName} · ${selected.modelName??selected.agentId}`:undefined}>{selected&&<span className="model-channel-avatar" aria-hidden="true">{selected.provider?<ModelSupplierIcon supplier={modelProtocols[selected.provider].supplier} size={18}/>:<Icon name="network" size={18}/>}</span>}<span>{selected?(selected.modelName??selected.agentId):models.length?'请选择模型':'请先添加模型'}</span></span><Icon name="down" size={15}/>
+      <span className="ui-select-label-with-icon" title={selected?`${selected.agentName} · ${selected.modelName??selected.agentId}`:undefined}>{selected&&<span className="model-channel-avatar" aria-hidden="true">{selected.provider?<ModelSupplierIcon supplier={modelSupplier({provider:selected.provider,supplier:selected.supplier})} size={18}/>:<Icon name="network" size={18}/>}</span>}<span>{selected?(selected.modelName??selected.agentId):models.length?'请选择模型':'请先添加模型'}</span></span><Icon name="down" size={15}/>
     </button>
     {open&&group&&createPortal(<div ref={menu} id={id} className={`model-picker-menu${compact?' is-compact':''}`} style={position?style:{visibility:'hidden'}} onKeyDown={onKeyDown}>
       {(!compact||level==='group')&&<div className="model-picker-panel model-picker-groups" role="menu" aria-label="供应商渠道">
         <div className="model-picker-heading">供应商<span>{groups.length} 个渠道</span></div>
         <div className="model-picker-list">{groups.map((item,i)=><button type="button" role="menuitem" aria-haspopup="menu" aria-expanded={item.id===group.id} tabIndex={-1} data-group-index={i} key={item.id} className={item.id===group.id?'is-active':''}
           onPointerMove={()=>{if(!compact&&item.id!==group.id)chooseGroup(item.id);}} onFocus={()=>{if(item.id!==group.id){setGroupId(item.id);setIndex(0);}setLevel('group');}}
-          onClick={()=>chooseGroup(item.id,true)}><span className="model-channel-avatar" aria-hidden="true">{item.provider?<ModelSupplierIcon supplier={modelProtocols[item.provider].supplier} size={18}/>:<Icon name="network" size={18}/>}</span><span className="model-picker-label" title={item.label}>{item.label}</span><small>{item.models.length}</small><Icon name="right" size={13}/></button>)}</div>
+          onClick={()=>chooseGroup(item.id,true)}><span className="model-channel-avatar" aria-hidden="true">{item.provider?<ModelSupplierIcon supplier={modelSupplier({provider:item.provider,supplier:item.supplier})} size={18}/>:<Icon name="network" size={18}/>}</span><span className="model-picker-label" title={item.label}>{item.label}</span><small>{item.models.length}</small><Icon name="right" size={13}/></button>)}</div>
       </div>}
       {(!compact||level==='model')&&<div className="model-picker-panel model-picker-models" role="menu" aria-label={`${group.label}的模型`}>
         <div className="model-picker-heading">{compact&&<button type="button" aria-label="返回供应商" onClick={()=>{focusPending.current=true;setLevel('group');}}><Icon name="left" size={14}/></button>}<span className="model-picker-label">{group.label}</span></div>
         <div className="model-picker-list">{group.models.map((model,i)=><button type="button" role="menuitemradio" aria-checked={model.agentId===value} tabIndex={-1} data-model-index={i} key={model.agentId} className={`${model.agentId===value?'is-selected ':''}${level==='model'&&index===i?'is-active':''}`}
-          onPointerMove={()=>{setLevel('model');setIndex(i);}} onFocus={()=>{setLevel('model');setIndex(i);}} onClick={()=>choose(model)}><span className="model-channel-avatar" aria-hidden="true">{model.provider?<ModelSupplierIcon supplier={modelProtocols[model.provider].supplier} variant="model" size={18}/>:<Icon name="network" size={18}/>}</span><span className="model-picker-label" title={model.modelName??model.agentId}>{model.modelName??model.agentId}</span>{model.agentId===value&&<Icon name="check" size={14}/>}</button>)}</div>
+          onPointerMove={()=>{setLevel('model');setIndex(i);}} onFocus={()=>{setLevel('model');setIndex(i);}} onClick={()=>choose(model)}><span className="model-channel-avatar" aria-hidden="true">{model.provider?<ModelSupplierIcon supplier={modelSupplier({provider:model.provider,supplier:model.supplier})} variant="model" size={18}/>:<Icon name="network" size={18}/>}</span><span className="model-picker-label" title={model.modelName??model.agentId}>{model.modelName??model.agentId}</span>{model.agentId===value&&<Icon name="check" size={14}/>}</button>)}</div>
       </div>}
     </div>,document.body)}
   </>;

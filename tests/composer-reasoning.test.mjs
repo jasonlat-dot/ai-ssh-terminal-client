@@ -93,3 +93,13 @@ test('Google 输入框复用协议目录保存四档 thinkingLevel，不接受 O
     assert.equal(ui.saved.at(-1)[3].action,'keep');
   }
 });
+
+
+test('DeepSeek 两种协议使用独立思考档位并保留供应商身份，品牌并发变更时拒绝旧设置',async()=>{
+ for(const provider of ['openAiCompatible','anthropicMessages']) {
+  const ui=harness(provider);ui.setProfile({config:{...ui.profile.config,supplier:'deepseek'}});ui.render();await ui.settle();
+  assert.deepEqual(Array.from(ui.control.props.options,option=>option.value),['','none','low','high','max']);
+  for(const value of ['none','low','high','max','']) {ui.control.props.onChange(value);await ui.settle();assert.equal(ui.saved.at(-1)[2].supplier,'deepseek');assert.equal(ui.saved.at(-1)[2].reasoningEffort,value||null);}
+  ui.setProfile({config:{...ui.profile.config,supplier:undefined}});ui.control.props.onChange('high');await ui.settle();assert.equal(ui.saved.length,5);assert.equal(ui.notices.at(-1)[1],'error');
+ }
+});

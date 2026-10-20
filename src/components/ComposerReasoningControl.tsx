@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { modelApi, type ModelConfig, type ModelProfile } from '../api/models';
-import { modelProtocols } from '../api/modelProtocols';
+import { modelProtocolInfo, modelSupplier } from '../api/modelProtocols';
 import { notify } from '../state/notifications';
 import { Select } from './Select';
 import { Icon } from './Ui';
@@ -31,10 +31,10 @@ export function ComposerReasoningControl({ modelId, revision, disabled, onSaving
     return () => { generation.current++; };
   }, [modelId, revision, reload]);
 
-  const protocol = profile ? modelProtocols[profile.config.provider] : null;
+  const protocol = profile ? modelProtocolInfo(profile.config) : null;
   const options = protocol?.effortOptions ?? [];
   const choose = async (value: string) => {
-    if (disabled || loading || pending.current || !profile || profile.id !== modelId || !modelProtocols[profile.config.provider].reasoning || !options.some(option => option.value === value)) return;
+    if (disabled || loading || pending.current || !profile || profile.id !== modelId || !modelProtocolInfo(profile.config).reasoning || !options.some(option => option.value === value)) return;
     const effort = (value || null) as ModelConfig['reasoningEffort'];
     if (profile.config.reasoningEffort === effort) return;
     const current = generation.current;
@@ -43,7 +43,7 @@ export function ComposerReasoningControl({ modelId, revision, disabled, onSaving
       // Merge into the latest saved model so changing effort cannot replace other settings with an old snapshot.
       const latest = (await modelApi.list()).find(item => item.id === modelId);
       if (!latest) throw new Error('当前模型配置已被删除，请重新选择模型。');
-      if (latest.config.provider !== profile.config.provider || !modelProtocols[latest.config.provider].effortOptions.some(option => option.value === value)) throw new Error('模型协议已变更，请重新读取推理设置。');
+      if (latest.config.provider !== profile.config.provider || modelSupplier(latest.config) !== modelSupplier(profile.config) || !modelProtocolInfo(latest.config).effortOptions.some(option => option.value === value)) throw new Error('模型协议已变更，请重新读取推理设置。');
       const saved = await modelApi.save(latest.id, latest.revision, {
         ...latest.config, reasoningEffort: effort,
         capabilities: { ...latest.config.capabilities, reasoningEffort: effort !== null },
@@ -59,7 +59,7 @@ export function ComposerReasoningControl({ modelId, revision, disabled, onSaving
     }
   };
 
-  const supportsReasoning = !profile || modelProtocols[profile.config.provider].reasoning;
+  const supportsReasoning = !profile || modelProtocolInfo(profile.config).reasoning;
   const effort = profile?.config.reasoningEffort ?? '';
   const label = options.find(option => option.value === effort)?.label ?? '默认';
   return <div className="composer-reasoning-control" title={protocol?.effortHint ?? '推理强度保存到当前模型，下一条消息生效'}>

@@ -15,6 +15,7 @@ export type AgentConfig = {
   toolsAvailable?: boolean;
   channelId?: string;
   provider?: ModelConfig['provider'];
+  supplier?: ModelConfig['supplier'];
 };
 
 export type AgentToolStatus = 'running' | 'success' | 'error' | 'unknown';

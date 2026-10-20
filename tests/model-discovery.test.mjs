@@ -3,6 +3,7 @@ import test from 'node:test';
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
+import * as protocolUi from '../src/api/modelProtocols.ts';
 import {addModelIds,selectedModelIds} from '../src/state/modelSelection.ts';
 
 function ui(discover = async()=>[]) {
@@ -20,6 +21,7 @@ function ui(discover = async()=>[]) {
     if(name==='react')return hooks;
     if(name==='react/jsx-runtime')return {jsx,jsxs:jsx};
     if(name==='../api/models')return {modelApi:{discover:async(...args)=>{calls.push(args);return discover(...args);}}};
+    if(name==='../api/modelProtocols')return protocolUi;
     if(name==='../state/modelSelection')return {addModelIds,selectedModelIds};
     if(name==='../state/useToastError')return {useToastError:()=>[null,value=>{if(value)errors.push(value);} ]};
     if(name==='./Ui')return {Icon:'icon'};
@@ -59,7 +61,7 @@ test('查询失败用 Toast，保留输入、已有结果和重试入口；空�
   fail=true;view.click('重新查询');await view.settle();assert.match(view.errors[0],/404/);assert.equal(view.props.value,'manual-model');assert.ok(view.find(n=>view.text(n)==='重新查询'));
 });
 test('地址、供应商、密钥和启用状态变化时取消旧查询；迟到结果不能回填',async()=>{
-  for(const change of [p=>{p.query={...p.query,baseUrl:'https://other.test/v1/'};},p=>{p.query={...p.query,provider:'googleGemini'};},p=>{p.query={...p.query,apiKey:{action:'set',value:'changed-key'}};},p=>{p.query={...p.query,requireApiKey:false};}]) {
+  for(const change of [p=>{p.query={...p.query,supplier:'deepseek'};},p=>{p.query={...p.query,baseUrl:'https://other.test/v1/'};},p=>{p.query={...p.query,provider:'googleGemini'};},p=>{p.query={...p.query,apiKey:{action:'set',value:'changed-key'}};},p=>{p.query={...p.query,requireApiKey:false};}]) {
     let resolve;const view=ui(()=>new Promise(done=>{resolve=done;}));view.click('查询上游模型');const signal=view.calls[0][1];
     change(view.props);view.render();view.render();assert.ok(signal.aborted);resolve(entries);await view.settle();assert.equal(view.find(n=>n.props['aria-label']==='添加 model-a'),undefined);assert.equal(view.props.value,'manual-model');
   }
@@ -69,10 +71,15 @@ test('重复查询被阻止，关闭时中止请求；已存渠道留空密钥�
   view.click('查询上游模型');assert.equal(view.calls[0][0].apiKey.action,'keep');assert.equal(view.calls[0][0].revision,8);
   assert.ok(view.find(n=>view.text(n)==='查询中…').props.disabled);view.unmount();assert.ok(view.calls[0][1].aborted);resolve(entries);await view.settle();assert.equal(view.errors.length,0);
 });
-test('缺少地址或新配置的必需密钥时不发起请求；关闭鉴权可以查询',async()=>{
-  const view=ui();view.props.query={...view.props.query,baseUrl:''};view.render();view.click('查询上游模型');assert.match(view.errors[0],/基础地址/);
-  view.props.query={...view.props.query,baseUrl:'https://example.test/v1/',apiKey:{action:'keep'}};view.render();view.render();view.click('查询上游模型');assert.match(view.errors[1],/API Key/);assert.equal(view.calls.length,0);
-  view.props.query={...view.props.query,requireApiKey:false};view.render();view.render();view.click('查询上游模型');await view.settle();assert.equal(view.calls.length,1);
+test('地址留空时模型查询使用对应协议默认值，保留空草稿；自定义版本和前缀不改写',async()=>{
+ for(const {value:supplier} of protocolUi.modelSupplierOptions) for(const {value:provider} of protocolUi.supplierProtocolOptions(supplier)) {
+  const view=ui(async()=>entries);view.props.query={...view.props.query,supplier,provider,baseUrl:''};view.render();view.render();
+  view.click('查询上游模型');await view.settle();assert.equal(view.calls.length,1);assert.equal(view.calls[0][0].baseUrl,protocolUi.modelBasePlaceholder(view.props.query));assert.equal(view.props.query.baseUrl,'');
+ }
+});
+test('缺少新配置必需密钥时不发请求，关闭鉴权可按默认地址查询',async()=>{
+ const view=ui();view.props.query={...view.props.query,baseUrl:'',apiKey:{action:'keep'}};view.render();view.render();view.click('查询上游模型');assert.match(view.errors[0],/API Key/);assert.equal(view.calls.length,0);
+ view.props.query={...view.props.query,requireApiKey:false};view.render();view.render();view.click('查询上游模型');await view.settle();assert.equal(view.calls.length,1);assert.equal(view.calls[0][0].baseUrl,'https://api.openai.com/v1');
 });
 test('全部添加超过 64 个时 Toast 提示且不截断、不覆盖已选模型',async()=>{
   const view=ui(async()=>Array.from({length:65},(_,i)=>({id:`m-${i}`})));view.click('查询上游模型');await view.settle();view.click('全部添加');assert.match(view.errors[0],/64/);assert.equal(view.props.value,'manual-model');

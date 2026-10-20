@@ -10,10 +10,10 @@ export function parseModelIds(text:string):string[] {
 }
 
 export function groupModels(models:AgentConfig[]) {
-  const groups=new Map<string,{id:string;label:string;provider:AgentConfig['provider'];models:AgentConfig[]}>();
+  const groups=new Map<string,{id:string;label:string;provider:AgentConfig['provider'];supplier:AgentConfig['supplier'];models:AgentConfig[]}>();
   for(const model of models) {
     const id=model.channelId??model.agentId;
-    if(!groups.has(id))groups.set(id,{id,label:model.agentName||'未命名渠道',provider:model.provider,models:[]});
+    if(!groups.has(id))groups.set(id,{id,label:model.agentName||'未命名渠道',provider:model.provider,supplier:model.supplier,models:[]});
     groups.get(id)!.models.push(model);
   }
   return [...groups.values()].sort((a,b)=>a.label.localeCompare(b.label)).map(group=>({...group,models:group.models.sort((a,b)=>(a.modelName??a.agentId).localeCompare(b.modelName??b.agentId))}));

@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom';
 import type { ReactNode } from 'react';
 import { modelApi, newModelConfig } from '../api/models';
 import { sshUserId } from '../api/ssh';
-import { applyModelProtocol, applyModelSupplier, modelProtocols, modelSuppliers, modelSupplierOptions, supplierProtocolOptions } from '../api/modelProtocols';
+import { applyModelProtocol, applyModelSupplier, modelProtocols, modelSupplier, modelProtocolInfo, modelBasePlaceholder, resolvedModelBaseUrl, modelSupplierOptions, supplierProtocolOptions } from '../api/modelProtocols';
 import type { ModelSupplier } from '../api/modelProtocols';
 import type { KeyChange, ModelConfig, ModelChannel } from '../api/models';
 import { AccentIcon, Badge, Icon, Modal, Toggle } from './Ui';
@@ -13,6 +13,7 @@ import { Select } from './Select';
 import { ModelSupplierIcon } from './ModelSupplierIcon';
 import { ModelNumberInput } from './ModelNumberInput';
 import { ModelCatalogInput } from './ModelCatalogInput';
+import { ModelEndpointInput } from './ModelEndpointInput';
 import { notify } from '../state/notifications';
 import { parseModelIds } from '../state/modelChannels';
 import { loadModelPins, orderPinnedModels, saveModelPins } from '../state/modelPins';
@@ -44,14 +45,13 @@ export function ModelSettings({ changed, locked = false }: { changed?: () => voi
   const [, setError] = useToastError();
   const [deleting, setDeleting] = useState<ModelChannel | null>(null);
   const [, setDeleteError] = useToastError();
-  const protocolInfo = modelProtocols[config.provider];
-  const supplier = protocolInfo.supplier;
-  const supplierInfo = modelSuppliers[supplier];
+  const protocolInfo = modelProtocolInfo(config);
+  const supplier = modelSupplier(config);
   const protocolOptions = supplierProtocolOptions(supplier);
   const disabled = busy || loading || locked;
   const searchTerm = search.trim().toLocaleLowerCase();
   const filteredProfiles = orderPinnedModels(profiles, pinnedIds).filter(profile =>
-    (supplierFilter === 'all' || modelProtocols[profile.config.provider].supplier === supplierFilter)
+    (supplierFilter === 'all' || modelSupplier(profile.config) === supplierFilter)
     && (profile.displayName ?? profile.id).toLocaleLowerCase().includes(searchTerm));
   const hasFilters = supplierFilter !== 'all' || searchTerm.length > 0;
   const clearFilters = () => { setSupplierFilter('all'); setSearch(''); };
@@ -93,11 +93,10 @@ export function ModelSettings({ changed, locked = false }: { changed?: () => voi
     setBusy(true); setError('');
     try {
       if (!displayName.trim()) throw new Error('请输入配置名称。');
-      if (!config.baseUrl.trim()) throw new Error('请输入 API 基础地址。');
       if (config.temperature !== null && (!Number.isFinite(config.temperature) || config.temperature < 0 || config.temperature > protocolInfo.temperatureMax)) throw new Error(`Temperature 需在 0–${protocolInfo.temperatureMax} 之间。`);
       const ids=parseModelIds(modelIds);
       const apiKey:KeyChange = key.trim() ? {action:'set',value:key.trim()} : {action:'keep'};
-      const saved = await modelApi.saveChannel(editing?.id ?? crypto.randomUUID(), editing?.revision ?? 0, {...config,model:ids[0]}, apiKey, displayName.trim(), ids);
+      const saved = await modelApi.saveChannel(editing?.id ?? crypto.randomUUID(), editing?.revision ?? 0, {...config,baseUrl:resolvedModelBaseUrl(config),model:ids[0]}, apiKey, displayName.trim(), ids);
       setProfiles(items => items.some(profile => profile.id === saved.id)
         ? items.map(profile => profile.id === saved.id ? saved : profile)
         : [...items, saved]);
@@ -156,7 +155,7 @@ export function ModelSettings({ changed, locked = false }: { changed?: () => voi
             const protocol = modelProtocols[profile.config.provider];
             const pinned = pinnedIds.includes(profile.id);
             return <article className="model-profile-card" data-pinned={pinned || undefined} key={profile.id} aria-label={profile.displayName ?? profile.id}>
-              <div className="model-profile-heading"><span className="model-supplier-avatar"><ModelSupplierIcon supplier={protocol.supplier} size={22}/></span><div><h3 title={profile.displayName ?? profile.id}>{profile.displayName ?? profile.id}</h3><p title={profile.models?.map(item=>item.model).join('、')??profile.config.model}>{profile.models?.length?`${profile.models.length} 个模型 · ${profile.models.map(item=>item.model).join('、')}`:profile.config.model}</p></div><span className={`model-profile-state ${profile.ready ? 'ready' : ''}`}><i aria-hidden="true"/>{profile.ready ? '已配置' : '需要密钥'}</span></div>
+              <div className="model-profile-heading"><span className="model-supplier-avatar"><ModelSupplierIcon supplier={modelSupplier(profile.config)} size={22}/></span><div><h3 title={profile.displayName ?? profile.id}>{profile.displayName ?? profile.id}</h3><p title={profile.models?.map(item=>item.model).join('、')??profile.config.model}>{profile.models?.length?`${profile.models.length} 个模型 · ${profile.models.map(item=>item.model).join('、')}`:profile.config.model}</p></div><span className={`model-profile-state ${profile.ready ? 'ready' : ''}`}><i aria-hidden="true"/>{profile.ready ? '已配置' : '需要密钥'}</span></div>
               <div className="model-profile-tags">
                 <Badge tone="blue">{protocol.name}</Badge>
                 <Badge tone="violet" className="model-profile-budget" title={`${profile.config.contextWindow.toLocaleString()} tokens`}>{`${tokenCountFormat.format(profile.config.contextWindow)} tokens`}</Badge>
@@ -169,7 +168,7 @@ export function ModelSettings({ changed, locked = false }: { changed?: () => voi
     </div>
     {(editorOpen || deleting) && createPortal(<div className="settings-page model-settings-overlay">
       {editorOpen && <Modal title={editing ? '编辑模型配置' : '新建模型配置'} icon="bot" iconTone="violet" className="model-config-dialog" active={!deleting} dismissDisabled={busy} onClose={closeEditor}>
-        <form className="model-editor" onSubmit={event => { event.preventDefault(); if (!disabled) void save(); }}>
+        <form className="model-editor" autoComplete="off" onSubmit={event => { event.preventDefault(); if (!disabled) void save(); }}>
           <div className="model-editor-scroll">
             {locked && <div className="model-feedback" role="status"><Icon name="history" size={16}/><span>请等待回复结束或停止生成后再修改模型。</span></div>}
           <fieldset disabled={disabled}>
@@ -183,7 +182,7 @@ export function ModelSettings({ changed, locked = false }: { changed?: () => voi
               <div className="settings-fields-grid">
                 <ModelField id="model-name" label="供应商 / 渠道名称" badge="CHANNEL" icon="edit" tone="neutral"><input id="model-name" data-autofocus className="settings-control" value={displayName} maxLength={64} onChange={e => setDisplayName(e.target.value)} placeholder="例如：OpenAI、Claude 或我的中转" /></ModelField>
                 <ModelField id="model-effort" label="推理强度"><Select id="model-effort" label="推理强度" className="settings-control" menuClassName="model-reasoning-menu" menuMinWidth={220} value={config.reasoningEffort ?? ''} disabled={disabled} options={protocolInfo.effortOptions} onChange={value => setConfig(current => ({ ...current, reasoningEffort: value || null, capabilities: { ...current.capabilities, reasoningEffort: value !== '' } }))}/></ModelField>
-                <ModelField id="model-url" label="API 基础地址" wide badge="BASE URL" icon="network" tone="cyan" hint="包含 /v1 或代理前缀，不要包含密钥。"><input id="model-url" className="settings-control settings-control-mono" value={config.baseUrl} onChange={e => field('baseUrl', e.target.value)} placeholder={supplierInfo.basePlaceholder} /></ModelField>
+                <ModelField id="model-url" label="API 基础地址" wide badge="BASE URL" icon="network" tone="cyan" hint="留空使用默认地址，也可填写中转地址。"><ModelEndpointInput id="model-url" value={config.baseUrl} onChange={value => field('baseUrl', value)} placeholder={modelBasePlaceholder(config)} savedAddresses={profiles.map(profile => profile.config.baseUrl)} disabled={disabled}/></ModelField>
               <ModelField id="model-api-key" label="API Key" wide hint="密钥加密保存；关闭后不发送，已存密钥保留。">
                 <div className="model-key-input-row">
                   <input id="model-api-key" className="settings-control settings-control-mono" type="password" autoComplete="new-password" spellCheck={false} value={key} onChange={e => setKey(e.target.value)} placeholder={editing?.apiKeyConfigured?'已配置，留空表示不修改':'未配置，请输入 API Key'}/>
@@ -191,7 +190,7 @@ export function ModelSettings({ changed, locked = false }: { changed?: () => voi
                 </div>
               </ModelField>
                 <ModelField id="model-id" label="模型 ID" wide badge="MODELS" icon="bot" tone="violet" hint="这些模型共用此渠道的接口、密钥和参数。">
-                  <ModelCatalogInput value={modelIds} onChange={setModelIds} disabled={disabled} query={{provider:config.provider,baseUrl:config.baseUrl,requireApiKey:config.requireApiKey,
+                  <ModelCatalogInput value={modelIds} onChange={setModelIds} disabled={disabled} query={{supplier:config.supplier,provider:config.provider,baseUrl:config.baseUrl,requireApiKey:config.requireApiKey,
                     apiKey:key.trim()?{action:'set',value:key.trim()}:{action:'keep'},channelId:editing?.id??null,revision:editing?.revision??null}}/>
                 </ModelField>
               </div>
@@ -228,7 +227,7 @@ export function ModelSettings({ changed, locked = false }: { changed?: () => voi
       {deleting && <Modal icon="trash" iconTone="danger" title="删除渠道配置？" className="model-delete-dialog" dismissDisabled={busy} onClose={() => { if (!busy) setDeleting(null); }}>
         <div className="model-delete-body">
           <div className="model-delete-target">
-            <span className="model-supplier-avatar"><ModelSupplierIcon supplier={modelProtocols[deleting.config.provider].supplier} size={22}/></span>
+            <span className="model-supplier-avatar"><ModelSupplierIcon supplier={modelSupplier(deleting.config)} size={22}/></span>
             <div><strong>{deleting.displayName ?? deleting.id}</strong><span>{deleting.config.model}</span></div>
           </div>
           <p>删除后将无法使用此配置，已有历史会话会保留。</p>

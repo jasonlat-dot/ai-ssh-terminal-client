@@ -24,7 +24,9 @@
 
 模型设置页只展示已保存的配置卡片，包含配置名称、模型 ID、供应商、协议、地址和配置状态。没有配置时展示空状态；加载失败显示重试入口。点击“新建配置”或卡片“编辑”打开配置弹窗，删除先确认。保存成功关闭弹窗并更新列表，取消丢弃草稿，失败保留输入。
 
-弹窗先选择供应商，下拉只显示品牌图标与“OpenAI 兼容 / Anthropic 兼容”，不附带说明列。OpenAI 可选 Chat Completions、Responses；Anthropic 固定使用 Messages，不再将三个协议混在同一个下拉中。API 基础地址仅以占位文字提示对应官网地址，新建和切换供应商时不自动填写；用户输入或已有配置的地址保持原值，保存时需填写真实地址。旧配置从原协议恢复供应商，不增加后端字段或数据库迁移。
+弹窗先选择供应商，下拉显示品牌图标与“OpenAI 兼容 / Anthropic 兼容 / Google 兼容 / DeepSeek”，不附带说明列。OpenAI 可选 Chat Completions、Responses；Anthropic 使用 Messages；Google 使用 GenerateContent；DeepSeek 可选 Chat Completions（默认）、Messages。API 基础地址仅以占位文字提示对应官网地址，新建和切换供应商/协议时不自动填写；用户输入或已有配置的地址保持原值；留空保存或查询上游模型时，使用输入框提示中的默认官方地址。DeepSeek 使用可选 supplier 字段保存身份，底层复用原协议；没有该字段的旧配置继续从协议恢复品牌，不猜测 URL 或模型名称，无需数据库 schema 迁移。
+
+API 基础地址使用应用内建议列表，替代浏览器/WebView 原生“保存的信息”下拉框，并关闭该字段及配置表单的原生自动补全。列表区分“官方默认”（标注“留空时使用”）和“已保存地址”；已保存地址只取自现有模型配置，不读取浏览器输入历史、不另存未保存草稿。地址去重，最多展示 8 个已保存地址；输入时筛选，长地址省略并可悬停查看完整值。点击地址即可选用，选择官方默认恢复空输入、由保存/查询统一解析；支持方向键、回车确认、Esc 收起，手动输入不自动替换。浮层沿用浅色/深色主题，空间不足向上展开。
 
 “请求参数”在弹窗内直接展示，安全预留、自动整理比例与 Temperature 宽屏并排、窄屏单列。数字控件保留常用档位和手动输入；整理比例仍为 1–99，Temperature 上限按协议限制，留空不发送。Responses 的远端整理开关仅在选择 Responses 时出现。
 
@@ -399,3 +401,28 @@ OpenAI / Responses / Anthropic 查询基础地址下的 models；Google 使用�
 模型查询已接入独立 Trace 日志，失败 Toast 带 Trace ID；可从“本地工作区 → 诊断日志”打开目录查找 `YYYY-MM-DD/<traceId>.log`。INFO 记录实际 GET 地址、鉴权方式和 HTTP 状态，DEBUG 补充返回结构类型，ERROR 记录解析失败字段；密钥、响应原文和分页游标不保存。该日志补充不改变供应商解析规则。
 
 2026-10-20 后续调整：Google 上游列表中的缺失 / null / 空数组能力记录会跳过，读取后面明确支持 generateContent 的条目，规范化后去重。空分页标记（null / 空字符串 / 缺失）表示查询完成；空能力页存在下一页游标时仍继续。查询日志 DEBUG 汇总跳过的空能力条目数，不将其误报为解析失败。
+
+
+## DeepSeek 独立供应商（2026-10-20）
+
+新建配置选择 DeepSeek，可在 Chat Completions 与 Messages 之间切换。两种协议共用蓝色鲸鱼图标，设置卡片、供应商筛选、渠道列表、具体模型和当前模型入口均按显式供应商身份展示；既有名为 deepseek 的 OpenAI 兼容渠道不会被自动改写，可编辑后自行选择 DeepSeek。
+
+- Chat Completions 地址提示为 `https://api.deepseek.com/v1`，相对路径 `chat/completions`；Messages 地址提示为 `https://api.deepseek.com/anthropic/v1`，相对路径 `messages`。支持自定义中转前缀；输入框不自动回填，留空时保存/查询使用提示中的默认地址。
+- 输出参数统一为 `max_tokens`。思考强度提供默认、关闭、低、高、最高；默认不覆盖上游设置，关闭发送 thinking disabled，非默认强度启用思考。思考模式下上游不使用 Temperature。具体模型的上下文、输出窗口及可用能力仍应按模型说明配置，不硬编码模型 ID。
+- “查询上游模型”继续支持已存密钥留空复用、逐个点击、× 移除和全部添加。DeepSeek 两种协议查询统一 models 目录并使用 Bearer；Messages 官方后缀 `/anthropic/v1/`（或 `/anthropic/`）会映射回同一代理前缀下的 models，其他自定义前缀原样保留。对话本身的 Messages 鉴权仍使用 x-api-key。
+- 两种协议沿用本地语义摘要压缩与工具续聊。DeepSeek 的思考块允许没有 Anthropic 签名，实际返回字段原样续接并绑定供应商/协议/地址/模型/凭据；通用 Anthropic 配置仍要求原有签名。供应商特有逻辑集中在策略层。
+- 此次 DeepSeek 入口开放已定向测试的 Chat Completions 和 Messages；Responses 的独立适配不属于此次范围。包含 Rust 改动，需重启 `npm run tauri dev` 重新编译，仅刷新前端不会更新原生实现。真实供应商与中转是否开放对应协议和模型目录，以实际请求为准。
+
+依据：[DeepSeek 接入说明](https://api-docs.deepseek.com/)、[Anthropic 兼容说明](https://api-docs.deepseek.com/guides/anthropic_api/)、[思考模式](https://api-docs.deepseek.com/guides/thinking_mode/)、[模型列表](https://api-docs.deepseek.com/api/list-models/)。本轮使用回环模拟服务和测试凭据，不调用用户真实 Key 或 SSH。
+
+
+DeepSeek 定向验收结果：前端供应商/配置/筛选/品牌/模型发现及输入框推理 64 项，Rust 相关 45 项与桌面 IPC 1 项通过，TypeScript、Vite 资源构建及 Rust 生产库严格 Clippy 通过。全部使用临时存储、合成响应和回环服务；真实 DeepSeek/中转与桌面视觉尚未验收，未打包。完整源码位置与测试命令边界见 Rust 仓库 AGENT_PROGRESS.md。
+
+
+## 基础地址留空使用默认值（2026-10-20）
+
+所有供应商的地址输入框继续显示 placeholder，空白草稿不会被自动填入文字；留空或仅空格时，保存与“查询上游模型”共用 resolvedModelBaseUrl 读取该提示地址。显式填写的地址优先，仅去除首尾空白，不强行添加版本或替换自定义代理前缀；无效非空地址仍由原生校验拒绝。
+
+默认提示按供应商配置（Google 为 /v1beta，其余为 /v1）：OpenAI `https://api.openai.com/v1`、Anthropic `https://api.anthropic.com/v1`、Google `https://generativelanguage.googleapis.com/v1beta`、DeepSeek Chat `https://api.deepseek.com/v1`、DeepSeek Messages `https://api.deepseek.com/anthropic/v1`。Google GenerateContent 默认使用 v1beta；已填的 v1、v1beta 或其他代理地址保持原样。原生仍会规范化末尾 / 供相对路径拼接，不改变实际 API 版本。
+
+本轮仅前端地址解析/文案与相关测试修改，49 项定向测试、TypeScript 和 diff 检查通过；不改 Rust 生产逻辑，不调用真实上游、不重新执行无关原生测试或打包。版本依据：[Google API 版本说明](https://ai.google.dev/gemini-api/docs/api-versions)。

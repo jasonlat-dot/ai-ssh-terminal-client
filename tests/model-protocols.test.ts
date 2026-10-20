@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { applyModelProtocol, applyModelSupplier, modelProtocols, modelProtocolOptions, supplierProtocolOptions } from '../src/api/modelProtocols.ts';
+import { applyModelProtocol, applyModelSupplier, modelProtocols, modelProtocolOptions, supplierProtocolOptions, modelSupplier, modelProtocolInfo, modelBasePlaceholder, resolvedModelBaseUrl, modelSupplierOptions } from '../src/api/modelProtocols.ts';
 import { newModelConfig } from '../src/api/models.ts';
 
 test('Claude 协议切换使用原生路径、输出参数及能力，保留代理地址且不修改原对象', () => {
@@ -82,4 +82,41 @@ test('Google 使用独立原生协议和参数目录，切换保留地址并清�
   assert.deepEqual(modelProtocols.googleGemini.effortOptions.map(o=>o.value),['','minimal','low','medium','high']);
   assert.equal(modelProtocols.googleGemini.fixedOutput,'maxOutputTokens');
   assert.equal(applyModelSupplier(newModelConfig(),'google').baseUrl,'');
+});
+
+
+test('DeepSeek 身份独立保存，复用 Chat 与 Messages，切换保持自定义地址且不修改旧对象', () => {
+  const old=newModelConfig();const config=applyModelSupplier(old,'deepseek');
+  assert.equal(modelSupplier(old),'openai');assert.equal(modelSupplier(config),'deepseek');assert.equal(config.baseUrl,'');
+  assert.equal(config.provider,'openAiCompatible');assert.equal(config.outputTokenParameter,'maxTokens');
+  assert.equal(modelBasePlaceholder(config),'https://api.deepseek.com/v1');
+  assert.deepEqual(supplierProtocolOptions('deepseek').map(item=>item.value),['openAiCompatible','anthropicMessages']);
+  const messages=applyModelProtocol({...config,baseUrl:'https://proxy.test/custom/'},'anthropicMessages');
+  assert.equal(messages.supplier,'deepseek');assert.equal(messages.completionsPath,'messages');assert.equal(messages.baseUrl,'https://proxy.test/custom/');
+  assert.equal(modelBasePlaceholder(messages),'https://api.deepseek.com/anthropic/v1');
+  assert.equal(modelSupplier(applyModelSupplier(messages,'anthropic')),'anthropic');
+  assert.equal(applyModelSupplier(messages,'anthropic').supplier,undefined);
+});
+
+test('DeepSeek 参数目录支持其思考档位和 max_tokens，切回通用协议清理特有档位', () => {
+  const config=applyModelSupplier(newModelConfig(),'deepseek');
+  assert.deepEqual(modelProtocolInfo(config).effortOptions.map(item=>item.value),['','none','low','high','max']);
+  assert.equal(modelProtocolInfo(config).supplier,'deepseek');assert.equal(modelProtocolInfo(config).fixedOutput,'max_tokens');assert.equal(modelProtocolInfo({...config,provider:'anthropicMessages'}).temperatureMax,2);
+  const next=applyModelSupplier({...config,reasoningEffort:'max'},'openai');assert.equal(next.reasoningEffort,null);
+  assert.equal(modelProtocols.anthropicMessages.temperatureMax,1);assert.equal(modelProtocols.openAiCompatible.fixedOutput,null);
+});
+
+
+test('各供应商留空地址使用同一提示默认值，Google 默认 v1beta 且不回填草稿或改写中转', () => {
+  for (const {value:supplier} of modelSupplierOptions) {
+    for (const {value:provider} of supplierProtocolOptions(supplier)) {
+      const config=applyModelProtocol(applyModelSupplier(newModelConfig(),supplier),provider);
+      const expected=modelBasePlaceholder(config);assert.match(expected,supplier==='google'?/\/v1beta$/:/\/v1$/);
+      if(supplier==='google')assert.equal(expected,'https://generativelanguage.googleapis.com/v1beta');
+      assert.equal(resolvedModelBaseUrl(config),expected);assert.equal(config.baseUrl,'');
+      assert.equal(resolvedModelBaseUrl({...config,baseUrl:'   '}),expected);
+      assert.equal(resolvedModelBaseUrl({...config,baseUrl:'https://generativelanguage.googleapis.com/v1'}),'https://generativelanguage.googleapis.com/v1');
+      assert.equal(resolvedModelBaseUrl({...config,baseUrl:'  https://proxy.test/custom/v1beta/  '}),'https://proxy.test/custom/v1beta/');
+    }
+  }
 });

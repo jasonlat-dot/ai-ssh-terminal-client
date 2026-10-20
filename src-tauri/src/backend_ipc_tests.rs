@@ -537,6 +537,7 @@ fn save_test_model(services: &Services, base_url: String) {
     use shellpilot_server::agent::provider::*;
     let config = ModelConfig {
         provider: ProviderKind::OpenAiCompatible,
+        supplier: None,
         remote_compaction: false,
         base_url,
         completions_path: "chat/completions".into(),
@@ -2867,5 +2868,33 @@ async fn model_catalog_json_request_logs_trace_and_exposes_id_for_failure() {
     token.cancel();
     let cancelled=dispatch_json_request(services,"catalog-ipc-cancel","agent/model_catalog","POST",body,Value::Null,&token).await.unwrap_err();assert_eq!(cancelled.code,"REQUEST_CANCELLED");
     let rows=read_rows("catalog-ipc-cancel");assert!(rows.iter().any(|row|row["event"]=="request.cancelled"&&row["level"]=="warn"));assert!(!rows.iter().any(|row|row["event"]=="request.completed"||row["level"]=="error"));
+    server.abort();
+}
+
+
+#[tokio::test]
+async fn deepseek_supplier_ipc_roundtrips_channels_choices_and_saved_key_discovery() {
+    use axum::{http::HeaderMap,routing::get,Json,Router};
+    let (_dir,services)=services().await;
+    let listener=tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address=format!("http://{}",listener.local_addr().unwrap());
+    let app=Router::new().route("/proxy/v1/models",get(|headers:HeaderMap|async move {assert_eq!(headers["authorization"],"Bearer deepseek-ipc-fixture");Json(json!({"data":[{"id":"model-one","name":"First"}]}))}))
+        .route("/proxy/models",get(|headers:HeaderMap|async move {assert_eq!(headers["authorization"],"Bearer deepseek-ipc-fixture");assert!(!headers.contains_key("x-api-key"));Json(json!({"data":[{"id":"model-two"}]}))}));
+    let server=tokio::spawn(async move{axum::serve(listener,app).await.unwrap();});
+    save_test_model(&services,format!("{address}/proxy/v1/"));
+    let listed=dispatch(services.clone(),"agent/models","GET",Value::Null,json!({"userId":"default"})).await.unwrap();
+    let original=listed.as_array().unwrap().iter().find(|p|p["id"]=="model").unwrap()["config"].clone();
+    for (index,protocol) in ["openAiCompatible","anthropicMessages"].iter().enumerate() {
+        let id=format!("deepseek-{index}");let mut config=original.clone();
+        config["supplier"]="deepseek".into();config["provider"]=(*protocol).into();config["requireApiKey"]=true.into();
+        config["baseUrl"]=format!("{address}/proxy/{}",if index==0{"v1/"}else{"anthropic/v1/"}).into();
+        config["completionsPath"]=if index==0{"chat/completions"}else{"messages"}.into();
+        let saved=dispatch(services.clone(),"agent/model_channels","POST",json!({"id":id,"userId":"default","revision":0,"displayName":"DeepSeek","modelIds":["model-one","model-two"],"update":{"config":config,"apiKey":{"action":"set","value":"deepseek-ipc-fixture"}}}),Value::Null).await.unwrap();
+        assert_eq!(saved["config"]["supplier"],"deepseek");assert_eq!(saved["config"]["provider"],*protocol);assert_eq!(saved["config"]["outputTokenParameter"],"maxTokens");assert!(!saved.to_string().contains("deepseek-ipc-fixture"));
+        let models=dispatch(services.clone(),"agent/query_ai_agent_config_list","GET",Value::Null,json!({"userId":"default"})).await.unwrap();
+        let members:Vec<_>=models.as_array().unwrap().iter().filter(|m|m["channelId"]==id).collect();assert_eq!(members.len(),2);assert!(members.iter().all(|m|m["supplier"]=="deepseek"&&m["provider"]==*protocol));
+        let found=dispatch(services.clone(),"agent/model_catalog","POST",json!({"userId":"default","query":{"supplier":"deepseek","provider":protocol,"baseUrl":config["baseUrl"],"requireApiKey":true,"apiKey":{"action":"keep"},"channelId":id,"revision":saved["revision"]}}),Value::Null).await.unwrap();
+        assert_eq!(found[0]["id"],if index==0{"model-one"}else{"model-two"});
+    }
     server.abort();
 }

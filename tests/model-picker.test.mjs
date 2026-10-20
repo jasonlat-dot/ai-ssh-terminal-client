@@ -4,7 +4,7 @@ import test from 'node:test';
 import vm from 'node:vm';
 import ts from 'typescript';
 import {modelPickerPosition} from '../src/state/modelPickerPosition.ts';
-import {modelProtocols} from '../src/api/modelProtocols.ts';
+import {modelProtocols,modelSupplier} from '../src/api/modelProtocols.ts';
 import {groupModels} from '../src/state/modelChannels.ts';
 
 function harness(width=1000){
@@ -17,7 +17,7 @@ function harness(width=1000){
  const leaf=()=>null;
  const context=vm.createContext({exports:{},Math,window:win,document:{body:{},addEventListener:(name,fn)=>listeners.set(name,fn),removeEventListener:name=>listeners.delete(name)},require(name){
   if(name==='react')return hooks;if(name==='react-dom')return{createPortal:node=>node};if(name==='react/jsx-runtime')return {jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props})};
-  if(name==='../state/modelChannels')return{groupModels};if(name==='../state/modelPickerPosition')return{modelPickerPosition};if(name==='../api/modelProtocols')return{modelProtocols};if(name==='./ModelSupplierIcon')return{ModelSupplierIcon:leaf};if(name==='./Ui')return{Icon:leaf};if(name.endsWith('.css'))return{};throw new Error(name);
+  if(name==='../state/modelChannels')return{groupModels};if(name==='../state/modelPickerPosition')return{modelPickerPosition};if(name==='../api/modelProtocols')return{modelProtocols,modelSupplier};if(name==='./ModelSupplierIcon')return{ModelSupplierIcon:leaf};if(name==='./Ui')return{Icon:leaf};if(name.endsWith('.css'))return{};throw new Error(name);
  }});
  vm.runInContext(ts.transpileModule(readFileSync(new URL('../src/components/ModelPicker.tsx',import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText,context);
  function all(node=tree){if(Array.isArray(node))return node.flatMap(all);return node?.props?[node,...all(node.props.children??[])]:[];}
@@ -73,4 +73,14 @@ test('Google 原生渠道在当前值、分组与模型行复用品牌图标，�
  ui.find(node=>node.props['aria-label']==='返回供应商').props.onClick();ui.render();ui.render();
  const group=ui.find(node=>node.props['data-group-index']===1);assert.equal(ui.all(group).find(node=>node.props.supplier).props.variant,undefined);
  group.props.onClick();ui.render();ui.render();ui.find(node=>node.props.role==='menuitemradio').props.onClick();ui.render();assert.deepEqual(ui.selected,['b1']);assert.equal(ui.trigger.props['aria-expanded'],false);
+});
+
+
+test('DeepSeek 身份独立于 OpenAI 协议，在渠道、模型和当前值均使用鲸鱼图标',()=>{
+ const ui=harness();ui.props.models=ui.props.models.map(model=>({...model,provider:'openAiCompatible',supplier:model.channelId==='a'?'deepseek':undefined}));
+ ui.render();assert.equal(ui.all(ui.trigger).find(node=>node.props.supplier).props.supplier,'deepseek');
+ ui.trigger.props.onClick();ui.render();ui.render();
+ const groups=ui.all().filter(node=>node.props.role==='menuitem');
+ assert.deepEqual(groups.map(group=>ui.all(group).find(node=>node.props.supplier).props.supplier),['deepseek','openai']);
+ assert.ok(ui.all().filter(node=>node.props.role==='menuitemradio').every(row=>ui.all(row).find(node=>node.props.supplier).props.supplier==='deepseek'));
 });

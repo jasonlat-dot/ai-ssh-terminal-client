@@ -41,7 +41,7 @@ function settings(legacyVision, options={}) {
     if(name==='../state/useToastError')return loadToastErrorHooks(hooks,(...args)=>notices.push(args));if(name==='react')return hooks;
     if(name==='react-dom')return {createPortal:node=>node};
     if(name==='../state/notifications')return {notify(...args){notices.push(args);}};
-    if(name==='react/jsx-runtime'){const jsx=(type,props)=>type==='catalog-input-stub'?{type:'textarea',props:{...props,id:'model-id',onChange:event=>props.onChange(event.target.value)}}:{type,props};return {jsx,jsxs:jsx};}
+    if(name==='react/jsx-runtime'){const jsx=(type,props)=>type==='endpoint-input-stub'?{type:'input',props:{...props,onChange:event=>props.onChange(event.target.value)}}:type==='catalog-input-stub'?{type:'textarea',props:{...props,id:'model-id',onChange:event=>props.onChange(event.target.value)}}:{type,props};return {jsx,jsxs:jsx};}
     if(name==='../api/modelProtocols')return protocolUi;
     if(name==='../state/modelChannels')return channelUi;
     if(name==='../state/modelPins')return {...pinUi,loadModelPins:user=>pinUi.loadModelPins(user,pinStorage),saveModelPins:(user,pins)=>pinUi.saveModelPins(user,pins,pinStorage)};
@@ -51,6 +51,7 @@ function settings(legacyVision, options={}) {
     if(name==='./Select')return {Select:leaf};
     if(name==='./ModelSupplierIcon')return {ModelSupplierIcon:leaf};
     if(name==='./ModelNumberInput')return {ModelNumberInput:leaf};
+    if(name==='./ModelEndpointInput')return {ModelEndpointInput:'endpoint-input-stub'};
     if(name==='./ModelCatalogInput')return {ModelCatalogInput:'catalog-input-stub'};
     if(name.endsWith('.css'))return {};
     throw new Error(name);
@@ -310,16 +311,14 @@ test('新建弹窗显示供应商地址提示，填写真实地址后保存并�
   assert.ok(ui.find(node=>node.props.title==='新建模型配置'));
   assert.equal(ui.find(node=>node.props.id==='model-protocol'&&node.props.options).props.options.length,2);
   assert.equal(ui.find(node=>node.props.id==='model-url'&&node.type==='input').props.value,'');
-  assert.equal(ui.find(node=>node.props.id==='model-url'&&node.type==='input').props.placeholder,'https://api.openai.com/v1/');
+  assert.equal(ui.find(node=>node.props.id==='model-url'&&node.type==='input').props.placeholder,'https://api.openai.com/v1');
   ui.find(node=>node.props.id==='model-supplier'&&node.props.options).props.onChange('anthropic');ui.render();
   assert.equal(ui.find(node=>node.props.id==='model-protocol'&&node.props.options),undefined);
   assert.equal(ui.find(node=>node.props.id==='model-url'&&node.type==='input').props.value,'');
-  assert.equal(ui.find(node=>node.props.id==='model-url'&&node.type==='input').props.placeholder,'https://api.anthropic.com/v1/');
+  assert.equal(ui.find(node=>node.props.id==='model-url'&&node.type==='input').props.placeholder,'https://api.anthropic.com/v1');
   ui.find(node=>node.props.id==='model-name'&&node.type==='input').props.onChange({target:{value:'Claude 测试'}});
   ui.find(node=>node.props.id==='model-id'&&node.type==='textarea').props.onChange({target:{value:'claude-test'}});
   ui.find(node=>node.props.id==='model-api-key'&&node.type==='input').props.onChange({target:{value:'fake-key'}});ui.render();
-  ui.find(node=>node.type==='form').props.onSubmit({preventDefault(){}});await ui.settle();
-  assert.equal(ui.saved.length,0);assert.match(ui.notices.at(-1)[0],/请输入 API 基础地址/);assert.equal(ui.find(node=>node.props.role==='alert'),undefined);
   ui.find(node=>node.props.id==='model-url'&&node.type==='input').props.onChange({target:{value:'https://custom.proxy/v1/'}});ui.render();
   ui.find(node=>node.type==='form').props.onSubmit({preventDefault(){}});await ui.settle();
   assert.equal(ui.saved.length,1);assert.equal(ui.saved[0][1],0);assert.equal(ui.saved[0][2].provider,'anthropicMessages');
@@ -390,7 +389,7 @@ test('供应商菜单保留兼容名称，卡片仅显示品牌图标与协议�
   assert.equal(ui.find(node=>node.props.className==='model-profile-budget').props.title,'256,000 tokens');
   assert.doesNotMatch(ui.text(),/管理对话使用|配置保存后/);
   ui.openEdit();const supplier=ui.find(node=>node.props.id==='model-supplier'&&node.props.options);
-  assert.deepEqual(supplier.props.options.map(item=>item.label),['OpenAI 兼容','Anthropic 兼容','Google 兼容']);
+  assert.deepEqual(supplier.props.options.map(item=>item.label),['OpenAI 兼容','Anthropic 兼容','Google 兼容','DeepSeek']);
   assert.ok(supplier.props.options.every(item=>!item.description));
   assert.equal(supplier.props.renderIcon('anthropic').props.supplier,'anthropic');
   assert.equal(ui.find(node=>node.props.className==='model-provider-description'),undefined);
@@ -433,7 +432,7 @@ test('Google 渠道从供应商弹窗配置多个模型，保持空地址提示�
   assert.ok(supplier.props.options.some(option=>option.value==='google'));
   supplier.props.onChange('google');ui.render();
   const url=ui.find(node=>node.props.id==='model-url'&&node.type==='input');
-  assert.equal(url.props.value,'');assert.equal(url.props.placeholder,'https://generativelanguage.googleapis.com/v1beta/');
+  assert.equal(url.props.value,'');assert.equal(url.props.placeholder,'https://generativelanguage.googleapis.com/v1beta');
   assert.equal(ui.find(node=>node.props.id==='model-path'&&node.type==='input').props.value,'models');
   assert.equal(ui.find(node=>node.props.id==='model-token-param'&&node.type==='input').props.value,'maxOutputTokens');
   url.props.onChange({target:{value:'https://proxy.test/v1beta/'}});
@@ -447,4 +446,48 @@ test('Google 渠道从供应商弹窗配置多个模型，保持空地址提示�
   const profile={id:saved[0],revision:1,displayName:'Google',ready:true,apiKeyConfigured:true,config:saved[2]};
   const restored=settings(undefined,{items:[profile]});restored.render();await restored.settle();
   assert.equal(restored.find(node=>node.props.id==='model-supplier'&&node.props.options).props.value,'google');
+});
+
+
+test('DeepSeek 双协议渠道保存、编辑恢复及鲸鱼图标沿用现有表单，地址始终仅作提示',async()=>{
+ for(const protocol of ['openAiCompatible','anthropicMessages']) {
+  const ui=settings(undefined,{autoOpen:false});ui.render();await ui.settle();ui.find(node=>node.props.className?.split(' ').includes('model-create')).props.onClick();ui.render();
+  ui.find(node=>node.props.id==='model-supplier'&&node.props.options).props.onChange('deepseek');ui.render();
+  const select=ui.find(node=>node.props.id==='model-protocol'&&node.props.options);assert.equal(select.props.options.length,2);select.props.onChange(protocol);ui.render();
+  const url=ui.find(node=>node.props.id==='model-url'&&node.type==='input');assert.equal(url.props.value,'');
+  assert.equal(url.props.placeholder,protocol==='anthropicMessages'?'https://api.deepseek.com/anthropic/v1':'https://api.deepseek.com/v1');
+  assert.equal(ui.find(node=>node.props.id==='model-token-param'&&node.type==='input').props.value,'max_tokens');
+  url.props.onChange({target:{value:'https://proxy.test/v1/'}});ui.find(node=>node.props.id==='model-name'&&node.type==='input').props.onChange({target:{value:'DeepSeek'}});
+  ui.find(node=>node.props.id==='model-id'&&node.type==='textarea').props.onChange({target:{value:'model-one\nmodel-two'}});
+  ui.find(node=>node.props.id==='model-effort'&&node.props.options).props.onChange('max');ui.render();
+  ui.find(node=>node.type==='form').props.onSubmit({preventDefault(){}});await ui.settle();const saved=ui.saved[0];assert.ok(saved);
+  assert.equal(saved[2].supplier,'deepseek');assert.equal(saved[2].provider,protocol);assert.equal(saved[2].reasoningEffort,'max');assert.equal(saved[3].action,'keep');assert.equal(saved[5].length,2);
+  const restored=settings(undefined,{items:[{id:saved[0],revision:1,displayName:'DeepSeek',ready:true,apiKeyConfigured:true,config:saved[2]}]});restored.render();await restored.settle();
+  assert.equal(restored.find(node=>node.props.id==='model-supplier'&&node.props.options).props.value,'deepseek');
+  assert.equal(restored.find(node=>node.props.id==='model-protocol'&&node.props.options).props.value,protocol);
+ }
+});
+
+test('供应商筛选按显式 DeepSeek 身份区分同协议渠道，卡片展示鲸鱼图标',async()=>{
+ const items=['openai','deepseek'].map((supplier,i)=>({id:supplier,revision:1,displayName:supplier,ready:true,apiKeyConfigured:true,config:{...newModelConfig(),supplier:i?'deepseek':undefined,model:'alias',baseUrl:'https://proxy.test/v1/'}}));
+ const ui=settings(undefined,{items,autoOpen:false});ui.render();await ui.settle();
+ ui.find(node=>node.props.id==='model-catalog-supplier'&&node.props.options).props.onChange('deepseek');ui.render();
+ assert.equal(ui.find(node=>node.type==='article').props['aria-label'],'deepseek');
+ assert.ok(ui.find(node=>node.props.supplier==='deepseek'));assert.ok(!ui.find(node=>node.type==='article'&&node.props['aria-label']==='openai'));
+});
+
+
+test('各供应商与协议地址留空可保存，保存使用提示默认值且草稿始终不自动回填',async()=>{
+ for(const {value:supplier} of protocolUi.modelSupplierOptions) for(const {value:provider} of protocolUi.supplierProtocolOptions(supplier)) {
+  const ui=settings(undefined,{autoOpen:false,items:[]});ui.render();await ui.settle();ui.find(node=>node.props.className?.split(' ').includes('model-create')).props.onClick();ui.render();
+  ui.find(node=>node.props.id==='model-supplier'&&node.props.options).props.onChange(supplier);ui.render();
+  ui.find(node=>node.props.id==='model-protocol'&&node.props.options)?.props.onChange(provider);ui.render();
+  const url=ui.find(node=>node.props.id==='model-url'&&node.type==='input');assert.equal(url.props.value,'');assert.match(url.props.placeholder,supplier==='google'?/\/v1beta$/:/\/v1$/);
+  ui.find(node=>node.props.id==='model-name'&&node.type==='input').props.onChange({target:{value:'Default endpoint'}});
+  ui.find(node=>node.props.id==='model-id'&&node.type==='textarea').props.onChange({target:{value:'example-model'}});
+  ui.find(node=>node.props.id==='model-api-key'&&node.type==='input').props.onChange({target:{value:'fixture-key'}});ui.render();
+  assert.equal(ui.find(node=>node.props.id==='model-url'&&node.type==='input').props.value,'');
+  ui.find(node=>node.type==='form').props.onSubmit({preventDefault(){}});await ui.settle();
+  assert.equal(ui.saved.length,1);assert.equal(ui.saved[0][2].baseUrl,url.props.placeholder);assert.equal(ui.saved[0][2].provider,provider);
+ }
 });
