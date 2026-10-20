@@ -236,7 +236,7 @@
   :where(input:not([type='checkbox']):not([type='radio']):not([type='range'])),
   textarea,
   select,
-  button:not(:where(.primary-button, .danger-button, .model-delete-button, .toggle)),
+  button:not(:where(.primary-button, .primary, .danger-button, .workspace-restart, .workspace-stop, .model-delete-button, .toggle)),
   .settings-certificate-action,
   .settings-certificate-icon,
   .settings-segmented,
@@ -260,7 +260,7 @@
 ) { background: var(--settings-selection-bg); }
 
 :root[data-wallpaper='true'][data-theme] .settings-page :is(
-  button:not(:where(.primary-button, .danger-button, .model-delete-button, .toggle)),
+  button:not(:where(.primary-button, .primary, .danger-button, .workspace-restart, .workspace-stop, .model-delete-button, .toggle)),
   .appearance-picker
 ):hover:not(:disabled):not(:where(.modal *, [role='dialog'] *, [role='menu'] *, [role='listbox'] *)) {
   background: var(--settings-hover);

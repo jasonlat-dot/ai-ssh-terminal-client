@@ -406,17 +406,17 @@
 }
 
 .settings-page .primary-button {
-  border-color: var(--settings-blue);
-  background: var(--settings-blue);
-  color: #fff;
+  border-color: var(--ui-primary-border);
+  background: var(--ui-primary-bg);
+  color: var(--ui-primary-text);
 }
 
 .settings-page .primary-button:hover:not(:disabled) {
-  border-color: var(--settings-blue-hover);
-  background: var(--settings-blue-hover);
+  border-color: var(--ui-primary-border);
+  background: var(--ui-primary-hover);
 }
 
-.settings-page .primary-button:disabled { border-color: var(--settings-blue); background: var(--settings-blue); }
+.settings-page .primary-button:disabled { border-color: var(--ui-primary-border); background: var(--ui-primary-bg); }
 /* 未修改或保存中使用中性灰色，避免禁用状态仍像可提交的蓝色主操作。 */
 .settings-page .settings-tab-save-actions .primary-button:disabled {
   border-color: var(--settings-border-strong);
@@ -447,8 +447,8 @@
 }
 
 .settings-page .toggle span { background: var(--settings-text-muted); transition: transform var(--settings-transition); }
-.settings-page .toggle.on { background: var(--settings-blue); border-color: var(--settings-blue); }
-.settings-page .toggle.on span { background: #fff; }
+.settings-page .toggle.on { background: var(--ui-primary-hover); border-color: var(--ui-primary-border); }
+.settings-page .toggle.on span { background: var(--ui-primary-text); }
 
 .settings-page button:focus-visible {
   outline: 2px solid var(--settings-blue);

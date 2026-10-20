@@ -21,7 +21,7 @@
 .workspace-preferences .workspace-version { flex-shrink: 0; padding: 3px 8px; border: 1px solid var(--settings-border); border-radius: 6px; color: var(--settings-text-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 .workspace-preferences .workspace-runtime-bar {
   display: flex; align-items: center; flex-wrap: wrap; gap: 12px;
-  min-width: 0; margin: 14px 0 18px; padding: 12px 14px;
+  min-width: 0; margin: 0; padding: 12px 14px;
   border: 1px solid var(--settings-border); border-radius: 9px; background: var(--settings-panel-soft);
 }
 .workspace-preferences .workspace-section-icon {
@@ -41,8 +41,21 @@
 }
 .workspace-preferences .ghost-button { color: var(--settings-text); background: var(--settings-panel); }
 .workspace-preferences .ghost-button:hover:not(:disabled) { border-color: var(--settings-blue); background: var(--settings-hover); }
-.workspace-preferences .workspace-preferences-form { display: block; margin: 0; min-width: 0; }
+.workspace-preferences .workspace-runtime-actions > .workspace-restart {
+  color: var(--ui-primary-text); border-color: var(--ui-primary-border); background: var(--ui-primary-bg);
+}
+.workspace-preferences .workspace-runtime-actions > .workspace-restart:hover:not(:disabled) { border-color: var(--ui-primary-border); background: var(--ui-primary-hover); }
+.workspace-preferences .workspace-runtime-actions > .workspace-stop {
+  --workspace-stop-color: var(--ui-danger-text, #b84c55);
+  color: var(--workspace-stop-color);
+  border-color: color-mix(in srgb, var(--workspace-stop-color) 28%, var(--settings-panel));
+  background: color-mix(in srgb, var(--workspace-stop-color) 7%, var(--settings-panel));
+}
+.workspace-preferences .workspace-runtime-actions > .workspace-stop:hover:not(:disabled) { border-color: color-mix(in srgb, var(--workspace-stop-color) 45%, var(--settings-panel)); background: color-mix(in srgb, var(--workspace-stop-color) 12%, var(--settings-panel)); }
+:root[data-theme='dark'] .workspace-runtime-actions > .workspace-stop { --workspace-stop-color: #efa1aa; }
+.workspace-preferences .workspace-preferences-form { display: block; margin: 14px 0 0; min-width: 0; }
 .workspace-preferences .workspace-preferences-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; gap: 20px; }
+.workspace-preferences .workspace-preferences-primary { display: grid; align-content: start; gap: 20px; min-width: 0; }
 .workspace-preferences .workspace-preferences-group { min-width: 0; padding: 16px; border: 1px solid var(--settings-border); border-radius: 9px; background: var(--settings-panel-soft); }
 .workspace-preferences .workspace-group-heading { display: flex; align-items: center; gap: 10px; margin: 0; padding-bottom: 14px; border-bottom: 1px solid var(--settings-border); }
 .workspace-preferences .workspace-group-heading h3 { margin: 0; color: var(--settings-text); font-size: 14px; line-height: 1.5; font-weight: var(--weight-title); }
@@ -81,13 +94,14 @@
 .workspace-preferences .workspace-preferences-save { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-top: 18px; padding: 12px 0 0; border-top: 1px solid var(--settings-border); }
 .workspace-preferences .workspace-preferences-save > span { display: flex; align-items: flex-start; flex: 1 1 240px; gap: 7px; color: var(--settings-text-muted); font-size: 11px; line-height: 1.6; }
 .workspace-preferences .workspace-preferences-save > span > svg { flex-shrink: 0; margin-top: 2px; }
-.workspace-preferences .workspace-preferences-save > .primary-button { min-width: 96px; margin-left: auto; border-color: transparent; background: var(--settings-blue); color: #fff; }
-.workspace-preferences .workspace-preferences-save > .primary-button:hover:not(:disabled) { background: var(--settings-blue-hover); }
+.workspace-preferences .workspace-preferences-save > .primary-button { min-width: 96px; margin-left: auto; border-color: var(--ui-primary-border); background: var(--ui-primary-bg); color: var(--ui-primary-text); }
+.workspace-preferences .workspace-preferences-save > .primary-button:hover:not(:disabled) { background: var(--ui-primary-hover); }
 .workspace-preferences button:disabled { opacity: .5; cursor: not-allowed; }
 .workspace-preferences :is(button, input):focus-visible { outline: 2px solid var(--settings-focus); outline-offset: 2px; }
 .workspace-preferences .workspace-loading { padding-block: 12px; color: var(--settings-text-muted); font-size: 12px; }
 @container workspace-preferences (max-width: 820px) {
   .workspace-preferences .workspace-preferences-grid { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+  .workspace-preferences .workspace-preferences-primary { gap: 14px; }
   .workspace-preferences .workspace-storage-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @container workspace-preferences (max-width: 480px) {

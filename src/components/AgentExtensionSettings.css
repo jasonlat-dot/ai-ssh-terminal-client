@@ -26,8 +26,8 @@
 .agent-extension-settings button { display: inline-flex; flex-shrink: 0; justify-content: center; align-items: center; gap: 6px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--theme-panel); color: inherit; font: inherit; font-size: 12px; line-height: 1.5; white-space: nowrap; cursor: pointer; transition: background 160ms ease, border-color 160ms ease; }
 .agent-extension-settings button:hover:not(:disabled) { background: var(--theme-panel-soft, var(--theme-panel)); border-color: var(--ui-accent); }
 .agent-extension-settings :is(button, input, textarea, select):focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
-.agent-extension-settings button.primary { min-width: 96px; background: var(--ui-accent); color: #fff; border-color: transparent; }
-.agent-extension-settings button.primary:hover:not(:disabled) { background: var(--ui-accent); filter: brightness(.94); }
+.agent-extension-settings button.primary { min-width: 96px; background: var(--ui-primary-bg); color: var(--ui-primary-text); border-color: var(--ui-primary-border); }
+.agent-extension-settings button.primary:hover:not(:disabled) { background: var(--ui-primary-hover); }
 .agent-extension-settings button:disabled { opacity: .5; cursor: default; }
 .agent-extension-settings .extension-save { justify-content:flex-end; padding: 10px 0 2px; }
 .extension-save > span { margin: 0; }
@@ -65,8 +65,8 @@
 :is(.mcp-config-dialog, .skills-config-dialog) button:active { transform:none; }
 :is(.mcp-config-dialog, .skills-config-dialog) button:disabled { opacity:.5; cursor:default; }
 :is(.mcp-config-dialog, .skills-config-dialog) button:focus-visible, .mcp-config-help > summary:focus-visible { outline:2px solid var(--ui-accent); outline-offset:2px; }
-:is(.mcp-config-dialog, .skills-config-dialog) button.primary { background:var(--ui-accent); color:#fff; border-color:transparent; }
-:is(.mcp-config-dialog, .skills-config-dialog) button.primary:hover:not(:disabled) { background:var(--ui-accent); filter:brightness(.94); }
+:is(.mcp-config-dialog, .skills-config-dialog) button.primary { background:var(--ui-primary-bg); color:var(--ui-primary-text); border-color:var(--ui-primary-border); }
+:is(.mcp-config-dialog, .skills-config-dialog) button.primary:hover:not(:disabled) { background:var(--ui-primary-hover); border-color:var(--ui-primary-border); }
 .mcp-config-error { flex-shrink:0; margin:0 22px 10px; max-height:72px; overflow:auto; color:var(--theme-danger,#c43c3c); font-size:12px; line-height:1.6; overflow-wrap:anywhere; }
 .mcp-config-help { flex-shrink:0; padding:0 22px 12px; font-size:12px; color:var(--theme-text-muted); }
 .mcp-config-help > summary { width:fit-content; cursor:pointer; }

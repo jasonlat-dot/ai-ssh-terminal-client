@@ -5,8 +5,8 @@
 .model-catalog-heading > div:first-child { min-width:0; }
 .model-catalog-heading strong { font-size:15px; }
 .model-catalog-actions { display:flex; align-items:center; gap:8px; flex-shrink:0; }
-.model-create { display:inline-flex; align-items:center; justify-content:center; gap:6px; min-height:35px; padding:8px 13px; border:1px solid var(--settings-blue); border-radius:8px; color:#fff; background:var(--settings-blue); font-size:12px; white-space:nowrap; }
-.model-create:hover:not(:disabled) { background:var(--settings-blue-hover); }
+.model-create { display:inline-flex; align-items:center; justify-content:center; gap:6px; min-height:35px; padding:8px 13px; border:1px solid var(--ui-primary-border); border-radius:8px; color:var(--ui-primary-text); background:var(--ui-primary-bg); font-size:12px; white-space:nowrap; }
+.model-create:hover:not(:disabled) { background:var(--ui-primary-hover); }
 .model-refresh { width:35px; height:35px; padding:0; border:1px solid var(--settings-border); border-radius:8px; color:var(--settings-text-muted); background:var(--settings-panel); }
 .model-catalog-filters { display:flex; flex-wrap:wrap; align-items:center; gap:12px 20px; padding:12px; border:1px solid var(--settings-border); border-radius:12px; background:var(--settings-panel-soft); }
 .model-catalog-filter-controls { display:flex; flex-wrap:wrap; align-items:center; flex:1 1 520px; gap:12px; min-width:0; max-width:740px; }
@@ -103,7 +103,7 @@
 .model-field-note { margin-top: 10px; color: var(--settings-text-muted); font-size: 10px; line-height: 1.7; }
 .model-editor-footer { display: flex; align-items: center; gap: 10px; min-height: 68px; padding: 14px 24px; border-top: 1px solid var(--settings-border); background: var(--settings-panel); }
 .model-save-hint { margin-left: auto; color: var(--settings-text-muted); font-size: 10px; }.model-save-button { min-height: 35px; padding: 8px 14px; border-radius: 7px; font-size: 12px; font-weight: 600; white-space: nowrap; }
-.model-save-button { color: #fff; background: var(--settings-blue); border: 1px solid var(--settings-blue); }.model-save-button:hover:not(:disabled) { background: var(--settings-blue-hover); }.model-save-button:disabled { background: var(--settings-blue); }
+.model-save-button { color: var(--ui-primary-text); background: var(--ui-primary-bg); border: 1px solid var(--ui-primary-border); }.model-save-button:hover:not(:disabled) { background: var(--ui-primary-hover); }.model-save-button:disabled { background: var(--ui-primary-bg); }
 .model-delete-button { min-height: 35px; gap: 6px; padding: 7px 12px; border: 1px solid var(--accent-danger-line, #e6a6ad); border-radius: 7px; color: var(--accent-danger-ink, #a72f40); background: var(--accent-danger-soft, #fff0f2); font-size: 12px; font-weight: var(--weight-label); white-space: nowrap; }
 .model-delete-button:hover:not(:disabled) { color: var(--accent-danger-ink, #a72f40); border-color: var(--accent-danger-ink, #a72f40); background: color-mix(in srgb, var(--accent-danger-ink, #a72f40) 10%, var(--accent-danger-soft, #fff0f2)); }
 .model-delete-button:disabled { background: var(--accent-danger-soft, #fff0f2); }

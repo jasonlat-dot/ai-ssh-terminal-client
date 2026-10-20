@@ -1736,6 +1736,10 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.985); }
   /* 标签与控件高亮复用模型模块的品牌蓝和标签参数。 */
   --ui-accent: #2675ff;
   --ui-accent-hover: #1769af;
+  --ui-primary-bg: #e7f0ff;
+  --ui-primary-hover: #d9e8ff;
+  --ui-primary-border: #bfd3f4;
+  --ui-primary-text: #245b9e;
   --ui-highlight-bg: #edf6ff;
   --ui-highlight-border: #bfd5ee;
   --ui-highlight-text: #1e5f9d;
@@ -1787,6 +1791,10 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.985); }
   --theme-text-muted: #aec0d4;
   --theme-accent-text: #8fc2ff;
   --theme-shadow: #02071152;
+  --ui-primary-bg: #243c5b;
+  --ui-primary-hover: #2e4b6e;
+  --ui-primary-border: #46668c;
+  --ui-primary-text: #d2e5ff;
   --ui-highlight-bg: #1c3050;
   --ui-highlight-border: #2a456d;
   --ui-highlight-text: #cfe1ff;
@@ -2508,18 +2516,19 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.985); }
 :root :is(input, textarea, select):focus-visible { border-color: var(--ui-accent); }
 
 :root :is(.app-shell, .modal, .settings-page) .primary-button {
-  border-color: var(--ui-accent);
-  background: var(--ui-accent);
-  color: #fff;
+  border-color: var(--ui-primary-border);
+  background: var(--ui-primary-bg);
+  color: var(--ui-primary-text);
 }
 
 :root :is(.app-shell, .modal, .settings-page) .primary-button:hover:not(:disabled) {
-  border-color: var(--ui-accent-hover);
-  background: var(--ui-accent-hover);
+  border-color: var(--ui-primary-border);
+  background: var(--ui-primary-hover);
 }
 
-:root .toggle.on { background: var(--ui-accent); border-color: var(--ui-accent); }
-:root .toggle.on span { background: #fff; }
+:root .toggle.on { background: var(--ui-primary-hover); border-color: var(--ui-primary-border); }
+:root .toggle.on span { background: var(--ui-primary-text); }
+:root .toggle.on:hover:not(:disabled) { background: color-mix(in srgb, var(--ui-primary-hover) 92%, var(--ui-primary-text)); }
 :root .app-shell .run-command,
 :root .app-shell .command-list .text-button.mint { color: var(--ui-highlight-text); }
 

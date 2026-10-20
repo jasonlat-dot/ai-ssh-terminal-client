@@ -257,7 +257,7 @@ test('终端欢迎页的普通标题、说明和指引按钮支持主辅颜色�
   assert.doesNotMatch(primary + secondary, /\.welcome-ready|\.welcome-create|\.welcome-art-label|\.welcome-feature-icon/);
   // 覆盖只在用户设置对应颜色时开启，恢复默认仍由原浅/深主题及 hover 样式负责。
   const original = source('components/TerminalWelcome.css');
-  assert.match(original, /\.welcome-create \{ color: white;/);
+  assert.match(original, /\.welcome-create \{ color: var\(--ui-primary-text\);/);
   assert.match(original, /\.welcome-ready \{[^}]*color: #009f8a/);
   assert.match(original, /:root\[data-theme='dark'\] \.terminal-welcome h2/);
 });

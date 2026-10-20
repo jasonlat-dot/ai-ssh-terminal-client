@@ -47,8 +47,8 @@
 .welcome-description { margin: 0 auto; color: #6f84aa; max-width: 760px; font-size: clamp(12px, 1.25cqi, 14px); line-height: 1.6; text-wrap: balance; }
 .welcome-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin: 16px 0 0; }
 .welcome-actions button { min-height: 44px; padding: 10px 21px; min-width: 160px; border-radius: 11px; font-size: clamp(12px, 1.2cqi, 15px); font-weight: 600; gap: 9px; }
-.welcome-create { color: white; border: 1px solid #2575ff; background: #2675ff; box-shadow: 0 5px 15px #2675ff20; }
-.welcome-create:hover { background: #1765ed; }
+.welcome-create { color: var(--ui-primary-text); border: 1px solid var(--ui-primary-border); background: var(--ui-primary-bg); box-shadow: 0 3px 10px #2675ff0d; transition: background-color .16s ease, border-color .16s ease; }
+.welcome-create:hover { background: var(--ui-primary-hover); }
 .welcome-guide { border: 1px solid #d7e4fb; background: #ffffffd9; color: #18335b; }
 .welcome-guide:hover { background: #f0f6ff; border-color: #a8c8fa; }
 .terminal-welcome button:focus-visible { outline: 2px solid #2675ff; outline-offset: 3px; }
