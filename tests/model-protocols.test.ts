@@ -1,5 +1,20 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+
+test('Kimi 双协议按协议展示思考开关或强度，温度默认且不根据模型名称猜参数',()=>{
+ const original={...newModelConfig(),model:'custom-alias',baseUrl:'https://proxy.test/custom/',temperature:0.7,reasoningEffort:'medium' as const};
+ const config=applyModelSupplier(original,'kimi');
+ assert.equal(config.supplier,'kimi');assert.equal(config.model,original.model);assert.equal(config.baseUrl,original.baseUrl);
+ assert.equal(config.temperature,null);assert.equal(config.capabilities.temperature,false);assert.equal(config.reasoningEffort,null);
+ assert.equal(config.outputTokenParameter,'maxTokens');assert.equal(modelProtocolInfo(config).temperatureSupported,false);
+ assert.deepEqual(supplierProtocolOptions('kimi').map(option=>option.value),['openAiCompatible','anthropicMessages']);
+ assert.deepEqual(modelProtocolInfo(config).effortOptions.map(option=>option.value),['','none','enabled','low','high','max']);
+ const messages=applyModelProtocol({...config,reasoningEffort:'enabled'},'anthropicMessages');
+ assert.equal(messages.reasoningEffort,null);assert.equal(messages.supplier,'kimi');
+ assert.deepEqual(modelProtocolInfo(messages).effortOptions.map(option=>option.value),['','low','high','max']);
+ assert.equal(modelBasePlaceholder(config),'https://api.moonshot.cn/v1');assert.equal(modelBasePlaceholder(messages),'https://api.moonshot.cn/anthropic/v1');
+ assert.equal(applyModelProtocol(config,'openAiResponses').supplier,undefined);assert.equal(original.temperature,0.7);
+});
 import { applyModelProtocol, applyModelSupplier, modelProtocols, modelProtocolOptions, supplierProtocolOptions, modelSupplier, modelProtocolInfo, modelBasePlaceholder, resolvedModelBaseUrl, modelSupplierOptions } from '../src/api/modelProtocols.ts';
 import { newModelConfig } from '../src/api/models.ts';
 

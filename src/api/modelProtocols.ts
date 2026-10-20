@@ -19,7 +19,7 @@ const claudeEfforts: EffortOption[] = [defaultEffort, ...sharedEfforts,
 type ProtocolDescriptor = {
   supplier: ModelSupplier; name: string;
   label: string; description: string; path: string; fixedOutput: string | null;
-  temperatureMax: number; temperatureStep?: number; reasoning: boolean; effortOptions: EffortOption[]; effortHint: string; pathHint?: string;
+  temperatureMax: number; temperatureStep?: number; temperatureSupported?: boolean; reasoning: boolean; effortOptions: EffortOption[]; effortHint: string; pathHint?: string;
 };
 /** One exhaustive catalog drives protocol-dependent controls and defaults. */
 export const modelProtocols: Record<ModelConfig['provider'], ProtocolDescriptor> = {
@@ -32,7 +32,7 @@ export const modelProtocolOptions = Object.entries(modelProtocols).map(([value, 
 export function applyModelProtocol(config: ModelConfig, provider: ModelConfig['provider']): ModelConfig {
   const supplier = config.supplier && !modelSuppliers[config.supplier].protocols.includes(provider) ? undefined : config.supplier;
   const protocol = modelProtocolInfo({...config, provider, supplier});
-  const temperature = config.temperature !== null && config.temperature > protocol.temperatureMax ? null : config.temperature;
+  const temperature = protocol.temperatureSupported === false || config.temperature !== null && config.temperature > protocol.temperatureMax ? null : config.temperature;
   const reasoningEffort = protocol.effortOptions.some(option => option.value === config.reasoningEffort) ? config.reasoningEffort : null;
   return { ...config, provider, supplier, completionsPath: protocol.path, remoteCompaction: false,
     outputTokenParameter: protocol.fixedOutput !== null && protocol.fixedOutput !== 'max_output_tokens' ? 'maxTokens' : config.outputTokenParameter,
@@ -45,9 +45,10 @@ export function applyModelProtocol(config: ModelConfig, provider: ModelConfig['p
 
 /** Supplier identity persists independently from its reusable wire protocol. Legacy configs infer it from provider. */
 type SupplierDescriptor = {label: string; defaultProtocol: ModelConfig['provider']; protocols: ModelConfig['provider'][]; basePlaceholder: string;
-  protocolBases?: Partial<Record<ModelConfig['provider'], string>>; overrides?: Partial<ProtocolDescriptor>};
+  protocolBases?: Partial<Record<ModelConfig['provider'], string>>; overrides?: Partial<ProtocolDescriptor>; protocolOverrides?: Partial<Record<ModelConfig['provider'], Partial<ProtocolDescriptor>>>};
 const thinkingEfforts: EffortOption[] = [defaultEffort, {value: 'none', label: '关闭', description: '关闭思考'},
   ...sharedEfforts.filter(option => option.value === 'low' || option.value === 'high'), {value: 'max', label: '最高', description: 'max，需模型支持'}];
+const kimiEfforts: EffortOption[] = [defaultEffort, ...sharedEfforts.filter(option => ['low','high'].includes(option.value)), {value:'max',label:'最高',description:'max，需模型支持'}];
 export const modelSuppliers: Record<ModelSupplier, SupplierDescriptor> = {
   openai: {label: 'OpenAI 兼容', defaultProtocol: 'openAiCompatible', protocols: ['openAiCompatible', 'openAiResponses'], basePlaceholder: 'https://api.openai.com/v1'},
   anthropic: {label: 'Anthropic 兼容', defaultProtocol: 'anthropicMessages', protocols: ['anthropicMessages'], basePlaceholder: 'https://api.anthropic.com/v1'},
@@ -67,13 +68,19 @@ export const modelSuppliers: Record<ModelSupplier, SupplierDescriptor> = {
       effortOptions: [defaultEffort, {value: 'none', label: '关闭', description: '需模型支持'}, {value: 'enabled', label: '开启', description: '不指定强度'},
         ...sharedEfforts.filter(option => ['low', 'medium', 'xhigh'].includes(option.value))],
       effortHint: '默认使用上游设置；开启仅启用思考，不指定强度。低、中、很高需模型支持；不支持思考的模型请保持默认。'}},
+  kimi: {label:'Kimi / Moonshot',defaultProtocol:'openAiCompatible',protocols:['openAiCompatible','anthropicMessages'],basePlaceholder:'https://api.moonshot.cn/v1',
+    protocolBases:{anthropicMessages:'https://api.moonshot.cn/anthropic/v1'},
+    overrides:{fixedOutput:'max_tokens',temperatureSupported:false,description:'使用 Kimi 开放平台，支持对话、工具调用和思考续接。',effortOptions:kimiEfforts,
+      effortHint:'默认不发送；低、高、最高用于支持强度的模型。思考与正文共用最大输出，需预留足够空间。'},
+    protocolOverrides:{openAiCompatible:{effortOptions:[defaultEffort,{value:'none',label:'关闭',description:'需模型支持'},{value:'enabled',label:'开启',description:'不指定强度'},...kimiEfforts.slice(1)],
+      effortHint:'默认不发送；开启/关闭用于支持开关的 K2.x，低/高/最高用于 K3。强制思考模型不能关闭，不支持档位的模型请保持默认。'}}},
 };
 export function modelSupplier(config: {supplier?: ModelSupplier; provider: ModelConfig['provider']}): ModelSupplier {
   return config.supplier ?? modelProtocols[config.provider].supplier;
 }
 export function modelProtocolInfo(config: {supplier?: ModelSupplier; provider: ModelConfig['provider']}): ProtocolDescriptor {
   const supplier = modelSupplier(config);
-  return {...modelProtocols[config.provider], ...modelSuppliers[supplier].overrides, supplier};
+  return {...modelProtocols[config.provider], ...modelSuppliers[supplier].overrides, ...modelSuppliers[supplier].protocolOverrides?.[config.provider], supplier};
 }
 export function modelBasePlaceholder(config: {supplier?: ModelSupplier; provider: ModelConfig['provider']}) {
   const supplier = modelSuppliers[modelSupplier(config)];

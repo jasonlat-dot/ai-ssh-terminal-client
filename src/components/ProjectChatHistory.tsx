@@ -1,3 +1,4 @@
+import type { ConversationOutcome } from '../state/conversationRuns';
 import { useToastError } from '../state/useToastError';
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -21,8 +22,8 @@ function measureTitleOverflow(row:HTMLButtonElement) {
  row.style.setProperty('--history-title-duration',`${Math.max(3,overflow/32+1.2)}s`);
 }
 
-export function ProjectChatHistory({hosts,project,sessionId,locked,revision,newChat,openChat,servers,projectsChanged,deleted,removed,approvalState,activeRunning,createRequest=0,creationFinished,createConnectionId,created}:{
- hosts:Host[];project:AgentProject|null;sessionId:string;locked:boolean;revision:string;
+export function ProjectChatHistory({hosts,project,sessionId,locked,navigationLocked=locked,runningSessions,unreadResults,revision,newChat,openChat,servers,projectsChanged,deleted,removed,approvalState,activeRunning,createRequest=0,creationFinished,createConnectionId,created}:{
+ hosts:Host[];project:AgentProject|null;sessionId:string;locked:boolean;navigationLocked?:boolean;runningSessions?:ReadonlySet<string>;unreadResults?:ReadonlyMap<string,ConversationOutcome>;revision:string;
  newChat:(project:AgentProject|null)=>void|Promise<void>;openChat:(chat:ProjectChat,project:AgentProject|null)=>void;servers:()=>void;
  projectsChanged?:(projects:AgentProject[])=>void;
  deleted?:(chat:ProjectChat)=>void;
@@ -115,7 +116,27 @@ export function ProjectChatHistory({hosts,project,sessionId,locked,revision,newC
   finally{if(current===version.current)setLoading(false);}
  };
  const currentChats=new Map(Object.values(histories).flatMap(page=>page.items).map(chat=>[chat.sessionId,chat]));
- const isRunning=(chat:ProjectChat)=>chat.sessionId===sessionId&&activeRunning!==undefined?activeRunning:!!(currentChats.get(chat.sessionId)??chat).running;
+ const runningKey=[...new Set([...(runningSessions??[]),...Object.values(histories).flatMap(page=>page.items.filter(chat=>chat.running).map(chat=>chat.sessionId))])].sort().join(':');
+ useEffect(()=>{
+  if(!runningKey)return;
+  let cancelled=false;let timer:number;
+  const poll=async()=>{
+   try{
+    const keys=Object.keys(histories);
+    const pages=await Promise.all(keys.map(id=>agentApi.projectChats(id)));
+    if(cancelled)return;
+    const statuses=new Map(pages.flatMap(page=>page.items).map(chat=>[chat.sessionId,chat]));
+    setHistories(old=>Object.fromEntries(Object.entries(old).map(([id,page])=>[id,{...page,items:page.items.map(chat=>{
+     const status=statuses.get(chat.sessionId);
+     return status?{...chat,running:status.running,awaitingApproval:status.awaitingApproval}:chat;
+    })}])));
+   }catch{/* Keep the last status until the next successful refresh. */}
+   finally{if(!cancelled)timer=window.setTimeout(()=>void poll(),1500);}
+  };
+  timer=window.setTimeout(()=>void poll(),1500);
+  return()=>{cancelled=true;window.clearTimeout(timer);};
+ },[runningKey,revision,projects.map(project=>project.id).join(':')]);
+ const isRunning=(chat:ProjectChat)=>runningSessions?.has(chat.sessionId)|| (chat.sessionId===sessionId&&activeRunning!==undefined?activeRunning:!!(currentChats.get(chat.sessionId)??chat).running);
  const rows=(p:AgentProject|null)=>{
   const id=p?.id??'',page=histories[id],items=page?.items??[],count=visibleCounts[id]??PREVIEW_ROWS;
   const activeIndex=items.findIndex(chat=>chat.sessionId===sessionId);
@@ -124,15 +145,15 @@ export function ProjectChatHistory({hosts,project,sessionId,locked,revision,newC
    ? [...items.slice(0,count-1),items[activeIndex]] : items.slice(0,count);
   return <div className="project-chat-list" id={'project-chats-'+(id||'general')}>
   {visible.map(chat=>{const awaiting=approvalState?.sessionId===chat.sessionId?approvalState.pending:!!chat.awaitingApproval;
-   const running=isRunning(chat);
+   const running=isRunning(chat),outcome=unreadResults?.get(chat.sessionId);
    return <div className="project-chat-entry" key={chat.sessionId}
     onPointerEnter={event=>{if(event.pointerType==='touch')return;const row=event.currentTarget.querySelector<HTMLButtonElement>('.project-chat-row');if(row)showPreview(chat,p,row);}}
     onPointerLeave={leavePreview}><button type="button"
-   className={'project-chat-row '+(sessionId===chat.sessionId?'active':'')} disabled={locked}
+   className={'project-chat-row '+(sessionId===chat.sessionId?'active':'')} disabled={navigationLocked}
    aria-current={sessionId===chat.sessionId?'page':undefined} aria-label={chat.title||'新对话'}
    aria-describedby={preview?.chat.sessionId===chat.sessionId?previewId:undefined}
    onPointerEnter={event=>measureTitleOverflow(event.currentTarget)} onFocus={event=>{measureTitleOverflow(event.currentTarget);showPreview(chat,p,event.currentTarget,true);}}
-   onBlur={leavePreview} onClick={()=>{closePreview();openChat(chat,p);}}><span className="project-chat-title"><span className="project-chat-title-text">{chat.title||'新对话'}</span></span>{awaiting?<span className="project-chat-awaiting" role="status" aria-label="等待审批"><span>等待审批</span><i aria-hidden="true"/></span>:running?<span className="project-chat-running" role="status" aria-label="对话进行中"><i aria-hidden="true"/></span>:null}</button>
+   onBlur={leavePreview} onClick={()=>{if(navigationLocked)return;closePreview();openChat(chat,p);}}><span className="project-chat-title"><span className="project-chat-title-text">{chat.title||'新对话'}</span></span>{awaiting?<span className="project-chat-awaiting" role="status" aria-label="等待审批"><span>等待审批</span><i aria-hidden="true"/></span>:running?<span className="project-chat-running" role="status" aria-label="对话进行中"><i aria-hidden="true"/></span>:outcome?<span className={'project-chat-result is-'+outcome} role="status" aria-label={outcome==='success'?'回复成功，未读':'回复失败，未读'} title={outcome==='success'?'回复已完成':'回复异常，点击查看'}>{outcome==='success'?<i aria-hidden="true"/>:<svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true"><circle cx="8" cy="8" r="6.1"/><path d="M8 4.5v4"/><circle cx="8" cy="11.2" r=".65" fill="currentColor" stroke="none"/></svg>}</span>:null}</button>
    <div className="project-chat-actions">
    <button type="button" className="project-chat-edit" aria-label={'修改对话标题：'+(chat.title||'新对话')} title="修改对话标题" disabled={locked||running||deleting||renaming}
     onClick={()=>{if(locked||isRunning(chat)||deleting||renaming)return;closePreview();setRenameError('');setRenameTitle(chat.title||'新对话');setRenameTarget(chat);}}><Icon name="edit" size={14}/></button>
@@ -168,12 +189,12 @@ export function ProjectChatHistory({hosts,project,sessionId,locked,revision,newC
     {projects.map(p=><section key={p.id} className={'agent-project '+(project?.id===p.id?'active':'')}>
      <div className="project-folder-row"><button type="button" className="project-disclosure" title={(expanded.has(p.id)?'收起':'展开')+p.name} aria-label={(expanded.has(p.id)?'收起':'展开')+p.name} aria-expanded={expanded.has(p.id)} aria-controls={'project-chats-'+p.id}
       onClick={()=>setExpanded(old=>{const next=new Set(old);if(next.has(p.id))next.delete(p.id);else next.add(p.id);return next;})}><Icon name="folder" size={17} className="project-folder-icon"/><Icon name={expanded.has(p.id)?'down':'right'} size={13} className="project-folder-chevron"/></button>
-      <button className="project-name" type="button" disabled={locked} title={p.name} onClick={()=>{const last=histories[p.id]?.items[0];if(last)openChat(last,p);else newChat(p);}}><span>{p.name}</span></button>
+      <button className="project-name" type="button" disabled={navigationLocked} title={p.name} onClick={()=>{if(navigationLocked)return;const last=histories[p.id]?.items[0];if(last)openChat(last,p);else if(!locked)newChat(p);}}><span>{p.name}</span></button>
       <div className="project-folder-actions">
        <Select label={'项目选项：'+p.name} value="" displayValue="⋯" className="project-more-trigger" menuClassName="project-actions-menu" menuMinWidth={220} menuAlign="end"
-        disabled={locked||deleting||removing||!!histories[p.id]?.items.some(chat=>chat.running)}
+        disabled={locked||deleting||removing||!!histories[p.id]?.items.some(chat=>isRunning(chat))}
         options={[{value:'remove',label:'移除项目',description:'保留聊天记录，仅移除项目分组'}]}
-        onChange={()=>{if(locked||deleting||removing||histories[p.id]?.items.some(chat=>chat.running))return;setRemoveError('');setRemoveTarget(p);}}/>
+        onChange={()=>{if(locked||deleting||removing||histories[p.id]?.items.some(chat=>isRunning(chat)))return;setRemoveError('');setRemoveTarget(p);}}/>
        <button type="button" className="project-add-chat" title={'在 '+p.name+' 新建对话'} aria-label={'在 '+p.name+' 新建对话'} disabled={locked||removing} onClick={()=>newChat(p)}><Icon name="chat" size={16}/></button>
       </div></div>
      {expanded.has(p.id)&&rows(p)}
@@ -186,8 +207,8 @@ export function ProjectChatHistory({hosts,project,sessionId,locked,revision,newC
    <p className="project-delete-title">{removeTarget.name}</p>
    <p>仅移除项目分组。已有聊天、命令记录和工具输出都会保留，可在“未分组对话”中继续查看。服务器配置和对话的服务器绑定不会改变。</p>
    <footer><button type="button" data-autofocus disabled={removing} onClick={()=>setRemoveTarget(null)}>取消</button>
-    <button type="button" className="project-confirm-delete" disabled={locked||removing||!!histories[removeTarget.id]?.items.some(chat=>chat.running)} onClick={()=>{
-      if(locked||removing||histories[removeTarget.id]?.items.some(chat=>chat.running))return;
+    <button type="button" className="project-confirm-delete" disabled={locked||removing||!!histories[removeTarget.id]?.items.some(chat=>isRunning(chat))} onClick={()=>{
+      if(locked||removing||histories[removeTarget.id]?.items.some(chat=>isRunning(chat)))return;
       const target=removeTarget;setRemoving(true);setRemoveError('');
       void agentApi.deleteProject(target.id).then(()=>{
         const next=projects.filter(item=>item.id!==target.id);

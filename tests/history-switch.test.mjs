@@ -5,6 +5,7 @@ import vm from 'node:vm';
 import ts from 'typescript';
 import { restoreProjectConversation } from '../src/state/projectConversation.ts';
 import { readAgentHistory, turnMessages } from '../src/state/agentHistory.ts';
+import { ConversationRuns } from '../src/state/conversationRuns.ts';
 
 // Exercise the real sidebar orchestration and history loader together. Testing
 // these separately misses a lock acquired by the caller blocking its own load.
@@ -33,13 +34,14 @@ function harness(read = async id => history(id)) {
     selectedAgent: { agentId: 'model' }, selectedAgentRef: { current: { agentId: 'model' } }, agentModels: [], skipModelReset: { current: '' },
     chatting: { current: false }, stopPending: { current: false }, scopeSwitchRef, manualCompactionAbort: { current: null }, reasoningSavingRef: { current: false },
     historySelection: { current: 0 }, chatVersion: { current: 0 }, chatSessionId: { current: 'original' }, chatTarget: { current: null },
-    rustBuiltin: true, projectLocked: false, readAgentHistory, turnMessages, restoreProjectConversation,
+    rustBuiltin: true, projectLocked: false, historySwitchLocked:false, chatRuns:new ConversationRuns(), readAgentHistory, turnMessages, restoreProjectConversation,
     agentApi: { history: async (model, id) => { state.reads.push({ model, id, locked: scopeSwitchRef.current }); return read(id); } },
     chatDraft: { clear: () => { state.clears++; } },
     setHistoryLoadingId: id => { state.loading = id; }, setCanonicalHistory: value => { state.canonical = value; },
     setActiveChatSessionId: id => { state.session = id; }, replaceMessages: messages => { state.messages = messages; },
+    chatAbort:{current:null},chatRequestId:{current:''},setChatBusy(){},setChatStopping(){},setContextSnapshot(){},setContextError(){},
     setSelectedAgent() { assert.fail('same model needs no reset'); },
-    setScopeSwitching: value => { state.switching = value; }, setAgentCollapsed() {},
+    setBackendSettingsOpen(){},setScopeSwitching: value => { state.switching = value; }, setAgentCollapsed() {},
     setActiveProject: value => { state.project = value; }, setProjectTerminalId() {},
     connectProject: async value => { state.connections.push(value.id); }, notify: message => { state.notices.push(message); },
   };

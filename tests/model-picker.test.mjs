@@ -100,3 +100,11 @@ test('Qwen 品牌在渠道分组、模型行和当前模型展示一致，选择
  assert.deepEqual(ui.all().filter(node=>node.props.role==='menuitem').map(group=>ui.all(group).find(node=>node.props.supplier).props.supplier),['qwen','openai']);
  assert.ok(ui.all().filter(node=>node.props.role==='menuitemradio').every(row=>ui.all(row).find(node=>node.props.supplier).props.supplier==='qwen'));
 });
+
+test('Kimi 在供应商、模型行和当前模型复用本地图标，不改变稳定选择 ID',()=>{
+ const ui=harness();ui.props.models=ui.props.models.map(model=>({...model,provider:'openAiCompatible',supplier:model.channelId==='a'?'kimi':undefined}));
+ ui.render();assert.equal(ui.all(ui.trigger).find(node=>node.props.supplier).props.supplier,'kimi');
+ ui.trigger.props.onClick();ui.render();ui.render();
+ assert.deepEqual(ui.all().filter(node=>node.props.role==='menuitem').map(group=>ui.all(group).find(node=>node.props.supplier).props.supplier),['kimi','openai']);
+ assert.ok(ui.all().filter(node=>node.props.role==='menuitemradio').every(row=>ui.all(row).find(node=>node.props.supplier).props.supplier==='kimi'));
+});

@@ -177,6 +177,16 @@
 }
 @keyframes history-approval-wait { to { transform:rotate(360deg); } }
 .workspace-conversations .project-chat-running i { width:13px; height:13px; border-color:color-mix(in srgb,currentColor 30%,transparent); border-top-color:currentColor; }
+.workspace-conversations .project-chat-result {
+  display:inline-flex; align-items:center; justify-content:center; flex:0 0 16px;
+  width:16px; height:18px; margin-left:4px; line-height:1;
+}
+.workspace-conversations .project-chat-result.is-success { color:var(--ui-accent,#3984ff); }
+.workspace-conversations .project-chat-result.is-success > i {
+  display:block; width:8px; height:8px; border-radius:50%; background:currentColor;
+}
+.workspace-conversations .project-chat-result.is-error { color:var(--red,#d94b50); }
+.workspace-conversations .project-chat-result > svg { display:block; flex-shrink:0; }
 .workspace-conversations .project-chat-row[data-title-overflow='true']:is(:hover,:focus-visible) .project-chat-title {
   text-overflow:clip;
 }

@@ -492,3 +492,28 @@ Qwen 本轮本地定向验证：前端 81 项、Rust 策略/模型目录/工具�
 模型设置通过 `agent/model_channel_report` 同时取得正常渠道及异常条目，逐条显示渠道名称、配置 ID 和安全提示，不返回原始 JSON 或密钥。异常渠道暂停编辑，原始数据、版本、密钥和成员关系不被读取操作删除或重写。一个渠道存在异常成员时，整个渠道暂不提供编辑，避免保存部分成员意外移除异常模型；同渠道其余正常模型仍可在对话中选择。处理配置后刷新可恢复列表。
 
 此改动只影响重新编译后的版本，无法改变已发布的 v0.2.2 解析逻辑；不修复或改写本机正式工作区，也不承诺新配置可以由旧版本使用。本轮不修改应用版本号或数据库 schema。
+
+## Kimi / Moonshot 独立供应商
+
+在模型配置中选择“Kimi / Moonshot”，可配置 Chat Completions 或 Messages。同一渠道的多个模型、供应商与名称并且筛选、置顶、会话内切换、Key 留空保留及上游模型查询沿用原有流程；设置、渠道、模型行和当前模型使用本地 Kimi 图标。已有 OpenAI 兼容渠道不会按名称或域名自动转换。
+
+| 协议 | 默认基础地址 | 相对路径 | 鉴权 |
+| --- | --- | --- | --- |
+| Chat Completions | `https://api.moonshot.cn/v1` | `chat/completions` | Bearer |
+| Messages | `https://api.moonshot.cn/anthropic/v1` | `messages` | Bearer |
+
+空地址仍显示 placeholder，保存或查询时才解析默认值；其他区域或中转请填写对应地址并使用匹配的 Key。Messages 基础地址包含 `/v1`，程序不会像 Anthropic SDK 一样自动补此段。Kimi 的 Messages 鉴权与通用 Anthropic 不同，由独立供应商策略处理，不影响其他供应商。
+
+两协议均使用 `max_tokens`，思考和正文共用输出预算，请按模型要求增加最大输出，避免因思考耗尽额度导致回复未完成。Temperature 在 Kimi 入口固定使用供应商默认，表单不可编辑、请求不发送，原生也拒绝显式温度；切换到 Kimi 时清理原供应商的温度，避免误传到固定采样模型。
+
+Chat 推理菜单提供默认、关闭、开启、低、高、最高。默认省略全部思考字段；关闭/开启只发送 `thinking.type=disabled/enabled`，不附加强度或思考预算，适用于支持开关的 K2.x 模型；低/高/最高只发送 `reasoning_effort=low/high/max`，不额外发送 thinking，适用于支持这些强度的 K3 等模型。强制思考的模型不能关闭，部分模型不接受显式开关，应保持默认。不根据模型 ID 猜测能力，不降档或自动重试。
+
+Messages 根据当前官方 schema 提供默认、低、高、最高，使用 `output_config.effort`，不发送 Chat 的思考开关或 `reasoning_effort`。两个入口都保留返回的思考原文、签名与工具调用 ID，并在同一绑定下原样续接；无签名或空签名的思考块按实际返回保留，通用 Anthropic 的严格校验不变。思考内容不混入可见回复或日志。上下文整理使用已有本地语义摘要流程。
+
+两协议查询同一 `/v1/models` 目录，使用 Bearer 并解析 OpenAI 风格的 `data[].id`。只将完整 `/anthropic/v1/` 或 `/anthropic/` 后缀映射到同一 origin / 代理前缀下的 `/v1/`；其他自定义前缀保持。查询只读、复用已存密钥并保留既有超时、取消、分页和体积上限，返回模型不代表模型支持当前协议或所选档位。
+
+本次不开放 Kimi Responses、Kimi Code 订阅专用接口、Hosted Agents、原生文件上传或视频流程。版本号与 schema 24 不变；需完全退出托盘后重新运行 `npm run tauri dev` 编译原生改动。未调用真实 Kimi Key、模型或用户 SSH，真实接口和桌面视觉仍需独立验收。
+
+依据：[思考模式](https://platform.kimi.com/docs/guide/use-thinking-models)、[推理强度](https://platform.kimi.com/docs/guide/use-reasoning-effort)、[Messages API](https://platform.kimi.com/docs/api/messages)、[模型参数](https://platform.kimi.com/docs/api/models-overview)、[模型目录](https://platform.kimi.com/docs/api/list-models)。本地 SVG 来自 Lobe Icons 的 Kimi 标志，沿用 MIT 许可。
+
+本轮定向验证：前端 78 项、Rust 91 项、桌面 Kimi IPC 1 项通过，TypeScript、Vite 构建和 Rust 生产库严格 Clippy 通过。20 个 Kimi 工具续聊场景涵盖两协议、JSON/SSE、默认/开关/合法强度，核对 Bearer 鉴权、思考原文回传、工具执行一次和日志隔离；另覆盖摘要、目录与已存 Key 复用。结果来自临时存储和模拟服务，不等同于真实接口或桌面视觉验收。

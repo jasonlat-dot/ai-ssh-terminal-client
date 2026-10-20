@@ -364,3 +364,51 @@ test('Deletion confirmation rechecks refreshed background chat state rather than
  ui.api.projectChats=async id=>({items:id===p.id?[{...a,running:true}]:[],nextAfter:null});ui.props.revision='became-running';ui.render();await ui.settle();
  const confirm=ui.find(n=>n.props.className==='project-confirm-delete');assert.equal(confirm.props.disabled,true);confirm.props.onClick();await ui.settle();assert.equal(calls,0);
 });
+
+test('Generation permits history navigation while mutations remain locked, and switching itself blocks repeated clicks',async()=>{
+ const ui=harness();await ui.settle();ui.props.locked=true;ui.props.navigationLocked=false;
+ ui.props.sessionId=a.sessionId;ui.props.activeRunning=true;ui.render();
+ assert.equal(ui.button(b.title).props.disabled,false);ui.button(b.title).props.onClick();assert.equal(ui.actions[0][1].sessionId,b.sessionId);
+ assert.equal(ui.find(n=>n.props.className==='workspace-new-chat').props.disabled,true);
+ assert.equal(ui.button('删除对话：'+a.title).props.disabled,true);
+ ui.props.navigationLocked=true;ui.render();assert.equal(ui.button(b.title).props.disabled,true);
+ ui.button(b.title).props.onClick();assert.equal(ui.actions.length,1);
+});
+
+test('Local background runs override stale idle records and cannot be deleted or removed with their project',async()=>{
+ const ui=harness();await ui.settle();ui.props.sessionId=b.sessionId;ui.props.runningSessions=new Set([a.sessionId]);ui.render();
+ assert.equal(ui.button(a.title).props.disabled,false);
+ assert.equal(ui.all(n=>n.props['aria-label']==='对话进行中',ui.button(a.title)).length,1);
+ assert.equal(ui.button('删除对话：'+a.title).props.disabled,true);
+ assert.equal(ui.find(n=>n.props.label==='项目选项：A 服务器').props.disabled,true);
+ ui.button('删除对话：'+a.title).props.onClick();ui.render();assert.equal(ui.find(n=>n.type==='modal'),undefined);
+ ui.unmount();
+});
+
+test('Background approval status refreshes without navigating or collapsing previously loaded history',async()=>{
+ const ui=harness();await ui.settle();ui.props.sessionId=b.sessionId;ui.props.runningSessions=new Set([a.sessionId]);ui.render();
+ ui.api.projectChats=async id=>({items:id===p.id?[{...a,running:true,awaitingApproval:true}]:id===q.id?[b]:[g],nextAfter:null});
+ ui.runTimers();await ui.settle();ui.render();
+ assert.equal(ui.all(n=>n.props['aria-label']==='等待审批',ui.button(a.title)).length,1);
+ assert.equal(ui.actions.length,0);assert.equal(ui.props.sessionId,b.sessionId);
+ ui.api.projectChats=async id=>({items:id===p.id?[{...a,running:true,awaitingApproval:false}]:[],nextAfter:null});
+ ui.runTimers();await ui.settle();ui.render();
+ assert.equal(ui.all(n=>n.props['aria-label']==='等待审批',ui.button(a.title)).length,0);
+ assert.equal(ui.all(n=>n.props['aria-label']==='对话进行中',ui.button(a.title)).length,1);
+ ui.unmount();
+});
+
+test('Unread success and error markers share the status slot; running and approval retain priority',async()=>{
+ const ui=harness();await ui.settle();const results=new Map([[a.sessionId,'success'],[b.sessionId,'error']]);ui.props.unreadResults=results;ui.render();
+ const success=ui.all(n=>n.props['aria-label']==='回复成功，未读',ui.button(a.title))[0];
+ const error=ui.all(n=>n.props['aria-label']==='回复失败，未读',ui.button(b.title))[0];
+ assert.equal(success.props.className,'project-chat-result is-success');assert.equal(success.props.children.type,'i');
+ assert.equal(error.props.className,'project-chat-result is-error');assert.equal(error.props.children.type,'svg');
+ ui.props.sessionId=b.sessionId;ui.props.activeRunning=true;ui.render();
+ assert.equal(ui.all(n=>n.props['aria-label']==='回复失败，未读',ui.button(b.title)).length,0);
+ assert.equal(ui.all(n=>n.props['aria-label']==='对话进行中',ui.button(b.title)).length,1);
+ ui.props.approvalState={sessionId:b.sessionId,pending:true};ui.render();
+ assert.equal(ui.all(n=>n.props['aria-label']==='等待审批',ui.button(b.title)).length,1);
+ assert.equal(ui.all(n=>n.props['aria-label']==='对话进行中',ui.button(b.title)).length,0);
+ results.delete(a.sessionId);ui.render();assert.equal(ui.all(n=>n.props['aria-label']==='回复成功，未读').length,0);
+});

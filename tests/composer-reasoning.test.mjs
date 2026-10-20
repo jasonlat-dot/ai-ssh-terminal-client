@@ -1,6 +1,17 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import test from 'node:test';
+
+test('Kimi 输入框按 Chat 与 Messages 区分开关和强度，保存保留供应商身份和已存 Key',async()=>{
+ for(const provider of ['openAiCompatible','anthropicMessages']) {
+  const ui=harness(provider);ui.setProfile({config:{...ui.profile.config,supplier:'kimi'}});ui.render();await ui.settle();
+  const expected=provider==='openAiCompatible'?['','none','enabled','low','high','max']:['','low','high','max'];
+  assert.deepEqual(Array.from(ui.control.props.options,option=>option.value),expected);
+  for(const value of ['minimal','medium','xhigh',...(provider==='anthropicMessages'?['none','enabled']:[])])ui.control.props.onChange(value);
+  await ui.settle();assert.equal(ui.saved.length,0);
+  for(const value of expected) {ui.control.props.onChange(value);await ui.settle();if(value) {assert.equal(ui.saved.at(-1)[2].supplier,'kimi');assert.equal(ui.saved.at(-1)[2].reasoningEffort,value);assert.equal(ui.saved.at(-1)[3].action,'keep');}}
+ }
+});
 import vm from 'node:vm';
 import ts from 'typescript';
 import {newModelConfig} from '../src/api/models.ts';

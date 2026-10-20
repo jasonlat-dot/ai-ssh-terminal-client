@@ -76,6 +76,23 @@ test('D5 pending approval poll opens record panel and routes decisions to the sa
   tree=h.render('AgentExecution',{scope:{...scope,locked:true},policyTarget:{}});
   assert.equal(all(tree).find(n=>n.type===h.module.ExecutionPolicyMenu).props.disabled,true);
 });
+
+test('A delayed approval decision stays on its original chat after navigation and cannot clear another approval',async()=>{
+ let finish;const actions=[];const pending=new Promise(resolve=>{finish=resolve;});
+ const old=harness({executionRequests:async()=>[receipt],executionPolicy:async()=>({mode:'confirm',revision:0}),
+  executionDecision:async(...args)=>{actions.push(args);await pending;}});
+ const first={scope,approvalTarget:{}};old.render('AgentExecution',first);old.flush();await new Promise(setImmediate);
+ const oldTree=old.render('AgentExecution',first);old.flush();
+ all(oldTree).find(n=>n.type===old.module.ApprovalCard).props.act('approval','approveOnce');old.unmount();
+ const changes=[];const nextReceipt={...receipt,id:'approval-B',binding:{...receipt.binding,sessionId:'chat-B'}};
+ const next=harness({executionRequests:async()=>[nextReceipt],executionPolicy:async()=>({mode:'confirm',revision:0})});
+ const second={scope:{...scope,agentId:'model-B',sessionId:'chat-B'},approvalTarget:{},onPendingChange:value=>changes.push(value)};
+ next.render('AgentExecution',second);next.flush();await new Promise(setImmediate);next.render('AgentExecution',second);next.flush();
+ assert.equal(changes.at(-1),true);finish();await new Promise(setImmediate);
+ assert.deepEqual(actions,[['model','chat','approval','approveOnce']]);assert.equal(changes.at(-1),true);
+ const nextTree=next.render('AgentExecution',second);next.flush();
+ assert.equal(all(nextTree).find(n=>n.type===next.module.ApprovalCard).props.receipt.id,'approval-B');next.unmount();
+});
 test('D5 unknown tool output with retained original references remains readable without claiming execution succeeded',()=>{
   const h=harness();const tree=h.render('NativeToolOutput',{output:JSON.stringify({ok:false,error:'result_unknown',data:{outputs:[{id:'raw',channel:'stderr',size:100,sha256:'hash'}]}})});
   assert.match(text(tree),/工具未完成/);assert.match(text(tree),/result_unknown/);

@@ -2,6 +2,23 @@ import { loadToastErrorHooks } from './helpers/toast-errors.mjs';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import test from 'node:test';
+
+test('Kimi 渠道编辑保留供应商、模型和代理，温度不可编辑且筛选与名称搜索按并且匹配',async()=>{
+ for(const provider of ['openAiCompatible','anthropicMessages']) {
+  const config={...newModelConfig(),supplier:'kimi',provider,baseUrl:'https://proxy.test/custom/',model:'alias',reasoningEffort:'high',capabilities:{...newModelConfig().capabilities,reasoningEffort:true}};
+  const items=[{id:'kimi-channel',displayName:'我的 Kimi',revision:2,config,models:[{id:'kimi-model',model:'alias'}],apiKeyConfigured:true,ready:true},
+    {id:'other',displayName:'其他',revision:1,config:{...newModelConfig(),model:'other'},ready:true}];
+  const ui=settings(undefined,{items,autoOpen:false});ui.render();await ui.settle();
+  ui.find(n=>n.props.id==='model-catalog-supplier'&&n.props.options).props.onChange('kimi');ui.render();
+  ui.find(n=>n.props['aria-label']==='搜索供应商 / 渠道名称').props.onChange({target:{value:'Kimi'}});ui.render();
+  assert.equal(ui.find(n=>n.props.className==='model-profile-grid').props.children.length,1);
+  ui.openEdit();assert.equal(ui.find(n=>n.props.id==='model-temperature'&&n.props.kind==='temperature').props.disabled,true);
+  assert.equal(ui.find(n=>n.props.id==='model-supplier'&&n.props.value).props.value,'kimi');
+  ui.find(n=>n.type==='form').props.onSubmit({preventDefault(){}});await ui.settle();
+  assert.equal(ui.saved[0][2].supplier,'kimi');assert.equal(ui.saved[0][2].provider,provider);assert.equal(ui.saved[0][2].temperature,null);
+  assert.equal(ui.saved[0][2].baseUrl,config.baseUrl);assert.equal(ui.saved[0][3].action,'keep');
+ }
+});
 import vm from 'node:vm';
 import ts from 'typescript';
 import * as protocolUi from '../src/api/modelProtocols.ts';
@@ -414,7 +431,7 @@ test('供应商菜单保留兼容名称，卡片仅显示品牌图标与协议�
   assert.equal(ui.find(node=>node.props.className==='model-profile-budget').props.title,'256,000 tokens');
   assert.doesNotMatch(ui.text(),/管理对话使用|配置保存后/);
   ui.openEdit();const supplier=ui.find(node=>node.props.id==='model-supplier'&&node.props.options);
-  assert.deepEqual(supplier.props.options.map(item=>item.label),['OpenAI 兼容','Anthropic 兼容','Google 兼容','DeepSeek','GLM / 智谱','Qwen / 通义千问']);
+  assert.deepEqual(supplier.props.options.map(item=>item.label),['OpenAI 兼容','Anthropic 兼容','Google 兼容','DeepSeek','GLM / 智谱','Qwen / 通义千问','Kimi / Moonshot']);
   assert.ok(supplier.props.options.every(item=>!item.description));
   assert.equal(supplier.props.renderIcon('anthropic').props.supplier,'anthropic');
   assert.equal(ui.find(node=>node.props.className==='model-provider-description'),undefined);

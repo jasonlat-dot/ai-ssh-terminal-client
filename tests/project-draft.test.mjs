@@ -5,6 +5,7 @@ import vm from 'node:vm';
 import ts from 'typescript';
 import {executionTerminal,prepareExecutionBinding} from '../src/state/executionBinding.ts';
 import {isSessionConnected} from '../src/state/terminalSessions.ts';
+import {ConversationRuns} from '../src/state/conversationRuns.ts';
 
 const app=ts.createSourceFile('App.tsx',readFileSync(new URL('../src/App.tsx',import.meta.url),'utf8'),ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX);
 function action(name,globals){
@@ -66,11 +67,12 @@ test('First message creates the selected project session and binds tools to its 
   chatStream:async body=>{calls.push(['stream',body.sessionId,body.terminalSessionId,body.executionEnabled]);},
  };
  const send=action('sendMessage',{
+  document:{hidden:false},viewedConversation:{current:''},chatRuns:new ConversationRuns(),messagesRef:{current:[]},selectedAgentRef:{current:model},
   reasoningSavingRef:{current:false},manualCompactionAbort:{current:null},toolsEnabled:true,sshExecutionEnabled:false,draftExecutionPolicy:'confirm',
   chatting:{current:false},stopPending:{current:false},scopeSwitchRef:{current:false},historyLoadingId:'',recoveredRunning:false,agentLoading:false,agentLoadError:'',
   activeProject:project,projectTerminalId:terminal.terminalSessionId,active:terminal,sessions:[terminal],sessionsRef:{current:[terminal]},terminalClients:{current:new Map()},
   rustBuiltin:true,executionEnabled:false,canonicalHistory:null,selectedAgent:model,chatSessionId:chatId,chatTarget:{current:null},chatVersion:{current:1},chatRequestId:{current:''},chatAbort:{current:null},
-  setContextSnapshot(){},setContextError(){},setChatBusy(){},setActiveChatSessionId(){},setCanonicalHistory(){},setProjectRevision(){},
+  setContextSnapshot(){},setContextError(){},setChatBusy(){},setChatStopping(){},setActiveChatSessionId(){},setCanonicalHistory(){},setProjectRevision(){},
   updateMessages:update=>{messages=update(messages);},replaceMessages:next=>{messages=next;},validateChatContent:()=>'',
   isSessionConnected,executionTerminal,prepareExecutionBinding,agentApi:api,persistClientSession:async()=>{},refreshChatSessions:async()=>{},
   readAgentHistory:async()=>({session:bound,turns:[]}),turnMessages:()=>[],notify:message=>assert.fail(message),
