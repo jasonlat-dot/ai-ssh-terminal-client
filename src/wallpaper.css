@@ -330,3 +330,22 @@
   .primary-button, .danger-button, .send-button, .stop-button, .new-agent-session,
   .modal, [role='dialog'], [role='menu'], .agent-history-popover
 ) { text-shadow: none; }
+
+/* 代码只在正文与工具栏各绘制一层半透明底色，外壳不叠加遮罩。
+   默认分别为 65% / 70% 不透明度；滑块仍生效，但保留阅读所需的最低底色。
+   只混合背景色，保留文字、语法高亮、复制反馈与现有滚动/换行动作。 */
+:root[data-wallpaper='true'][data-theme] .app-shell .markdown-message {
+  --client-code-opacity: clamp(55%, calc(var(--client-panel-opacity, 75%) - 10%), 75%);
+  --client-code-toolbar-opacity: clamp(60%, calc(var(--client-panel-opacity, 75%) - 5%), 80%);
+}
+:root[data-wallpaper='true'][data-theme] .app-shell .markdown-message .markdown-code-card {
+  background: transparent;
+  text-shadow: none;
+}
+:root[data-wallpaper='true'][data-theme] .app-shell .markdown-message .markdown-body pre {
+  background: color-mix(in srgb, var(--theme-control) var(--client-code-opacity), transparent);
+  text-shadow: none;
+}
+:root[data-wallpaper='true'][data-theme] .app-shell .markdown-message .markdown-code-toolbar {
+  background: color-mix(in srgb, var(--theme-panel-soft) var(--client-code-toolbar-opacity), transparent);
+}
