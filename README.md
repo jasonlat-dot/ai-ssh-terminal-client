@@ -1,6 +1,6 @@
 # ShellPilot · 终端领航
 
-ShellPilot 是基于 React、TypeScript、Tauri 2 和 Rust 的 Windows 智能终端客户端。当前版本为 **v0.2.2**，支持本地 CMD、SSH 终端、SFTP 文件管理，以及带工具审批、子任务、MCP、Skills 和长期记忆的 AI 对话。
+ShellPilot 是基于 React、TypeScript、Tauri 2 和 Rust 的 Windows 智能终端客户端。当前版本为 **v0.2.3**，支持本地 CMD、SSH 终端、SFTP 文件管理，以及带工具审批、子任务、MCP、Skills 和长期记忆的 AI 对话。
 
 Rust 后端作为库直接链接进桌面程序，前端通过 Tauri IPC 调用同一应用内的服务。桌面版不启动本机 HTTP 监听，不需要填写后端地址，也不依赖 Java、JAR、JRE、Maven 或独立数据库服务。模型 API、远程 SSH 与 MCP 仍按各自配置连接。
 
@@ -91,7 +91,7 @@ dev、tauri、build、preview 脚本会选择兼容的 Node 运行时；可用 `
 
 普通安装包：
 
-Windows 安装后的主程序为 `ShellPilot.exe`，开始菜单入口为 `ShellPilot`。安装和更新会补建缺失的开始菜单快捷方式（显式使用 `/NS` 禁用快捷方式时除外）。v0.2.2 沿用正式应用标识及原工作区，安装前请从托盘退出旧版。
+Windows 安装后的主程序为 `ShellPilot.exe`，开始菜单入口为 `ShellPilot`。安装和更新会补建缺失的开始菜单快捷方式（显式使用 `/NS` 禁用快捷方式时除外）。v0.2.3 沿用正式应用标识及原工作区，安装前请从托盘退出旧版。
 
 ```powershell
 npm run bundle:nsis     # NSIS EXE
@@ -112,12 +112,12 @@ src-tauri/target/release/bundle/msi/ShellPilot_<版本>_x64_en-US.msi
 # 继续使用与配置公钥匹配的原有签名私钥；无密码时填空字符串。
 $env:TAURI_SIGNING_PRIVATE_KEY = '你的签名私钥文件绝对路径'
 $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = '你的私钥密码'
-npm run release:windows -- --notes docs/releases/v0.2.2.md
+npm run release:windows -- --notes docs/releases/v0.2.3.md
 ```
 
-发布脚本构建 Windows x64 NSIS 安装包、验证签名，并在 `release/v0.2.2/` 生成安装包、`.sig`、`latest.json`、发布说明与 SHA256 校验文件。脚本不会自动上传 GitHub 或安装更新，也不会覆盖已有的同版本发布目录。普通 `bundle:*` 不会生成完整的签名更新发布目录。
+发布脚本构建 Windows x64 NSIS 安装包、验证签名，并在 `release/v0.2.3/` 生成安装包、`.sig`、`latest.json`、发布说明与 SHA256 校验文件。脚本不会自动上传 GitHub 或安装更新，也不会覆盖已有的同版本发布目录。普通 `bundle:*` 不会生成完整的签名更新发布目录。
 
-将安装包、对应 `.sig` 与 `latest.json` 一起上传到 `v0.2.2` 的 GitHub 正式 Release。更新通道沿用原客户端仓库的 GitHub Releases；通道读取最新正式 Release，与代码分支无关。不要更换已有签名密钥。
+将安装包、对应 `.sig` 与 `latest.json` 一起上传到 `v0.2.3` 的 GitHub 正式 Release。更新通道沿用原客户端仓库的 GitHub Releases；通道读取最新正式 Release，与代码分支无关。不要更换已有签名密钥。
 
 “关于与更新”可以检查、下载并确认安装。开发模式不检查或安装更新；正式版启动后约 3 秒静默检查一次，无更新或失败不打扰，有更新时提示，不自动下载或安装。详见 [更新与发布说明](docs/client-updates.md)。
 
@@ -178,6 +178,7 @@ cargo test --all-targets
 
 ## 相关说明
 
+- [v0.2.3 发布与升级说明](docs/releases/v0.2.3.md)
 - [v0.2.2 发布说明](docs/releases/v0.2.2.md)
 - [v0.2.2 升级与发布](docs/releases/v0.2.2-upgrade.md)
 - [Rust 内置架构](docs/rust-backend.md)
