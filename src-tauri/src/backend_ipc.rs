@@ -167,6 +167,24 @@ pub async fn dispatch(
             services.agent.extension_decision(text(&body,"agentId")?.into(),text(&body,"userId")?.into(),text(&body,"sessionId")?.into(),text(&body,"id")?.into(),body["allow"].as_bool().ok_or_else(||Error::invalid("审批决定无效"))?).await.map_err(agent_error)?;
             Ok(json!(true))
         },
+        ("POST", "agent/model_catalog") => {
+            let user = text(&body,"userId")?.to_owned();
+            let request = serde_json::from_value(body["query"].clone()).map_err(|_|Error::invalid("模型查询参数无效"))?;
+            let client = models(&services,move|r|r.catalog_client(&user,request)).await?;
+            let entries = Box::pin(client.list(&services.stop)).await.map_err(|error| {
+                if matches!(error,shellpilot_server::agent::provider::ModelError::Cancelled) {
+                    return Error {message:"模型查询已取消".into(),code:"REQUEST_CANCELLED".into(),status:409};
+                }
+                let message = match &error {
+                    shellpilot_server::agent::provider::ModelError::Http(404) => "上游未提供模型列表接口（404），请检查基础地址或手动填写。".into(),
+                    shellpilot_server::agent::provider::ModelError::Http(401 | 403) => "模型查询鉴权失败，请检查 API Key 及访问权限。".into(),
+                    shellpilot_server::agent::provider::ModelError::Timeout => "模型查询超时，请稍后重试。".into(),
+                    _ => format!("模型查询失败：{error}"),
+                };
+                Error {message,code:"MODEL_CATALOG_FAILED".into(),status:502}
+            })?;
+            value(entries)
+        }
         ("GET", "agent/model_channels") => {
             let user=text(&params,"userId")?.to_owned();
             value(models(&services,move|r|r.channels(&user)).await?)
@@ -743,9 +761,30 @@ pub async fn builtin_request(
             .0
             .clone()
     };
-    let result = tokio::select! { biased; _=token.cancelled()=>Err(Error {message:"请求已取消，操作结果可能需要核实".into(),code:"REQUEST_CANCELLED".into(),status:409}), result=dispatch(services,&endpoint,&method,body,params)=>result };
+    let result = dispatch_json_request(services,&request_id,&endpoint,&method,body,params,&token).await;
     state.operations.lock().unwrap().remove(&request_id);
     result
+}
+/// The model catalog has its own request trace, independent of any chat session.
+async fn dispatch_json_request(
+    services: Arc<Services>, request_id: &str, endpoint: &str, method: &str,
+    body: Value, params: Value, token: &CancellationToken,
+) -> Result<Value> {
+    let trace = (endpoint == "agent/model_catalog" && method == "POST")
+        .then(||services.store.diagnostics.trace(request_id,"",""));
+    let operation = Box::pin(async {
+        tokio::select! { biased;
+            _=token.cancelled()=>Err(Error {message:"请求已取消，操作结果可能需要核实".into(),code:"REQUEST_CANCELLED".into(),status:409}),
+            result=dispatch(services,endpoint,method,body,params)=>result,
+        }
+    });
+    match trace {
+        Some(trace) => trace.request(json!({"entry":"model_catalog","method":method,"endpoint":endpoint}),operation).await.map_err(|mut error| {
+            error.message = format!("{}（Trace ID：{}）",error.message,trace.id());
+            error
+        }),
+        None => operation.await,
+    }
 }
 pub fn services_for_url(app: &AppHandle, backend_url: &str) -> Result<Arc<Services>> {
     let state = app.state::<crate::bundled_backend::BundledBackendState>();
@@ -862,7 +901,7 @@ async fn agent_stream_mode(
 }
 impl shellpilot_server::diagnostics::Failure for Error {
     fn diagnostic_code(&self)->&str {&self.code}
-    fn cancelled(&self)->bool {matches!(self.code.as_str(),"AGENT_CANCELLED"|"AGENT_INTERRUPTED"|"BACKEND_UNAVAILABLE")}
+    fn cancelled(&self)->bool {matches!(self.code.as_str(),"AGENT_CANCELLED"|"AGENT_INTERRUPTED"|"BACKEND_UNAVAILABLE"|"REQUEST_CANCELLED")}
 }
 async fn agent_stream_mode_inner(
     services: Arc<Services>,

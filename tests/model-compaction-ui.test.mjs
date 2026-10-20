@@ -41,7 +41,7 @@ function settings(legacyVision, options={}) {
     if(name==='../state/useToastError')return loadToastErrorHooks(hooks,(...args)=>notices.push(args));if(name==='react')return hooks;
     if(name==='react-dom')return {createPortal:node=>node};
     if(name==='../state/notifications')return {notify(...args){notices.push(args);}};
-    if(name==='react/jsx-runtime')return {jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props})};
+    if(name==='react/jsx-runtime'){const jsx=(type,props)=>type==='catalog-input-stub'?{type:'textarea',props:{...props,id:'model-id',onChange:event=>props.onChange(event.target.value)}}:{type,props};return {jsx,jsxs:jsx};}
     if(name==='../api/modelProtocols')return protocolUi;
     if(name==='../state/modelChannels')return channelUi;
     if(name==='../state/modelPins')return {...pinUi,loadModelPins:user=>pinUi.loadModelPins(user,pinStorage),saveModelPins:(user,pins)=>pinUi.saveModelPins(user,pins,pinStorage)};
@@ -51,6 +51,7 @@ function settings(legacyVision, options={}) {
     if(name==='./Select')return {Select:leaf};
     if(name==='./ModelSupplierIcon')return {ModelSupplierIcon:leaf};
     if(name==='./ModelNumberInput')return {ModelNumberInput:leaf};
+    if(name==='./ModelCatalogInput')return {ModelCatalogInput:'catalog-input-stub'};
     if(name.endsWith('.css'))return {};
     throw new Error(name);
   }});

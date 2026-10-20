@@ -2818,3 +2818,54 @@ async fn rename_chat_dispatch_persists_owned_title_without_rewriting_messages() 
         400
     );
 }
+
+#[tokio::test]
+async fn model_catalog_ipc_queries_unsaved_draft_without_persisting_and_reports_errors() {
+    use axum::{routing::get, Json, Router};
+    let (_dir, services) = services().await;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}/proxy/v1/",listener.local_addr().unwrap());
+    let app = Router::new().route("/proxy/v1/models",get(||async {Json(json!({"data":[{"id":"model-one"},{"id":"model-two"}]}))}));
+    let server = tokio::spawn(async move {axum::serve(listener,app).await.unwrap();});
+    let mut body = json!({"userId":"default","query":{"provider":"openAiCompatible","baseUrl":base,"requireApiKey":false,"apiKey":{"action":"keep"}}});
+    let found = dispatch(services.clone(),"agent/model_catalog","POST",body.clone(),Value::Null).await.unwrap();
+    assert_eq!(found,json!([{"id":"model-one"},{"id":"model-two"}]));
+    let profiles = dispatch(services.clone(),"agent/model_channels","GET",Value::Null,json!({"userId":"default"})).await.unwrap();
+    assert!(profiles.as_array().unwrap().is_empty());
+    body["query"]["baseUrl"] = format!("{}missing/",body["query"]["baseUrl"].as_str().unwrap()).into();
+    let error = dispatch(services.clone(),"agent/model_catalog","POST",body.clone(),Value::Null).await.unwrap_err();
+    assert_eq!(error.code,"MODEL_CATALOG_FAILED");assert!(error.message.contains("404"));assert!(error.message.contains("手动填写"));
+    body["query"]["provider"] = "unsupported".into();
+    assert!(dispatch(services,"agent/model_catalog","POST",body,Value::Null).await.is_err());
+    server.abort();
+}
+
+#[tokio::test]
+async fn model_catalog_json_request_logs_trace_and_exposes_id_for_failure() {
+    use axum::{routing::get,Json,Router};
+    use shellpilot_server::diagnostics::Level;
+    let (dir,services)=services().await;let logs=dir.path().join("catalog-logs");services.store.diagnostics.configure(logs.clone(),Level::Debug).unwrap();
+    let listener=tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();let base=format!("http://{}/v1beta/",listener.local_addr().unwrap());
+    let app=Router::new().route("/v1beta/models",get(||async{Json(json!({"models":[{"name":"gemini-3-flash","supportedGenerationMethods":"invalid"}]}))}));
+    let server=tokio::spawn(async move{axum::serve(listener,app).await.unwrap();});
+    let body=json!({"userId":"default","query":{"provider":"googleGemini","baseUrl":base,"requireApiKey":true,"apiKey":{"action":"set","value":"catalog-ipc-test-secret"}}});
+    let token=CancellationToken::new();
+    let result=dispatch_json_request(services.clone(),"catalog-ipc-trace","agent/model_catalog","POST",body.clone(),Value::Null,&token).await;
+    let error=result.unwrap_err();assert_eq!(error.code,"MODEL_CATALOG_FAILED");assert!(error.message.contains("Trace ID：catalog-ipc-trace"));
+    let read_rows=|id:&str| {
+        let file=logs.join(chrono::Local::now().format("%Y-%m-%d").to_string()).join(format!("{id}.log"));
+        let raw=std::fs::read_to_string(file).unwrap();assert!(!raw.contains("catalog-ipc-test-secret"));assert!(!raw.contains("gemini-3-flash"));
+        raw.lines().map(|line|serde_json::from_str::<Value>(line).unwrap()).collect::<Vec<_>>()
+    };
+    let rows=read_rows("catalog-ipc-trace");
+    assert!(rows.iter().all(|row|row["traceId"]=="catalog-ipc-trace"));
+    assert_eq!(rows.iter().filter(|row|row["event"]=="request.started").count(),1);
+    assert_eq!(rows.iter().filter(|row|row["event"]=="request.failed").count(),1);
+    assert!(rows.iter().any(|row|row["event"]=="model.catalog.http_request"&&row["fields"]["authentication"]=="x-goog-api-key"));
+    assert!(rows.iter().any(|row|row["event"]=="model.catalog.parse_failed"&&row["fields"]["jsonPath"]=="/models/0/supportedGenerationMethods"));
+    assert!(!rows.iter().any(|row|row["event"]=="request.completed"));
+    token.cancel();
+    let cancelled=dispatch_json_request(services,"catalog-ipc-cancel","agent/model_catalog","POST",body,Value::Null,&token).await.unwrap_err();assert_eq!(cancelled.code,"REQUEST_CANCELLED");
+    let rows=read_rows("catalog-ipc-cancel");assert!(rows.iter().any(|row|row["event"]=="request.cancelled"&&row["level"]=="warn"));assert!(!rows.iter().any(|row|row["event"]=="request.completed"||row["level"]=="error"));
+    server.abort();
+}

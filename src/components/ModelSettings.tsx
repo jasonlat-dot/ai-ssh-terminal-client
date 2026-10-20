@@ -12,6 +12,7 @@ import type { AccentTone, IconName } from './Ui';
 import { Select } from './Select';
 import { ModelSupplierIcon } from './ModelSupplierIcon';
 import { ModelNumberInput } from './ModelNumberInput';
+import { ModelCatalogInput } from './ModelCatalogInput';
 import { notify } from '../state/notifications';
 import { parseModelIds } from '../state/modelChannels';
 import { loadModelPins, orderPinnedModels, saveModelPins } from '../state/modelPins';
@@ -189,7 +190,10 @@ export function ModelSettings({ changed, locked = false }: { changed?: () => voi
                   <div className="model-key-toggle"><span>使用 API Key</span><Toggle label="此服务需要 API Key" value={config.requireApiKey} disabled={disabled} onChange={value=>field('requireApiKey',value)}/></div>
                 </div>
               </ModelField>
-                <ModelField id="model-id" label="模型 ID（可填多个）" wide badge="MODELS" icon="bot" tone="violet" hint="每行一个，也可用逗号分隔；这些模型共用此渠道的接口、密钥和参数。"><textarea id="model-id" className="settings-control settings-control-mono model-ids-input" rows={4} spellCheck={false} value={modelIds} onChange={e => setModelIds(e.target.value)} placeholder={'例如：\ngpt-6-luna\ngpt-6-sol'} /></ModelField>
+                <ModelField id="model-id" label="模型 ID" wide badge="MODELS" icon="bot" tone="violet" hint="这些模型共用此渠道的接口、密钥和参数。">
+                  <ModelCatalogInput value={modelIds} onChange={setModelIds} disabled={disabled} query={{provider:config.provider,baseUrl:config.baseUrl,requireApiKey:config.requireApiKey,
+                    apiKey:key.trim()?{action:'set',value:key.trim()}:{action:'keep'},channelId:editing?.id??null,revision:editing?.revision??null}}/>
+                </ModelField>
               </div>
             </section>
 

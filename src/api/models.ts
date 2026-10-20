@@ -19,7 +19,12 @@ export const newModelConfig = (): ModelConfig => ({
   capabilities: { toolCalls: true, developerRole: false, temperature: false, reasoningEffort: false, vision: true },
   temperature: null, reasoningEffort: null, timeoutSeconds: 120, maxResponseBytes: 1048576, requireApiKey: true,
 });
+export type CatalogModel = {id: string; displayName?: string};
+export type CatalogQuery = {provider: ModelConfig['provider']; baseUrl: string; requireApiKey: boolean;
+  apiKey: KeyChange; channelId: string | null; revision: number | null};
 export const modelApi = {
+  discover: (query: CatalogQuery, signal?: AbortSignal) =>
+    builtinRequest<CatalogModel[]>('agent/model_catalog', 'POST', {userId:sshUserId, query}, {}, signal),
   channels: () => builtinRequest<ModelChannel[]>('agent/model_channels', 'GET', undefined, {userId:sshUserId}),
   saveChannel: (id:string, revision:number, config:ModelConfig, apiKey:KeyChange, displayName:string, modelIds:string[]) =>
     builtinRequest<ModelChannel>('agent/model_channels','POST',{id,revision,userId:sshUserId,displayName,modelIds,update:{config,apiKey}},{}),
