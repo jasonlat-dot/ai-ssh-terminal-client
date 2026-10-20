@@ -285,9 +285,15 @@ headers 和 env 对象中的值通过 Windows DPAPI 加密保存在本地，重�
 
 ## 在当前对话切换模型与失败恢复
 
-输入框选择模型后，已有对话保持同一 sessionId、项目、SSH 身份、任务和审批边界，后续消息使用新模型。切换成功后才更新选择；生成、停止、整理或已准入执行期间禁止切换，过期 revision 拒绝覆盖。当前输入草稿和可见历史保留，不自动新建会话。
+输入框选择模型后，已有对话保持同一 sessionId、项目、SSH 身份、任务和审批边界，后续消息使用新模型。空闲时立即切换；生成或停止收尾期间可以提前选择下一轮模型，输入框显示待切换选择和提示，本轮仍使用原模型。原轮次和工具执行结束后才提交原生切换；过期 revision 拒绝覆盖。当前输入草稿、消息队列和可见历史保留，不自动新建会话。会话尚在创建、历史正在加载、配置正在保存或手动整理期间暂不可切换。
 
-旧模型的正文和工具结果以标注的历史数据提供给新模型，不作为待执行的工具调用；思考签名、推理状态及 Responses 密文不跨模型转发。普通文本摘要继续使用；远端加密压缩窗口恢复其原始事件前缀，仍受新模型上下文容量限制。修改同一个模型配置的端点或凭据仍遵循原生状态隔离规则。
+旧模型的正文和工具结果以标注的历史数据提供给新模型，不作为待执行的工具调用；思考签名、推理状态及 Responses 密文不跨模型转发。普通文本摘要继续使用；远端加密压缩窗口恢复其原始事件前缀，仍受新模型上下文容量限制。修改同一个模型配置的模型 ID、协议、端点或凭据后，下一次请求从原始历史重建上下文，不将旧绑定的原生状态发给新配置。
+
+运行中可以在设置页编辑模型渠道和在输入框保存推理强度，修改供后续请求使用；当前请求已固定配置，不随保存改变。正在执行任务的渠道暂不可删除；工具与 Skills 的运行期保护保持有效。
+
+待切换选择按会话分别保存，切到设置或其他会话后，本地仍在运行的原会话会在结束时完成切换。连续选择以最后一次为准；提交前可取消。切换失败保留原选择及明确错误，支持重试或恢复原模型；确认前暂停新消息发送，避免排队消息误用模型。若切换已落库但回执丢失，重试或取消先核对真实会话归属，不重发原消息或工具。待切换意向仅保留于当前客户端运行期间，重启后以已保存的实际模型为准。
+
+2026-10-21 验证：前端 199 项定向测试、TypeScript 和 Vite 生产构建通过；后端 Responses、工具续聊、摘要及模型切换共 60 项测试与严格 Clippy 通过。覆盖运行中选择、后台提交、失败及取消、丢失回执、历史加载与切换竞争、配置编辑后的原生状态重建。本轮不增加版本号或迁移；含原生代码，需完全退出托盘中的程序后重新编译客户端。真实供应商和桌面视觉尚未验收。
 
 回复失败时，已有正文和工具记录保持原样，错误原因、恢复提示、Trace ID 和“恢复到输入框”留在该回复下方。已进入会话的失败请求不再出现在输入框上方队列；尚未发送成功的排队草稿继续保留。恢复只填入空输入框，由用户确认后重新发送，不自动重放工具。保存到工作区的失败原因可随历史重载；准入前失败会明确提示仅保留在当前页面。
 
@@ -517,3 +523,28 @@ Messages 根据当前官方 schema 提供默认、低、高、最高，使用 `o
 依据：[思考模式](https://platform.kimi.com/docs/guide/use-thinking-models)、[推理强度](https://platform.kimi.com/docs/guide/use-reasoning-effort)、[Messages API](https://platform.kimi.com/docs/api/messages)、[模型参数](https://platform.kimi.com/docs/api/models-overview)、[模型目录](https://platform.kimi.com/docs/api/list-models)。本地 SVG 来自 Lobe Icons 的 Kimi 标志，沿用 MIT 许可。
 
 本轮定向验证：前端 78 项、Rust 91 项、桌面 Kimi IPC 1 项通过，TypeScript、Vite 构建和 Rust 生产库严格 Clippy 通过。20 个 Kimi 工具续聊场景涵盖两协议、JSON/SSE、默认/开关/合法强度，核对 Bearer 鉴权、思考原文回传、工具执行一次和日志隔离；另覆盖摘要、目录与已存 Key 复用。结果来自临时存储和模拟服务，不等同于真实接口或桌面视觉验收。
+
+
+## Grok / xAI 独立供应商
+
+在模型配置选择“Grok / xAI”，默认使用 Responses，也可选择 Chat Completions。基础地址提示为 `https://api.x.ai/v1`，留空时在保存或查询时解析，不自动填入草稿；自定义代理地址、渠道内多个模型、名称与供应商并且筛选、置顶、输入框模型切换及已存密钥复用沿用既有流程。设置和模型菜单统一使用本地 Grok 图标，沿用 Lobe Icons MIT 许可。旧 OpenAI 兼容配置不会按域名或模型名自动转换。
+
+| 协议 | 相对路径 | 输出参数 | 推理参数 |
+| --- | --- | --- | --- |
+| Responses（默认） | `responses` | `max_output_tokens` | `reasoning.effort` |
+| Chat Completions | `chat/completions` | `max_completion_tokens` | `reasoning_effort` |
+
+两协议使用 Bearer Key，模型目录查询固定为同一基础前缀下的 `models`，不会保存查询结果或改写模型 ID。菜单提供默认、低、中、高、很高；默认省略参数，显式发送 `low / medium / high / xhigh`，档位仍须当前模型和中转支持。较早或固定思考模型请保持默认；不根据模型 ID 猜测能力、不额外发送 thinking 开关、不自动降档重试。Temperature 可选范围 0–2，默认留空。xAI 的输出上限约束可见输出，不能据此承诺限制推理和工具调用 token 总量。
+
+Responses 请求保留 `store:false`，请求并原样回传加密 reasoning item 与 function call/output；协议、供应商、模型、端点和凭据变化不能复用原绑定的原生续接状态。思考内容不混入可见正文或诊断文本。JSON 与 SSE 复用原有严格解析和取消、体积、超时边界。
+
+xAI 没有公开与 OpenAI 相同的 `responses/input_tokens` 计数接口，因此 Grok Responses 使用本地估算，不发送该请求；上下文状态明确标为 `estimated`。估算覆盖 instructions、工具定义、完整 input、图片及不透明推理内容，并保留输出和安全预留；它不是供应商 tokenizer 的精确值，不透明内容按本地大小估计可能提前触发整理或拒绝超预算请求。普通 OpenAI Responses 仍使用供应商计数。
+
+Responses 可按已有开关启用远端 `responses/compact`，完整保存并原样回传 compaction item；默认不开启，不因供应商选择而自动启用。整理失败仅在原窗口完整且预算可容纳时回退，原始历史不删除；本地估算及安全边界继续生效。Chat Completions 使用现有本地语义摘要。
+
+本轮不开放 xAI 已弃用的 Messages、内置 Web/X 搜索、xAI 服务端多智能体、媒体生成、文件服务或后台任务接口。真实供应商能力以接口返回为准，模型目录可能包含非对话模型。版本号与数据库 schema 不变；原生修改需完全退出托盘后重新运行 `npm run tauri dev` 编译。测试使用临时存储和回环模拟服务，未调用真实 xAI Key、模型或用户 SSH；真实上游和桌面视觉需另行验收。
+
+依据：[Responses](https://docs.x.ai/developers/rest-api-reference/inference/responses)、[Chat Completions](https://docs.x.ai/developers/rest-api-reference/inference/chat-completions)、[推理强度](https://docs.x.ai/developers/model-capabilities/text/reasoning)、[模型目录](https://docs.x.ai/developers/rest-api-reference/inference/models)、[上下文整理](https://docs.x.ai/developers/advanced-api-usage/context-compaction)、[弃用接口](https://docs.x.ai/developers/rest-api-reference/inference/legacy)。
+
+
+本轮定向验证：前端 82 项，Rust provider 单元 45 项、模型目录 19 项、工具续聊 12 项、本地摘要 21 项、Responses 24 项，桌面 Grok IPC 1 项通过，共 204 项。Grok 工具续聊覆盖两协议、JSON/SSE 与默认/low/medium/high/xhigh 共 20 个场景，校验鉴权、原始续接、工具执行一次、无计数接口请求及日志隔离；Responses 专项验证本地估算来源、远端整理、原始历史保留和整理后续聊。TypeScript、Vite 生产构建和 Rust 生产库严格 Clippy 通过。

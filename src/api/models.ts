@@ -1,7 +1,7 @@
 import { builtinRequest } from './builtin';
 import { sshUserId } from './ssh';
 
-export type ModelSupplier = 'openai' | 'anthropic' | 'google' | 'deepseek' | 'glm' | 'qwen' | 'kimi';
+export type ModelSupplier = 'openai' | 'anthropic' | 'google' | 'deepseek' | 'glm' | 'qwen' | 'kimi' | 'grok';
 export type ModelConfig = {
   supplier?: ModelSupplier;
   provider: 'openAiCompatible'|'openAiResponses'|'anthropicMessages'|'googleGemini'; remoteCompaction?: boolean; baseUrl: string; completionsPath: string; model: string;

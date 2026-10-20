@@ -224,3 +224,17 @@ test('收起面板不展示回到底部按钮，恢复中的请求保留加载�
  assert.match(p.find(n=>n.props['aria-label']==='回到最新回复').props.className,/is-generating/);
  p.props.collapsed=true;p.render();assert.equal(p.find(n=>n.props['aria-label']==='回到最新回复'),undefined);
 });
+
+test('Busy conversations can select the next model and edit its reasoning without redirecting attachment reads',()=>{
+ const p=panel();p.props.busy=true;p.props.history.activeSessionId='chat-A';p.props.selectedModel='next-model';
+ p.props.execution={agentId:'running-model',sessionId:'chat-A'};p.props.reasoning={revision:1,onSavingChange(){}};
+ p.props.messages=[{id:'user',role:'user',text:'question',attachments:[{id:'file',fileName:'a.txt',size:1}]}];
+ let cancelled=0;p.props.nextModel={modelId:'next-model',saving:false,cancel:()=>cancelled++,retry(){}};p.render();
+ const picker=p.find(n=>n.props.models&&n.props.value==='next-model');assert.equal(picker.props.disabled,false);
+ const reasoning=p.find(n=>n.props.modelId==='next-model');assert.equal(reasoning.props.disabled,false);
+ const attachment=p.find(n=>n.props.files&&n.props.scope?.sessionId==='chat-A');assert.equal(attachment.props.scope.agentId,'running-model');
+ assert.ok(p.find(n=>n.props.className==='composer-next-model'));
+ p.find(n=>n.type==='button'&&n.props.children==='取消切换').props.onClick();assert.equal(cancelled,1);
+ p.props.nextModel={...p.props.nextModel,error:'模型暂不可用'};p.render();assert.ok(p.find(n=>n.props.className==='composer-next-model has-error'));
+ assert.ok(p.find(n=>n.type==='button'&&n.props.children==='重试'));
+});

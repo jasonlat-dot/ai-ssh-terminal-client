@@ -15,6 +15,7 @@ import { agentApi } from './api/agent';
 import type { AgentConfig, AgentStreamEvent, AgentHistory, ExecutionPolicy } from './api/agent';
 import type { AgentContextStatus } from './api/agentContext';
 import { readAgentHistory, turnMessages } from './state/agentHistory';
+import { NextConversationModels } from './state/nextConversationModels';
 import { ConversationRuns } from './state/conversationRuns';
 import type { ConversationOutcome } from './state/conversationRuns';
 import {
@@ -145,6 +146,8 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
   }, [visibleKey, terminalLayout]);
   const [commands, setCommands] = useState(initialCommands);
   const [category, setCategory] = useState('全部');
+  const [nextModels] = useState(() => new NextConversationModels());
+  const nextModelRevision=useSyncExternalStore(nextModels.subscribe,nextModels.getSnapshot);
   const [chatRuns] = useState(() => new ConversationRuns());
   const runRevision = useSyncExternalStore(chatRuns.subscribe, chatRuns.getSnapshot);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -156,6 +159,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
   const selectedAgentRef=useRef(selectedAgent);
   selectedAgentRef.current=selectedAgent;
   const [agentModels, setAgentModels] = useState<AgentConfig[]>([]);
+  const agentModelsRef=useRef(agentModels);agentModelsRef.current=agentModels;
   const [reasoningSaving, setReasoningSavingState] = useState(false);
   const reasoningSavingRef = useRef(false);
   const setReasoningSaving = useCallback((saving: boolean) => { reasoningSavingRef.current = saving; setReasoningSavingState(saving); }, []);
@@ -487,7 +491,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     setDraftExecutionPolicy('confirm');
     chatDraft.clear(); replaceMessages([]);
   }, [selectedAgent?.agentId, chatDraft, replaceMessages]);
-  useEffect(() => () => chatRuns.dispose(), [chatRuns]);
+  useEffect(() => {nextModels.activate();return()=>{chatRuns.dispose();nextModels.dispose();};}, [chatRuns,nextModels]);
   useEffect(() => {
     if (selectedAgent?.agentId) void refreshChatSessions(selectedAgent.agentId);
   }, [selectedAgent?.agentId, refreshChatSessions]);
@@ -975,7 +979,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
 
   const prepareForClientUpdate = async () => {
     if (closingApp.current) throw new Error('应用正在关闭，请稍后重试。');
-    if (chatRuns.active.length || chatBusy || chatStopping || broadcastBusy || manualCompactionAbort.current) throw new Error('请先结束智能体回复、上下文压缩或命令提交，再安装更新。');
+    if (nextModels.saving || chatRuns.active.length || chatBusy || chatStopping || broadcastBusy || manualCompactionAbort.current) throw new Error('请先结束智能体回复、上下文压缩或命令提交，再安装更新。');
     if (clientHistoryDirty.current && messagesRef.current.length) {
       if (!selectedAgent?.agentId || !activeChatSessionId) throw new Error('当前对话尚未保存，请先确认历史记录已保存。');
       await persistClientSession(selectedAgent.agentId, activeChatSessionId);
@@ -1036,7 +1040,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     &&canonicalHistory?.session.scope?.kind==='server'
     &&!!executionTerminal(canonicalHistory.session,sessions,canonicalHistory.session.task?.target?.terminalSessionId??'');
   const sendMessage = async (text: string, selectedAttachments: ChatAttachment[] = [], placed?:()=>void): Promise<boolean> => {
-    if (reasoningSavingRef.current || manualCompactionAbort.current) return false;
+    if (reasoningSavingRef.current || manualCompactionAbort.current || nextModels.get(chatSessionId.current)) return false;
     if (!text.trim() && !selectedAttachments.length) return false;
     if (chatting.current || chatRuns.get(chatSessionId.current) || stopPending.current || scopeSwitchRef.current || historyLoadingId || recoveredRunning || agentLoading || agentLoadError) return false;
     // Fix this turn's references before any session creation or network await.
@@ -1321,12 +1325,13 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
           }
         } catch (error) { if(visible())notify(error instanceof Error ? error.message : '重读持久历史失败', 'error'); }
       }
-      if(visible()) {
+      await applyNextModel(run.sessionId);
+      if(chatSessionId.current===run.sessionId && chatRuns.get(run.sessionId)===run) {
         if(chatAbort.current===controller)chatAbort.current=null;
         if(chatRequestId.current===assistantId)chatRequestId.current='';
         chatting.current=false;stopPending.current=false;
         setChatBusy(false);setChatStopping(false);
-        void refreshChatSessions(run.agentId);
+        void refreshChatSessions(selectedAgentRef.current?.agentId??run.agentId);
       }
       chatRuns.finish(run,outcome,viewedConversation.current===run.sessionId&&!document.hidden);
       setProjectRevision(v=>v+1);
@@ -1402,10 +1407,29 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
   // Keep loading separate from the guarded public selection entry point.
   const loadChatSession = async (sessionId: string, agentId=selectedAgent?.agentId) => {
     if (!agentId || manualCompactionAbort.current || (chatting.current&&!chatSessionId.current)) return;
+    agentId=nextModels.currentId(sessionId,agentId);
     const selection = ++historySelection.current;
     setHistoryLoadingId(sessionId);
     try {
-      const nativeHistory = rustBuiltin ? await readAgentHistory(after => agentApi.history(agentId, sessionId, after)) : null;
+      let nativeHistory:AgentHistory|null=null;
+      if(rustBuiltin){
+        // A background model commit can overtake the sidebar's older model ID.
+        // Wait for that exact session, then reload if its identity changed in flight.
+        for(;;){
+          await nextModels.settled(sessionId);
+          if(selection!==historySelection.current)return;
+          agentId=nextModels.currentId(sessionId,agentId);
+          const requestedId=agentId;
+          try{nativeHistory=await readAgentHistory(after=>agentApi.history(requestedId,sessionId,after));}
+          catch(error){
+            await nextModels.settled(sessionId);
+            if(nextModels.currentId(sessionId,agentId)===agentId)throw error;
+            continue;
+          }
+          await nextModels.settled(sessionId);
+          if(nextModels.currentId(sessionId,agentId)===agentId)break;
+        }
+      }
       const history = nativeHistory ? turnMessages(nativeHistory.turns) : await loadClientChatSession({
         backendUrl,
         userId: agentApi.userId,
@@ -1515,7 +1539,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     void load();
     return()=>{controller.abort();if(timer)clearTimeout(timer);};
   },[activeChatSessionId,selectedAgent?.agentId,canonicalHistory?.session.revision,chatBusy,contextReload,rustBuiltin,manualCompacting]);
-  const projectLocked=chatBusy||chatStopping||recoveredRunning||scopeSwitching||Boolean(historyLoadingId)||reasoningSaving||manualCompacting;
+  const projectLocked=!!nextModels.get(activeChatSessionId)?.saving||chatBusy||chatStopping||recoveredRunning||scopeSwitching||Boolean(historyLoadingId)||reasoningSaving||manualCompacting;
   const manualCompactionReason=!activeChatSessionId||!canonicalHistory?.turns.length?'发送消息、产生历史后才能压缩上下文。'
     : chatBusy||chatStopping||recoveredRunning?'请等待当前回答和工具执行结束后再主动压缩。'
       : scopeSwitching||historyLoadingId||reasoningSaving?'请等待会话或模型设置准备完成。'
@@ -1580,24 +1604,52 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
       });
     }finally{scopeSwitchRef.current=false;setScopeSwitching(false);}
   };
+  const applyNextModel=async(sessionId:string)=>{
+    if(!sessionId||!nextModels.get(sessionId)||nextModels.disposed)return true;
+    const lifecycle=nextModels.lifecycle;
+    return nextModels.apply(sessionId,async(previousId,nextId,attemptedId)=>{
+      let current:AgentHistory;
+      try{current=await readAgentHistory(after=>agentApi.history(previousId,sessionId,after));}
+      catch(error){
+        // A lost native change receipt may already have committed the target model.
+        // Reconcile by reading that exact session; never resend a conversation turn.
+        const candidateId=attemptedId??nextId;
+        try{current=await readAgentHistory(after=>agentApi.history(candidateId,sessionId,after));}
+        catch{throw error;}
+        if(current.session.agentId!==candidateId)throw error;
+      }
+      if(nextModels.disposed||nextModels.lifecycle!==lifecycle)return;
+      const session=current.session.agentId===nextId?current.session:await agentApi.changeModel(current.session.agentId??previousId,sessionId,nextId,current.session.revision);
+      if(nextModels.disposed||nextModels.lifecycle!==lifecycle)return;
+      if(chatSessionId.current===sessionId){
+        const model=agentModelsRef.current.find(item=>item.agentId===nextId)??{agentId:nextId,agentName:'模型配置待刷新',agentDesc:''};
+        skipModelReset.current=nextId;selectedAgentRef.current=model;setSelectedAgent(model);
+        setCanonicalHistory({...current,session});setContextSnapshot(null);setContextError('');
+      }
+      setProjectRevision(value=>value+1);
+    });
+  };
+  // Recovered native turns have no local stream finalizer; apply when polling sees them finish.
+  useEffect(()=>{
+    const choice=nextModels.get(activeChatSessionId);
+    if(choice&&!choice.saving&&!choice.error&&!chatBusy&&!recoveredRunning&&!historyLoadingId&&!scopeSwitching)
+      void applyNextModel(activeChatSessionId);
+  },[nextModelRevision,activeChatSessionId,chatBusy,recoveredRunning,historyLoadingId,scopeSwitching]);
   const changeConversationModel=async(id:string)=>{
-    if(projectLocked||scopeSwitchRef.current||chatting.current||stopPending.current||reasoningSavingRef.current||manualCompactionAbort.current)return;
+    if(scopeSwitchRef.current||historyLoadingId||reasoningSavingRef.current||manualCompactionAbort.current)return;
     const model=agentModels.find(item=>item.agentId===id);
     const previous=selectedAgentRef.current;
-    if(!model||model.agentId===previous?.agentId)return;
+    if(!model||!previous)return;
     const sessionId=chatSessionId.current;
-    scopeSwitchRef.current=true;setScopeSwitching(true);
-    try{
-      if(rustBuiltin&&sessionId&&previous){
-        const current=canonicalHistory?.session.id===sessionId?canonicalHistory:await agentApi.history(previous.agentId,sessionId);
-        const session=await agentApi.changeModel(previous.agentId,sessionId,model.agentId,current.session.revision);
-        setCanonicalHistory(old=>old?.session.id===sessionId?{...old,session}:{...current,session});
-      }
-      skipModelReset.current=model.agentId;
-      selectedAgentRef.current=model;setSelectedAgent(model);
-      setContextSnapshot(null);setContextError('');setProjectRevision(value=>value+1);
-    }catch(error){notify(error instanceof Error?error.message:'切换模型失败，当前记录和模型保持原样。','error');}
-    finally{scopeSwitchRef.current=false;setScopeSwitching(false);}
+    if(rustBuiltin&&sessionId){
+      nextModels.select(sessionId,previous.agentId,id);
+      if(!chatting.current&&!stopPending.current&&!recoveredRunning)await applyNextModel(sessionId);
+      return;
+    }
+    if(chatting.current||stopPending.current)return;
+    if(model.agentId===previous.agentId)return;
+    skipModelReset.current=model.agentId;selectedAgentRef.current=model;setSelectedAgent(model);
+    setContextSnapshot(null);setContextError('');setProjectRevision(value=>value+1);
   };
   const newProjectChat=async(p:AgentProject|null,model=selectedAgent)=>{
     if(projectLocked||scopeSwitchRef.current)return false;
@@ -1649,7 +1701,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     {backendSettingsOpen && <BackendSettingsDialog currentUrl={backendUrl}
       section={settingsSection}
       modelsChanged={() => setAgentLoadAttempt(value => value + 1)} modelSettingsRequested={modelSettingsRequested}
-      modelSettingsLocked={!!chatRuns.active.length || chatBusy || chatStopping || recoveredRunning || reasoningSaving || manualCompacting}
+      activeModelIds={new Set([...chatRuns.active.map(run=>run.agentId),...(recoveredRunning&&selectedAgent?[selectedAgent.agentId]:[])])} modelSettingsLocked={reasoningSaving || manualCompacting} extensionsLocked={!!chatRuns.active.length || chatBusy || chatStopping || recoveredRunning || reasoningSaving || manualCompacting}
       onClose={() => { setModelSettingsRequested(false); setBackendSettingsOpen(false); clearUpdateSettingsRequest(); }}
       showUpdates={updateSettingsRequested}
       beforeClientUpdate={prepareForClientUpdate}
@@ -1807,8 +1859,9 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
         await agentApi.steer(agentId,sessionId,requestId,id,text);
       }:undefined}
       clear={rustBuiltin ? ()=>void newProjectChat(activeProject) : clearChat}
-      disabled={Boolean(historyLoadingId) || scopeSwitching || reasoningSaving || manualCompacting}
-      models={rustBuiltin ? agentModels : undefined} selectedModel={selectedAgent?.agentId}
+      disabled={Boolean(historyLoadingId) || scopeSwitching || reasoningSaving || manualCompacting || !!nextModels.get(activeChatSessionId)?.saving}
+      models={rustBuiltin ? agentModels : undefined} selectedModel={nextModels.get(activeChatSessionId)?.modelId??selectedAgent?.agentId}
+      nextModel={nextModels.get(activeChatSessionId)?{...nextModels.get(activeChatSessionId)!,retry:()=>void applyNextModel(activeChatSessionId),cancel:()=>void changeConversationModel(selectedAgentRef.current?.agentId??'')}:undefined}
       reasoning={rustBuiltin ? { revision: agentLoadAttempt, onSavingChange: setReasoningSaving } : undefined}
       selectModel={id => {void changeConversationModel(id);}}
       openModelSettings={() => { setSettingsSection('models');setModelSettingsRequested(true); setBackendSettingsOpen(true); }}

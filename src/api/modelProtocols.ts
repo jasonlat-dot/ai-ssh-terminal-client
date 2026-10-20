@@ -35,7 +35,7 @@ export function applyModelProtocol(config: ModelConfig, provider: ModelConfig['p
   const temperature = protocol.temperatureSupported === false || config.temperature !== null && config.temperature > protocol.temperatureMax ? null : config.temperature;
   const reasoningEffort = protocol.effortOptions.some(option => option.value === config.reasoningEffort) ? config.reasoningEffort : null;
   return { ...config, provider, supplier, completionsPath: protocol.path, remoteCompaction: false,
-    outputTokenParameter: protocol.fixedOutput !== null && protocol.fixedOutput !== 'max_output_tokens' ? 'maxTokens' : config.outputTokenParameter,
+    outputTokenParameter: protocol.fixedOutput === 'max_completion_tokens' ? 'maxCompletionTokens' : protocol.fixedOutput !== null && protocol.fixedOutput !== 'max_output_tokens' ? 'maxTokens' : config.outputTokenParameter,
     temperature, reasoningEffort,
     capabilities: {...config.capabilities, temperature: temperature !== null,
       reasoningEffort: reasoningEffort !== null},
@@ -74,6 +74,10 @@ export const modelSuppliers: Record<ModelSupplier, SupplierDescriptor> = {
       effortHint:'默认不发送；低、高、最高用于支持强度的模型。思考与正文共用最大输出，需预留足够空间。'},
     protocolOverrides:{openAiCompatible:{effortOptions:[defaultEffort,{value:'none',label:'关闭',description:'需模型支持'},{value:'enabled',label:'开启',description:'不指定强度'},...kimiEfforts.slice(1)],
       effortHint:'默认不发送；开启/关闭用于支持开关的 K2.x，低/高/最高用于 K3。强制思考模型不能关闭，不支持档位的模型请保持默认。'}}},
+  grok: {label:'Grok / xAI',defaultProtocol:'openAiResponses',protocols:['openAiResponses','openAiCompatible'],basePlaceholder:'https://api.x.ai/v1',
+    overrides:{description:'使用 xAI Grok，支持对话、图片和工具调用；推荐 Responses 保留加密推理续接。',effortOptions:[defaultEffort,...sharedEfforts],
+      effortHint:'默认不发送；低、中、高、很高需模型支持。较早或固定思考模型请保持默认，不支持关闭思考。'},
+    protocolOverrides:{openAiCompatible:{fixedOutput:'max_completion_tokens'},openAiResponses:{description:'xAI Responses；本地估算输入 token，支持加密推理续接及可选远端整理。'}}},
 };
 export function modelSupplier(config: {supplier?: ModelSupplier; provider: ModelConfig['provider']}): ModelSupplier {
   return config.supplier ?? modelProtocols[config.provider].supplier;

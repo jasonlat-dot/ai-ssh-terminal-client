@@ -133,3 +133,14 @@ test('Qwen 输入框支持独立开启思考和模型档位，保存保留供应
   for(const value of ['none','enabled','low','medium','xhigh','']) {ui.control.props.onChange(value);await ui.settle();assert.equal(ui.saved.at(-1)[2].supplier,'qwen');assert.equal(ui.saved.at(-1)[2].reasoningEffort,value||null);assert.equal(ui.saved.at(-1)[3].action,'keep');}
  }
 });
+
+
+test('Grok 推理强度按模型持久保存，默认省略，两个协议均不展示思考开关',async()=>{
+ for(const provider of ['openAiResponses','openAiCompatible']) {
+  const ui=harness(provider);ui.setProfile({config:{...ui.profile.config,supplier:'grok'}});ui.render();await ui.settle();
+  assert.deepEqual(Array.from(ui.control.props.options,o=>o.value),['','low','medium','high','xhigh']);
+  for(const value of ['low','medium','high','xhigh','']) {
+   ui.control.props.onChange(value);await ui.settle();assert.equal(ui.profile.config.reasoningEffort,value||null);
+  }
+ }
+});

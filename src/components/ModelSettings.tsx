@@ -28,7 +28,7 @@ function ModelField({ id, label, hint, children, wide = false, badge, icon, tone
   </div>;
 }
 
-export function ModelSettings({ changed, locked = false }: { changed?: () => void; locked?: boolean }) {
+export function ModelSettings({ changed, locked = false, activeModelIds }: { changed?: () => void; locked?: boolean; activeModelIds?:ReadonlySet<string> }) {
   const [profiles, setProfiles] = useState<ModelChannel[]>([]);
   const [issues, setIssues] = useState<ModelChannelIssue[]>([]);
   const [pinnedIds, setPinnedIds] = useState(() => loadModelPins(sshUserId));
@@ -102,16 +102,17 @@ export function ModelSettings({ changed, locked = false }: { changed?: () => voi
         ? items.map(profile => profile.id === saved.id ? saved : profile)
         : [...items, saved]);
       setEditorOpen(false); setKey(''); setError('');
-      notify(saved.ready ? '模型配置已保存，连接将在发送消息时验证。' : '模型配置已保存；配置 API Key 后即可对话。', 'success'); changed?.();
+      notify(saved.ready ? '模型配置已保存，后续请求生效；运行中的任务继续使用原配置。' : '模型配置已保存；配置 API Key 后即可对话。', 'success'); changed?.();
     } catch (cause) { setError(cause instanceof Error ? cause.message : '保存失败'); }
     finally { setBusy(false); }
   };
+  const activeChannel=(profile:ModelChannel)=>!!activeModelIds&&(profile.models?.some(model=>activeModelIds.has(model.id))||activeModelIds.has(profile.id));
   const requestDelete = (profile: ModelChannel) => {
-    if (disabled) return;
+    if (disabled||activeChannel(profile)) return;
     setDeleteError(''); setDeleting(profile);
   };
   const remove = async () => {
-    if (!deleting || disabled) return;
+    if (!deleting || disabled || activeChannel(deleting)) return;
     setBusy(true); setDeleteError('');
     try {
       await modelApi.deleteChannel(deleting.id, deleting.revision);
@@ -148,7 +149,7 @@ export function ModelSettings({ changed, locked = false }: { changed?: () => voi
         </div>
       </div>}
       {loadError && <button type="button" className="outlined-button" disabled={disabled} onClick={() => void reload()}>重新加载模型配置</button>}
-      {locked && <div className="model-feedback" role="status"><Icon name="history" size={16}/><span>请等待回复结束或停止生成后再修改模型。</span></div>}
+      {locked && <div className="model-feedback" role="status"><Icon name="history" size={16}/><span>正在保存推理设置或整理上下文，请稍后修改配置。</span></div>}
       {!loading && !loadError && issues.length > 0 && <section className="model-config-issues" aria-label="异常模型配置">
         <header><Icon name="alert" size={16}/><strong>{issues.length} 个渠道存在异常配置</strong><span>其他正常模型可继续使用</span></header>
         {issues.map(issue => <article key={issue.id}><div><strong>{issue.displayName || issue.id}</strong><code>配置 ID：{issue.id}</code></div><p>{issue.message}</p></article>)}
@@ -167,7 +168,7 @@ export function ModelSettings({ changed, locked = false }: { changed?: () => voi
                 <Badge tone="violet" className="model-profile-budget" title={`${profile.config.contextWindow.toLocaleString()} tokens`}>{`${tokenCountFormat.format(profile.config.contextWindow)} tokens`}</Badge>
               </div>
               <div className="model-profile-connection"><Badge tone="neutral" icon="network" className="model-profile-endpoint" title={profile.config.baseUrl}><span>{profile.config.baseUrl}</span></Badge></div>
-              <footer><button type="button" className="model-pin" aria-pressed={pinned} aria-label={`${pinned ? '取消置顶' : '置顶'} ${profile.displayName ?? profile.id}`} disabled={busy || loading} onClick={() => togglePin(profile.id)}><Icon name="pin" size={14}/>{pinned ? '取消置顶' : '置顶'}</button><button type="button" className="model-edit outlined-button" aria-label={`编辑 ${profile.displayName ?? profile.id}`} disabled={disabled} onClick={() => select(profile)}><Icon name="edit" size={14}/>编辑</button><button type="button" className="model-card-delete" aria-label={`删除 ${profile.displayName ?? profile.id}`} disabled={disabled} onClick={() => requestDelete(profile)}><Icon name="trash" size={14}/>删除</button></footer>
+              <footer><button type="button" className="model-pin" aria-pressed={pinned} aria-label={`${pinned ? '取消置顶' : '置顶'} ${profile.displayName ?? profile.id}`} disabled={busy || loading} onClick={() => togglePin(profile.id)}><Icon name="pin" size={14}/>{pinned ? '取消置顶' : '置顶'}</button><button type="button" className="model-edit outlined-button" aria-label={`编辑 ${profile.displayName ?? profile.id}`} disabled={disabled} onClick={() => select(profile)}><Icon name="edit" size={14}/>编辑</button><button type="button" className="model-card-delete" aria-label={`删除 ${profile.displayName ?? profile.id}`} title={activeChannel(profile)?'此配置正在运行任务，可编辑；结束后可删除。':undefined} disabled={disabled||activeChannel(profile)} onClick={() => requestDelete(profile)}><Icon name="trash" size={14}/>删除</button></footer>
             </article>;
           })}</div>}
       </div>
@@ -176,7 +177,7 @@ export function ModelSettings({ changed, locked = false }: { changed?: () => voi
       {editorOpen && <Modal title={editing ? '编辑模型配置' : '新建模型配置'} icon="bot" iconTone="violet" className="model-config-dialog" active={!deleting} dismissDisabled={busy} onClose={closeEditor}>
         <form className="model-editor" autoComplete="off" onSubmit={event => { event.preventDefault(); if (!disabled) void save(); }}>
           <div className="model-editor-scroll">
-            {locked && <div className="model-feedback" role="status"><Icon name="history" size={16}/><span>请等待回复结束或停止生成后再修改模型。</span></div>}
+            {locked && <div className="model-feedback" role="status"><Icon name="history" size={16}/><span>正在保存推理设置或整理上下文，请稍后修改配置。</span></div>}
           <fieldset disabled={disabled}>
             <div className="model-form-columns"><div className="model-form-column">
             <section className="model-form-section"><div className="model-section-title"><AccentIcon icon="network" tone="blue" size={17}/><h4>模型渠道</h4><Badge tone="violet" icon="bot">模型</Badge></div>
@@ -238,7 +239,7 @@ export function ModelSettings({ changed, locked = false }: { changed?: () => voi
           </div>
           <p>删除后将无法使用此配置，已有历史会话会保留。</p>
         </div>
-        <footer><button type="button" data-autofocus className="outlined-button" disabled={busy} onClick={() => setDeleting(null)}>取消</button><button type="button" className="danger-button" disabled={disabled} onClick={() => void remove()}>{busy ? '正在删除…' : '确认删除'}</button></footer>
+        <footer><button type="button" data-autofocus className="outlined-button" disabled={busy} onClick={() => setDeleting(null)}>取消</button><button type="button" className="danger-button" disabled={disabled||activeChannel(deleting)} onClick={() => void remove()}>{busy ? '正在删除…' : '确认删除'}</button></footer>
       </Modal>}
     </div>, document.body)}
   </section>;

@@ -169,3 +169,20 @@ test('Qwen 双协议供应商默认值、独立开关与强度目录，切换清
  }
  assert.equal(applyModelProtocol(config,'openAiResponses').supplier,undefined);assert.equal(original.reasoningEffort,'max');
 });
+
+
+test('Grok 默认 Responses，双协议使用 xAI 参数目录并保留自定义模型和代理',()=>{
+ const original={...newModelConfig(),model:'alias',baseUrl:'https://proxy.test/custom/',reasoningEffort:'enabled' as const};
+ const config=applyModelSupplier(original,'grok');assert.equal(config.supplier,'grok');assert.equal(config.provider,'openAiResponses');assert.equal(config.completionsPath,'responses');
+ assert.equal(config.model,original.model);assert.equal(config.baseUrl,original.baseUrl);assert.equal(config.reasoningEffort,null);
+ assert.deepEqual(supplierProtocolOptions('grok').map(o=>o.value),['openAiResponses','openAiCompatible']);
+ for(const provider of ['openAiResponses','openAiCompatible'] as const){
+  const next=applyModelProtocol({...config,temperature:1.8,reasoningEffort:'xhigh'},provider);
+  assert.equal(next.supplier,'grok');assert.equal(next.temperature,1.8);assert.equal(next.reasoningEffort,'xhigh');
+  assert.equal(modelBasePlaceholder(next),'https://api.x.ai/v1');assert.deepEqual(modelProtocolInfo(next).effortOptions.map(o=>o.value),['','low','medium','high','xhigh']);
+  assert.equal(modelProtocolInfo(next).fixedOutput,provider==='openAiResponses'?'max_output_tokens':'max_completion_tokens');
+  assert.equal(next.outputTokenParameter,'maxCompletionTokens');
+ }
+ assert.equal(applyModelProtocol(config,'anthropicMessages').supplier,undefined);assert.equal(applyModelSupplier(config,'openai').supplier,undefined);
+ assert.equal(original.reasoningEffort,'enabled');
+});

@@ -5,6 +5,7 @@ import vm from 'node:vm';
 import ts from 'typescript';
 import { restoreProjectConversation } from '../src/state/projectConversation.ts';
 import { readAgentHistory, turnMessages } from '../src/state/agentHistory.ts';
+import { NextConversationModels } from '../src/state/nextConversationModels.ts';
 import { ConversationRuns } from '../src/state/conversationRuns.ts';
 
 // Exercise the real sidebar orchestration and history loader together. Testing
@@ -34,7 +35,7 @@ function harness(read = async id => history(id)) {
     selectedAgent: { agentId: 'model' }, selectedAgentRef: { current: { agentId: 'model' } }, agentModels: [], skipModelReset: { current: '' },
     chatting: { current: false }, stopPending: { current: false }, scopeSwitchRef, manualCompactionAbort: { current: null }, reasoningSavingRef: { current: false },
     historySelection: { current: 0 }, chatVersion: { current: 0 }, chatSessionId: { current: 'original' }, chatTarget: { current: null },
-    rustBuiltin: true, projectLocked: false, historySwitchLocked:false, chatRuns:new ConversationRuns(), readAgentHistory, turnMessages, restoreProjectConversation,
+    rustBuiltin: true, historyLoadingId:"", nextModels:new NextConversationModels(),projectLocked: false, historySwitchLocked:false, chatRuns:new ConversationRuns(), readAgentHistory, turnMessages, restoreProjectConversation,
     agentApi: { history: async (model, id) => { state.reads.push({ model, id, locked: scopeSwitchRef.current }); return read(id); } },
     chatDraft: { clear: () => { state.clears++; } },
     setHistoryLoadingId: id => { state.loading = id; }, setCanonicalHistory: value => { state.canonical = value; },

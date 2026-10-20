@@ -192,7 +192,7 @@ function sessionTime(value: ClientChatSession['updatedAt']): string {
 }
 
 export type AgentComposerHandle = { addText: (text: string, source: ChatTextExcerpt['source']) => boolean };
-export function AgentPanel({ ref, memoryScope, onMemoryNotice, sshConnections, chatDraft, draftScope, host, connected, localTerminal, targetLabel, scopeControls, composerProject, messages, busy, stopping, send, steer, stop, clear, disabled, agentAvailability, history, collapsed, models, selectedModel, selectModel, openModelSettings, reasoning, recoveredRunning, stopRecovered, refreshCurrent, contextStatus=null, contextError, refreshContext, manualCompaction, execution, onApprovalChange }: {
+export function AgentPanel({ ref, memoryScope, onMemoryNotice, sshConnections, chatDraft, draftScope, host, connected, localTerminal, targetLabel, scopeControls, composerProject, messages, busy, stopping, send, steer, stop, clear, disabled, agentAvailability, history, collapsed, models, selectedModel, nextModel, selectModel, openModelSettings, reasoning, recoveredRunning, stopRecovered, refreshCurrent, contextStatus=null, contextError, refreshContext, manualCompaction, execution, onApprovalChange }: {
   memoryScope?: MemoryScope;
   onMemoryNotice?: (message: string) => void;
   sshConnections?: { open: boolean; toggle: () => void };
@@ -220,6 +220,7 @@ export function AgentPanel({ ref, memoryScope, onMemoryNotice, sshConnections, c
   history: HistoryControls;
   collapsed: boolean;
   models?: AgentConfig[]; selectedModel?: string; selectModel?: (id: string) => void; openModelSettings?: () => void;
+  nextModel?:{modelId:string;saving:boolean;error?:string;retry:()=>void;cancel:()=>void};
   reasoning?: { revision: number; onSavingChange: (saving: boolean) => void };
   contextStatus?: ContextStatus|null; contextError?:string; refreshContext?:()=>void; manualCompaction?:ManualCompactionControl;
   recoveredRunning?: boolean; stopRecovered?: () => void; refreshCurrent?: () => void;
@@ -667,7 +668,7 @@ export function AgentPanel({ ref, memoryScope, onMemoryNotice, sshConnections, c
 
         {messages.map((message, index) => message.role === 'user'
           ? <div className={`user-message-group${highlightedMessageId === message.id ? ' chat-message-jump-highlight' : ''}`} key={message.id} ref={node => { if (node) messageRefs.current.set(message.id, node); else messageRefs.current.delete(message.id); }}>
-            {!!message.attachments?.length && <MessageAttachments files={message.attachments} scope={models&&history.activeSessionId?{agentId:selectedModel??'',sessionId:history.activeSessionId}:undefined} />}
+            {!!message.attachments?.length && <MessageAttachments files={message.attachments} scope={models&&history.activeSessionId?{agentId:execution?.agentId??selectedModel??'',sessionId:history.activeSessionId}:undefined} />}
             {(message.text || message.inputPending) && <div className="user-message">{message.text && <div>{message.text}</div>}{message.inputPending&&<small className="pending-input-note">补充已保存，尚未被当前轮接收；不会自动重新执行</small>}</div>}
             <div className="message-copy-actions chat-message-meta request"><MessageTime timestamp={message.timestamp} now={messageNow} hint={text=>tooltipEvents(`message-time:${message.id}`,text,false)}/><button type="button" className="chat-restore-request" aria-label="恢复请求" {...tooltipEvents(`restore:${message.id}`,'恢复到输入框',locked)} disabled={locked} onClick={() => {
               closeActionTooltip();
@@ -725,6 +726,12 @@ export function AgentPanel({ ref, memoryScope, onMemoryNotice, sshConnections, c
         <Icon name="tabs" size={14}/><div className="composer-queue-content"><span title={item.text}>{item.text||`${item.files.length} 个附件`}</span>{item.state!=='queued'&&<small>{item.state==='submitting'?'正在提交补充…':item.state==='submitted'?'已提交 · 等待当前轮接收':item.error}</small>}</div>
         {item.state!=='submitted'&&item.state!=='submitting'&&<><button type="button" title={item.state==='unconfirmed'?'使用相同消息 ID 核对提交，不会重复追加':'提交补充信息，不中断模型运行'} aria-label={item.state==='unconfirmed'?'核对提交':'立即提交'} disabled={editingLocked||stopping||((busy||sending)&&!steer)} onClick={()=>void submitQueued(item)}><Icon name="arrowUp" size={14}/><span>{item.state==='unconfirmed'?'核对':'引导'}</span></button><button type="button" aria-label="编辑排队消息" title="移回输入框编辑" disabled={editingLocked||item.state==='unconfirmed'||!!draft||!!attachments.length} onClick={()=>{setDraft(item.text);chatDraft.attach(item.files);setQueue(previous=>previous.filter(value=>value.id!==item.id));textareaRef.current?.focus();}}><Icon name="edit" size={14}/></button><button type="button" aria-label="删除排队消息" disabled={editingLocked||item.state==='unconfirmed'} onClick={()=>setQueue(previous=>previous.filter(value=>value.id!==item.id))}><Icon name="trash" size={14}/></button></>}
       </div>)}</section>}
+    {nextModel&&<div className={'composer-next-model'+(nextModel.error?' has-error':'')} role="status">
+      <Icon name={nextModel.error?'alert':'bot'} size={13}/>
+      <span>{nextModel.error?`模型切换失败：${nextModel.error}`:nextModel.saving?'正在切换下一轮模型…':'下一轮使用所选模型，本轮继续使用原模型。'}</span>
+      {nextModel.error&&<button type="button" onClick={nextModel.retry}>重试</button>}
+      {!nextModel.saving&&<button type="button" onClick={nextModel.cancel}>{nextModel.error?'保留原模型':'取消切换'}</button>}
+    </div>}
     <div ref={setApprovalTarget} className="composer-approval-slot" hidden={!approvalPending}/>
     {approvalPending&&execution&&<div className="composer-approval-policy" ref={setPolicyTarget}/>}
     <form className={`chat-composer${approvalPending?' is-awaiting-approval':''}`} aria-hidden={collapsed||approvalPending} inert={approvalPending} onSubmit={event => { event.preventDefault(); void submit(); }}>
@@ -776,8 +783,8 @@ export function AgentPanel({ ref, memoryScope, onMemoryNotice, sshConnections, c
         {!!attachments.length && <span className="composer-attachment-note">{attachments.length}/4 · 合计 ≤ 20 MB · 发送时解析</span>}
         {execution&&<div className="composer-policy-slot" ref={approvalPending?undefined:setPolicyTarget}/>}
         {models && <div className="agent-model-controls composer-model-controls">
-          <div className="agent-model-picker"><ModelPicker models={models} value={selectedModel??''} disabled={busy||stopping||disabled||!!recoveredRunning} onChange={value=>selectModel?.(value)}/></div>
-          {reasoning && <ComposerReasoningControl modelId={selectedModel ?? ''} revision={reasoning.revision} disabled={locked || !!recoveredRunning} onSavingChange={reasoning.onSavingChange} />}
+          <div className="agent-model-picker"><ModelPicker models={models} value={selectedModel??''} disabled={disabled||((busy||stopping)&&!history.activeSessionId)} onChange={value=>selectModel?.(value)}/></div>
+          {reasoning && <ComposerReasoningControl modelId={selectedModel ?? ''} revision={reasoning.revision} disabled={disabled || (busy&&!history.activeSessionId)} onSavingChange={reasoning.onSavingChange} />}
           <button className="agent-model-settings-button" type="button" aria-label="模型设置" title="模型设置" onClick={openModelSettings}><Icon name="settings" size={15}/></button>
           <AgentContextStatus status={contextStatus} error={contextError} retry={refreshContext} manual={manualCompaction}/>
         </div>}

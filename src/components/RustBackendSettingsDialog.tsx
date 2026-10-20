@@ -29,10 +29,10 @@ export type RustSettingsSection = SettingsSection;
 type Props = {
   currentUrl: string; required?: boolean; onClose: () => void; onSave: (url: string) => void;
   beforeClientUpdate?: () => Promise<void>; showUpdates?: boolean;
-  modelsChanged?: () => void; modelSettingsRequested?: boolean; modelSettingsLocked?: boolean;
+  modelsChanged?: () => void; modelSettingsRequested?: boolean; modelSettingsLocked?: boolean; extensionsLocked?: boolean; activeModelIds?:ReadonlySet<string>;
   section?: RustSettingsSection;
 };
-export function RustBackendSettingsDialog({required=false,onClose,onSave,beforeClientUpdate,showUpdates=false,modelsChanged,modelSettingsRequested=false,modelSettingsLocked=false,section}:Props) {
+export function RustBackendSettingsDialog({required=false,onClose,onSave,beforeClientUpdate,showUpdates=false,modelsChanged,modelSettingsRequested=false,modelSettingsLocked=false,extensionsLocked=modelSettingsLocked,activeModelIds,section}:Props) {
   const desktop=isTauriRuntime();
   const [tab,setTab]=useState<RustSettingsSection>(showUpdates?'updates':section??(modelSettingsRequested?'models':'general'));
   const [config,setConfig]=useState<BundledBackendConfig|null>(null);
@@ -131,8 +131,8 @@ export function RustBackendSettingsDialog({required=false,onClose,onSave,beforeC
       <div className="settings-content-panel" data-section={tab==='models'?'model':tab}><section className={`settings-content ${tab==='models'?'rust-model-content':''}`} data-section={tab==='models'?'model':tab}>
         {tab==='appearance'&&<AppearanceSettings/>}
         {tab==='updates'&&<ClientUpdateSettings beforeInstall={beforeClientUpdate}/>}
-        {tab==='extensions'&&<AgentExtensionSettings locked={modelSettingsLocked}/>}
-        {tab==='models'&&<ModelSettings changed={modelsChanged} locked={modelSettingsLocked}/>}
+        {tab==='extensions'&&<AgentExtensionSettings locked={extensionsLocked}/>}
+        {tab==='models'&&<ModelSettings changed={modelsChanged} locked={modelSettingsLocked} activeModelIds={activeModelIds}/>}
         {tab==='general'&&<section className="workspace-preferences" aria-labelledby="workspace-preferences-title">
           <header className="workspace-preferences-heading">
             <div><IconHeading as="h2" id="workspace-preferences-title" icon="workspace" tone="blue">本地工作区</IconHeading><p>管理运行状态、数据目录与附件存储。</p></div>

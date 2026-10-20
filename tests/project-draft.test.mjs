@@ -5,6 +5,7 @@ import vm from 'node:vm';
 import ts from 'typescript';
 import {executionTerminal,prepareExecutionBinding} from '../src/state/executionBinding.ts';
 import {isSessionConnected} from '../src/state/terminalSessions.ts';
+import {NextConversationModels} from '../src/state/nextConversationModels.ts';
 import {ConversationRuns} from '../src/state/conversationRuns.ts';
 
 const app=ts.createSourceFile('App.tsx',readFileSync(new URL('../src/App.tsx',import.meta.url),'utf8'),ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX);
@@ -12,8 +13,9 @@ function action(name,globals){
  let arrow;
  function visit(node){if(ts.isVariableDeclaration(node)&&node.name.getText(app)===name)arrow=node.initializer;ts.forEachChild(node,visit);}
  visit(app);assert.ok(arrow,`${name} exists`);
- const code=ts.transpileModule(`exports.action=${arrow.getText(app)}`,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;
- const context=vm.createContext({exports:{},crypto,AbortController,DOMException,console,Error,Date,...globals});vm.runInContext(code,context);return context.exports.action;
+ let apply;function findApply(node){if(ts.isVariableDeclaration(node)&&node.name.getText(app)==='applyNextModel')apply=node.initializer.getText(app);ts.forEachChild(node,findApply);}findApply(app);
+ const code=ts.transpileModule(`const applyNextModel=${apply};exports.action=${arrow.getText(app)}`,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;
+ const context=vm.createContext({exports:{},crypto,AbortController,DOMException,console,Error,Date,historyLoadingId:"",recoveredRunning:false,nextModels:new NextConversationModels(),agentModelsRef:{current:globals.agentModels??[]},readAgentHistory:async reader=>reader(),...globals});vm.runInContext(code,context);return context.exports.action;
 }
 const model={agentId:'model',agentName:'test',toolsAvailable:true};
 const project={id:'project',name:'server',connectionId:'saved-ssh'};
@@ -25,8 +27,8 @@ test('Changing a model reuses a saved conversation after native commit without c
  const switchModel=action('changeConversationModel',{
   projectLocked:false,scopeSwitchRef:{current:false},chatting:{current:false},stopPending:{current:false},reasoningSavingRef:{current:false},manualCompactionAbort:{current:null},
   agentModels:[model,next],selectedAgentRef:selected,chatSessionId:{current:'same-chat'},rustBuiltin:true,canonicalHistory:history,skipModelReset:skip,
-  setScopeSwitching(){},setCanonicalHistory:update=>{history=update(history);},setSelectedAgent:value=>{selectedState=value;},setContextSnapshot(){},setContextError(){},setProjectRevision:update=>{revision=update(revision);},
-  agentApi:{changeModel:async(...args)=>{calls.push(args);assert.equal(selectedState,model,'UI only changes after native commit');return{...history.session,agentId:'next',revision:8};},history:()=>assert.fail('already loaded')},
+  setScopeSwitching(){},setCanonicalHistory:update=>{history=typeof update==='function'?update(history):update;},setSelectedAgent:value=>{selectedState=value;},setContextSnapshot(){},setContextError(){},setProjectRevision:update=>{revision=update(revision);},
+  agentApi:{changeModel:async(...args)=>{calls.push(args);assert.equal(selectedState,model,'UI only changes after native commit');return{...history.session,agentId:'next',revision:8};},history:async()=>history},
   notify:message=>assert.fail(message),clearChat:()=>assert.fail('must retain conversation'),newProjectChat:()=>assert.fail('must not create a chat'),
  });
  await switchModel('next');assert.equal(history.session.id,'same-chat');assert.equal(history.session.agentId,'next');assert.equal(history.turns[0].message,'keep history');
@@ -34,13 +36,13 @@ test('Changing a model reuses a saved conversation after native commit without c
 });
 
 test('Failed model change preserves the current model and conversation',async()=>{
- const next={...model,agentId:'next'},selected={current:model},skip={current:''},gate={current:false},notices=[];let locked=false;
+ const next={...model,agentId:'next'},selected={current:model},skip={current:''},gate={current:false},notices=[],nextModels=new NextConversationModels();let locked=false;
  const switchModel=action('changeConversationModel',{
-  projectLocked:false,scopeSwitchRef:gate,chatting:{current:false},stopPending:{current:false},reasoningSavingRef:{current:false},manualCompactionAbort:{current:null},agentModels:[model,next],selectedAgentRef:selected,chatSessionId:{current:'same'},rustBuiltin:true,canonicalHistory:{session:{id:'same',revision:3}},skipModelReset:skip,
+  projectLocked:false,scopeSwitchRef:gate,chatting:{current:false},stopPending:{current:false},reasoningSavingRef:{current:false},manualCompactionAbort:{current:null},nextModels,agentModels:[model,next],selectedAgentRef:selected,chatSessionId:{current:'same'},rustBuiltin:true,canonicalHistory:{session:{id:'same',revision:3}},skipModelReset:skip,
   setScopeSwitching:value=>{locked=value;},setCanonicalHistory:()=>assert.fail('do not replace history'),setSelectedAgent:()=>assert.fail('keep original model'),
-  agentApi:{changeModel:async()=>{assert.equal(locked,true);throw Error('context changed');}},notify:message=>notices.push(message),
+  agentApi:{history:async()=>({session:{id:'same',revision:3}}),changeModel:async()=>{assert.equal(nextModels.get('same').saving,true);throw Error('context changed');}},notify:message=>notices.push(message),
  });
- await switchModel('next');assert.equal(selected.current,model);assert.equal(skip.current,'');assert.equal(locked,false);assert.equal(gate.current,false);assert.deepEqual(notices,['context changed']);
+ await switchModel('next');assert.equal(selected.current,model);assert.equal(skip.current,'');assert.equal(locked,false);assert.equal(gate.current,false);assert.deepEqual(notices,[]);assert.equal(nextModels.get('same').error,'context changed');
 });
 
 test('Selecting a project connects but never creates or opens a persistent history session',async()=>{

@@ -260,3 +260,10 @@
 
 .chat-message-meta .chat-message-time { border-radius:3px; cursor:default; }
 .chat-message-meta .chat-message-time:focus-visible { outline:2px solid var(--ui-accent); outline-offset:3px; }
+
+.composer-next-model { display:flex; align-items:center; gap:7px; margin:0 12px 7px; padding:7px 10px; border-radius:8px; background:var(--ui-primary-bg,#e7f0ff); color:var(--ui-primary-text,#245b9e); font-size:12px; line-height:1.5; }
+.composer-next-model > svg { flex-shrink:0; }
+.composer-next-model > span { flex:1; min-width:0; overflow-wrap:anywhere; }
+.composer-next-model button { flex-shrink:0; padding:2px 5px; border:0; border-radius:4px; background:transparent; color:inherit; font:inherit; cursor:pointer; }
+.composer-next-model button:hover { background:color-mix(in srgb,currentColor 9%,transparent); }
+.composer-next-model.has-error { background:color-mix(in srgb,var(--red,#d94b50) 8%,var(--theme-panel)); color:var(--red,#d94b50); }

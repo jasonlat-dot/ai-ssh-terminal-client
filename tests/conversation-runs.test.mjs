@@ -3,12 +3,13 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
 import ts from 'typescript';
+import { NextConversationModels } from '../src/state/nextConversationModels.ts';
 import { ConversationRuns } from '../src/state/conversationRuns.ts';
 import { ChatRequestError } from '../src/api/chatErrors.ts';
 
 // Execute the actual App actions together, with delayed streams and storage.
 const source=ts.createSourceFile('App.tsx',readFileSync(new URL('../src/App.tsx',import.meta.url),'utf8'),ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX);
-const names=new Set(['sendMessage','stopChat','loadChatSession','selectChatSession','prepareForClientUpdate']);
+const names=new Set(['sendMessage','stopChat','loadChatSession','selectChatSession','prepareForClientUpdate','applyNextModel','changeConversationModel']);
 const actions=[];
 function visit(node){if(ts.isVariableDeclaration(node)&&names.has(node.name.getText(source)))actions.push(`const ${node.getText(source)};`);ts.forEachChild(node,visit);}
 visit(source);
@@ -23,6 +24,7 @@ function harness({native=false}={}){
  const chatRuns=new ConversationRuns();
  let context;
  const globals={exports:{},viewedConversation:{current:'A'},document:{hidden:false},crypto,AbortController,DOMException,Date,Error,console,setTimeout,clearTimeout,ChatRequestError,
+  nextModels:new NextConversationModels(),agentModelsRef:{current:[model,other]},
   chatRuns,selectedAgent:model,selectedAgentRef:{current:model},agentModels:[model,other],chatSessionId:{current:'A'},chatVersion:{current:0},
   messagesRef:{current:[]},chatting:{current:false},stopPending:{current:false},chatAbort:{current:null},chatRequestId:{current:''},
   reasoningSavingRef:{current:false},manualCompactionAbort:{current:null},scopeSwitchRef:{current:false},historyLoadingId:'',recoveredRunning:false,agentLoading:false,agentLoadError:'',
@@ -38,7 +40,7 @@ function harness({native=false}={}){
   persistClientSession:async(model,id,messages)=>{saved.push({model,id,messages:structuredClone(messages)});},refreshChatSessions:async()=>{},
   loadClientChatSession:async()=>[],readAgentHistory:async reader=>reader(),turnMessages:turns=>turns,
   notify:(message,type)=>notices.push({message,type}),closingApp:{current:false},chatBusy:false,chatStopping:false,broadcastBusy:false,cleanupBeforeClose:()=>assert.fail('background tasks must block installation'),
-  agentApi:{userId:'default',history:async(model,id)=>histories.get(id)??{session:{id,task:null},turns:[],messages:[]},
+  agentApi:{userId:'default',changeModel:async(previous,id,next,revision)=>({id,agentId:next,revision:revision+1,task:null}),history:async(model,id)=>histories.get(id)??{session:{id,task:null},turns:[],messages:[]},
    chatStream:async(body,receive,signal)=>{
     const done=deferred();streams.set(body.sessionId,{body,receive,signal,done});
     signal.addEventListener('abort',()=>done.reject(new DOMException('Aborted','AbortError')),{once:true});
@@ -187,4 +189,76 @@ test('Loading unread history in a hidden window does not mark it as viewed',asyn
  assert.equal(ui.chatRuns.unreadResults.get('A'),'success');ui.context.document.hidden=true;
  await ui.open('A');assert.equal(ui.chatRuns.unreadResults.get('A'),'success');
  ui.context.document.hidden=false;await ui.open('A');assert.equal(ui.chatRuns.unreadResults.has('A'),false);
+});
+
+test('Choosing a model during generation leaves the current stream intact and changes only the next turn',async()=>{
+ const ui=harness({native:true}),changes=[];
+ ui.context.agentApi.changeModel=async(previous,id,next,revision)=>{changes.push([previous,id,next,revision]);return{id,agentId:next,revision:2,task:null};};
+ const a=ui.sendMessage('original turn');await tick();const stream=ui.streams.get('A');
+ await ui.changeConversationModel('model-B');assert.equal(changes.length,0);assert.equal(ui.context.selectedAgent.agentId,'model-A');
+ assert.equal(ui.context.nextModels.get('A').modelId,'model-B');assert.equal(stream.signal.aborted,false);
+ stream.receive({event:'text',content:'original answer'});assert.equal(ui.state.messages.at(-1).text,'original answer');
+ stream.done.resolve();await a;assert.equal(changes.length,1);assert.equal(changes[0][0],'model-A');assert.equal(changes[0][2],'model-B');
+ assert.equal(ui.context.selectedAgent.agentId,'model-B');assert.equal(ui.state.busy,false);assert.equal(ui.context.nextModels.get('A'),undefined);
+ assert.equal(ui.state.messages.at(-1).text,'original answer');
+ const next=ui.sendMessage('next turn');await tick();assert.equal(ui.streams.get('A').body.agentId,'model-B');ui.streams.get('A').done.resolve();await next;
+});
+
+test('A queued model transition completes in the background without changing the conversation being viewed',async()=>{
+ const ui=harness({native:true});const a=ui.sendMessage('A');await tick();const stream=ui.streams.get('A');
+ await ui.changeConversationModel('model-B');await ui.open('B');
+ stream.done.resolve();await a;assert.equal(ui.context.selectedAgent.agentId,'model-A');assert.equal(ui.state.sessionId,'B');assert.equal(ui.state.busy,false);
+ assert.deepEqual(ui.state.messages,[]);
+ // The sidebar may still hold the old model ID when the user returns.
+ await ui.open('A','model-A');assert.equal(ui.context.selectedAgent.agentId,'model-B');
+});
+
+test('A failed next-model transition retains the original model and blocks queued sends until retry or cancellation',async()=>{
+ const ui=harness({native:true});let fail=true;
+ ui.context.agentApi.changeModel=async(previous,id,next)=>{if(fail)throw Error('模型暂不可用');return{id,agentId:next,revision:2,task:null};};
+ const a=ui.sendMessage('A');await tick();await ui.changeConversationModel('model-B');ui.streams.get('A').done.resolve();await a;
+ assert.equal(ui.context.selectedAgent.agentId,'model-A');assert.equal(ui.context.nextModels.get('A').error,'模型暂不可用');
+ assert.equal(await ui.sendMessage('must remain queued'),false);
+ fail=false;await ui.changeConversationModel('model-B');assert.equal(ui.context.nextModels.get('A'),undefined);assert.equal(ui.context.selectedAgent.agentId,'model-B');
+});
+
+test('Selecting the original model before completion cancels the queued switch',async()=>{
+ const ui=harness({native:true});let changes=0;ui.context.agentApi.changeModel=async()=>{changes++;throw Error('must not switch');};
+ const a=ui.sendMessage('A');await tick();await ui.changeConversationModel('model-B');await ui.changeConversationModel('model-A');
+ assert.equal(ui.context.nextModels.get('A'),undefined);ui.streams.get('A').done.resolve();await a;assert.equal(changes,0);
+});
+
+test('A lost model-change receipt reconciles the native session on retry without changing or sending twice',async()=>{
+ const ui=harness({native:true});let native='model-A',changes=0;
+ ui.context.agentApi.history=async(model,id)=>{if(model!==native)throw Error('session model changed');return{session:{id,agentId:native,revision:2},turns:[]};};
+ ui.context.agentApi.changeModel=async()=>{changes++;native='model-B';throw Error('receipt lost');};
+ await ui.changeConversationModel('model-B');assert.equal(ui.context.nextModels.get('A').error,'receipt lost');assert.equal(ui.context.selectedAgent.agentId,'model-A');
+ await ui.changeConversationModel('model-B');assert.equal(ui.context.nextModels.get('A'),undefined);assert.equal(ui.context.selectedAgent.agentId,'model-B');
+ assert.equal(changes,1);assert.equal(ui.streams.size,0);
+});
+
+test('Cancelling after a lost change receipt restores the native original model before clearing the pending selection',async()=>{
+ const ui=harness({native:true}),changes=[];let native='model-A';
+ ui.context.agentApi.history=async(model,id)=>{if(model!==native)throw Error('session model changed');return{session:{id,agentId:native,revision:2},turns:[]};};
+ ui.context.agentApi.changeModel=async(previous,id,next)=>{changes.push([previous,next]);native=next;if(changes.length===1)throw Error('receipt lost');return{id,agentId:native,revision:3};};
+ await ui.changeConversationModel('model-B');await ui.changeConversationModel('model-A');
+ assert.deepEqual(changes,[['model-A','model-B'],['model-B','model-A']]);assert.equal(ui.context.nextModels.get('A'),undefined);
+ assert.equal(native,'model-A');assert.equal(ui.context.selectedAgent.agentId,'model-A');assert.equal(ui.streams.size,0);
+});
+
+test('An idle background model transition still blocks installation until its native result is confirmed',async()=>{
+ const ui=harness({native:true}),wait=deferred();
+ ui.context.agentApi.changeModel=async(previous,id,next)=>{await wait.promise;return{id,agentId:next,revision:2};};
+ const switching=ui.changeConversationModel('model-B');await tick();await ui.open('B');
+ await assert.rejects(ui.prepareForClientUpdate(),/请先结束/);wait.resolve();await switching;
+ assert.equal(ui.context.nextModels.saving,false);assert.equal(ui.state.sessionId,'B');
+});
+
+test('An in-flight sidebar load cannot restore the old model after a background model commit overtakes it',async()=>{
+ const ui=harness({native:true}),wait=deferred();await ui.open('B');let first=true;
+ ui.context.agentApi.history=async(model,id)=>{if(id==='A'&&first){first=false;await wait.promise;return{session:{id,agentId:'model-A',revision:1},turns:[]};}return{session:{id,agentId:model,revision:2},turns:[]};};
+ const opening=ui.open('A','model-A');await tick();
+ ui.context.nextModels.select('A','model-A','model-B');await ui.applyNextModel('A');wait.resolve();await opening;
+ assert.equal(ui.context.selectedAgent.agentId,'model-B');assert.equal(ui.state.canonical.session.agentId,'model-B');
+ assert.equal(ui.state.sessionId,'A');assert.equal(ui.streams.size,0);
 });

@@ -431,7 +431,7 @@ test('供应商菜单保留兼容名称，卡片仅显示品牌图标与协议�
   assert.equal(ui.find(node=>node.props.className==='model-profile-budget').props.title,'256,000 tokens');
   assert.doesNotMatch(ui.text(),/管理对话使用|配置保存后/);
   ui.openEdit();const supplier=ui.find(node=>node.props.id==='model-supplier'&&node.props.options);
-  assert.deepEqual(supplier.props.options.map(item=>item.label),['OpenAI 兼容','Anthropic 兼容','Google 兼容','DeepSeek','GLM / 智谱','Qwen / 通义千问','Kimi / Moonshot']);
+  assert.deepEqual(supplier.props.options.map(item=>item.label),['OpenAI 兼容','Anthropic 兼容','Google 兼容','DeepSeek','GLM / 智谱','Qwen / 通义千问','Kimi / Moonshot','Grok / xAI']);
   assert.ok(supplier.props.options.every(item=>!item.description));
   assert.equal(supplier.props.renderIcon('anthropic').props.supplier,'anthropic');
   assert.equal(ui.find(node=>node.props.className==='model-provider-description'),undefined);
@@ -569,4 +569,36 @@ test('各供应商与协议地址留空可保存，保存使用提示默认值�
   ui.find(node=>node.type==='form').props.onSubmit({preventDefault(){}});await ui.settle();
   assert.equal(ui.saved.length,1);assert.equal(ui.saved[0][2].baseUrl,url.props.placeholder);assert.equal(ui.saved[0][2].provider,provider);
  }
+});
+
+
+test('Grok 双协议保存恢复，供应商与渠道名称并且筛选，保留密钥、代理和多模型',async()=>{
+ for(const provider of ['openAiResponses','openAiCompatible']) {
+  const config=protocolUi.applyModelProtocol({...protocolUi.applyModelSupplier(newModelConfig(),'grok'),baseUrl:'https://proxy.test/custom/',temperature:0.7,reasoningEffort:'xhigh'},provider);
+  const items=[{id:'grok-channel',displayName:'我的 Grok',revision:2,config,models:[{id:'grok-model',model:'alias'},{id:'grok-model-2',model:'alias-2'}],apiKeyConfigured:true,ready:true},
+   {id:'other',displayName:'Grok 中转',revision:1,config:{...newModelConfig(),model:'test'},models:[{id:'other-model',model:'test'}],apiKeyConfigured:true,ready:true}];
+  const ui=settings(undefined,{autoOpen:false,items});ui.render();await ui.settle();
+  ui.find(n=>n.props.id==='model-catalog-supplier'&&n.props.options).props.onChange('grok');ui.render();
+  const search=ui.find(n=>n.props['aria-label']==='搜索供应商 / 渠道名称');search.props.onChange({target:{value:'我的'}});ui.render();
+  assert.equal(ui.find(n=>n.props.className==='model-profile-grid').props.children.length,1);ui.openEdit();
+  assert.equal(ui.find(n=>n.props.id==='model-supplier'&&n.props.value).props.value,'grok');
+  assert.equal(ui.find(n=>n.props.id==='model-protocol'&&n.props.options).props.value,provider);
+  assert.deepEqual(Array.from(ui.find(n=>n.props.id==='model-effort'&&n.props.options).props.options,o=>o.value),['','low','medium','high','xhigh']);
+  ui.find(n=>n.type==='form').props.onSubmit({preventDefault(){}});await ui.settle();
+  assert.equal(ui.saved[0][2].supplier,'grok');assert.equal(ui.saved[0][2].provider,provider);assert.equal(ui.saved[0][2].baseUrl,config.baseUrl);
+  assert.equal(ui.saved[0][2].temperature,0.7);assert.equal(ui.saved[0][2].reasoningEffort,'xhigh');assert.equal(ui.saved[0][3].action,'keep');assert.equal(ui.saved[0][5].length,2);
+ }
+});
+
+test('运行中的渠道仍可编辑配置，删除只保护实际使用的渠道，其他渠道保持可用',async()=>{
+ const config={...newModelConfig(),model:'model-one'};
+ const ui=settings(undefined,{autoOpen:false,items:[{id:'active-channel',revision:1,displayName:'运行渠道',config,models:[{id:'active-model',model:'model-one'}],ready:true,apiKeyConfigured:true},
+  {id:'idle-channel',revision:1,displayName:'其他渠道',config,models:[{id:'idle-model',model:'model-one'}],ready:true,apiKeyConfigured:true}]});
+ ui.props.activeModelIds=new Set(['active-model']);ui.render();await ui.settle();
+ assert.equal(ui.find(n=>n.props['aria-label']==='编辑 运行渠道').props.disabled,false);
+ const remove=ui.find(n=>n.props['aria-label']==='删除 运行渠道');assert.equal(remove.props.disabled,true);remove.props.onClick();ui.render();
+ assert.equal(ui.find(n=>n.props.title==='删除渠道配置？'),undefined);
+ assert.equal(ui.find(n=>n.props['aria-label']==='删除 其他渠道').props.disabled,false);
+ ui.find(n=>n.props['aria-label']==='编辑 运行渠道').props.onClick();ui.render();
+ ui.find(n=>n.type==='form').props.onSubmit({preventDefault(){}});await ui.settle();assert.equal(ui.saved.length,1);assert.equal(ui.saved[0][0],'active-channel');
 });
