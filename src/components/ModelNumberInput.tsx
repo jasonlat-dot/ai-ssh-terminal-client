@@ -51,7 +51,7 @@ const settings = {
   retention: {presets:[0,7,30,90,180,365].map(value=>({value,short:value===0?'长期':`${value} 天`,label:value===0?'长期保留':`${value} 天`,description:value===0?'不自动删除':'自动清理过期附件'})),min:0,max:3650},
 };
 
-type Props = { id: string; label: string; disabled: boolean; maximum?: number } & (
+type Props = { id: string; label: string; disabled: boolean; maximum?: number; step?: number } & (
   { kind: 'temperature'; value: number | null; onChange: (value: number | null) => void }
   | { kind: Exclude<keyof typeof settings, 'temperature'>; value: number; onChange: (value: number) => void }
 );
@@ -74,7 +74,7 @@ export function ModelNumberInput(props: Props) {
   return <div className={`model-token-input${disabled ? ' is-disabled' : ''}`}>
     <input id={id} className="settings-control model-token-value" type="number" inputMode={kind === 'temperature' ? 'decimal' : 'numeric'}
       min={min} max={max}
-      step={kind === 'temperature' ? 0.1 : 1} value={selectedValue} placeholder={kind === 'temperature' ? '不发送' : undefined} disabled={disabled} onChange={event => change(event.target.value)} />
+      step={props.step ?? (kind === 'temperature' ? 0.1 : 1)} value={selectedValue} placeholder={kind === 'temperature' ? '不发送' : undefined} disabled={disabled} onChange={event => change(event.target.value)} />
     <Select id={`${id}-preset`} label={`${label}常用档位`} className="model-token-presets"
       value={selectedValue} displayValue={selected?.short ?? '自定义'} options={options}
       menuMinWidth={264} menuAlign="end" menuClassName="model-token-menu" disabled={disabled} onChange={change} />

@@ -92,3 +92,11 @@ test('GLM 的渠道、具体模型和当前值一致使用智谱图标，与兼�
  assert.deepEqual(ui.all().filter(node=>node.props.role==='menuitem').map(group=>ui.all(group).find(node=>node.props.supplier).props.supplier),['glm','openai']);
  assert.ok(ui.all().filter(node=>node.props.role==='menuitemradio').every(row=>ui.all(row).find(node=>node.props.supplier).props.supplier==='glm'));
 });
+
+test('Qwen 品牌在渠道分组、模型行和当前模型展示一致，选择仍使用稳定模型 ID',()=>{
+ const ui=harness();ui.props.models=ui.props.models.map(model=>({...model,provider:'openAiCompatible',supplier:model.channelId==='a'?'qwen':undefined}));
+ ui.render();assert.equal(ui.all(ui.trigger).find(node=>node.props.supplier).props.supplier,'qwen');
+ ui.trigger.props.onClick();ui.render();ui.render();
+ assert.deepEqual(ui.all().filter(node=>node.props.role==='menuitem').map(group=>ui.all(group).find(node=>node.props.supplier).props.supplier),['qwen','openai']);
+ assert.ok(ui.all().filter(node=>node.props.role==='menuitemradio').every(row=>ui.all(row).find(node=>node.props.supplier).props.supplier==='qwen'));
+});

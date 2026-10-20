@@ -61,7 +61,7 @@ test('查询失败用 Toast，保留输入、已有结果和重试入口；空�
   fail=true;view.click('重新查询');await view.settle();assert.match(view.errors[0],/404/);assert.equal(view.props.value,'manual-model');assert.ok(view.find(n=>view.text(n)==='重新查询'));
 });
 test('地址、供应商、密钥和启用状态变化时取消旧查询；迟到结果不能回填',async()=>{
-  for(const change of [p=>{p.query={...p.query,supplier:'glm'};},p=>{p.query={...p.query,supplier:'deepseek'};},p=>{p.query={...p.query,baseUrl:'https://other.test/v1/'};},p=>{p.query={...p.query,provider:'googleGemini'};},p=>{p.query={...p.query,apiKey:{action:'set',value:'changed-key'}};},p=>{p.query={...p.query,requireApiKey:false};}]) {
+  for(const change of [p=>{p.query={...p.query,supplier:'qwen'};},p=>{p.query={...p.query,supplier:'glm'};},p=>{p.query={...p.query,supplier:'deepseek'};},p=>{p.query={...p.query,baseUrl:'https://other.test/v1/'};},p=>{p.query={...p.query,provider:'googleGemini'};},p=>{p.query={...p.query,apiKey:{action:'set',value:'changed-key'}};},p=>{p.query={...p.query,requireApiKey:false};}]) {
     let resolve;const view=ui(()=>new Promise(done=>{resolve=done;}));view.click('查询上游模型');const signal=view.calls[0][1];
     change(view.props);view.render();view.render();assert.ok(signal.aborted);resolve(entries);await view.settle();assert.equal(view.find(n=>n.props['aria-label']==='添加 model-a'),undefined);assert.equal(view.props.value,'manual-model');
   }

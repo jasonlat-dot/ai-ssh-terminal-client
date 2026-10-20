@@ -389,7 +389,7 @@ test('供应商菜单保留兼容名称，卡片仅显示品牌图标与协议�
   assert.equal(ui.find(node=>node.props.className==='model-profile-budget').props.title,'256,000 tokens');
   assert.doesNotMatch(ui.text(),/管理对话使用|配置保存后/);
   ui.openEdit();const supplier=ui.find(node=>node.props.id==='model-supplier'&&node.props.options);
-  assert.deepEqual(supplier.props.options.map(item=>item.label),['OpenAI 兼容','Anthropic 兼容','Google 兼容','DeepSeek','GLM / 智谱']);
+  assert.deepEqual(supplier.props.options.map(item=>item.label),['OpenAI 兼容','Anthropic 兼容','Google 兼容','DeepSeek','GLM / 智谱','Qwen / 通义千问']);
   assert.ok(supplier.props.options.every(item=>!item.description));
   assert.equal(supplier.props.renderIcon('anthropic').props.supplier,'anthropic');
   assert.equal(ui.find(node=>node.props.className==='model-provider-description'),undefined);
@@ -492,6 +492,24 @@ test('GLM 双协议配置保存及恢复，供应商和名称并且筛选，保�
   ui.find(node=>node.type==='form').props.onSubmit({preventDefault(){}});await ui.settle();
   assert.equal(ui.saved[0][0],'glm');assert.equal(ui.saved[0][1],3);assert.equal(ui.saved[0][2].supplier,'glm');
   assert.equal(ui.saved[0][2].provider,provider);assert.equal(ui.saved[0][2].baseUrl,config.baseUrl);assert.equal(ui.saved[0][3].action,'keep');
+ }
+});
+
+test('Qwen 双协议编辑恢复及保存，供应商与名称并且筛选，密钥和代理保留',async()=>{
+ for(const provider of ['openAiCompatible','anthropicMessages']) {
+  const config={...protocolUi.applyModelSupplier(newModelConfig(),'qwen'),provider,model:'alias',baseUrl:'https://proxy.test/qwen/'};
+  const ui=settings(undefined,{items:[{id:'qwen',revision:3,displayName:'千问生产',ready:true,apiKeyConfigured:true,config},
+    {id:'openai',revision:1,displayName:'千问测试',ready:true,apiKeyConfigured:true,config:{...newModelConfig(),model:'alias'}}],autoOpen:false});ui.render();await ui.settle();
+  ui.find(node=>node.props.id==='model-catalog-supplier'&&node.props.options).props.onChange('qwen');ui.render();
+  assert.equal(ui.find(node=>node.type==='article').props['aria-label'],'千问生产');assert.ok(ui.find(node=>node.props.supplier==='qwen'));
+  const search=value=>{ui.find(node=>node.props['aria-label']==='搜索供应商 / 渠道名称').props.onChange({target:{value}});ui.render();};
+  search('测试');assert.equal(ui.find(node=>node.type==='article'),undefined);search('生产');ui.openEdit();
+  assert.equal(ui.find(node=>node.props.id==='model-supplier'&&node.props.options).props.value,'qwen');assert.equal(ui.find(node=>node.props.id==='model-protocol'&&node.props.options).props.value,provider);
+  const temperature=ui.find(node=>node.props.id==='model-temperature'&&node.props.kind==='temperature');assert.equal(temperature.props.maximum,1.99);assert.equal(temperature.props.step,0.01);temperature.props.onChange(1.99);ui.render();
+  ui.find(node=>node.props.id==='model-effort'&&node.props.options).props.onChange('enabled');ui.render();
+  ui.find(node=>node.type==='form').props.onSubmit({preventDefault(){}});await ui.settle();
+  const saved=ui.saved[0];assert.equal(saved[0],'qwen');assert.equal(saved[1],3);assert.equal(saved[2].supplier,'qwen');assert.equal(saved[2].reasoningEffort,'enabled');
+  assert.equal(saved[2].provider,provider);assert.equal(saved[2].baseUrl,config.baseUrl);assert.equal(saved[2].temperature,1.99);assert.equal(saved[3].action,'keep');
  }
 });
 

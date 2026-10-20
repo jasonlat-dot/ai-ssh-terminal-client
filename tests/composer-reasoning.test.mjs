@@ -113,3 +113,12 @@ test('GLM 双协议输入框推理保存保留供应商与 Key，拒绝不支持
   for(const value of ['none','low','high','max','']) {ui.control.props.onChange(value);await ui.settle();assert.equal(ui.saved.at(-1)[2].supplier,'glm');assert.equal(ui.saved.at(-1)[2].reasoningEffort,value||null);assert.equal(ui.saved.at(-1)[3].action,'keep');}
  }
 });
+
+test('Qwen 输入框支持独立开启思考和模型档位，保存保留供应商与已存 Key',async()=>{
+ for(const provider of ['openAiCompatible','anthropicMessages']) {
+  const ui=harness(provider);ui.setProfile({config:{...ui.profile.config,supplier:'qwen'}});ui.render();await ui.settle();
+  assert.deepEqual(Array.from(ui.control.props.options,option=>option.value),['','none','enabled','low','medium','xhigh']);
+  for(const value of ['minimal','high','max'])ui.control.props.onChange(value);await ui.settle();assert.equal(ui.saved.length,0);
+  for(const value of ['none','enabled','low','medium','xhigh','']) {ui.control.props.onChange(value);await ui.settle();assert.equal(ui.saved.at(-1)[2].supplier,'qwen');assert.equal(ui.saved.at(-1)[2].reasoningEffort,value||null);assert.equal(ui.saved.at(-1)[3].action,'keep');}
+ }
+});

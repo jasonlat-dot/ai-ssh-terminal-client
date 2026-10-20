@@ -449,3 +449,26 @@ DeepSeek 定向验收结果：前端供应商/配置/筛选/品牌/模型发现�
 包含原生代码修改，需要完全退出托盘程序后重新运行 `npm run tauri dev`。本轮使用回环模拟服务、临时数据库和合成测试 Key；真实 GLM / 中转与桌面视觉需另行验收，未打包或发布。
 
 GLM 本轮定向验证：前端 77 项、Rust provider/目录/工具续聊/摘要共 74 项、桌面 IPC 1 项通过；GLM 续聊覆盖两协议的 JSON/SSE 和五种思考设置。TypeScript、Vite 构建、Rust 生产库严格 Clippy 通过；版本仍为 0.2.2 / schema 24。
+
+## Qwen / 通义千问（2026-10-20）
+
+供应商选择“Qwen / 通义千问”，支持同一渠道配置多个模型、供应商与名称并且筛选、置顶、会话内模型切换和已存 Key 留空复用。设置、模型菜单与当前模型均使用本地紫色 Qwen 图标。旧 OpenAI 兼容配置不会按模型名或域名自动转换。
+
+| 协议 | 默认基础地址 | 相对路径 | 对话鉴权 |
+| --- | --- | --- | --- |
+| Chat Completions | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `chat/completions` | Bearer |
+| Messages | `https://dashscope.aliyuncs.com/apps/anthropic/v1` | `messages` | x-api-key |
+
+默认使用百炼国内北京公共端点。官方同时支持业务空间专属域名及不同地域，需填写对应地址并使用同地域 Key；显式地址保持原样，空草稿仅显示 placeholder，保存/查询时才解析默认地址。ShellPilot 的 Messages 相对路径为 `messages`，因此填写的基础地址需含 `/v1`，与 Anthropic SDK 自动补 `/v1` 的写法不同。
+
+输出使用 `max_tokens`，温度范围为 `[0,2)`（表单按 0.01 步长，最高 1.99）。推理菜单为默认、关闭、开启、低、中、很高：默认不覆盖上游；关闭/开启只发送思考开关，不附加档位；后三项发送模型支持的 `low` / `medium` / `xhigh`。Chat 使用顶层 `enable_thinking` 与 `reasoning_effort`，Messages 使用 `thinking.type` 与 `output_config.effort`，不会发送 SDK 专用 `extra_body` 包装或凭空设置思考 token 预算。不支持档位的较早模型可仅选择开启，不支持思考的模型请保持默认；模型实际能力由上游决定。
+
+Qwen 策略统一使用 SSE；收集完整回复、工具规划及本地语义摘要也通过流式传输后组装结果，以支持只接受流式思考调用的模型。保留取消、超时、大小限制、完整结束帧校验和单次工具执行边界，不因失败自动重试。Chat 思考原文、Messages 思考块与空签名按原始顺序回传，按供应商/协议/地址/模型/凭据隔离；思考不会混进正文或日志。不会全局发送 `preserve_thinking` 等仅部分模型支持的扩展参数。
+
+模型目录按官方完整后缀 `/compatible-mode/v1/`、`/apps/anthropic/v1/` 或 `/apps/anthropic/`，映射为同一 origin 和代理前缀下的 `/api/v1/models`；两协议的目录均使用 Bearer，按 `page_no` / `page_size` 分页并读取 `output.models[].model`、`name`。其他自定义前缀保留，接受代理返回的 OpenAI `data/id` 结构。目录不保存草稿，不回显 Key；缺失目录时保留手动模型维护和 Trace 错误。查询仍遵守 30 秒、20 页、8 MiB、10000 条上限，超限或分页异常不会返回部分成功列表。目录条目不保证当前协议、图片或思考档位可用。
+
+本次 Qwen 独立入口开放 Chat Completions 和 Messages，未接入 DashScope 原生生成协议或 Responses。版本仍为 0.2.2 / schema 24，无需数据迁移；完全退出托盘后重启 `npm run tauri dev` 编译原生改动。真实百炼/中转和桌面视觉需另行验收。
+
+依据：[Chat 接口](https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-chat-completions)、[Messages 接口](https://help.aliyun.com/zh/model-studio/anthropic-api-messages)、[深度思考](https://help.aliyun.com/zh/model-studio/deep-thinking)、[查询模型列表](https://help.aliyun.com/zh/model-studio/list-models)。图标来自 Lobe Icons（MIT），许可随应用保留。
+
+Qwen 本轮本地定向验证：前端 81 项、Rust 策略/模型目录/工具续聊/摘要共 84 项、桌面 IPC 1 项通过，TypeScript、Vite 构建和 Rust 生产库严格 Clippy 通过。工具续聊覆盖两种协议、流式与收集调用入口及六种思考设置，共 24 个场景，均使用 SSE；真实供应商和桌面视觉未验收。

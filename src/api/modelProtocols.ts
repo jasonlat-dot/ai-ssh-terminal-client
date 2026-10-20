@@ -19,7 +19,7 @@ const claudeEfforts: EffortOption[] = [defaultEffort, ...sharedEfforts,
 type ProtocolDescriptor = {
   supplier: ModelSupplier; name: string;
   label: string; description: string; path: string; fixedOutput: string | null;
-  temperatureMax: number; reasoning: boolean; effortOptions: EffortOption[]; effortHint: string; pathHint?: string;
+  temperatureMax: number; temperatureStep?: number; reasoning: boolean; effortOptions: EffortOption[]; effortHint: string; pathHint?: string;
 };
 /** One exhaustive catalog drives protocol-dependent controls and defaults. */
 export const modelProtocols: Record<ModelConfig['provider'], ProtocolDescriptor> = {
@@ -61,6 +61,12 @@ export const modelSuppliers: Record<ModelSupplier, SupplierDescriptor> = {
     overrides: {fixedOutput: 'max_tokens', temperatureMax: 1, description: '使用 GLM / 智谱接口，支持对话、工具调用和思考续接。',
       effortOptions: thinkingEfforts.map(option => option.value === 'none' ? {...option, description: '需模型支持'} : option),
       effortHint: '默认使用上游设置；强度需模型支持，部分模型强制思考，不能关闭。较早模型请保持默认。'}},
+  qwen: {label: 'Qwen / 通义千问', defaultProtocol: 'openAiCompatible', protocols: ['openAiCompatible', 'anthropicMessages'], basePlaceholder: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    protocolBases: {anthropicMessages: 'https://dashscope.aliyuncs.com/apps/anthropic/v1'},
+    overrides: {fixedOutput: 'max_tokens', temperatureMax: 1.99, temperatureStep: 0.01, description: '使用百炼 Qwen 接口，支持对话、工具调用和思考续接。',
+      effortOptions: [defaultEffort, {value: 'none', label: '关闭', description: '需模型支持'}, {value: 'enabled', label: '开启', description: '不指定强度'},
+        ...sharedEfforts.filter(option => ['low', 'medium', 'xhigh'].includes(option.value))],
+      effortHint: '默认使用上游设置；开启仅启用思考，不指定强度。低、中、很高需模型支持；不支持思考的模型请保持默认。'}},
 };
 export function modelSupplier(config: {supplier?: ModelSupplier; provider: ModelConfig['provider']}): ModelSupplier {
   return config.supplier ?? modelProtocols[config.provider].supplier;

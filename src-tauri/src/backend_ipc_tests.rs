@@ -2928,3 +2928,32 @@ async fn glm_supplier_ipc_roundtrips_channels_choices_and_saved_key_discovery() 
     }
     server.abort();
 }
+
+#[tokio::test]
+async fn qwen_supplier_ipc_preserves_channels_thinking_toggle_and_saved_key_catalog() {
+    use axum::{http::HeaderMap,routing::get,Json,Router};
+    let (_dir,services)=services().await;let listener=tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address=format!("http://{}",listener.local_addr().unwrap());
+    let app=Router::new().route("/proxy/api/v1/models",get(|headers:HeaderMap|async move {
+        assert_eq!(headers["authorization"],"Bearer qwen-ipc-fixture");assert!(!headers.contains_key("x-api-key"));
+        Json(json!({"success":true,"output":{"total":1,"page_no":1,"page_size":100,"models":[{"model":"model-one","name":"First"}]}}))
+    }));
+    let server=tokio::spawn(async move{axum::serve(listener,app).await.unwrap();});
+    save_test_model(&services,format!("{address}/proxy/compatible-mode/v1/"));
+    let listed=dispatch(services.clone(),"agent/models","GET",Value::Null,json!({"userId":"default"})).await.unwrap();
+    let original=listed.as_array().unwrap().iter().find(|p|p["id"]=="model").unwrap()["config"].clone();
+    for (index,protocol) in ["openAiCompatible","anthropicMessages"].iter().enumerate() {
+        let id=format!("qwen-{index}");let mut config=original.clone();config["supplier"]="qwen".into();config["provider"]=(*protocol).into();config["requireApiKey"]=true.into();
+        config["baseUrl"]=format!("{address}/proxy/{}",if index==0 {"compatible-mode/v1/"}else{"apps/anthropic/v1/"}).into();
+        config["completionsPath"]=if index==0 {"chat/completions"}else{"messages"}.into();config["reasoningEffort"]="enabled".into();config["capabilities"]["reasoningEffort"]=true.into();
+        let saved=dispatch(services.clone(),"agent/model_channels","POST",json!({"id":id,"userId":"default","revision":0,"displayName":"Qwen","modelIds":["model-one","model-two"],"update":{"config":config,"apiKey":{"action":"set","value":"qwen-ipc-fixture"}}}),Value::Null).await.unwrap();
+        assert_eq!(saved["config"]["supplier"],"qwen");assert_eq!(saved["config"]["provider"],*protocol);assert_eq!(saved["config"]["reasoningEffort"],"enabled");assert_eq!(saved["config"]["outputTokenParameter"],"maxTokens");assert!(!saved.to_string().contains("qwen-ipc-fixture"));
+        let models=dispatch(services.clone(),"agent/query_ai_agent_config_list","GET",Value::Null,json!({"userId":"default"})).await.unwrap();
+        let members:Vec<_>=models.as_array().unwrap().iter().filter(|m|m["channelId"]==id).collect();assert_eq!(members.len(),2);assert!(members.iter().all(|m|m["supplier"]=="qwen"&&m["provider"]==*protocol));
+        let found=dispatch(services.clone(),"agent/model_catalog","POST",json!({"userId":"default","query":{"supplier":"qwen","provider":protocol,"baseUrl":config["baseUrl"],"requireApiKey":true,"apiKey":{"action":"keep"},"channelId":id,"revision":saved["revision"]}}),Value::Null).await.unwrap();assert_eq!(found[0]["id"],"model-one");
+        let mut edited=saved["config"].clone();edited["reasoningEffort"]="xhigh".into();
+        let updated=dispatch(services.clone(),"agent/model_channels","POST",json!({"id":id,"userId":"default","revision":saved["revision"],"displayName":"Qwen updated","modelIds":["model-one","model-two"],"update":{"config":edited,"apiKey":{"action":"keep"}}}),Value::Null).await.unwrap();
+        assert_eq!(updated["models"],saved["models"]);assert_eq!(updated["apiKeyConfigured"],true);assert_eq!(updated["config"]["supplier"],"qwen");
+    }
+    server.abort();
+}

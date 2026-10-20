@@ -139,3 +139,18 @@ test('GLM 独立身份复用双协议，采用智谱地址、温度范围与推�
   assert.equal(applyModelSupplier(config,'deepseek').supplier,'deepseek');
   assert.equal(original.temperature,1.7);assert.equal(original.reasoningEffort,'medium');
 });
+
+test('Qwen 双协议供应商默认值、独立开关与强度目录，切换清理不适用参数并保留代理',()=>{
+ const original={...newModelConfig(),model:'custom-alias',baseUrl:'https://proxy.test/custom/',reasoningEffort:'max' as const,temperature:2};
+ const config=applyModelSupplier(original,'qwen');assert.equal(config.supplier,'qwen');assert.equal(config.model,original.model);assert.equal(config.baseUrl,original.baseUrl);
+ assert.equal(config.reasoningEffort,null);assert.equal(config.temperature,null);assert.equal(config.outputTokenParameter,'maxTokens');
+ assert.deepEqual(supplierProtocolOptions('qwen').map(option=>option.value),['openAiCompatible','anthropicMessages']);
+ for(const provider of ['openAiCompatible','anthropicMessages'] as const) {
+  const next=applyModelProtocol({...config,reasoningEffort:'enabled',temperature:1.8},provider);
+  assert.equal(next.supplier,'qwen');assert.equal(next.reasoningEffort,'enabled');assert.equal(next.temperature,1.8);
+  assert.equal(modelBasePlaceholder(next),provider==='anthropicMessages'?'https://dashscope.aliyuncs.com/apps/anthropic/v1':'https://dashscope.aliyuncs.com/compatible-mode/v1');
+  assert.deepEqual(modelProtocolInfo(next).effortOptions.map(option=>option.value),['','none','enabled','low','medium','xhigh']);
+  for(const supplier of ['openai','anthropic','google','glm','deepseek'] as const)assert.equal(applyModelSupplier(next,supplier).reasoningEffort,null);
+ }
+ assert.equal(applyModelProtocol(config,'openAiResponses').supplier,undefined);assert.equal(original.reasoningEffort,'max');
+});

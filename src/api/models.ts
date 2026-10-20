@@ -1,14 +1,14 @@
 import { builtinRequest } from './builtin';
 import { sshUserId } from './ssh';
 
-export type ModelSupplier = 'openai' | 'anthropic' | 'google' | 'deepseek' | 'glm';
+export type ModelSupplier = 'openai' | 'anthropic' | 'google' | 'deepseek' | 'glm' | 'qwen';
 export type ModelConfig = {
   supplier?: ModelSupplier;
   provider: 'openAiCompatible'|'openAiResponses'|'anthropicMessages'|'googleGemini'; remoteCompaction?: boolean; baseUrl: string; completionsPath: string; model: string;
   contextWindow: number; outputReserve: number; safetyReserve: number; compactPercent: number;
   outputTokenParameter: 'maxCompletionTokens' | 'maxTokens';
   capabilities: { toolCalls: boolean; developerRole: boolean; temperature: boolean; reasoningEffort: boolean; vision: boolean };
-  temperature: number | null; reasoningEffort: 'none'|'minimal'|'low'|'medium'|'high'|'xhigh'|'max'|null;
+  temperature: number | null; reasoningEffort: 'none'|'enabled'|'minimal'|'low'|'medium'|'high'|'xhigh'|'max'|null;
   timeoutSeconds: number; maxResponseBytes: number; requireApiKey: boolean;
 };
 export type ModelProfile = { id: string; displayName?: string; revision: number; config: ModelConfig; apiKeyConfigured: boolean; ready: boolean };

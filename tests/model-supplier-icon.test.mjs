@@ -36,6 +36,7 @@ test('供应商品牌图标使用本地 SVG，Claude 显示暖橙色放射标志
   assert.equal((icons[2].match(/<path /g)||[]).length,4);
   assert.match(icons[3],/data-supplier="deepseek"/);assert.match(icons[3],/fill="#4D6BFE"/);assert.match(icons[3],/<path d="M23\.748/);
   assert.match(icons[4],/data-supplier="glm"/);assert.match(icons[4],/<path d="M11\.991/);assert.notEqual(icons[4],icons[0]);
+  assert.match(icons[5],/data-supplier="qwen"/);assert.match(icons[5],/fill="#615CED"/);assert.notEqual(icons[5],icons[0]);
 });
 
 test('Select 在当前值和菜单选项展示图标，供应商菜单没有说明列',()=>{
