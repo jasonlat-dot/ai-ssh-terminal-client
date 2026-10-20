@@ -431,7 +431,7 @@ test('供应商菜单保留兼容名称，卡片仅显示品牌图标与协议�
   assert.equal(ui.find(node=>node.props.className==='model-profile-budget').props.title,'256,000 tokens');
   assert.doesNotMatch(ui.text(),/管理对话使用|配置保存后/);
   ui.openEdit();const supplier=ui.find(node=>node.props.id==='model-supplier'&&node.props.options);
-  assert.deepEqual(supplier.props.options.map(item=>item.label),['OpenAI 兼容','Anthropic 兼容','Google 兼容','DeepSeek','GLM / 智谱','Qwen / 通义千问','Kimi / Moonshot','Grok / xAI']);
+  assert.deepEqual(supplier.props.options.map(item=>item.label),['OpenAI 兼容','Anthropic 兼容','Google 兼容','DeepSeek','GLM / 智谱','Qwen / 通义千问','Kimi / Moonshot','Grok / xAI','Ollama']);
   assert.ok(supplier.props.options.every(item=>!item.description));
   assert.equal(supplier.props.renderIcon('anthropic').props.supplier,'anthropic');
   assert.equal(ui.find(node=>node.props.className==='model-provider-description'),undefined);
@@ -601,4 +601,19 @@ test('运行中的渠道仍可编辑配置，删除只保护实际使用的渠�
  assert.equal(ui.find(n=>n.props['aria-label']==='删除 其他渠道').props.disabled,false);
  ui.find(n=>n.props['aria-label']==='编辑 运行渠道').props.onClick();ui.render();
  ui.find(n=>n.type==='form').props.onSubmit({preventDefault(){}});await ui.settle();assert.equal(ui.saved.length,1);assert.equal(ui.saved[0][0],'active-channel');
+});
+
+test('Ollama 多模型渠道恢复、供应商与名称并且过滤及免密钥保存',async()=>{
+ const config={...protocolUi.applyModelSupplier(newModelConfig(),'ollama'),baseUrl:'http://127.0.0.1:11434/proxy/v1/',model:'deepseek-r1:14b'};
+ const items=[{id:'local',displayName:'本机推理',revision:2,config,models:[{id:'local-ds',model:'deepseek-r1:14b'},{id:'local-qwen',model:'qwen3:8b'}],apiKeyConfigured:false,ready:true},
+  {id:'other',displayName:'本机中转',revision:1,config:{...newModelConfig(),model:'alias'},ready:true}];
+ const ui=settings(undefined,{items,autoOpen:false});ui.render();await ui.settle();
+ ui.find(n=>n.props.id==='model-catalog-supplier'&&n.props.options).props.onChange('ollama');ui.render();
+ const search=value=>{ui.find(n=>n.props['aria-label']==='搜索供应商 / 渠道名称').props.onChange({target:{value}});ui.render();};
+ search('中转');assert.equal(ui.find(n=>n.type==='article'),undefined);search('推理');ui.openEdit();
+ assert.equal(ui.find(n=>n.props.id==='model-supplier'&&n.props.value).props.value,'ollama');assert.match(ui.find(n=>n.props.id==='model-window'&&n.props.hint).props.hint,/ollama ps/);
+ const query=ui.find(n=>n.props.query);assert.equal(query.props.query.supplier,'ollama');assert.equal(query.props.query.requireApiKey,false);
+ ui.find(n=>n.props.id==='model-effort'&&n.props.options).props.onChange('high');ui.render();ui.find(n=>n.type==='form').props.onSubmit({preventDefault(){}});await ui.settle();
+ const saved=ui.saved[0];assert.equal(saved[2].supplier,'ollama');assert.equal(saved[2].baseUrl,config.baseUrl);assert.equal(saved[2].requireApiKey,false);assert.equal(saved[2].reasoningEffort,'high');
+ assert.deepEqual(Array.from(saved[5]),['deepseek-r1:14b','qwen3:8b']);assert.equal(saved[3].action,'keep');
 });

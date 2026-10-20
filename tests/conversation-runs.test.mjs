@@ -6,6 +6,7 @@ import ts from 'typescript';
 import { NextConversationModels } from '../src/state/nextConversationModels.ts';
 import { ConversationRuns } from '../src/state/conversationRuns.ts';
 import { ChatRequestError } from '../src/api/chatErrors.ts';
+import { retainContextUsage } from '../src/api/agentContext.ts';
 
 // Execute the actual App actions together, with delayed streams and storage.
 const source=ts.createSourceFile('App.tsx',readFileSync(new URL('../src/App.tsx',import.meta.url),'utf8'),ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX);
@@ -23,7 +24,7 @@ function harness({native=false}={}){
  const model={agentId:'model-A',agentName:'A',toolsAvailable:true},other={agentId:'model-B',agentName:'B',toolsAvailable:true};
  const chatRuns=new ConversationRuns();
  let context;
- const globals={exports:{},viewedConversation:{current:'A'},document:{hidden:false},crypto,AbortController,DOMException,Date,Error,console,setTimeout,clearTimeout,ChatRequestError,
+ const globals={exports:{},viewedConversation:{current:'A'},document:{hidden:false},crypto,AbortController,DOMException,Date,Error,console,setTimeout,clearTimeout,ChatRequestError,retainContextUsage,contextSnapshot:null,
   nextModels:new NextConversationModels(),agentModelsRef:{current:[model,other]},
   chatRuns,selectedAgent:model,selectedAgentRef:{current:model},agentModels:[model,other],chatSessionId:{current:'A'},chatVersion:{current:0},
   messagesRef:{current:[]},chatting:{current:false},stopPending:{current:false},chatAbort:{current:null},chatRequestId:{current:''},
@@ -31,7 +32,7 @@ function harness({native=false}={}){
   toolsEnabled:true,sshExecutionEnabled:false,rustBuiltin:native,active:null,activeProject:null,sessions:[],sessionsRef:{current:[]},terminalClients:{current:new Map()},canonicalHistory:null,
   chatTarget:{current:null},scopeTerminal:()=>undefined,validateChatContent:()=>'',attachmentReferences:files=>files,
   draftExecutionPolicy:'confirm',historySelection:{current:0},skipModelReset:{current:''},clientHistoryDirty:{current:false},backendUrl:'test',chatDraft:{clear(){}},
-  setContextSnapshot(value){state.context=value;},setContextError(){},setChatBusy(value){state.busy=value;},setChatStopping(value){state.stopping=value;},
+  setContextSnapshot(value){state.context=typeof value==='function'?value(state.context):value;context.contextSnapshot=state.context;},setContextError(){},setChatBusy(value){state.busy=value;},setChatStopping(value){state.stopping=value;},
   setCanonicalHistory(value){state.canonical=typeof value==='function'?value(state.canonical):value;context.canonicalHistory=state.canonical;},
   setActiveChatSessionId(id){state.sessionId=id;globals.viewedConversation.current=id;},setHistoryLoadingId(id){context.historyLoadingId=id;},setProjectRevision(){},
   setSelectedAgent(model){context.selectedAgent=model;},
@@ -261,4 +262,18 @@ test('An in-flight sidebar load cannot restore the old model after a background 
  ui.context.nextModels.select('A','model-A','model-B');await ui.applyNextModel('A');wait.resolve();await opening;
  assert.equal(ui.context.selectedAgent.agentId,'model-B');assert.equal(ui.state.canonical.session.agentId,'model-B');
  assert.equal(ui.state.sessionId,'A');assert.equal(ui.streams.size,0);
+});
+
+test('切换模型保留上次用量；下一轮等待测量和后台返回均不清零，新测量更新为新容量',async()=>{
+ const ui=harness({native:true});
+ const previous={requestId:'previous',usage:{inputTokens:1500,availableInputTokens:6000,contextWindow:8192,outputReserve:1680,safetyReserve:512,compactPercent:75,source:'estimated'},phase:'idle',method:null,errorCode:null,fallback:false,checkpointId:null,compactionCount:0,updatedAt:1};
+ ui.context.setContextSnapshot({sessionId:'A',agentId:'model-A',status:previous});
+ await ui.changeConversationModel('model-B');assert.equal(ui.state.context.agentId,'model-B');assert.equal(ui.state.context.status.usage.inputTokens,1500);assert.equal(ui.state.context.status.usageStale,true);
+ const run=ui.sendMessage('next');await tick();const stream=ui.streams.get('A');
+ assert.equal(ui.state.context.status.usage.inputTokens,1500);
+ await ui.open('B');assert.equal(ui.state.context,null);await ui.open('A','model-B');assert.equal(ui.state.context.status.usage.inputTokens,1500);
+ stream.receive({event:'context',status:{...previous,requestId:stream.body.requestId,usage:null}});assert.equal(ui.state.context.status.usage.inputTokens,1500);assert.equal(ui.state.context.status.usageStale,true);
+ stream.receive({event:'context',status:{...previous,requestId:stream.body.requestId,usageStale:false,usage:{...previous.usage,inputTokens:2400,contextWindow:14192,availableInputTokens:12000}}});
+ assert.equal(ui.state.context.status.usage.inputTokens,2400);assert.equal(ui.state.context.status.usage.availableInputTokens,12000);assert.equal(ui.state.context.status.usageStale,false);
+ stream.done.resolve();await run;
 });

@@ -19,7 +19,7 @@ const claudeEfforts: EffortOption[] = [defaultEffort, ...sharedEfforts,
 type ProtocolDescriptor = {
   supplier: ModelSupplier; name: string;
   label: string; description: string; path: string; fixedOutput: string | null;
-  temperatureMax: number; temperatureStep?: number; temperatureSupported?: boolean; reasoning: boolean; effortOptions: EffortOption[]; effortHint: string; pathHint?: string;
+  temperatureMax: number; temperatureStep?: number; temperatureSupported?: boolean; reasoning: boolean; effortOptions: EffortOption[]; effortHint: string; pathHint?: string; contextHint?: string;
 };
 /** One exhaustive catalog drives protocol-dependent controls and defaults. */
 export const modelProtocols: Record<ModelConfig['provider'], ProtocolDescriptor> = {
@@ -44,7 +44,7 @@ export function applyModelProtocol(config: ModelConfig, provider: ModelConfig['p
 
 
 /** Supplier identity persists independently from its reusable wire protocol. Legacy configs infer it from provider. */
-type SupplierDescriptor = {label: string; defaultProtocol: ModelConfig['provider']; protocols: ModelConfig['provider'][]; basePlaceholder: string;
+type SupplierDescriptor = {label: string; defaultProtocol: ModelConfig['provider']; protocols: ModelConfig['provider'][]; basePlaceholder: string; requireApiKeyDefault?: boolean;
   protocolBases?: Partial<Record<ModelConfig['provider'], string>>; overrides?: Partial<ProtocolDescriptor>; protocolOverrides?: Partial<Record<ModelConfig['provider'], Partial<ProtocolDescriptor>>>};
 const thinkingEfforts: EffortOption[] = [defaultEffort, {value: 'none', label: '关闭', description: '关闭思考'},
   ...sharedEfforts.filter(option => option.value === 'low' || option.value === 'high'), {value: 'max', label: '最高', description: 'max，需模型支持'}];
@@ -78,6 +78,11 @@ export const modelSuppliers: Record<ModelSupplier, SupplierDescriptor> = {
     overrides:{description:'使用 xAI Grok，支持对话、图片和工具调用；推荐 Responses 保留加密推理续接。',effortOptions:[defaultEffort,...sharedEfforts],
       effortHint:'默认不发送；低、中、高、很高需模型支持。较早或固定思考模型请保持默认，不支持关闭思考。'},
     protocolOverrides:{openAiCompatible:{fixedOutput:'max_completion_tokens'},openAiResponses:{description:'xAI Responses；本地估算输入 token，支持加密推理续接及可选远端整理。'}}},
+  ollama: {label:'Ollama',defaultProtocol:'openAiCompatible',protocols:['openAiCompatible'],basePlaceholder:'http://127.0.0.1:11434/v1',requireApiKeyDefault:false,
+    overrides:{fixedOutput:'max_tokens',description:'连接本机或远程 Ollama，支持模型查询、多模型对话及工具调用；本地服务通常不需要 API Key。',
+      effortOptions:[defaultEffort,{value:'none',label:'关闭',description:'需模型支持'},...sharedEfforts.filter(option=>['low','medium','high'].includes(option.value))],
+      effortHint:'默认使用 Ollama 模型设置；关闭、低、中、高需部署的模型支持，不按模型名称推断能力。',
+      contextHint:'填写 Ollama 实际分配的上下文长度，可用 ollama ps 核对；此处不会修改服务器配置。'}},
 };
 export function modelSupplier(config: {supplier?: ModelSupplier; provider: ModelConfig['provider']}): ModelSupplier {
   return config.supplier ?? modelProtocols[config.provider].supplier;
@@ -101,5 +106,6 @@ export function supplierProtocolOptions(supplier: ModelSupplier) {
 export function applyModelSupplier(config: ModelConfig, supplier: ModelSupplier): ModelConfig {
   if (modelSupplier(config) === supplier) return config;
   const provider = modelSuppliers[supplier].defaultProtocol;
-  return applyModelProtocol({...config, supplier: supplier === modelProtocols[provider].supplier ? undefined : supplier}, provider);
+  const requireApiKey = modelSuppliers[supplier].requireApiKeyDefault ?? (modelSuppliers[modelSupplier(config)].requireApiKeyDefault === false ? true : config.requireApiKey);
+  return applyModelProtocol({...config, requireApiKey, supplier: supplier === modelProtocols[provider].supplier ? undefined : supplier}, provider);
 }

@@ -186,3 +186,17 @@ test('Grok 默认 Responses，双协议使用 xAI 参数目录并保留自定义
  assert.equal(applyModelProtocol(config,'anthropicMessages').supplier,undefined);assert.equal(applyModelSupplier(config,'openai').supplier,undefined);
  assert.equal(original.reasoningEffort,'enabled');
 });
+
+test('Ollama 使用本地免密钥默认值，独立于部署模型名称且保留代理和显式认证选择',()=>{
+ const original={...newModelConfig(),model:'deepseek-r1:14b',baseUrl:'https://proxy.test/ollama/v1/',reasoningEffort:'max' as const};
+ const config=applyModelSupplier(original,'ollama');
+ assert.equal(config.supplier,'ollama');assert.equal(config.model,original.model);assert.equal(config.baseUrl,original.baseUrl);assert.equal(config.requireApiKey,false);
+ assert.equal(config.reasoningEffort,null);assert.equal(config.provider,'openAiCompatible');assert.equal(config.completionsPath,'chat/completions');assert.equal(config.outputTokenParameter,'maxTokens');
+ assert.deepEqual(supplierProtocolOptions('ollama').map(o=>o.value),['openAiCompatible']);
+ assert.deepEqual(modelProtocolInfo(config).effortOptions.map(o=>o.value),['','none','low','medium','high']);
+ assert.equal(modelBasePlaceholder(config),'http://127.0.0.1:11434/v1');assert.match(modelProtocolInfo(config).contextHint!,/ollama ps/);
+ assert.equal(applyModelSupplier({...config,requireApiKey:true},'ollama').requireApiKey,true);
+ assert.equal(applyModelSupplier(config,'openai').requireApiKey,true);
+ const other={...config,model:'qwen3:8b'};assert.equal(modelSupplier(other),'ollama');assert.equal(modelProtocolInfo(other).effortOptions,modelProtocolInfo(config).effortOptions);
+ assert.equal(applyModelProtocol(config,'openAiResponses').supplier,undefined);assert.equal(original.reasoningEffort,'max');
+});

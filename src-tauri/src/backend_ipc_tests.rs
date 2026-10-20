@@ -3019,3 +3019,34 @@ async fn grok_supplier_ipc_preserves_models_effort_and_saved_key_catalog() {
     }
     server.abort();
 }
+
+#[tokio::test]
+async fn ollama_supplier_ipc_supports_keyless_multiple_models_and_optional_proxy_auth() {
+    use axum::{extract::State,http::HeaderMap,routing::get,Json,Router};
+    use std::sync::atomic::{AtomicUsize,Ordering};
+    let (_dir,services)=services().await;let listener=tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address=format!("http://{}",listener.local_addr().unwrap());let calls=std::sync::Arc::new(AtomicUsize::new(0));
+    let app=Router::new().route("/proxy/v1/models",get(|State(calls):State<std::sync::Arc<AtomicUsize>>,headers:HeaderMap|async move {
+        if calls.fetch_add(1,Ordering::SeqCst)==0 {assert!(!headers.contains_key("authorization"));}
+        else {assert_eq!(headers["authorization"],"Bearer ollama-ipc-fixture");}
+        Json(json!({"data":[{"id":"deepseek-r1:14b"},{"id":"qwen3:8b"}]}))
+    })).with_state(calls.clone());
+    let server=tokio::spawn(async move{axum::serve(listener,app).await.unwrap();});
+    save_test_model(&services,format!("{address}/proxy/v1/"));
+    let listed=dispatch(services.clone(),"agent/models","GET",Value::Null,json!({"userId":"default"})).await.unwrap();
+    let mut config=listed.as_array().unwrap().iter().find(|p|p["id"]=="model").unwrap()["config"].clone();
+    config["supplier"]="ollama".into();config["provider"]="openAiCompatible".into();config["requireApiKey"]=false.into();config["baseUrl"]=format!("{address}/proxy/v1/").into();
+    config["completionsPath"]="chat/completions".into();config["reasoningEffort"]="high".into();config["capabilities"]["reasoningEffort"]=true.into();
+    let saved=dispatch(services.clone(),"agent/model_channels","POST",json!({"id":"local-ollama","userId":"default","revision":0,"displayName":"Ollama 本地","modelIds":["deepseek-r1:14b","qwen3:8b"],"update":{"config":config,"apiKey":{"action":"keep"}}}),Value::Null).await.unwrap();
+    assert_eq!(saved["ready"],true);assert_eq!(saved["apiKeyConfigured"],false);assert_eq!(saved["config"]["supplier"],"ollama");assert_eq!(saved["config"]["outputTokenParameter"],"maxTokens");
+    let catalog_base=config["baseUrl"].clone();
+    let query=|saved:&Value,required:bool|json!({"userId":"default","query":{"supplier":"ollama","provider":"openAiCompatible","baseUrl":catalog_base,"requireApiKey":required,"apiKey":{"action":"keep"},"channelId":"local-ollama","revision":saved["revision"]}});
+    let found=dispatch(services.clone(),"agent/model_catalog","POST",query(&saved,false),Value::Null).await.unwrap();assert_eq!(found[0]["id"],"deepseek-r1:14b");assert_eq!(found[1]["id"],"qwen3:8b");
+    config["requireApiKey"]=true.into();config["reasoningEffort"]="none".into();
+    let updated=dispatch(services.clone(),"agent/model_channels","POST",json!({"id":"local-ollama","userId":"default","revision":saved["revision"],"displayName":"Ollama 代理","modelIds":["deepseek-r1:14b","qwen3:8b"],"update":{"config":config,"apiKey":{"action":"set","value":"ollama-ipc-fixture"}}}),Value::Null).await.unwrap();
+    assert_eq!(updated["models"],saved["models"]);assert_eq!(updated["apiKeyConfigured"],true);assert!(!updated.to_string().contains("ollama-ipc-fixture"));
+    dispatch(services.clone(),"agent/model_catalog","POST",query(&updated,true),Value::Null).await.unwrap();
+    let models=dispatch(services.clone(),"agent/query_ai_agent_config_list","GET",Value::Null,json!({"userId":"default"})).await.unwrap();
+    let members:Vec<_>=models.as_array().unwrap().iter().filter(|m|m["channelId"]=="local-ollama").collect();assert_eq!(members.len(),2);assert!(members.iter().all(|m|m["supplier"]=="ollama"));
+    assert_eq!(calls.load(Ordering::SeqCst),2);server.abort();
+}

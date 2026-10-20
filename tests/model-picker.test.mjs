@@ -116,3 +116,11 @@ test('Grok 在供应商、模型行和当前模型复用本地图标，不改变
  assert.deepEqual(ui.all().filter(node=>node.props.role==='menuitem').map(group=>ui.all(group).find(node=>node.props.supplier).props.supplier),['grok','openai']);
  assert.ok(ui.all().filter(node=>node.props.role==='menuitemradio').every(row=>ui.all(row).find(node=>node.props.supplier).props.supplier==='grok'));
 });
+
+test('Ollama 部署的不同模型保持同一供应商图标并使用稳定模型选择 ID',()=>{
+ const ui=harness();ui.props.models=ui.props.models.map(model=>({...model,provider:'openAiCompatible',supplier:model.channelId==='a'?'ollama':undefined}));
+ ui.render();assert.equal(ui.all(ui.trigger).find(n=>n.props.supplier).props.supplier,'ollama');
+ ui.trigger.props.onClick();ui.render();ui.render();
+ assert.deepEqual(ui.all().filter(n=>n.props.role==='menuitem').map(group=>ui.all(group).find(n=>n.props.supplier).props.supplier),['ollama','openai']);
+ assert.ok(ui.all().filter(n=>n.props.role==='menuitemradio').every(row=>ui.all(row).find(n=>n.props.supplier).props.supplier==='ollama'));
+});

@@ -4,6 +4,7 @@ export type AgentContextUsage = {
 };
 export type AgentContextStatus = {
   requestId:string; usage:AgentContextUsage|null;
+  usageStale?:boolean;
   phase:'idle'|'running'|'succeeded'|'failed'|'cancelled'|'interrupted';
   method:'summary'|'remote'|null; errorCode:string|null; fallback:boolean;
   checkpointId:string|null; compactionCount:number; updatedAt:number;
@@ -12,6 +13,7 @@ const integer=(value:unknown):value is number=>Number.isSafeInteger(value)&&Numb
 export function isAgentContextStatus(value:unknown):value is AgentContextStatus {
   if(!value||typeof value!=='object')return false;
   const v=value as AgentContextStatus;
+  if(v.usageStale!==undefined&&typeof v.usageStale!=='boolean')return false;
   if(typeof v.requestId!=='string'||v.requestId.length>64||!['idle','running','succeeded','failed','cancelled','interrupted'].includes(v.phase)
     ||(v.method!==null&&!['summary','remote'].includes(v.method))||typeof v.fallback!=='boolean'
     ||(v.errorCode!==null&&(typeof v.errorCode!=='string'||!/^\w{1,64}$/.test(v.errorCode)))
@@ -25,4 +27,9 @@ export function isAgentContextStatus(value:unknown):value is AgentContextStatus 
       ||u.compactPercent<1||u.compactPercent>99||!['estimated','providerCount'].includes(u.source))return false;
   }
   return true;
+}
+
+/** Keep an earlier display snapshot until a new request has actually been measured. */
+export function retainContextUsage(status:AgentContextStatus,previous?:AgentContextStatus|null):AgentContextStatus {
+  return status.usage||!previous?.usage?status:{...status,usage:previous.usage,usageStale:true};
 }

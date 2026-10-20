@@ -14,6 +14,7 @@ import type { AgentProject, ProjectChat } from './api/agent';
 import { agentApi } from './api/agent';
 import type { AgentConfig, AgentStreamEvent, AgentHistory, ExecutionPolicy } from './api/agent';
 import type { AgentContextStatus } from './api/agentContext';
+import { retainContextUsage } from './api/agentContext';
 import { readAgentHistory, turnMessages } from './state/agentHistory';
 import { NextConversationModels } from './state/nextConversationModels';
 import { ConversationRuns } from './state/conversationRuns';
@@ -1063,7 +1064,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     }
 
     chatting.current = true;
-    setContextSnapshot(null);setContextError('');
+    setContextSnapshot(previous=>previous?.sessionId===chatSessionId.current&&previous.agentId===selectedAgent.agentId?{...previous,status:{...previous.status,usageStale:!!previous.status.usage,phase:'idle',method:null,errorCode:null,fallback:false}}:null);setContextError('');
     if (!chatSessionId.current) chatTarget.current = null;
     const version = chatVersion.current;
     const assistantId = crypto.randomUUID();
@@ -1071,8 +1072,9 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     const controller = new AbortController();
     let outcome:ConversationOutcome|undefined;
     chatAbort.current = controller;
+    const lastContext=contextSnapshot?.sessionId===chatSessionId.current&&contextSnapshot.agentId===selectedAgent.agentId?contextSnapshot.status:undefined;
     const run = chatRuns.start({requestId:assistantId,agentId:selectedAgent.agentId,sessionId:chatSessionId.current,
-      controller,messages:messagesRef.current,stopping:false});
+      controller,messages:messagesRef.current,stopping:false,context:lastContext?.usage?{...lastContext,requestId:assistantId,usageStale:true,phase:'idle',method:null,errorCode:null,fallback:false}:undefined});
     const visible = () => chatRuns.get(run.sessionId)===run && run.sessionId === chatSessionId.current && selectedAgentRef.current?.agentId === run.agentId
       && (!!run.sessionId || version === chatVersion.current);
     const updateRunMessages = (update:(current:ChatMessage[])=>ChatMessage[]) => {
@@ -1136,7 +1138,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
           updateRunMessages(previous=>previous.some(message=>message.id===event.input.id)?previous:previous.flatMap(message=>message.id===assistantId?[{id:event.input.id,role:'user' as const,text:event.input.message,timestamp:event.input.createdAt},message]:[message]));
           break;
         case 'context':
-          if(event.status.requestId===assistantId){run.context=event.status;if(visible())setContextSnapshot({sessionId:run.sessionId,agentId:run.agentId,status:event.status});}
+          if(event.status.requestId===assistantId){run.context=retainContextUsage(event.status,run.context);if(visible())setContextSnapshot(previous=>({sessionId:run.sessionId,agentId:run.agentId,status:retainContextUsage(run.context!,previous?.sessionId===run.sessionId&&previous.agentId===run.agentId?previous.status:null)}));}
           break;
         case 'text':
           updateAssistant(message => appendText(message, event.content));
@@ -1531,10 +1533,10 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     const load=async()=>{
       try{
         const status=await agentApi.contextStatus(agentId,sessionId,controller.signal);
-        if(controller.signal.aborted||version!==chatVersion.current)return;
-        setContextSnapshot({sessionId,agentId,status});setContextError('');
+        if(controller.signal.aborted||version!==chatVersion.current||selectedAgentRef.current?.agentId!==agentId||chatSessionId.current!==sessionId)return;
+        setContextSnapshot(previous=>({sessionId,agentId,status:retainContextUsage(status,previous?.sessionId===sessionId&&previous.agentId===agentId?previous.status:null)}));setContextError('');
         if(status.phase==='running'||manualCompacting)timer=setTimeout(()=>void load(),1000);
-      }catch(error){if(!controller.signal.aborted&&version===chatVersion.current)setContextError(error instanceof Error?error.message:'上下文状态暂不可用');}
+      }catch(error){if(!controller.signal.aborted&&version===chatVersion.current&&selectedAgentRef.current?.agentId===agentId&&chatSessionId.current===sessionId)setContextError(error instanceof Error?error.message:'上下文状态暂不可用');}
     };
     void load();
     return()=>{controller.abort();if(timer)clearTimeout(timer);};
@@ -1551,7 +1553,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     try{
       const result=await agentApi.compactContext(agentId,sessionId,controller.signal);
       if(version!==chatVersion.current)return;
-      setContextSnapshot({sessionId,agentId,status:result.status});setContextError('');
+      setContextSnapshot(previous=>({sessionId,agentId,status:retainContextUsage(result.status,previous?.sessionId===sessionId&&previous.agentId===agentId?previous.status:null)}));setContextError('');
       if(result.compacted)notify('上下文已压缩，原始聊天记录已保留。','success');
       else if(result.status.phase==='failed')notify('上下文压缩未完成，原始历史已保留；请检查模型配置后重试。','error');
       else notify('当前没有可进一步压缩的完整历史。','info');
@@ -1624,7 +1626,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
       if(chatSessionId.current===sessionId){
         const model=agentModelsRef.current.find(item=>item.agentId===nextId)??{agentId:nextId,agentName:'模型配置待刷新',agentDesc:''};
         skipModelReset.current=nextId;selectedAgentRef.current=model;setSelectedAgent(model);
-        setCanonicalHistory({...current,session});setContextSnapshot(null);setContextError('');
+        setCanonicalHistory({...current,session});setContextSnapshot(previous=>previous?.sessionId===sessionId?{sessionId,agentId:nextId,status:{...previous.status,usageStale:!!previous.status.usage,phase:'idle',method:null,errorCode:null,fallback:false,checkpointId:session.checkpointId??null}}:null);setContextError('');
       }
       setProjectRevision(value=>value+1);
     });

@@ -144,3 +144,10 @@ test('Grok 推理强度按模型持久保存，默认省略，两个协议均不
   }
  }
 });
+
+test('Ollama 推理选项按所选部署模型保存，不发送其他供应商的思考参数',async()=>{
+ const ui=harness('openAiCompatible');ui.setProfile({config:{...ui.profile.config,supplier:'ollama',model:'qwen3:8b',requireApiKey:false}});ui.render();await ui.settle();
+ assert.deepEqual(Array.from(ui.control.props.options,o=>o.value),['','none','low','medium','high']);
+ for(const value of ['enabled','xhigh','max'])ui.control.props.onChange(value);await ui.settle();assert.equal(ui.saved.length,0);
+ for(const value of ['none','low','medium','high','']){ui.control.props.onChange(value);await ui.settle();assert.equal(ui.profile.config.reasoningEffort,value||null);assert.equal(ui.saved.at(-1)[2].supplier,'ollama');assert.equal(ui.saved.at(-1)[2].requireApiKey,false);assert.equal(ui.saved.at(-1)[3].action,'keep');}
+});

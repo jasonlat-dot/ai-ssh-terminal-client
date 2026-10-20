@@ -38,6 +38,7 @@ test('供应商品牌图标使用本地 SVG，Claude 显示暖橙色放射标志
   assert.match(icons[4],/data-supplier="glm"/);assert.match(icons[4],/<path d="M11\.991/);assert.notEqual(icons[4],icons[0]);
   assert.match(icons[5],/data-supplier="qwen"/);assert.match(icons[5],/fill="#615CED"/);assert.notEqual(icons[5],icons[0]);
   assert.match(icons[7],/data-supplier="grok"/);assert.match(icons[7],/<path d="M9\.27/);assert.notEqual(icons[7],icons[0]);
+  assert.match(icons[8],/data-supplier="ollama"/);assert.match(icons[8],/<path d="M7\.905/);assert.notEqual(icons[8],icons[0]);
   assert.match(icons[6],/data-supplier="kimi"/);assert.match(icons[6],/<path d="M21\.846/);assert.notEqual(icons[6],icons[0]);
 });
 

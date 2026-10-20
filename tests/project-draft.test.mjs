@@ -7,6 +7,7 @@ import {executionTerminal,prepareExecutionBinding} from '../src/state/executionB
 import {isSessionConnected} from '../src/state/terminalSessions.ts';
 import {NextConversationModels} from '../src/state/nextConversationModels.ts';
 import {ConversationRuns} from '../src/state/conversationRuns.ts';
+import {retainContextUsage} from '../src/api/agentContext.ts';
 
 const app=ts.createSourceFile('App.tsx',readFileSync(new URL('../src/App.tsx',import.meta.url),'utf8'),ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX);
 function action(name,globals){
@@ -15,7 +16,7 @@ function action(name,globals){
  visit(app);assert.ok(arrow,`${name} exists`);
  let apply;function findApply(node){if(ts.isVariableDeclaration(node)&&node.name.getText(app)==='applyNextModel')apply=node.initializer.getText(app);ts.forEachChild(node,findApply);}findApply(app);
  const code=ts.transpileModule(`const applyNextModel=${apply};exports.action=${arrow.getText(app)}`,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;
- const context=vm.createContext({exports:{},crypto,AbortController,DOMException,console,Error,Date,historyLoadingId:"",recoveredRunning:false,nextModels:new NextConversationModels(),agentModelsRef:{current:globals.agentModels??[]},readAgentHistory:async reader=>reader(),...globals});vm.runInContext(code,context);return context.exports.action;
+ const context=vm.createContext({exports:{},crypto,AbortController,DOMException,console,Error,Date,contextSnapshot:null,retainContextUsage,historyLoadingId:"",recoveredRunning:false,nextModels:new NextConversationModels(),agentModelsRef:{current:globals.agentModels??[]},readAgentHistory:async reader=>reader(),...globals});vm.runInContext(code,context);return context.exports.action;
 }
 const model={agentId:'model',agentName:'test',toolsAvailable:true};
 const project={id:'project',name:'server',connectionId:'saved-ssh'};

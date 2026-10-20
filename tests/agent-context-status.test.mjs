@@ -8,7 +8,7 @@ function load(file,imports){
   const context=vm.createContext({exports:{},require:name=>imports[name]??(()=>{throw new Error(name);})()});
   vm.runInContext(code,context);return context.exports;
 }
-const {isAgentContextStatus}=load('api/agentContext.ts',{});
+const {isAgentContextStatus,retainContextUsage}=load('api/agentContext.ts',{});
 let tooltipOpen=false;
 const {AgentContextStatus:ContextIndicator}=load('components/AgentContextStatus.tsx',{'react':{useState:()=>[tooltipOpen,value=>{tooltipOpen=typeof value==='function'?value(tooltipOpen):value;}],useId:()=> 'context-tooltip',useRef:()=>({current:null}),useEffect(){}},'./Ui':{Icon:()=>null},'./AgentContextStatus.css':{},'react/jsx-runtime':{jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props})}});
 function AgentContextStatus(props){tooltipOpen=false;let tree=ContextIndicator(props);nodes(tree).find(n=>n.type==='button').props.onFocus();return ContextIndicator(props);}
@@ -49,4 +49,22 @@ test('Manual compaction is an explicit popover action; generation disables it an
   const pending=AgentContextStatus({status:{...base,phase:'running'},manual:{...manual,busy:true}});
   assert.equal(nodes(pending).find(n=>n.props.className==='agent-context-compact').props.disabled,true);
   nodes(pending).find(n=>n.props.className==='agent-context-cancel').props.onClick();assert.deepEqual(calls,['compact','cancel']);
+});
+
+test('切换后的旧用量保留圆环和原比例，明确待更新，旧容量不会冒充新模型容量',()=>{
+ const stale={...base,usageStale:true,usage:{...base.usage,inputTokens:7000}};
+ assert.equal(isAgentContextStatus(stale),true);assert.equal(isAgentContextStatus({...base,usageStale:'yes'}),false);
+ const tree=AgentContextStatus({status:stale});assert.match(tree.props.className,/is-stale/);assert.match(tree.props.className,/level-normal/);
+ assert.match(text(tree),/117% · 待更新/);assert.match(text(tree),/上次模型窗口/);assert.match(text(tree),/保留上次统计/);assert.doesNotMatch(text(tree),/超出容量|尚未测量/);
+ assert.match(nodes(tree).find(n=>n.type==='button').props['aria-label'],/上次统计，待重新计算/);
+ assert.equal(nodes(tree).find(n=>n.type==='circle'&&n.props.pathLength==='100').props.strokeDashoffset,0);
+});
+
+test('新测量前保留上次统计，首次测量原子替换 token、容量与比例，不覆盖真实新统计',()=>{
+ const waiting=retainContextUsage({...base,requestId:'next',usage:null},base);
+ assert.equal(waiting.usage,base.usage);assert.equal(waiting.usageStale,true);assert.equal(waiting.requestId,'next');
+ const next={...base,requestId:'next',usageStale:false,usage:{...base.usage,inputTokens:3000,contextWindow:14192,availableInputTokens:12000}};
+ assert.equal(retainContextUsage(next,waiting),next);assert.equal(isAgentContextStatus(next),true);
+ const tree=AgentContextStatus({status:next});assert.match(text(tree),/25%/);assert.doesNotMatch(text(tree),/待更新|上次模型窗口/);
+ assert.equal(retainContextUsage({...base,usage:null},null).usage,null);
 });
