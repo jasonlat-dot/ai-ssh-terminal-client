@@ -2,7 +2,7 @@
 export type TerminalCommand = {
   id: string;
   label: string;
-  group: 'clipboard' | 'font' | 'connection';
+  group: 'clipboard' | 'font' | 'completion' | 'connection';
   shortcut?: string;
   disabled?: boolean;
   reason?: string;

@@ -1,8 +1,10 @@
+import { readCompletionPreferences } from '../state/terminalCompletionPreferences';
+import { bashCompletionSetup } from '../state/terminalCompletionBash';
 import { subscribeBuiltinTerminal } from './builtin';
 import { apiRequest } from './client';
 import type { TerminalDisconnectReason } from '../types';
 
-export type TerminalOpen = { sessionId: string; connectionId: string; initialOutput: string };
+export type TerminalOpen = { sessionId: string; connectionId: string; initialOutput: string; completionNonce?:string };
 export type ResourceSnapshot = {
   sampledAtMs: number; supported: boolean; stale: boolean; message: string | null;
   cpuPercent: number | null; memoryTotalBytes: number | null; memoryUsedBytes: number | null;
@@ -35,8 +37,9 @@ function bound<T>(endpoint: string, method: string, body: object | undefined, pa
 }
 export const terminalApi = {
   async connect(connectionId: string, requestId: string, signal: AbortSignal, baseUrl: string) {
+    const nonce=readCompletionPreferences().enabled?crypto.randomUUID().replace(/-/g,''):null;
     const opened = await apiRequest<TerminalOpen>('ssh/terminal/connect', {
-      method: 'POST', body: { connectionId, requestId, cols: 120, rows: 24 }, signal, baseUrl, service: 'SSH 服务',
+      method: 'POST', body: { connectionId, requestId, cols: 120, rows: 24, ...(nonce?{shellIntegration:{nonce,script:bashCompletionSetup(nonce)}}:{}) }, signal, baseUrl, service: 'SSH 服务',
     });
     return opened;
   },

@@ -1,0 +1,27 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"><title>Terminal completion fixture</title></head><body>
+<div id="settings"></div><button id="init">初始化模拟 Bash</button><span id="status"></span><div id="terminal" style="height:260px;width:760px;padding:12px;background:#f8f9fb"></div><output id="received"></output><output id="calls">0</output>
+<script type="module">
+import React from 'react';import {createRoot} from 'react-dom/client';import {Terminal} from '@xterm/xterm';
+import {TerminalCompletionSettings} from '../../src/components/TerminalCompletionSettings';
+import {modelApi,newModelConfig} from '../../src/api/models';import {attachTerminalCompletion} from '../../src/state/terminalCompletionView';
+import '@xterm/xterm/css/xterm.css';import '../../src/App.css';import '../../src/reference.css';import '../../src/components/BackendSettingsDialog.css';
+modelApi.list=async()=>[{id:'fake-deepseek',displayName:'测试渠道',ready:true,revision:1,apiKeyConfigured:true,config:{...newModelConfig(),supplier:'deepseek',model:'deepseek-flash'}}];
+createRoot(document.querySelector('#settings')).render(React.createElement(TerminalCompletionSettings));
+const terminal=new Terminal({cols:90,rows:12,fontSize:14,fontFamily:'Consolas,monospace',theme:{background:'#f8f9fb',foreground:'#303942'}});terminal.open(document.querySelector('#terminal'));
+let nonce='',seq=0,line='',calls=0;const received=[];
+const marker=value=>terminal.write(`\x1b]777;spc;${nonce};${value}\x07`);
+const write=async input=>{
+ if(input.startsWith(' read -erst')){nonce=input.match(/spc;([a-f0-9]{32});R/)[1];marker('R');return;}
+ if(input.includes('__spc_nonce=')){nonce=input.match(/__spc_nonce=([a-f0-9]{32})/)[1];marker('I');marker('P;1');return;}
+ if(input==='\x1b[99~'){marker(`S;${++seq};1;${new TextEncoder().encode(line).length};${Array.from(new TextEncoder().encode(line),x=>x.toString(16).padStart(2,'0')).join('')};2f6f7074`);return;}
+ received.push(input);document.querySelector('#received').textContent=JSON.stringify(received);
+ if(input==='\r'){marker('B');marker('H;'+Array.from(new TextEncoder().encode(line),x=>x.toString(16).padStart(2,'0')).join(''));line='';terminal.write('\r\n$ ');marker('P;1');return;}
+ if(input==='\x7f'){line=line.slice(0,-1);terminal.write('\b \b');return;}
+ if(!input.startsWith('\x1b')){line+=input;terminal.write(input);}
+};
+const view=attachTerminalCompletion(terminal,write,()=>true,text=>document.querySelector('#status').textContent=text,
+ async()=>{document.querySelector('#calls').textContent=String(++calls);return {suffix:' logs -f'};},{entries:async()=>[{name:'compose.yaml',directory:false},{name:'config.json',directory:false},{name:'scripts',directory:true}]});
+terminal.onData(data=>{if(!view.controller.input(data))void write(data);});
+terminal.attachCustomKeyEventHandler(event=>{if(view.controller.key(event)){event.preventDefault();return false;}return true;});
+document.querySelector('#init').onclick=()=>{terminal.focus();void view.controller.initialize();};terminal.write('$ ');
+</script></body></html>

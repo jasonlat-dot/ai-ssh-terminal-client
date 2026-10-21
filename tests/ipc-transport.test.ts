@@ -1,3 +1,4 @@
+import { RemoteTerminal } from '../src/state/remoteTerminal.ts';
 import assert from 'node:assert/strict';
 import { test, afterEach } from 'node:test';
 import { apiRequest } from '../src/api/client.ts';
@@ -70,4 +71,26 @@ test('HTTP addresses cannot select a network transport or reach native commands'
   await assert.rejects(apiRequest('ssh/connection_list',{baseUrl:'http://127.0.0.1:8889'}),error=>
     error instanceof Error && (error as {code?:string}).code==='DESKTOP_REQUIRED');
   assert.deepEqual(calls,[]);
+});
+
+test('补全目录和 AI 请求绑定原工作区，重新初始化后不切换实例',async()=>{
+ const endpoints:string[]=[];
+ const context=harness((command,args)=>{assert.equal(command,'builtin_request');assert.equal(args.backendUrl,builtinEndpoint);endpoints.push(args.endpoint);return Promise.resolve(args.endpoint==='agent/terminal_completion'?{suffix:'ormat'}:[]);});
+ const runtime=new RemoteTerminal({sessionId:'pinned',connectionId:'connection',initialOutput:'',completionNonce:'a'.repeat(32)},true,builtinEndpoint);
+ context.restart();
+ await runtime.completionEntries('/opt/shop',new AbortController().signal);
+ await runtime.completionRequest('profile',{prefix:'docker ps --f',cwd:''},new AbortController().signal);
+ assert.deepEqual(endpoints,['ssh/terminal/completion_entries','agent/terminal_completion']);
+});
+
+test('开启终端补全后新连接携带会话脚本，关闭时不携带',async()=>{
+ const bodies:Arguments[]=[];
+ harness((_command,args)=>{bodies.push(args.body);return Promise.resolve({sessionId:'new',connectionId:'connection',initialOutput:''});});
+ const storage=globalThis.localStorage;const original=storage.getItem;
+ storage.getItem=(key:string)=>key==='shellpilot:terminal-completion:v1'?JSON.stringify({enabled:true,aiEnabled:false}):original(key);
+ await terminalApi.connect('connection','enabled',new AbortController().signal,builtinEndpoint);
+ assert.match(bodies[0].shellIntegration.nonce,/^[a-f0-9]{32}$/);assert.ok(bodies[0].shellIntegration.script.includes('__spc_snapshot'));
+ storage.getItem=original;
+ await terminalApi.connect('connection','disabled',new AbortController().signal,builtinEndpoint);
+ assert.equal(bodies[1].shellIntegration,undefined);
 });

@@ -1,3 +1,6 @@
+import { requestTerminalCompletion } from '../api/terminalCompletion';
+import { builtinRequest } from '../api/builtin';
+import { sshUserId } from '../api/ssh';
 import { terminalApi } from '../api/terminal';
 import type { TerminalConnectionState, TerminalOpen, TerminalReadResult } from '../api/terminal';
 import { SshRequestError } from '../api/ssh';
@@ -28,6 +31,7 @@ export function terminalDisconnectMessage(reason: TerminalDisconnectReason | nul
 export class RemoteTerminal implements TerminalRuntime {
   readonly sessionId: string;
   readonly connectionId: string;
+  readonly completionNonce?:string;
   /** 终端绑定创建时的工作区实例，重新初始化后旧 sessionId 不能操作新实例。 */
   private readonly backendUrl: string;
   closed = false;
@@ -54,6 +58,7 @@ export class RemoteTerminal implements TerminalRuntime {
   constructor(opened: TerminalOpen, startPaused = false, backendUrl = requireBackendUrl()) {
     this.sessionId = opened.sessionId;
     this.connectionId = opened.connectionId;
+    this.completionNonce = opened.completionNonce;
     this.backendUrl = backendUrl;
     this.backlog = opened.initialOutput || '';
     this.paused = startPaused;
@@ -61,6 +66,14 @@ export class RemoteTerminal implements TerminalRuntime {
       this.disconnected = true;
       this.disconnectReason = 'CHANNEL_DISCONNECTED';
     }
+  }
+
+  completionRequest(modelId:string,context:{prefix:string;cwd:string},signal:AbortSignal){
+    return requestTerminalCompletion(modelId,context,signal,this.backendUrl);
+  }
+
+  completionEntries(path:string,signal:AbortSignal){
+    return builtinRequest<{name:string;directory:boolean}[]>('ssh/terminal/completion_entries','GET',null,{sessionId:this.sessionId,userId:sshUserId,path},signal,this.backendUrl);
   }
 
   get readLoopGeneration() { return this.generation; }

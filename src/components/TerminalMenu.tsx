@@ -70,8 +70,8 @@ export function TerminalMenu() {
       style={position} onKeyDown={navigate} data-no-window-drag
       onBlur={event => { if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget as Node) && event.relatedTarget !== trigger.current) close(); }}>
       <div className="terminal-menu-caption" title={target?.title}>{target ? target.title : '未打开终端'}</div>
-      {target ? (['clipboard', 'font', 'connection'] as const).map(group => <div className="terminal-menu-group" role="group" key={group}
-        aria-label={group === 'clipboard' ? '文本操作' : group === 'font' ? '字号' : '连接'}>
+      {target ? (['clipboard', 'font', 'completion', 'connection'] as const).map(group => <div className="terminal-menu-group" role="group" key={group}
+        aria-label={group === 'clipboard' ? '文本操作' : group === 'font' ? '字号' : group === 'completion' ? '智能补全' : '连接'}>
         {group === 'font' && <div className="terminal-menu-font"><span>终端字号 <small>{target.fontSize}px</small></span><kbd>Ctrl + 鼠标滚轮</kbd></div>}
         {target.commands.filter(command => command.group === group).map(command => <button type="button" role="menuitem" key={command.id}
           disabled={command.disabled} title={command.disabled ? command.reason : undefined} className={command.danger ? 'is-danger' : undefined}

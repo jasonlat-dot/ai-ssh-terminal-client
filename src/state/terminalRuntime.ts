@@ -5,6 +5,9 @@ import type { TerminalDisconnectEvent } from './remoteTerminal';
 export interface TerminalRuntime {
   readonly sessionId: string;
   readonly connectionId: string;
+  readonly completionNonce?: string;
+  completionRequest?(modelId:string,context:{prefix:string;cwd:string},signal:AbortSignal):Promise<{suffix:string}>;
+  completionEntries?(path:string,signal:AbortSignal):Promise<{name:string;directory:boolean}[]>;
   readonly readLoopGeneration: number;
   closed: boolean;
   disconnected: boolean;

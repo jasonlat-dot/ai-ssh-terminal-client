@@ -16,7 +16,7 @@ const code=ts.transpileModule(`const copySelection=${copy.getText(source)};expor
 function harness(selection='selected terminal text',native=true){
  const copied=[],feedback=[];let pastes=0;
  const terminal={hasSelection:()=>selection.length>0,getSelection:()=>selection};
- const context=vm.createContext({exports:{},terminal,term:{current:terminal},visibleRef:{current:true},isTauriRuntime:()=>native,
+ const context=vm.createContext({exports:{},completion:{current:null},terminal,term:{current:terminal},visibleRef:{current:true},isTauriRuntime:()=>native,
   copyText:async text=>copied.push(text),showFeedback:(...args)=>feedback.push(args),pasteClipboard:async()=>{pastes++;}});
  vm.runInContext(code,context);
  return{copied,feedback,get pastes(){return pastes;},key(patch={}){let prevented=0;const result=context.exports.handle({key:'c',type:'keydown',ctrlKey:true,shiftKey:false,altKey:false,metaKey:false,repeat:false,preventDefault(){prevented++;},...patch});return{result,prevented};}};

@@ -572,3 +572,12 @@ JSON 与 SSE 中的 `message/delta.reasoning` 作为原生思考单独保留，�
 依据：[OpenAI 兼容接口](https://docs.ollama.com/api/openai-compatibility)、[思考控制](https://docs.ollama.com/capabilities/thinking)、[上下文长度](https://docs.ollama.com/context-length)、[官方兼容层字段实现](https://github.com/ollama/ollama/blob/main/openai/openai.go)。图标沿用 Lobe Icons MIT 许可。
 
 本轮验证：前端供应商、参数、设置、选择器、推理、图标、查询与多模型 90 项；Rust provider 49 项、目录 20 项、工具续聊 14 项、本地摘要 22 项；桌面原生 IPC 1 项，合计 196 项通过。Ollama 工具续聊覆盖默认/none/low/medium/high 与 JSON/SSE 共 10 个场景，按官方 reasoning 字段验证原文回放、工具执行一次和日志隔离；另验证同端点 DeepSeek → Qwen 在两种模式下跨重启保留历史。TypeScript、Vite 生产构建与 Rust 生产库严格 Clippy 通过。
+
+
+## 终端智能补全
+
+模型设置顶部新增独立补全模型选择与开关，默认关闭，不修改聊天模型。SSH Bash 会话需从顶部终端菜单手动初始化，按右方向键接受后缀，回车才执行；当前命令与目录发送给所选模型。第一版范围、设置和验证边界见 [终端智能补全](terminal-completion.md)。
+
+### 终端补全设置更新（2026-10-21）
+
+终端补全总开关启用本地路径/本次手动历史，并在新建或重连 SSH 时自动接入支持的 Bash；已有终端可重连或在空提示符手动重试。AI 续写独立开关，目录默认不发送，不自动读取文件正文。旧版本已开启并选择模型的设置保留原 AI 续写选择，但目录上传回到默认关闭；新配置 AI 默认关闭。完整边界以 [终端补全文档](terminal-completion.md) 为准，前文第一版手动初始化和默认发送目录的说明仅为历史记录。

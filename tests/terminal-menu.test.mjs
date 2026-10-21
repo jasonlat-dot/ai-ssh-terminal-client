@@ -22,6 +22,7 @@ const registration = find(remote, n => ts.isCallExpression(n) && n.expression.ge
 function terminal(patch = {}) {
   const calls = [], terminal = { focus: () => calls.push('focus') };
   const context = evaluate(`const pasteShortcut = ${variable('pasteShortcut')}; exports.target = ${registration.arguments[1].getText(remote)}; exports.enabled = ${registration.arguments[0].getText(remote)};`, {
+    completionStatus:'未初始化',completionPrefs:{enabled:false,modelId:''},setCompletionSetup:()=>calls.push('completion'),
     title: '凯平哥', local: false, visible: true, focused: true, fontSize: 13, hasSelection: true, canAddToAgent: true,
     unavailable: false, isReconnecting: false, canCancelConnection: false, sessionUnavailable: false,
     copyShortcut: 'Ctrl+C', isMac: false, term: { current: terminal }, fontSizeRef: { current: 13 },
@@ -109,4 +110,14 @@ test('菜单方向键循环并支持 Home/End；Escape 关闭恢复焦点，Tab 
   assert.deepEqual(key('Escape'), { prevented: true, stopped: true }); assert.equal(closed[0], true);
   assert.deepEqual(key('Tab'), { prevented: false, stopped: false }); assert.equal(closed.length, 2); assert.equal(closed[1], true);
   assert.deepEqual(key('c'), { prevented: false, stopped: false });
+});
+
+
+test('补全重试仅 SSH 可用，本地候选无需模型，离线时禁用',()=>{
+  assert.equal(terminal().command('completion').disabled,true);
+  assert.equal(terminal({completionPrefs:{enabled:true,modelId:''}}).command('completion').disabled,false);
+  const configured=terminal({completionPrefs:{enabled:true,modelId:'model'}});
+  assert.equal(configured.command('completion').disabled,false);configured.command('completion').run();assert.deepEqual(configured.calls,['completion']);
+  assert.equal(terminal({completionPrefs:{enabled:true,modelId:'model'},unavailable:true}).command('completion').disabled,true);
+  assert.equal(terminal({local:true}).command('completion'),undefined);
 });

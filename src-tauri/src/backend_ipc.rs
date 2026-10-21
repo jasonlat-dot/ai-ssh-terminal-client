@@ -167,6 +167,17 @@ pub async fn dispatch(
             services.agent.extension_decision(text(&body,"agentId")?.into(),text(&body,"userId")?.into(),text(&body,"sessionId")?.into(),text(&body,"id")?.into(),body["allow"].as_bool().ok_or_else(||Error::invalid("审批决定无效"))?).await.map_err(agent_error)?;
             Ok(json!(true))
         },
+        ("POST", "agent/terminal_completion") => {
+            let user = text(&body,"userId")?.to_owned();
+            let model = text(&body,"modelId")?.to_owned();
+            let request: shellpilot_server::agent::completion::Request = serde_json::from_value(body["context"].clone())
+                .map_err(|_|Error::invalid("补全上下文无效"))?;
+            request.validate().map_err(|e|Error::invalid(e.to_string()))?;
+            let runtime = models(&services,move|r|r.runtime(&model,&user)).await?;
+            let suggestion = Box::pin(shellpilot_server::agent::completion::suggest(runtime,request,&services.stop)).await
+                .map_err(|e|Error {message:format!("终端补全失败：{e}"),code:"TERMINAL_COMPLETION_FAILED".into(),status:502})?;
+            value(suggestion)
+        }
         ("POST", "agent/model_catalog") => {
             let user = text(&body,"userId")?.to_owned();
             let request = serde_json::from_value(body["query"].clone()).map_err(|_|Error::invalid("模型查询参数无效"))?;
@@ -633,12 +644,11 @@ pub async fn dispatch(
                 .delete_connection(text(&params, "connectionId")?.to_owned())
                 .await
         ),
-        ("POST", "ssh/terminal/connect") => run!(
-            services
-                .terminals
-                .connect(serde_json::from_value(body).map_err(|_| Error::invalid("连接参数无效"))?)
-                .await
-        ),
+        ("POST", "ssh/terminal/connect") => {
+            let integration=body.get("shellIntegration").filter(|v|!v.is_null()).map(|v|serde_json::from_value(v.clone())).transpose().map_err(|_|Error::invalid("补全集成参数无效"))?;
+            run!(services.terminals.connect_with_completion(serde_json::from_value(body).map_err(|_|Error::invalid("连接参数无效"))?,integration).await)
+        },
+        ("GET", "ssh/terminal/completion_entries") => run!(services.terminals.completion_entries(text(&params,"sessionId")?,text(&params,"userId")?,text(&params,"path")?).await),
         ("POST", "ssh/terminal/cancel_connect") => run!(services
             .terminals
             .cancel(text(&params, "connectionId")?, text(&params, "requestId")?)),
@@ -778,7 +788,7 @@ async fn dispatch_json_request(
     services: Arc<Services>, request_id: &str, endpoint: &str, method: &str,
     body: Value, params: Value, token: &CancellationToken,
 ) -> Result<Value> {
-    let trace = (endpoint == "agent/model_catalog" && method == "POST")
+    let trace = (matches!(endpoint, "agent/model_catalog" | "agent/terminal_completion") && method == "POST")
         .then(||services.store.diagnostics.trace(request_id,"",""));
     let operation = Box::pin(async {
         tokio::select! { biased;
@@ -787,7 +797,7 @@ async fn dispatch_json_request(
         }
     });
     match trace {
-        Some(trace) => trace.request(json!({"entry":"model_catalog","method":method,"endpoint":endpoint}),operation).await.map_err(|mut error| {
+        Some(trace) => trace.request(json!({"entry":if endpoint == "agent/model_catalog" {"model_catalog"} else {"terminal_completion"},"method":method,"endpoint":endpoint}),operation).await.map_err(|mut error| {
             error.message = format!("{}（Trace ID：{}）",error.message,trace.id());
             error
         }),

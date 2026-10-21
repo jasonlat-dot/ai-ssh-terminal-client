@@ -1,0 +1,18 @@
+.terminal-completion-settings { margin: 0 0 18px; padding: 16px 18px; border: 1px solid var(--line); border-radius: 12px; background: var(--theme-panel); }
+.terminal-completion-settings > header { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px; }
+.terminal-completion-settings strong { display:flex; align-items:center; gap:8px; font-size:14px; }
+.terminal-completion-fields { display:grid; grid-template-columns:minmax(0,2fr) minmax(130px,1fr); gap:12px; }
+.terminal-completion-fields label { display:grid; gap:6px; font-size:12px; color:var(--theme-text-muted); }
+.terminal-completion-settings p,.terminal-completion-setup p { font-size:12px; line-height:1.7; color:var(--theme-text-muted); }
+.terminal-completion-setup { padding:18px 22px; }
+.terminal-completion-setup footer { display:flex; justify-content:flex-end; gap:8px; margin-top:18px; }
+.terminal-completion-ghost { position:fixed; pointer-events:none; z-index:15; color:var(--theme-text-muted); opacity:.7; white-space:pre; overflow:hidden; text-overflow:clip; user-select:none; }
+@media(max-width:560px) { .terminal-completion-fields { grid-template-columns:1fr; } }
+
+.terminal-completion-setting-actions { display:flex; align-items:center; gap:12px; }
+
+.settings-page .settings-content > .terminal-model-settings-page { display:flex; flex-direction:column; align-items:stretch; justify-content:flex-start; min-width:0; min-height:0; height:100%; overflow:auto; gap:18px; }
+.terminal-model-settings-page > .terminal-completion-settings { flex:none; margin-bottom:0; }
+.terminal-model-settings-page > .model-settings { flex:1; height:auto; min-height:260px; }
+
+.terminal-completion-privacy { display:flex; flex-wrap:wrap; align-items:center; gap:12px 24px; margin-top:14px; }

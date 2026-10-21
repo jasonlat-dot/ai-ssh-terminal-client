@@ -3072,3 +3072,54 @@ async fn ollama_supplier_ipc_supports_keyless_multiple_models_and_optional_proxy
     let members:Vec<_>=models.as_array().unwrap().iter().filter(|m|m["channelId"]=="local-ollama").collect();assert_eq!(members.len(),2);assert!(members.iter().all(|m|m["supplier"]=="ollama"));
     assert_eq!(calls.load(Ordering::SeqCst),2);server.abort();
 }
+
+
+#[tokio::test]
+async fn terminal_completion_ipc_is_stateless_cancelable_and_uses_metadata_only_trace() {
+    let (dir,services)=services().await;
+    let requests=Arc::new(Mutex::new(Vec::<Value>::new()));let captured=requests.clone();
+    let listener=tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base=format!("http://{}/v1/",listener.local_addr().unwrap());
+    let router=axum::Router::new().route("/v1/chat/completions",axum::routing::post(move|axum::Json(body):axum::Json<Value>|{
+        captured.lock().unwrap().push(body);
+        async {axum::Json(json!({"choices":[{"index":0,"message":{"role":"assistant","content":" logs -f"},"finish_reason":"stop"}]}))}
+    }));
+    let server=tokio::spawn(async move{axum::serve(listener,router).await.unwrap();});
+    save_test_model(&services,base);
+    let before=dispatch(services.clone(),"agent/models","GET",Value::Null,json!({"userId":"default"})).await.unwrap();
+    let body=json!({"userId":"default","modelId":"model","context":{"prefix":"docker compose PRIVATE_PREFIX","cwd":"/PRIVATE_DIRECTORY"}});
+    let id=uuid::Uuid::new_v4().to_string();
+    let reply=dispatch_json_request(services.clone(),&id,"agent/terminal_completion","POST",body.clone(),Value::Null,&CancellationToken::new()).await.unwrap();
+    assert_eq!(reply,json!({"suffix":" logs -f"}));
+    assert_eq!(requests.lock().unwrap().len(),1);
+    assert_eq!(requests.lock().unwrap()[0]["max_completion_tokens"],64);
+    let mut no_directory=body.clone();no_directory["context"]["cwd"]=json!("");
+    dispatch(services.clone(),"agent/terminal_completion","POST",no_directory.clone(),Value::Null).await.unwrap();
+    let context:Value=serde_json::from_str(requests.lock().unwrap()[1]["messages"][1]["content"].as_str().unwrap()).unwrap();
+    assert!(context.get("cwd").is_none());assert!(context.get("history").is_none());assert!(context.get("entries").is_none());
+    no_directory["context"]["history"]=json!(["LOCAL_HISTORY_MUST_NOT_UPLOAD"]);
+    assert!(dispatch(services.clone(),"agent/terminal_completion","POST",no_directory,Value::Null).await.is_err());
+    let after=dispatch(services.clone(),"agent/models","GET",Value::Null,json!({"userId":"default"})).await.unwrap();assert_eq!(before,after);
+    let mut foreign=body.clone();foreign["userId"]=json!("other");assert!(dispatch(services.clone(),"agent/terminal_completion","POST",foreign,Value::Null).await.is_err());
+    let token=CancellationToken::new();token.cancel();
+    assert!(dispatch_json_request(services.clone(),&uuid::Uuid::new_v4().to_string(),"agent/terminal_completion","POST",body,Value::Null,&token).await.is_err());
+    assert_eq!(requests.lock().unwrap().len(),2);
+    let logs=std::fs::read_dir(dir.path().join("logs/agent")).unwrap().flat_map(|day|std::fs::read_dir(day.unwrap().path()).unwrap()).map(|entry|std::fs::read_to_string(entry.unwrap().path()).unwrap()).collect::<String>();
+    assert!(logs.contains("terminal_completion"));assert!(logs.contains(&id));
+    assert!(!logs.contains("PRIVATE_PREFIX"));assert!(!logs.contains("PRIVATE_DIRECTORY"));assert!(!logs.contains(" logs -f"));
+    server.abort();services.shutdown().await;
+}
+
+#[tokio::test]
+async fn terminal_completion_ipc_connect_installs_once_and_validates_before_authentication() {
+    let fixture=protocol::Fixture::new(Default::default()).await;
+    let (store,connection)=fixture.saved(false);let services=Services::native(store,Default::default(),uuid::Uuid::new_v4());
+    let nonce="c".repeat(32);
+    let body=json!({"connectionId":connection.connection_id,"requestId":uuid::Uuid::new_v4().to_string(),"shellIntegration":{"nonce":nonce,"script":format!("__shellpilot_test_completion_nonce={nonce}; :")}});
+    let result=dispatch(services.clone(),"ssh/terminal/connect","POST",body.clone(),Value::Null).await.unwrap();
+    assert_eq!(result["completionNonce"],nonce);assert_eq!(fixture.stats.inputs.lock().unwrap().len(),2);
+    let mut invalid=body;invalid["requestId"]=json!(uuid::Uuid::new_v4().to_string());invalid["shellIntegration"]["nonce"]=json!("invalid");
+    assert!(dispatch(services.clone(),"ssh/terminal/connect","POST",invalid,Value::Null).await.is_err());assert_eq!(fixture.stats.connections.load(Ordering::SeqCst),1);
+    let error=dispatch(services.clone(),"ssh/terminal/completion_entries","GET",Value::Null,json!({"sessionId":result["sessionId"],"userId":"other-user","path":"/home"})).await.unwrap_err();
+    assert_eq!(error.code,"S0003");services.shutdown().await;
+}

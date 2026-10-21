@@ -10,7 +10,11 @@ import type { TerminalDisconnectReason } from '../types';
 import { copyText, readClipboardText } from '../state/clipboard';
 import { isTauriRuntime } from '../state/runtime';
 import { ClipboardFeedback, useClipboardFeedback } from './ClipboardFeedback';
-import { Icon, IconButton } from './Ui';
+import { Icon, IconButton, Modal } from './Ui';
+import { notify } from '../state/notifications';
+import { attachTerminalCompletion } from '../state/terminalCompletionView';
+import { readCompletionPreferences, COMPLETION_SETTINGS_EVENT } from '../state/terminalCompletionPreferences';
+import './TerminalCompletion.css';
 import { TerminalResources } from './TerminalResources';
 import { useTerminalTarget } from './TerminalActionsContext';
 import { terminalSelectionBounds, terminalSelectionActionPosition } from '../state/terminalSelectionPosition';
@@ -106,6 +110,10 @@ export function RemoteTerminalView({
   const selectionActionRef = useRef<HTMLDivElement>(null);
   const [pasteFallback, setPasteFallback] = useState(false);
   const [pasteDraft, setPasteDraft] = useState('');
+  const [completionPrefs,setCompletionPrefs]=useState(readCompletionPreferences);
+  const [completionSetup,setCompletionSetup]=useState(false);
+  const [completionStatus,setCompletionStatus]=useState('未初始化');
+  const completion=useRef<ReturnType<typeof attachTerminalCompletion>|null>(null);
   const [fontSize, setFontSize] = useState(readTerminalFontSize);
   const fontSizeRef = useRef(fontSize);
   const pasteField = useRef<HTMLTextAreaElement>(null);
@@ -138,6 +146,13 @@ export function RemoteTerminalView({
   transportHandler.current = onTransportChange;
   reconnectHandler.current = reconnect;
   exhaustedHandler.current = onReconnectExhausted;
+
+  useEffect(()=>{
+    const update=()=>setCompletionPrefs(readCompletionPreferences());
+    window.addEventListener(COMPLETION_SETTINGS_EVENT,update);
+    return()=>window.removeEventListener(COMPLETION_SETTINGS_EVENT,update);
+  },[]);
+  useEffect(()=>{completion.current?.suspend();if(!visible||unavailable)setCompletionSetup(false);},[visible,focused,unavailable]);
 
   const addSelectionToAgent = (text = term.current?.getSelection() ?? '') => {
     if (!canAddToAgent || !text.trim()) return;
@@ -213,6 +228,7 @@ export function RemoteTerminalView({
 
   useEffect(() => {
     let cleanup = () => {};
+    setCompletionStatus('未初始化');
     setError('');
     setLocalReconnecting(false);
     setPendingAttempt(0);
@@ -256,7 +272,17 @@ export function RemoteTerminalView({
       window.addEventListener(TERMINAL_FONT_SIZE_EVENT, receiveFontSize);
       // 在捕获阶段截断 Ctrl + 滚轮，避免 xterm 同时滚动终端历史内容。
       terminalElement.addEventListener('wheel', zoomWithWheel, { capture: true, passive: false });
+      if(!local&&runtime){
+        completion.current=attachTerminalCompletion(terminal,input=>runtime.write(input),
+          ()=>activeRuntime.current===runtime&&allowInput.current&&visibleRef.current&&focusedRef.current,text=>{
+            setCompletionStatus(text);
+            if(text.startsWith('已连接 Bash'))notify('Bash 智能补全已初始化','success');
+            else if(/^(初始化失败|未收到 Bash|初始化已取消)/.test(text))notify(text,'error');
+          },runtime.completionRequest?((model,context,signal)=>runtime.completionRequest!(model,context,signal)):undefined,{nonce:runtime.completionNonce,entries:runtime.completionEntries?((path,signal)=>runtime.completionEntries!(path,signal)):undefined});
+      }
       terminal.attachCustomKeyEventHandler(event => {
+        if(completion.current?.controller.key(event)){event.preventDefault();return false;}
+
         const key = event.key.toLowerCase();
         const clipboardShortcut = !event.altKey && ((event.ctrlKey && event.shiftKey && !event.metaKey)
           || (event.metaKey && !event.ctrlKey));
@@ -300,6 +326,7 @@ export function RemoteTerminalView({
       ) ?? (() => {});
       const input = terminal.onData(data => {
         if (!allowInput.current || !runtime) return;
+        if(completion.current?.controller.input(data))return;
         void runtime.write(data).catch(error => setError(`${error.message}；输入未自动重试。`));
       });
       let resizeTimer: ReturnType<typeof setTimeout>;
@@ -325,6 +352,7 @@ export function RemoteTerminalView({
       });
       themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'data-theme-preference', 'data-wallpaper'] });
       cleanup = () => {
+        completion.current?.dispose();completion.current=null;
         clearTimeout(resizeTimer);
         observer.disconnect();
         themeObserver.disconnect();
@@ -454,6 +482,9 @@ export function RemoteTerminalView({
       { id: 'add', label: '添加到对话', group: 'clipboard', disabled: !hasSelection || !canAddToAgent,
         reason: !canAddToAgent ? '当前对话暂时无法添加内容' : '请先选中终端里的文字',
         run: () => { addSelectionToAgent(); term.current?.focus(); } },
+      ...(!local ? [{id:'completion',label:'重新接入 Bash 补全',group:'completion' as const,disabled:unavailable||!completionPrefs.enabled,
+        shortcut:completionStatus==='未初始化'?'未初始化':completionStatus==='正在初始化…'?'连接中':/失败|不可用|未收到|失去同步|已取消|不支持/.test(completionStatus)?'需检查':'已连接',
+        reason:unavailable?'终端连接后可初始化':'请先在模型设置中开启终端补全；已有会话可重连接入',run:()=>setCompletionSetup(true)}] : []),
       ...(!local ? [{ id: canCancelConnection ? 'cancel' : 'reconnect', label: canCancelConnection ? '取消连接' : isReconnecting ? '正在重连…' : '重新连接',
         group: 'connection' as const, disabled: !canCancelConnection && isReconnecting, run: canCancelConnection ? cancelReconnect : reconnectNow }] : []),
       { id: 'disconnect', label: local ? '关闭终端' : sessionUnavailable ? '关闭页签' : '断开连接', group: 'connection', danger: true, run: disconnect },
@@ -461,6 +492,14 @@ export function RemoteTerminalView({
   });
 
   return <div className="remote-terminal-view" hidden={!visible} onKeyDownCapture={handleTerminalKeyDown}>
+    {completionSetup&&createPortal(<Modal title="初始化 Bash 智能补全" icon="bot" onClose={()=>setCompletionSetup(false)}>
+      <div className="terminal-completion-setup"><p>请先确认当前终端位于 Bash 4.4+ 的空命令提示符，并使用 emacs 行编辑模式。此操作通过一条短命令静默加载集成脚本，等待最多 10 秒，仅在当前 Shell 会话生效，不修改远端启动配置或写入脚本文件。</p>
+        <p>开启后，新建或重连 SSH 会话会自动接入；此入口用于已有会话或手动重试。路径和本次手动命令历史只在应用内匹配；仅在开启 AI 续写时发送当前输入，目录按独立设置决定。按 → 填入，Esc 隐藏，Tab 保留远端补全，仍需手动回车。状态：{completionStatus}</p>
+        <footer><button type="button" className="outlined-button" onClick={()=>setCompletionSetup(false)}>取消</button><button type="button" className="primary-button" disabled={unavailable} onClick={()=>{
+          const owner=activeRuntime.current;setCompletionSetup(false);
+          setTimeout(()=>{if(activeRuntime.current!==owner||!allowInput.current||!visibleRef.current||!focusedRef.current)return;term.current?.focus();void completion.current?.controller.initialize();},0);
+        }}>在空提示符处初始化</button></footer></div>
+    </Modal>,document.body)}
     <div className="terminal-feedback-anchor">
         {!pasteFallback && <ClipboardFeedback feedback={feedback} />}
         {pasteFallback && <div className="terminal-paste-popover" role="dialog" aria-label="粘贴到终端" onKeyDown={event => {
