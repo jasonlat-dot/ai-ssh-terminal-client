@@ -16,3 +16,6 @@
 .terminal-menu-footnote { border-top: 1px solid var(--line); }
 .remote-terminal-view > .terminal-feedback-anchor { position: absolute; top: 8px; left: 12px; z-index: 30; }
 .terminal-feedback-anchor > .clipboard-feedback, .terminal-feedback-anchor > .terminal-paste-popover { top: 0; left: 0; }
+
+.terminal-tab-context-menu { width: min(220px, calc(100vw - 16px)); }
+.terminal-tab-context-menu button > span { display: inline-flex; align-items: center; gap: 8px; }

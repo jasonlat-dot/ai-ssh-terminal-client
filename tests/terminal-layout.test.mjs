@@ -73,6 +73,7 @@ function workspace() {
     if (name === 'react/jsx-runtime') return { jsx: node, jsxs: node };
     if (name === 'react-dom') return { createPortal: content => content };
     if (name === './Select') return { Select: leaf };
+    if (name === './TerminalTabContextMenu') return { TerminalTabContextMenu: leaf };
     if (name === './Ui') return { AccentIcon: leaf, Badge: leaf, Icon: leaf, IconButton: leaf };
     if (name === '../data/mock') return { commandCategoryIcon: () => 'terminal' };
     if (name === './TerminalWelcome') return { TerminalWelcome: leaf };
@@ -82,7 +83,7 @@ function workspace() {
     window: { addEventListener: (name, callback) => listeners.set(name, callback), removeEventListener: name => listeners.delete(name) },
     setTimeout: callback => timers.push(callback) });
   const props = { sessions: sessions.slice(0, 3), activeId: 'a', remoteViews: null, layout: 'columns', visibleIds: ['a', 'b'],
-    select: id => selected.push(id), reorder: (...args) => calls.push(args), changeLayout: layout => calls.push(layout), close() {}, add() {} };
+    select: id => selected.push(id), reorder: (...args) => calls.push(args), changeLayout: layout => calls.push(layout), close() {}, add() {}, addFromTab: id => calls.push(['new', id]) };
   function all(node = tree) {
     if (Array.isArray(node)) return node.flatMap(child => all(child ?? null));
     if (!node?.props) return [];
@@ -263,4 +264,28 @@ test('更换壁纸入口使用轻蒙版与较小文字，不把原图盖成独�
   assert.doesNotMatch(source('components/AppearanceSettings.tsx'), /'更换图片'/);
   assert.match(css, /rgb\(8 16 30 \/ 18%\).*rgb\(8 16 30 \/ 34%\)/);
   assert.match(css, /:is\(:hover, :focus-visible\) > :is\(svg, span\) \{ opacity: 1/);
+});
+
+
+test('右键未激活标签可打开新建菜单，绑定右键目标且不切换或重排会话', () => {
+  const ui = workspace();
+  ui.event(1, 'onPointerDown', { button: 2 });
+  ui.event(1, 'onContextMenu', { button: 2, stopPropagation() {} });
+  assert.deepEqual(ui.selected, []); assert.deepEqual(ui.calls, []); assert.equal(ui.captures.size, 0);
+  const menu = ui.all().find(node => node.props.target?.id === 'b');
+  assert.ok(menu); menu.props.create();
+  assert.deepEqual(ui.calls, [['new', 'b']]);
+  menu.props.close(); ui.render(); assert.equal(ui.all().some(node => node.props.target?.id === 'b'), false);
+});
+
+test('右键新建按来源标签类型路由，SSH 复用连接入口，本地复用 CMD 入口', () => {
+  const app = ts.createSourceFile('App.tsx', source('App.tsx'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  let callback;
+  function visit(node) { if (ts.isJsxAttribute(node) && node.name.getText(app) === 'addFromTab') callback = node.initializer.expression.getText(app); ts.forEachChild(node, visit); }
+  visit(app); assert.ok(callback);
+  const calls = [], context = vm.createContext({ exports: {}, sessions: [{id:'ssh',kind:'ssh',connectionId:'host-b'},{id:'local',kind:'local'}],
+    selectHost: id => calls.push(['ssh', id]), openNewTerminal: () => calls.push(['local']) });
+  vm.runInContext(ts.transpileModule(`exports.create=${callback}`, {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText, context);
+  context.exports.create('ssh'); context.exports.create('local'); context.exports.create('removed');
+  assert.deepEqual(calls, [['ssh','host-b'],['local']]);
 });

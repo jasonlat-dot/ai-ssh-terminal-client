@@ -1812,6 +1812,12 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
         select={selectTerminalTab}
         close={closeSession}
         add={openNewTerminal}
+        addFromTab={id => {
+          const session = sessions.find(item => item.id === id);
+          if (!session) return;
+          if (session.kind === 'ssh') void selectHost(session.connectionId);
+          else void openNewTerminal();
+        }}
         copy={copy}
         filesAvailable agentAvailable
         filesOpen={active?.kind === 'ssh' && visibleFiles === active.connectionId}

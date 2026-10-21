@@ -7,9 +7,12 @@ import { AccentIcon, Badge, Icon, IconButton, toneForIcon } from './Ui';
 import { TerminalWelcome } from './TerminalWelcome';
 import { isSessionConnected } from '../state/terminalSessions';
 import { Select } from './Select';
+import { TerminalTabContextMenu, type TerminalTabMenuTarget } from './TerminalTabContextMenu';
 
-export function TerminalWorkspace({ remoteViews, sessions, activeId, host, select, close, add, filesOpen, toggleFiles, commandCollapsed, toggleCommands, agentCollapsed, toggleAgent, filesAvailable = true, agentAvailable = true, copy, guide, layout = 'single', visibleIds = [activeId], changeLayout, reorder, commandControls, dockControls, agentTerminalId }: { remoteViews: ReactNode; sessions: TerminalSession[]; activeId: string; host?: Host; select: (id: string) => void; close: (id: string) => void; add: () => void; filesOpen: boolean; toggleFiles: () => void; commandCollapsed: boolean; toggleCommands: () => void; agentCollapsed: boolean; toggleAgent: () => void; filesAvailable?: boolean; agentAvailable?: boolean; guide: () => void; copy: (text: string) => void; layout?: TerminalLayout; visibleIds?: string[]; changeLayout?: (layout: TerminalLayout) => void; reorder?: (draggedId: string, targetId: string, after: boolean) => void; commandControls?: ReactNode; dockControls?: ReactNode; agentTerminalId?:string }) {
+export function TerminalWorkspace({ remoteViews, sessions, activeId, host, select, close, add, addFromTab, filesOpen, toggleFiles, commandCollapsed, toggleCommands, agentCollapsed, toggleAgent, filesAvailable = true, agentAvailable = true, copy, guide, layout = 'single', visibleIds = [activeId], changeLayout, reorder, commandControls, dockControls, agentTerminalId }: { remoteViews: ReactNode; sessions: TerminalSession[]; activeId: string; host?: Host; select: (id: string) => void; close: (id: string) => void; add: () => void; addFromTab: (id: string) => void; filesOpen: boolean; toggleFiles: () => void; commandCollapsed: boolean; toggleCommands: () => void; agentCollapsed: boolean; toggleAgent: () => void; filesAvailable?: boolean; agentAvailable?: boolean; guide: () => void; copy: (text: string) => void; layout?: TerminalLayout; visibleIds?: string[]; changeLayout?: (layout: TerminalLayout) => void; reorder?: (draggedId: string, targetId: string, after: boolean) => void; commandControls?: ReactNode; dockControls?: ReactNode; agentTerminalId?:string }) {
   const active = sessions.find(session => session.id === activeId);
+  const [tabMenu, setTabMenu] = useState<TerminalTabMenuTarget | null>(null);
+  const menuSession = tabMenu && sessions.find(session => session.id === tabMenu.id);
   const dragging = useRef<{ id: string; pointerId: number; x: number; y: number; left: number; top: number; width: number; node: HTMLDivElement; moved: boolean; target: { id: string; after: boolean } | null } | null>(null);
   const suppressClick = useRef(false);
   const [draggedId, setDraggedId] = useState('');
@@ -27,6 +30,8 @@ export function TerminalWorkspace({ remoteViews, sessions, activeId, host, selec
     return () => { window.removeEventListener('blur', cancel); releaseDrag(); };
   }, []);
   return <section className="terminal-workspace" aria-label="终端工作区">
+    {tabMenu && menuSession && <TerminalTabContextMenu target={tabMenu} title={menuSession.title} remote={menuSession.kind === 'ssh'}
+      close={() => setTabMenu(null)} create={() => addFromTab(menuSession.id)} />}
     {dockControls && <header className="terminal-dock-heading">{dockControls}</header>}
     {dragPreview && createPortal(<div className="terminal-tab-drag-preview" aria-hidden="true"
       style={{ width: dragPreview.width, transform: `translate3d(${dragPreview.left}px, ${dragPreview.top}px, 0)` }}>
@@ -38,6 +43,11 @@ export function TerminalWorkspace({ remoteViews, sessions, activeId, host, selec
         data-visible={layout !== 'single' && visibleIds.includes(session.id)}
         data-terminal-id={session.id} data-dragging={draggedId === session.id} data-reorderable={!!reorder}
         data-drop={dropTarget?.id === session.id ? dropTarget.after ? 'after' : 'before' : undefined}
+          onContextMenu={event => {
+            event.preventDefault(); event.stopPropagation(); finishDrag();
+            const trigger = event.currentTarget.querySelector<HTMLElement>('[role="tab"]');
+            if (trigger) setTabMenu({ id: session.id, x: event.clientX, y: event.clientY, trigger });
+          }}
           onDragStart={event => event.preventDefault()}
           onPointerDown={event => {
             if (!reorder || event.button !== 0 || event.isPrimary === false || dragging.current) return;
@@ -94,8 +104,15 @@ export function TerminalWorkspace({ remoteViews, sessions, activeId, host, selec
           }} onLostPointerCapture={event => { if (dragging.current?.pointerId === event.pointerId) finishDrag(); }}
         >
         <button role="tab" aria-selected={session.id === activeId}
-          title="拖动调整顺序；Ctrl+Shift+左右方向键也可排序"
+          title="右键新建终端；拖动调整顺序；Ctrl+Shift+左右方向键也可排序"
+          aria-haspopup="menu" aria-expanded={tabMenu?.id === session.id}
           onKeyDown={event => {
+            if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
+              event.preventDefault(); finishDrag();
+              const box = event.currentTarget.getBoundingClientRect();
+              setTabMenu({ id: session.id, x: box.left, y: box.bottom, trigger: event.currentTarget });
+              return;
+            }
             if (event.key === 'Escape' && dragging.current) {
               event.preventDefault(); finishDrag();
               return;
