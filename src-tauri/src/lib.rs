@@ -83,6 +83,7 @@ pub fn run() {
             sftp_mkdir,
             sftp_create_file,
             sftp_delete_entry,
+            sftp_rename_entry,
             sftp_tasks,
             sftp_transfer,
             sftp_retry,

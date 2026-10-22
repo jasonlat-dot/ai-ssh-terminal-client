@@ -93,3 +93,15 @@ test('sidebar transfers pin the browsed directory and download source independen
   assert.equal(connections, 0);
   for (const name of ['..','folder/file','bad\n']) assert.throws(() => createSidebarTransfer(f.runtime,'tab','WSL','/srv', ['D:\\out'],name));
 });
+
+test('batch sidebar download creates one queue job per selected file or directory and stops after identity change',async()=>{
+  const f=fixture();
+  const request=createSidebarTransfer(f.runtime,'tab','WSL','/srv',['D:\\out'],['folder','中文.txt','folder']);
+  const jobs:unknown[][]=[];let connections=0;
+  const result=await runTerminalTransfer(request,{valid:()=>terminalUploadMatches(f.runtime,request),connect:async()=>{connections++;return true;},transfer:async(...args)=>{jobs.push(args);return true;}});
+  assert.deepEqual(result,{submitted:2,total:2});assert.equal(connections,1);
+  assert.deepEqual(jobs,[['DOWNLOAD','D:\\out','/srv/folder'],['DOWNLOAD','D:\\out','/srv/中文.txt']]);
+  const stopped=await runTerminalTransfer(request,{valid:()=>terminalUploadMatches(f.runtime,request),connect:async()=>true,transfer:async()=>{f.directory.accessKey='changed';return true;}});
+  assert.deepEqual(stopped,{submitted:1,total:2});
+  assert.throws(()=>createSidebarTransfer(f.runtime,'tab','WSL','/srv',['D:\\out'],[]));
+});

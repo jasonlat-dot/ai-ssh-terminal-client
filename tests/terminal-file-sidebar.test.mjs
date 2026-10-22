@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
 import { createSidebarTransfer } from '../src/state/terminalUpload.ts';
+import { fileOperationJobs, fileSelection } from '../src/state/terminalFileOperations.ts';
 
 const source = path => readFileSync(new URL(`../src/${path}`, import.meta.url), 'utf8');
 const compile = input => ts.transpileModule(input, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } }).outputText;
@@ -11,7 +12,7 @@ const flush = async () => { for (let i = 0; i < 8; i++) await Promise.resolve();
 const listing = (path, names = ['folder', '.hidden', '中文.txt']) => ({ path, truncated: false,
   entries: names.map((name, i) => ({ name, directory: i === 0, symlink: false, size: 12 })) });
 function harness() {
-  const transfers = [], choices = [], notices = [];
+  const transfers = [], choices = [], notices = [], operations = [];
   const slots = [], effects = [], jobs = new Map(), events = new Map(), requests = [], saved = new Map(), copies = [];
   let cursor = 0, timerId = 0, tree, managerOpens = 0;
   let cwd = { path: '/home', revision: 1 };
@@ -38,6 +39,10 @@ function harness() {
       if (name.endsWith('api/sftp')) return { sftpApi: { pickLocal: directory => new Promise(resolve => choices.push({ directory, resolve })) } };
       if (name.endsWith('notifications')) return { notify: (...args) => notices.push(args) };
       if (name.endsWith('terminalUpload')) return { createSidebarTransfer };
+      if (name.endsWith('terminalFileOperations')) return {fileOperationJobs,fileSelection,runSidebarFileOperation:async(owner,operation,valid)=>{
+        if(!valid())throw new Error('访问身份已变化');operations.push({owner,operation});return operation.names.length;
+      }};
+      if (name === './TerminalFileActions') return {TerminalFileContextMenu:'file-menu',TerminalFileOperationDialog:'file-dialog'};
 
       if (name === 'react/jsx-runtime') return { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) };
       if (name.endsWith('terminalDirectory')) return directory;
@@ -52,7 +57,7 @@ function harness() {
   const all = value => Array.isArray(value) ? value.flatMap(all) : value?.props ? [value, ...all(value.props.children)] : [];
   const render = (patch = {}) => { props = { ...props, ...patch }; cursor = 0; tree = context.exports.TerminalFileSidebar(props); while (effects.length) effects.shift()(); return tree; };
   render();
-  return { requests, copies, saved, events, render, runtime, transfers, choices, notices, nodes: () => all(tree), managerOpens: () => managerOpens,
+  return { requests, copies, saved, events, render, runtime, transfers, choices, notices, operations, nodes: () => all(tree), managerOpens: () => managerOpens,
     find: predicate => all(tree).find(predicate),
     async tick() { const pending = [...jobs]; jobs.clear(); for (const [, job] of pending) job.fn(); await flush(); render(); },
     cwd(path, access = {}) { cwd = { ...cwd, ...access, path, revision: cwd.revision + 1 }; render(); },
@@ -162,4 +167,60 @@ test('文件选择期间换目录、身份、终端或关闭侧栏不向原目�
     ui.find(n => n.props.label === '上传文件到当前目录').props.onClick(); change(ui);
     ui.choices[0].resolve(['C:\\a.txt']); await flush(); assert.equal(ui.transfers.length, 0); ui.stop();
   }
+});
+
+test('Ctrl 点击目录只选择不进入，支持混合多选下载与取消单项选择', async()=>{
+  const ui=harness();await ui.tick();ui.requests[0].resolve(listing('/home'));await flush();ui.render();
+  const entry=name=>ui.find(node=>node.props.title===name),download=()=>ui.find(node=>node.props.label==='下载选中文件');
+  entry('folder').props.onClick({ctrlKey:true});ui.render();
+  assert.equal(entry('folder').props['aria-selected'],true);assert.equal(download().props.disabled,false);
+  entry('中文.txt').props.onClick({ctrlKey:true});ui.render();
+  assert.equal(entry('folder').props['aria-selected'],true);assert.equal(entry('中文.txt').props['aria-selected'],true);
+  assert.equal(ui.requests.length,1);
+  download().props.onClick();ui.choices[0].resolve(['D:\\downloads']);await flush();ui.render();
+  assert.deepEqual(Array.from(ui.transfers[0].remotePaths),['/home/folder','/home/中文.txt']);
+  entry('folder').props.onClick({ctrlKey:true});ui.render();assert.equal(entry('folder').props['aria-selected'],false);
+  assert.equal(entry('中文.txt').props['aria-selected'],true);ui.stop();
+});
+
+test('Shift 连选及 Ctrl+A 选择可见项，轮询不丢失选择，换目录清除',async()=>{
+  const ui=harness();await ui.tick();ui.requests[0].resolve(listing('/home'));await flush();ui.render();
+  const entry=name=>ui.find(node=>node.props.title===name);
+  entry('folder').props.onClick({ctrlKey:true});ui.render();entry('中文.txt').props.onClick({shiftKey:true});ui.render();
+  assert.equal(ui.nodes().filter(node=>node.props['aria-selected']===true&&node.props.role==='option').length,3);
+  await ui.tick();ui.requests.at(-1).resolve(listing('/home'));await flush();ui.render();
+  assert.equal(entry('folder').props['aria-selected'],true);
+  ui.find(node=>node.props['aria-label']==='目录内容').props.onKeyDown({key:'Escape'});ui.render();
+  ui.find(node=>node.props['aria-label']==='目录内容').props.onKeyDown({key:'a',ctrlKey:true,preventDefault(){},stopPropagation(){}});ui.render();
+  assert.equal(entry('.hidden').props['aria-selected'],true);
+  ui.cwd('/other');await ui.tick();ui.requests.at(-1).resolve(listing('/other'));await flush();ui.render();
+  assert.equal(entry('folder').props['aria-selected'],false);ui.stop();
+});
+
+test('右键已选项保留批量选择，删除先确认且提交准确路径与终端身份',async()=>{
+  const ui=harness();await ui.tick();ui.requests[0].resolve(listing('/home'));await flush();ui.render();
+  const entry=name=>ui.find(node=>node.props.title===name);
+  entry('folder').props.onClick({ctrlKey:true});ui.render();entry('中文.txt').props.onClick({ctrlKey:true});ui.render();
+  entry('folder').props.onContextMenu({clientX:10,clientY:20,preventDefault(){}});ui.render();
+  const menu=ui.find(node=>node.type==='file-menu');assert.equal(menu.props.caption,'已选 2 项');
+  assert.equal(menu.props.actions.find(action=>action.label==='重命名').disabled,true);
+  menu.props.actions.find(action=>action.danger).run();ui.render();
+  assert.equal(ui.operations.length,0);const dialog=ui.find(node=>node.type==='file-dialog');assert.equal(dialog.props.kind,'delete');
+  dialog.props.confirm('');dialog.props.confirm('');await flush();ui.render();
+  assert.equal(ui.operations.length,1);assert.deepEqual(Array.from(ui.operations[0].operation.names),['folder','中文.txt']);
+  assert.equal(ui.operations[0].owner,ui.runtime);assert.equal(ui.operations[0].operation.path,'/home');
+  assert.ok(!ui.find(node=>node.type==='file-dialog'));ui.stop();
+});
+
+test('右键未选项改为单选，重命名校验及过期确认不执行文件操作',async()=>{
+  const ui=harness();await ui.tick();ui.requests[0].resolve(listing('/home'));await flush();ui.render();
+  const entry=name=>ui.find(node=>node.props.title===name);
+  entry('folder').props.onClick({ctrlKey:true});ui.render();
+  entry('中文.txt').props.onContextMenu({clientX:10,clientY:20,preventDefault(){}});ui.render();
+  ui.find(node=>node.type==='file-menu').props.actions.find(action=>action.label==='重命名').run();ui.render();
+  let dialog=ui.find(node=>node.type==='file-dialog');assert.deepEqual(Array.from(dialog.props.names),['中文.txt']);
+  dialog.props.confirm('../escape');await flush();ui.render();assert.equal(ui.operations.length,0);
+  dialog=ui.find(node=>node.type==='file-dialog');assert.ok(dialog.props.error);
+  ui.cwd('/root',{access:'root',accessKey:'root-new'});dialog.props.confirm('new.txt');await flush();ui.render();
+  assert.equal(ui.operations.length,0);ui.stop();
 });

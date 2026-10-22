@@ -196,6 +196,10 @@ async fn local_json(
             .await
             .map_err(from_service)?),
         ("DELETE", ["sessions", id, "entries"]) => {
+            if body["recursive"].as_bool().unwrap_or(false) {
+                manager.delete_tree(id, &string("path")?).await.map_err(from_service)?;
+                return Ok(Value::Null);
+            }
             manager
                 .change_entry(
                     id,
@@ -204,6 +208,10 @@ async fn local_json(
                 )
                 .await
                 .map_err(from_service)?;
+            Ok(Value::Null)
+        }
+        ("POST", ["sessions", id, "rename"]) => {
+            manager.rename_entry(id, &string("from")?, &string("to")?).await.map_err(from_service)?;
             Ok(Value::Null)
         }
         ("POST", ["sessions", id, "directories"]) => {
@@ -355,6 +363,18 @@ impl State {
         let session = self.get(id)?;
         let _guard = session.metadata.lock().await;
         session.json(Method::DELETE, &format!("sessions/{id}/entries"), Some(json!({"path":path}))).await?;
+        Ok(())
+    }
+    pub async fn delete_tree(&self, id: &str, path: &str) -> Result<()> {
+        let session = self.get(id)?;
+        let _guard = session.metadata.lock().await;
+        session.json(Method::DELETE, &format!("sessions/{id}/entries"), Some(json!({"path":path,"recursive":true}))).await?;
+        Ok(())
+    }
+    pub async fn rename_entry(&self, id: &str, from: &str, to: &str) -> Result<()> {
+        let session = self.get(id)?;
+        let _guard = session.metadata.lock().await;
+        session.json(Method::POST, &format!("sessions/{id}/rename"), Some(json!({"from":from,"to":to}))).await?;
         Ok(())
     }
     pub async fn tasks(&self, id: &str) -> Result<Value> {

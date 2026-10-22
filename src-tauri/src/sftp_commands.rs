@@ -61,8 +61,19 @@ pub async fn sftp_delete_entry(
     state: State<'_, sftp::State>,
     session_id: String,
     path: String,
+    recursive: Option<bool>,
 ) -> Result<()> {
-    state.delete_entry(&session_id, &path).await
+    if recursive.unwrap_or(false) { state.delete_tree(&session_id, &path).await }
+    else { state.delete_entry(&session_id, &path).await }
+}
+#[tauri::command]
+pub async fn sftp_rename_entry(
+    state: State<'_, sftp::State>,
+    session_id: String,
+    from: String,
+    to: String,
+) -> Result<()> {
+    state.rename_entry(&session_id, &from, &to).await
 }
 #[tauri::command]
 pub async fn sftp_tasks(state: State<'_, sftp::State>, session_id: String) -> Result<Value> {
