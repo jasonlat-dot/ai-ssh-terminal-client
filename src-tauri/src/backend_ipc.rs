@@ -226,6 +226,14 @@ pub async fn dispatch(
             let enabled=body["enabled"].as_bool().ok_or_else(||Error::invalid("渠道启用状态无效"))?;
             value(models(&services,move|r|r.set_channel_enabled(&id,&user,revision,enabled)).await?)
         }
+        ("POST", "agent/model_channel_copy") => {
+            let user=text(&body,"userId")?.to_owned();
+            let source=text(&body,"sourceId")?.to_owned();
+            let id=text(&body,"id")?.to_owned();
+            let revision=body["revision"].as_u64().ok_or_else(||Error::invalid("渠道版本无效"))?;
+            let draft=if body["draft"].is_null(){None}else{Some(serde_json::from_value(body["draft"].clone()).map_err(|_|Error::invalid("复制草稿无效"))?)};
+            value(models(&services,move|r|r.copy_channel_draft(&source,&user,revision,&id,draft)).await?)
+        }
         ("DELETE", "agent/model_channels") => {
             let user=text(&body,"userId")?.to_owned();
             let id=text(&body,"id")?.to_owned();

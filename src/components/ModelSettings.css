@@ -48,9 +48,10 @@
 .model-profile-state i { width:7px; height:7px; flex-shrink:0; border-radius:50%; background:currentColor; }
 .model-profile-state.ready { color:var(--mint); background:var(--mint-soft); }
 .model-profile-heading > .model-profile-availability { flex:0 0 auto; display:flex; align-items:center; gap:8px; }
-.model-profile-availability .model-profile-state { padding:3px 6px; font-size:11px; }
-.model-profile-state.is-disabled { color:var(--settings-text-muted); background:var(--settings-panel-soft); border:1px solid var(--settings-border); }
+.model-profile-availability .model-profile-state { box-sizing:border-box; justify-content:center; min-width:71px; padding:3px 6px; border:1px solid transparent; font-size:11px; }
+.model-profile-state.is-disabled { color:var(--settings-text-muted); background:var(--settings-panel-soft); border-color:var(--settings-border); }
 .model-channel-toggle { display:inline-flex; align-items:center; flex-shrink:0; }
+.settings-page .model-channel-toggle[aria-busy='true'] .toggle { opacity:1; cursor:progress; }
 .settings-page .model-channel-toggle .toggle.on { background:var(--mint); border-color:var(--mint); }
 .settings-page .model-channel-toggle .toggle.on span { background:var(--theme-panel); }
 .settings-page .model-channel-toggle .toggle.on:hover:not(:disabled) { background:color-mix(in srgb,var(--mint) 88%,var(--theme-text-strong)); border-color:var(--mint); }
@@ -67,8 +68,8 @@
 .model-profile-card .model-pin { display:inline-flex; align-items:center; gap:5px; min-height:32px; margin-right:auto; padding:5px 7px; border:1px solid transparent; border-radius:7px; background:transparent; color:var(--settings-text-muted); font-size:12px; white-space:nowrap; }
 .model-profile-card .model-pin:hover:not(:disabled), .model-profile-card .model-pin[aria-pressed='true'] { color:var(--settings-blue-text); background:var(--settings-tag-bg); }
 .model-profile-card .model-pin[aria-pressed='true'] > svg { fill:color-mix(in srgb,var(--settings-blue) 16%,transparent); }
-.model-profile-card :is(.model-edit,.model-card-delete) { display:inline-flex; align-items:center; justify-content:center; gap:6px; flex-shrink:0; min-height:32px; padding:5px 10px; border:1px solid var(--settings-border); border-radius:7px; color:var(--settings-text); background:var(--settings-panel); font-size:12px; }
-.model-profile-card .model-edit:hover:not(:disabled) { color:var(--settings-blue-text); background:var(--settings-tag-bg); border-color:var(--settings-tag-border); }
+.model-profile-card :is(.model-copy,.model-edit,.model-card-delete) { display:inline-flex; align-items:center; justify-content:center; gap:6px; flex-shrink:0; min-height:32px; padding:5px 10px; border:1px solid var(--settings-border); border-radius:7px; color:var(--settings-text); background:var(--settings-panel); font-size:12px; }
+.model-profile-card :is(.model-copy,.model-edit):hover:not(:disabled) { color:var(--settings-blue-text); background:var(--settings-tag-bg); border-color:var(--settings-tag-border); }
 .model-profile-card .model-card-delete:hover:not(:disabled) { color:var(--accent-danger-ink); border-color:var(--accent-danger-line); background:var(--accent-danger-soft); }
 .model-list-empty { display:flex; flex-direction:column; justify-content:center; align-items:center; min-height:min(420px,100%); padding:36px 20px; text-align:center; border:1px dashed var(--settings-border-strong); border-radius:12px; background:var(--settings-panel-soft); }
 .model-list-empty > .ui-accent-icon { width:66px; height:66px; border-radius:18px; margin-bottom:20px; }

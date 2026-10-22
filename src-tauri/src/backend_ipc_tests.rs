@@ -8,6 +8,42 @@ mod directory_protocol;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 #[tokio::test]
+async fn model_channel_copy_ipc_creates_owned_independent_configuration_without_exposing_key() {
+    use shellpilot_server::agent::provider::*;
+    let (_dir,services)=services().await;save_test_model(&services,"http://127.0.0.1:1/v1/".into());
+    let repo=ModelRepository::new(services.store.clone());let source=repo.get("model","default").unwrap();
+    let mut config=source.config;config.require_api_key=true;
+    let source=repo.save_named("model","default",source.revision,ModelConfigUpdate{config,api_key:KeyChange::Set{value:SecretKey::new("ipc-copy-test-secret").unwrap()}},Some("Source")).unwrap();
+    let body=json!({"sourceId":"model","id":"copied","revision":source.revision,"userId":"default"});
+    let copied=dispatch(services.clone(),"agent/model_channel_copy","POST",body.clone(),Value::Null).await.unwrap();
+    assert_eq!(copied["id"],"copied");assert_eq!(copied["displayName"],"Source（副本）");assert_eq!(copied["apiKeyConfigured"],true);assert_eq!(copied["config"],serde_json::to_value(&source.config).unwrap());assert!(!copied.to_string().contains("ipc-copy-test-secret"));
+    let repeated=dispatch(services.clone(),"agent/model_channel_copy","POST",body,Value::Null).await.unwrap_err();assert_eq!(repeated.status,409);
+    let stale=dispatch(services.clone(),"agent/model_channel_copy","POST",json!({"sourceId":"model","id":"stale","revision":source.revision+1,"userId":"default"}),Value::Null).await.unwrap_err();assert_eq!(stale.status,409);
+    let other=dispatch(services.clone(),"agent/model_channel_copy","POST",json!({"sourceId":"model","id":"other","revision":source.revision,"userId":"other"}),Value::Null).await.unwrap_err();assert_eq!(other.status,404);
+    let invalid=dispatch(services.clone(),"agent/model_channel_copy","POST",json!({"sourceId":"model","id":"invalid","revision":"1","userId":"default"}),Value::Null).await.unwrap_err();assert_eq!(invalid.status,400);
+    assert_eq!(repo.channels("default").unwrap().len(),2);assert_eq!(repo.get("model","default").unwrap().revision,source.revision);
+    assert!(repo.runtime("copied","default").is_ok());services.shutdown().await;
+}
+
+#[tokio::test]
+async fn model_channel_copy_ipc_commits_editor_changes_atomically() {
+    use shellpilot_server::agent::provider::*;
+    let (_dir,services)=services().await;save_test_model(&services,"http://127.0.0.1:1/v1/".into());
+    let repo=ModelRepository::new(services.store.clone());let source=repo.get("model","default").unwrap();
+    let mut config=source.config.clone();config.timeout_seconds=240;
+    let body=json!({"sourceId":"model","id":"draft-copy","revision":source.revision,"userId":"default",
+        "draft":{"displayName":"Confirmed copy","changes":{"modelIds":["new-one","new-two"],"update":{"config":config,"apiKey":{"action":"keep"}}}}});
+    let mut invalid=body.clone();invalid["draft"]["changes"]["modelIds"]=json!(["same","same"]);
+    assert_eq!(dispatch(services.clone(),"agent/model_channel_copy","POST",invalid,Value::Null).await.unwrap_err().status,400);
+    assert!(repo.get("draft-copy","default").is_err());assert_eq!(repo.channels("default").unwrap().len(),1);
+    let created=dispatch(services.clone(),"agent/model_channel_copy","POST",body,Value::Null).await.unwrap();
+    assert_eq!(created["displayName"],"Confirmed copy");assert_eq!(created["models"].as_array().unwrap().len(),2);
+    assert_eq!(created["config"]["timeoutSeconds"],240);assert_eq!(repo.channels("default").unwrap().len(),2);
+    assert_eq!(serde_json::to_value(&repo.get("model","default").unwrap().config).unwrap(),serde_json::to_value(&source.config).unwrap());
+    services.shutdown().await;
+}
+
+#[tokio::test]
 async fn model_channel_enabled_ipc_filters_chat_choices_and_keeps_configuration() {
     let (_dir,services)=services().await;save_test_model(&services,"http://127.0.0.1:1/v1/".into());
     let listed=dispatch(services.clone(),"agent/model_channels","GET",Value::Null,json!({"userId":"default"})).await.unwrap();

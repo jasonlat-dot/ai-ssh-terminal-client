@@ -7,6 +7,17 @@ export type TerminalUploadRequest = TransferBase & { direction?: 'UPLOAD' };
 export type TerminalDownloadRequest = TransferBase & { direction: 'DOWNLOAD'; remotePath: string; remotePaths?: string[] };
 export type TerminalTransferRequest = TerminalUploadRequest | TerminalDownloadRequest;
 
+function localUploadPaths(paths:string[]):string[]{
+  const unique=[...new Set(paths.filter(path=>!!path&&!/[\x00-\x1f\x7f]/u.test(path)&&(/^[a-z]:[\\/]/i.test(path)||path.startsWith('/')||path.startsWith('\\\\'))))];
+  if(!unique.length)throw new Error('没有可上传的本地文件或文件夹。');
+  return unique;
+}
+
+/** A sidebar drop is approved against its browsed directory, not the shell cwd. */
+export function createSidebarUpload(runtime:TerminalRuntime,terminalId:string,title:string,path:string,paths:string[]):TerminalUploadRequest{
+  return {...createSidebarTransfer(runtime,terminalId,title,path,localUploadPaths(paths)),direction:'UPLOAD'};
+}
+
 /** Sidebar targets are explicit: free browsing must not silently use the Shell cwd. */
 export function createSidebarTransfer(runtime: TerminalRuntime, terminalId: string, title: string,
   path: string, paths: string[], remoteName?: string | string[]): TerminalTransferRequest {
@@ -27,8 +38,7 @@ export function createTerminalUpload(runtime: TerminalRuntime, terminalId: strin
   const target = terminalFileTarget(runtime, 0);
   if (!target.path || snapshot?.access === 'unavailable') throw new Error('当前终端目录或访问身份尚未就绪，请等待目录同步后再拖入。');
   if (snapshot?.running) throw new Error('请等待终端命令结束、当前目录同步后再拖入文件。');
-  const unique = [...new Set(paths.filter(path => !!path && !/[\x00-\x1f\x7f]/u.test(path) && (/^[a-z]:[\\/]/i.test(path) || path.startsWith('/') || path.startsWith('\\\\'))))];
-  if (!unique.length) throw new Error('没有可上传的本地文件或文件夹。');
+  const unique = localUploadPaths(paths);
   return { id: crypto.randomUUID(), terminalId, title, target, paths: unique };
 }
 

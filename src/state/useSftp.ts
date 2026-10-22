@@ -256,5 +256,27 @@ export function useSftp(connectionId: string) {
       return true;
     } catch (e) { fail(e); return false; }
   };
+  const settledTasks = useRef(new Map<string, string>());
+  useEffect(() => {
+    if (phase !== 'ready') { settledTasks.current.clear(); return; }
+    let changed = false;
+    for (const task of tasks) {
+      const status = task.progress.status;
+      if (['COMPLETED', 'FAILED', 'CANCELLED'].includes(status)) {
+        const signature = `${status}:${task.progress.completedItems}:${task.progress.failedItems}`;
+        if (settledTasks.current.get(task.transferId) !== signature) changed = true;
+        settledTasks.current.set(task.transferId, signature);
+      } else settledTasks.current.delete(task.transferId);
+    }
+    for (const id of settledTasks.current.keys()) {
+      if (!tasks.some(task => task.transferId === id)) settledTasks.current.delete(id);
+    }
+    // Creation now returns as soon as the task is queued. Refresh listings when
+    // background work settles, including retries and partially failed batches.
+    if (changed) {
+      if (local?.path) void loadLocal(local.path);
+      if (remotePath) void loadRemote(remotePath);
+    }
+  }, [tasks, phase, local?.path, remotePath, loadLocal, loadRemote]);
   return { session, phase, error, setError, connection, local, remotePath, entries, localLoading, remoteLoading, tasks, taskErrors, localBytes, scanning, working, cancelling, open, close, loadLocal, loadRemote, refreshTasks, transfer, retry, cancel, mkdir, createFile, deleteEntry };
 }

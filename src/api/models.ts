@@ -16,6 +16,7 @@ export type ModelChannel = ModelProfile & { models: {id:string;model:string}[] }
 export type ModelChannelIssue = {id: string; displayName: string; message: string};
 export type ModelChannelReport = {items: ModelChannel[]; issues: ModelChannelIssue[]};
 export type KeyChange = { action: 'keep'|'clear' } | { action: 'set'; value: string };
+export type ChannelCopyDraft = {displayName:string;changes?:{update:{config:ModelConfig;apiKey:KeyChange};modelIds:string[]}};
 export const newModelConfig = (): ModelConfig => ({
   provider: 'openAiCompatible', remoteCompaction: false, baseUrl: '', completionsPath: 'chat/completions', model: '',
   contextWindow: 256000, outputReserve: 2048, safetyReserve: 8192, compactPercent: 75,
@@ -35,6 +36,7 @@ export const modelApi = {
     builtinRequest<ModelChannel>('agent/model_channels','POST',{id,revision,userId:sshUserId,displayName,modelIds,update:{config,apiKey}},{}),
   deleteChannel: (id:string,revision:number) => builtinRequest<boolean>('agent/model_channels','DELETE',{id,revision,userId:sshUserId},{}),
   setChannelEnabled: (id:string,revision:number,enabled:boolean) => builtinRequest<ModelChannel>('agent/model_channel_enabled','POST',{id,revision,userId:sshUserId,enabled},{}),
+  copyChannel: (sourceId:string,revision:number,id:string,draft:ChannelCopyDraft) => builtinRequest<ModelChannel>('agent/model_channel_copy','POST',{sourceId,revision,id,draft,userId:sshUserId},{}),
   list: () => builtinRequest<ModelProfile[]>('agent/models', 'GET', undefined, { userId: sshUserId }),
   save: (id: string, revision: number, config: ModelConfig, apiKey: KeyChange, displayName?: string) =>
     builtinRequest<ModelProfile>('agent/models', 'POST', { id, revision, userId: sshUserId, update: { config, apiKey }, ...(displayName === undefined ? {} : { displayName }) }, {}),

@@ -173,10 +173,21 @@ async fn native_bridge_closing_two_tabs_releases_only_their_own_files_without_mi
     }
     services.shutdown().await;
 }
+async fn wait_for_jobs(session: &Arc<Session>) {
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if session.jobs.lock().unwrap().values().all(|job| !job.running.load(std::sync::atomic::Ordering::SeqCst)) {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }).await.expect("background transfers must settle");
+}
 async fn round_trip(backend: LiveBackend) {
     let state = State::default();
     let events = Arc::new(Mutex::new(vec![]));
     let id = backend.open(&state, events.clone()).await;
+    let session = state.get(&id).unwrap();
     let local = tempfile::tempdir().unwrap();
     let tree = local.path().join("tree");
     std::fs::create_dir_all(tree.join("empty")).unwrap();
@@ -193,6 +204,7 @@ async fn round_trip(backend: LiveBackend) {
         )
         .await
         .unwrap();
+    wait_for_jobs(&session).await;
     assert_eq!(
         backend.fixture.read("/home/tree/子目录/data"),
         b"actual native HTTP SFTP bytes"
@@ -209,6 +221,7 @@ async fn round_trip(backend: LiveBackend) {
         )
         .await
         .unwrap();
+    wait_for_jobs(&session).await;
     assert_eq!(
         std::fs::read(downloaded.join("tree/子目录/data")).unwrap(),
         b"actual native HTTP SFTP bytes"
@@ -267,19 +280,18 @@ async fn cancel_and_expire(backend: LiveBackend) {
     let source = local.path().join("large");
     std::fs::write(&source, vec![b'x'; 1024 * 1024]).unwrap();
     *backend.fixture.delay.lock().unwrap() = Duration::from_millis(50);
-    let task_state = state.clone();
-    let task_id = id.clone();
-    let upload = tokio::spawn(async move {
-        task_state
+    let session = state.get(&id).unwrap();
+    tokio::time::timeout(Duration::from_millis(800), async {
+        state
             .transfer(
-                &task_id,
+                &id,
                 "UPLOAD",
                 source.to_string_lossy().into(),
                 "/home".into(),
                 "FAIL",
             )
             .await
-    });
+    }).await.expect("task creation must return before the slow upload finishes").unwrap();
     let transfer = tokio::time::timeout(Duration::from_secs(5), async {
         loop {
             let tasks = state.tasks(&id).await.unwrap();
@@ -291,8 +303,11 @@ async fn cancel_and_expire(backend: LiveBackend) {
     })
     .await
     .unwrap();
+    assert_ne!(state.tasks(&id).await.unwrap()[0]["progress"]["status"], "COMPLETED");
+    assert!(session.jobs.lock().unwrap()[&transfer].running.load(std::sync::atomic::Ordering::SeqCst));
+    assert_eq!(state.retry(&id, &transfer).await.unwrap_err().message, "任务仍在执行");
     state.cancel(&id, &transfer).await.unwrap();
-    assert!(upload.await.unwrap().is_err());
+    wait_for_jobs(&session).await;
     assert!(!backend.fixture.root.path().join("home/large").exists());
     *backend.fixture.delay.lock().unwrap() = Duration::ZERO;
     state.mkdir(&id, "/home/usable").await.unwrap();
@@ -323,19 +338,18 @@ async fn workspace_shutdown_interrupts_active_native_transfer() {
     let id = backend.open(&state, events.clone()).await;
     let local = tempfile::tempdir().unwrap();
     let target = local.path().to_string_lossy().to_string();
-    let download_state = state.clone();
-    let download_id = id.clone();
-    let download = tokio::spawn(async move {
-        download_state
+    let session = state.get(&id).unwrap();
+    tokio::time::timeout(Duration::from_millis(800), async {
+        state
             .transfer(
-                &download_id,
+                &id,
                 "DOWNLOAD",
                 target,
                 "/home/active".into(),
                 "FAIL",
             )
             .await
-    });
+    }).await.expect("download creation must not wait for file bytes").unwrap();
     tokio::time::timeout(Duration::from_secs(5), async {
         loop {
             let tasks = state.tasks(&id).await.unwrap();
@@ -353,12 +367,38 @@ async fn workspace_shutdown_interrupts_active_native_transfer() {
     .await
     .unwrap();
     backend.shutdown().await;
-    assert!(tokio::time::timeout(Duration::from_secs(5), download)
-        .await
-        .unwrap()
-        .unwrap()
-        .is_err());
+    wait_for_jobs(&session).await;
     assert!(!local.path().join("active").exists());
     let _ = state.close(&id).await;
     assert!(state.sessions.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn queued_transfer_keeps_failures_visible_and_retries_in_background() {
+    let backend = LiveBackend::native().await;
+    backend.fixture.file("/home/collision", b"keep original");
+    let state = State::default();
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let id = backend.open(&state, events.clone()).await;
+    let session = state.get(&id).unwrap();
+    let local = tempfile::tempdir().unwrap();
+    let source = local.path().join("collision");
+    std::fs::write(&source, b"retry these bytes").unwrap();
+
+    state.transfer(&id, "UPLOAD", source.to_string_lossy().into(), "/home".into(), "FAIL").await.unwrap();
+    wait_for_jobs(&session).await;
+    let task = state.tasks(&id).await.unwrap()[0].clone();
+    let transfer = task["transferId"].as_str().unwrap();
+    assert_eq!(task["progress"]["status"], "FAILED");
+    assert_eq!(task["items"][0]["status"], "FAILED");
+    assert_eq!(backend.fixture.read("/home/collision"), b"keep original");
+    assert!(events.lock().unwrap().iter().any(|event| event["type"] == "error" && event["data"]["transferId"] == transfer));
+
+    std::fs::remove_file(backend.fixture.root.path().join("home/collision")).unwrap();
+    state.retry(&id, transfer).await.unwrap();
+    wait_for_jobs(&session).await;
+    assert_eq!(state.tasks(&id).await.unwrap()[0]["progress"]["status"], "COMPLETED");
+    assert_eq!(backend.fixture.read("/home/collision"), b"retry these bytes");
+    state.close(&id).await.unwrap();
+    backend.shutdown().await;
 }

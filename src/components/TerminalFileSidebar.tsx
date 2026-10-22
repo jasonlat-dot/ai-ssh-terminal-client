@@ -1,14 +1,19 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import {createPortal} from 'react-dom';
+import {getCurrentWebview} from '@tauri-apps/api/webview';
+import {isTauriRuntime} from '../state/runtime';
+import {handleTerminalFileDrop} from '../state/terminalFileDrop';
 import { sftpApi } from '../api/sftp';
 import { notify } from '../state/notifications';
-import { createSidebarTransfer } from '../state/terminalUpload';
-import type { TerminalTransferRequest } from '../state/terminalUpload';
+import { createSidebarTransfer,createSidebarUpload,terminalUploadMatches } from '../state/terminalUpload';
+import type { TerminalTransferRequest,TerminalUploadRequest } from '../state/terminalUpload';
 import type { TerminalRuntime } from '../state/terminalRuntime';
 import type { DirectoryListing, TerminalDirectory } from '../state/terminalDirectory';
 import { directoryChild, directoryParent, readDirectoryFollow, saveDirectoryFollow } from '../state/terminalDirectory';
 import { resourceBytes } from '../state/terminalResources';
 import { fileOperationJobs, fileSelection, runSidebarFileOperation } from '../state/terminalFileOperations';
 import { TerminalFileContextMenu, TerminalFileOperationDialog } from './TerminalFileActions';
+import {TerminalUploadConfirm} from './TerminalUploadConfirm';
 import type { FileMenuAction } from './TerminalFileActions';
 import { Icon, IconButton } from './Ui';
 import './TerminalFileSidebar.css';
@@ -16,7 +21,8 @@ import './TerminalFileSidebar.css';
 const emptyDirectory: TerminalDirectory = { path: '', revision: 0 };
 const noSubscribe = () => () => {};
 const noDirectory = () => emptyDirectory;
-type FileTarget = { owner: TerminalRuntime; path: string; requestedPath: string; scope: string; names: string[] };
+type FileLocation = { owner: TerminalRuntime; path: string; requestedPath: string; scope: string };
+type FileTarget = FileLocation & {names:string[]};
 
 /** A terminal owns its directory signal. The browser never writes commands into its shell. */
 export function TerminalFileSidebar({ runtime, terminalId, title, local, connected, visible, openFiles, transfer, copy }: {
@@ -30,6 +36,10 @@ export function TerminalFileSidebar({ runtime, terminalId, title, local, connect
   const [input, setInput] = useState('');
   const [selected, setSelected] = useState<string[]>([]);
   const anchor = useRef('');
+  const surface=useRef<HTMLElement>(null);
+  const [dragActive,setDragActive]=useState(false);
+  const [pendingUpload,setPendingUpload]=useState<(FileLocation&{request:TerminalUploadRequest})|null>(null);
+  const confirmedUpload=useRef('');
   const [menu, setMenu] = useState<(FileTarget & {x:number;y:number}) | null>(null);
   const [operation, setOperation] = useState<(FileTarget & {kind:'rename'|'move'|'delete'}) | null>(null);
   const [mutating, setMutating] = useState(false);
@@ -38,17 +48,19 @@ export function TerminalFileSidebar({ runtime, terminalId, title, local, connect
   const [showHidden, setShowHidden] = useState(true);
   const [pageVisible, setPageVisible] = useState(() => !document.hidden);
   const [revision, refresh] = useState(0);
-  const [page, setPage] = useState<{ listing: DirectoryListing | null; loading: boolean; error: string; scope?: string }>({ listing: null, loading: false, error: '' });
+  const [page, setPage] = useState<{ listing: DirectoryListing | null; loading: boolean; error: string; scope?: string; requestedPath?:string }>({ listing: null, loading: false, error: '' });
   const enabled = !!runtime?.directoryList && !local && connected && visible && pageVisible;
   const path = follow ? directory.path : manualPath;
   const promptRevision = follow ? directory.revision : 0;
   const scope = directory.accessKey || '';
   const [choosing, setChoosing] = useState(false);
   const alive = useRef(false), choosingLock = useRef(false);
-  const transferState = useRef({ runtime, path, scope, selected, enabled });
-  transferState.current = { runtime, path, scope, selected, enabled };
+  const transferState = useRef({ runtime, path, scope, selected, enabled,listingPath:page.listing?.path,listingRequestedPath:page.requestedPath,listingScope:page.scope });
+  transferState.current = { runtime, path, scope, selected, enabled,listingPath:page.listing?.path,listingRequestedPath:page.requestedPath,listingScope:page.scope };
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   useEffect(() => { setSelected([]); anchor.current=''; setMenu(null); setOperation(null); setOperationError(''); }, [runtime, enabled, path, scope]);
+  useEffect(()=>{setDragActive(false);},[runtime,enabled,path,scope]);
+  useEffect(()=>{if(!visible||!connected||local)setPendingUpload(null);},[visible,connected,local]);
 
   useEffect(() => {
     const update = () => setPageVisible(!document.hidden);
@@ -68,19 +80,19 @@ export function TerminalFileSidebar({ runtime, terminalId, title, local, connect
       try {
         const listing = await runtime.directoryList!(path, controller.signal);
         if (!disposed && !controller.signal.aborted) {
-          setPage({ listing, loading: false, error: '', scope });
+          setPage({ listing, loading: false, error: '', scope,requestedPath:path });
           const names=new Set(listing.entries.map(entry=>entry.name));
           setSelected(current=>current.filter(name=>names.has(name)));
         }
       } catch (error) {
         if (!disposed && !controller.signal.aborted) setPage({ listing: null, loading: false,
-          error: error instanceof Error ? error.message : '无法读取目录，请检查连接和权限。', scope });
+          error: error instanceof Error ? error.message : '无法读取目录，请检查连接和权限。', scope,requestedPath:path });
       } finally {
         busy = false;
         if (!disposed && !document.hidden) timer = setTimeout(load, 5000);
       }
     };
-    setPage(previous => ({ listing: previous.scope === scope && previous.listing?.path === path ? previous.listing : null, loading: true, error: '', scope }));
+    setPage(previous => ({ listing: previous.scope === scope && previous.requestedPath === path ? previous.listing : null, loading: true, error: '', scope,requestedPath:path }));
     // Merge successive prompt notifications before requesting an SFTP channel.
     timer = setTimeout(load, 150);
     return () => { disposed = true; cancel(); };
@@ -99,14 +111,45 @@ export function TerminalFileSidebar({ runtime, terminalId, title, local, connect
   const unavailable = !runtime || local;
   const selectedEntries = entries.filter(entry => selected.includes(entry.name));
   const downloadEntries = selectedEntries.filter(entry => !entry.symlink);
-  const canTransfer = enabled && !page.loading && !page.error && !!page.listing && page.scope === scope
-    && directory.access !== 'unavailable' && !choosing && !mutating;
+  const listingCurrent=!!page.listing&&page.scope===scope&&page.requestedPath===path;
+  const canTransfer = enabled && !page.loading && !page.error && listingCurrent
+    && directory.access !== 'unavailable' && !choosing && !mutating && !pendingUpload;
   const canDownload = downloadEntries.length>0 && downloadEntries.length===selectedEntries.length;
-  const targetValid = (target:FileTarget) => {
+  const targetValid = (target:FileLocation) => {
     const current=transferState.current;
     return alive.current && current.runtime===target.owner && current.enabled && current.scope===target.scope
       && current.path===target.requestedPath && (target.owner.directorySnapshot?.().accessKey||'')===target.scope
       && target.owner.directorySnapshot?.().access!=='unavailable';
+  };
+  const canDrop=enabled&&listingCurrent&&!page.error&&directory.access!=='unavailable'&&!choosing&&!mutating&&!menu&&!operation&&!pendingUpload;
+  const dropState=useRef({canDrop,drop:(_paths:string[])=>{}});
+  dropState.current={canDrop,drop:paths=>{
+    if(!canDrop||!runtime||!page.listing)return;
+    try{
+      const request=createSidebarUpload(runtime,terminalId,title||'终端文件',page.listing.path,paths);
+      setPendingUpload({owner:runtime,path:page.listing.path,requestedPath:path,scope,request});setMenu(null);setDragActive(false);
+    }catch(error){notify(error instanceof Error?error.message:'无法读取上传目标。','error');}
+  }};
+  useEffect(()=>{
+    if(!enabled||!isTauriRuntime())return;
+    let disposed=false,unlisten:(()=>void)|undefined;
+    void getCurrentWebview().onDragDropEvent(event=>{
+      if(disposed||!surface.current)return;
+      if(!dropState.current.canDrop){setDragActive(false);return;}
+      handleTerminalFileDrop(event.payload,surface.current,{hit:(x,y)=>document.elementFromPoint(x,y),scale:window.devicePixelRatio,
+        hover:setDragActive,drop:paths=>dropState.current.drop(paths)});
+    }).then(stop=>{if(disposed)stop();else unlisten=stop;}).catch(()=>{if(!disposed)setDragActive(false);});
+    return()=>{disposed=true;unlisten?.();setDragActive(false);};
+  },[enabled,runtime]);
+  const confirmDroppedUpload=()=>{
+    if(!pendingUpload||confirmedUpload.current===pendingUpload.request.id)return;
+    const pending=pendingUpload;confirmedUpload.current=pending.request.id;setPendingUpload(null);
+    const current=transferState.current;
+    if(!targetValid(pending)||current.listingPath!==pending.path||current.listingScope!==pending.scope||current.listingRequestedPath!==pending.requestedPath
+      ||!terminalUploadMatches(current.runtime,pending.request)){
+      notify('侧栏目录、终端连接或访问身份已变化，请重新拖入文件确认上传位置。','error');return;
+    }
+    transfer(pending.request);
   };
   const startOperation=(target:FileTarget,kind:'rename'|'move'|'delete')=>{setOperation({...target,kind});setOperationError('');};
   const confirmOperation=async(value:string)=>{
@@ -146,7 +189,7 @@ export function TerminalFileSidebar({ runtime, terminalId, title, local, connect
     {label:'移动到…',icon:'folder',disabled:!canTransfer,run:()=>startOperation(menu,'move')},
     {label:`删除${menu.names.length>1?` ${menu.names.length} 项`:''}`,icon:'trash',danger:true,disabled:!canTransfer,run:()=>startOperation(menu,'delete')},
   ]:[];
-  return <section className="terminal-file-sidebar" aria-label="当前终端文件" hidden={!visible}>
+  return <section ref={surface} className={`terminal-file-sidebar${dragActive?' drop-target':''}`} aria-label="当前终端文件" hidden={!visible}>
     <header className="terminal-file-heading"><span><Icon name="server" size={14} /><strong title={title}>{title || '终端文件'}</strong></span>
       <div className="terminal-file-actions" aria-label="文件传输操作" aria-busy={choosing}>
         <IconButton icon="upload" className="terminal-file-transfer upload" label="上传文件到当前目录" disabled={!canTransfer} onClick={() => void chooseTransfer(false)} />
@@ -192,6 +235,8 @@ export function TerminalFileSidebar({ runtime, terminalId, title, local, connect
         <button type="button" disabled={!connected} onClick={openFiles}><Icon name="folder" size={13} />管理与传输<Icon name="upRight" size={12} /></button>
       </footer>
     </>}
+    {dragActive&&canDrop&&<div className="terminal-file-drop-hint" aria-hidden="true"><Icon name="upload" size={28}/><strong>在此区域松开鼠标即可上传</strong><span>{page.listing?.path}</span><small>上传前会确认目标目录</small></div>}
+    {pendingUpload&&createPortal(<TerminalUploadConfirm request={pendingUpload.request} onClose={()=>setPendingUpload(null)} onConfirm={confirmDroppedUpload}/>,document.body)}
     {menu&&<TerminalFileContextMenu x={menu.x} y={menu.y} caption={menu.names.length===1?menu.names[0]:`已选 ${menu.names.length} 项`} actions={menuActions} close={()=>setMenu(null)}/>}
     {operation&&<TerminalFileOperationDialog key={`${operation.kind}:${operation.path}:${operation.names.join('/')}`} kind={operation.kind} names={operation.names} path={operation.path} busy={mutating} error={operationError} close={()=>{if(!mutationLock.current)setOperation(null);}} confirm={value=>void confirmOperation(value)}/>}
   </section>;

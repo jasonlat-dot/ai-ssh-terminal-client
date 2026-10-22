@@ -411,7 +411,7 @@ impl State {
             .get(task_id)
             .cloned()
             .ok_or_else(|| Error::local("本地任务记录已失效，请重新创建传输"))?;
-        transfer::run(session, task_id.to_owned(), job).await
+        transfer::start(session, task_id.to_owned(), job)
     }
     pub async fn cancel(&self, id: &str, task_id: &str) -> Result<()> {
         let session = self.get(id)?;

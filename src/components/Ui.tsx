@@ -126,10 +126,10 @@ export function Toggle({ value, onChange, label, disabled, 'aria-describedby': d
   return <button type="button" role="switch" aria-checked={value} aria-label={label} aria-describedby={describedBy} disabled={disabled}
     className={`toggle ${value ? 'on' : ''}`} onClick={() => onChange(!value)}><span /></button>;
 }
-export function Modal({ title, icon, iconTone, onClose, children, wide = false, className = '', dismissDisabled = false, active = true }: { title: string; icon?: IconName; iconTone?: AccentTone; onClose: () => void; children: ReactNode; wide?: boolean; className?: string; dismissDisabled?: boolean; active?: boolean }) {
+export function Modal({ title, icon, iconTone, onClose, children, wide = false, className = '', dismissDisabled = false, explicitActionsOnly = false, active = true }: { title: string; icon?: IconName; iconTone?: AccentTone; onClose: () => void; children: ReactNode; wide?: boolean; className?: string; dismissDisabled?: boolean; explicitActionsOnly?: boolean; active?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   const closeRef = useRef(onClose);
-  closeRef.current = () => { if (active && !dismissDisabled) onClose(); };
+  closeRef.current = () => { if (active && !dismissDisabled && !explicitActionsOnly) onClose(); };
   const id = useId();
   useEffect(() => {
     if (!active) return;
@@ -150,5 +150,5 @@ export function Modal({ title, icon, iconTone, onClose, children, wide = false, 
     document.addEventListener('keydown', listener);
     return () => { document.removeEventListener('keydown', listener); previous?.focus(); };
   }, [active]);
-  return <div className={`modal-backdrop ${className ? `${className}-backdrop` : ''}`} inert={!active} aria-hidden={!active || undefined} onMouseDown={e => { if (e.target === e.currentTarget) closeRef.current(); }}><div ref={ref} tabIndex={-1} role="dialog" aria-modal={active} aria-labelledby={id} className={`modal ${wide ? 'wide' : ''} ${className}`}><header>{icon ? <IconHeading as="h2" id={id} icon={icon} tone={iconTone}>{title}</IconHeading> : <h2 id={id}>{title}</h2>}<IconButton icon="close" label="关闭弹窗" disabled={dismissDisabled} onClick={() => closeRef.current()} /></header>{children}</div></div>;
+  return <div className={`modal-backdrop ${className ? `${className}-backdrop` : ''}`} inert={!active} aria-hidden={!active || undefined} onMouseDown={e => { if (e.target === e.currentTarget) closeRef.current(); }}><div ref={ref} tabIndex={-1} role="dialog" aria-modal={active} aria-labelledby={id} className={`modal ${wide ? 'wide' : ''} ${className}`}><header>{icon ? <IconHeading as="h2" id={id} icon={icon} tone={iconTone}>{title}</IconHeading> : <h2 id={id}>{title}</h2>}{!explicitActionsOnly && <IconButton icon="close" label="关闭弹窗" disabled={dismissDisabled} onClick={() => closeRef.current()} />}</header>{children}</div></div>;
 }

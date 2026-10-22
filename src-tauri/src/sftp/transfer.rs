@@ -152,7 +152,7 @@ pub(super) async fn create(
         .lock()
         .unwrap()
         .insert(task.transfer_id.clone(), job.clone());
-    run(session, task.transfer_id, job).await
+    start(session, task.transfer_id, job)
 }
 
 struct Running<'a>(&'a AtomicBool);
@@ -161,12 +161,22 @@ impl Drop for Running<'_> {
         self.0.store(false, Ordering::SeqCst);
     }
 }
-pub(super) async fn run(session: Arc<Session>, id: String, job: Arc<Job>) -> Result<()> {
+// A command acknowledges a validated queue entry, not the eventual byte transfer.
+// Reserve the job before spawning so an immediate retry cannot start it twice.
+pub(super) fn start(session: Arc<Session>, id: String, job: Arc<Job>) -> Result<()> {
     if job.running.swap(true, Ordering::SeqCst) {
         return Err(Error::local("任务仍在执行"));
     }
-    let _running = Running(&job.running);
-    let task = session.publish_task(&id).await?;
+    tokio::spawn(async move {
+        let _running = Running(&job.running);
+        if let Err(error) = run(&session, &id, &job).await {
+            session.event("error", json!({"transferId":id,"message":error.message}));
+        }
+    });
+    Ok(())
+}
+async fn run(session: &Arc<Session>, id: &str, job: &Arc<Job>) -> Result<()> {
+    let task = session.publish_task(id).await?;
     if task.progress["status"] == "CANCELLED" || job.stop.is_cancelled() {
         return Err(Error::cancelled());
     }
@@ -195,7 +205,7 @@ pub(super) async fn run(session: Arc<Session>, id: String, job: Arc<Job>) -> Res
                 result
             }
         }).buffer_unordered(2).collect::<Vec<_>>().await;
-    session.publish_task(&id).await?;
+    session.publish_task(id).await?;
     for result in work {
         result?;
     }

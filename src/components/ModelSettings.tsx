@@ -1,5 +1,5 @@
 import { useToastError } from '../state/useToastError';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { ReactNode } from 'react';
 import { modelApi, newModelConfig } from '../api/models';
@@ -43,6 +43,10 @@ export function ModelSettings({ changed, locked = false, activeModelIds }: { cha
   const [key, setKey] = useState('');
   const [modelIds, setModelIds] = useState('');
   const [busy, setBusy] = useState(false);
+  const [togglingIds, setTogglingIds] = useState<ReadonlySet<string>>(() => new Set());
+  const togglePending = useRef(new Set<string>());
+  const [copyDraft,setCopyDraft]=useState<{id:string;config:ModelConfig;modelIds:string[]}|null>(null);
+  const saveLock=useRef(false);
   const [, setError] = useToastError();
   const [deleting, setDeleting] = useState<ModelChannel | null>(null);
   const [, setDeleteError] = useToastError();
@@ -69,57 +73,77 @@ export function ModelSettings({ changed, locked = false, activeModelIds }: { cha
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, []);
-  const select = (profile: ModelChannel | null) => {
-    if (disabled) return;
+  const openEditor = (profile: ModelChannel | null) => {
+    setCopyDraft(null);
     setEditing(profile); setDisplayName(profile?.displayName ?? profile?.id ?? '');
     const next = profile?.config ?? newModelConfig();
     setConfig({...next, capabilities: {...next.capabilities, toolCalls: true, vision: true}});
     setModelIds(profile?.models?.map(item=>item.model).join('\n') ?? next.model);
     setKey(''); setError(''); setEditorOpen(true);
   };
+  const select = (profile:ModelChannel|null) => {if(!disabled && (!profile || !togglePending.current.has(profile.id)))openEditor(profile);};
+  const duplicate = (profile:ModelChannel) => {
+    if(disabled||editorOpen||togglePending.current.has(profile.id))return;
+    openEditor(profile);
+    setConfig({...profile.config,capabilities:{...profile.config.capabilities}});
+    const names=new Set(profiles.map(item=>item.displayName??item.id));
+    for(let number=1;number<=33;number++){
+      const suffix=number===1?'（副本）':`（副本 ${number}）`;
+      const name=Array.from(profile.displayName??profile.id).slice(0,64-Array.from(suffix).length).join('')+suffix;
+      if(!names.has(name)){setDisplayName(name);break;}
+    }
+    setCopyDraft({id:crypto.randomUUID(),config:profile.config,modelIds:profile.models?.map(model=>model.model)??[profile.config.model]});
+  };
   const closeEditor = () => {
     if (busy) return;
-    setEditorOpen(false); setKey(''); setError('');
+    setEditorOpen(false); setCopyDraft(null); setKey(''); setError('');
   };
   const field = <K extends keyof ModelConfig>(name: K, value: ModelConfig[K]) => setConfig(current => ({...current, [name]: value}));
   const reload = async () => {
-    if (disabled) return;
+    if (disabled || togglePending.current.size) return;
     setLoading(true); setLoadError('');
     try { const report = await modelApi.channelReport(); setProfiles(report.items); setIssues(report.issues); }
     catch (cause) { setLoadError(cause instanceof Error ? cause.message : '加载失败'); }
     finally { setLoading(false); }
   };
   const save = async () => {
-    if (disabled) return;
+    if (disabled || saveLock.current) return;
+    saveLock.current=true;
     setBusy(true); setError('');
     try {
       if (!displayName.trim()) throw new Error('请输入配置名称。');
       if (config.temperature !== null && (!Number.isFinite(config.temperature) || config.temperature < 0 || config.temperature > protocolInfo.temperatureMax)) throw new Error(`Temperature 需在 0–${protocolInfo.temperatureMax} 之间。`);
       const ids=parseModelIds(modelIds);
       const apiKey:KeyChange = key.trim() ? {action:'set',value:key.trim()} : {action:'keep'};
-      const saved = await modelApi.saveChannel(editing?.id ?? crypto.randomUUID(), editing?.revision ?? 0, {...config,baseUrl:resolvedModelBaseUrl(config),model:ids[0]}, apiKey, displayName.trim(), ids);
+      const nextConfig={...config,baseUrl:resolvedModelBaseUrl(config),model:ids[0]};
+      const copyChanged=copyDraft && (key.trim()!=='' || JSON.stringify(ids)!==JSON.stringify(copyDraft.modelIds)
+        || JSON.stringify(nextConfig)!==JSON.stringify({...copyDraft.config,baseUrl:resolvedModelBaseUrl(copyDraft.config),model:copyDraft.modelIds[0]}));
+      const saved = copyDraft && editing
+        ? await modelApi.copyChannel(editing.id,editing.revision,copyDraft.id,{displayName:displayName.trim(),
+          ...(copyChanged?{changes:{update:{config:nextConfig,apiKey},modelIds:ids}}:{})})
+        : await modelApi.saveChannel(editing?.id ?? crypto.randomUUID(), editing?.revision ?? 0, nextConfig, apiKey, displayName.trim(), ids);
       setProfiles(items => items.some(profile => profile.id === saved.id)
         ? items.map(profile => profile.id === saved.id ? saved : profile)
         : [...items, saved]);
-      setEditorOpen(false); setKey(''); setError('');
+      setEditorOpen(false); setCopyDraft(null); setKey(''); setError('');
       notify(saved.enabled===false ? '模型配置已保存，当前渠道仍为禁用状态。' : saved.ready ? '模型配置已保存，后续请求生效；运行中的任务继续使用原配置。' : '模型配置已保存；配置 API Key 后即可对话。', 'success'); changed?.();
     } catch (cause) { setError(cause instanceof Error ? cause.message : '保存失败'); }
-    finally { setBusy(false); }
+    finally { saveLock.current=false;setBusy(false); }
   };
   const toggleEnabled = async (profile:ModelChannel,enabled:boolean) => {
-    if (disabled) return;
-    setBusy(true);setError('');
+    if (disabled || togglePending.current.has(profile.id)) return;
+    togglePending.current.add(profile.id);setTogglingIds(new Set(togglePending.current));setError('');
     try {
       const saved=await modelApi.setChannelEnabled(profile.id,profile.revision,enabled);
       setProfiles(items=>items.map(item=>item.id===saved.id?saved:item));
       notify(enabled?'渠道已启用，可在对话和补全中选择。':'渠道已禁用，后续对话和补全不再使用；配置与历史保留。','success');
       changed?.();
     } catch(cause) {setError(cause instanceof Error?cause.message:'渠道状态保存失败，请重试。');}
-    finally {setBusy(false);}
+    finally {togglePending.current.delete(profile.id);setTogglingIds(new Set(togglePending.current));}
   };
   const activeChannel=(profile:ModelChannel)=>!!activeModelIds&&(profile.models?.some(model=>activeModelIds.has(model.id))||activeModelIds.has(profile.id));
   const requestDelete = (profile: ModelChannel) => {
-    if (disabled||activeChannel(profile)) return;
+    if (disabled||togglePending.current.has(profile.id)||activeChannel(profile)) return;
     setDeleteError(''); setDeleting(profile);
   };
   const remove = async () => {
@@ -142,7 +166,7 @@ export function ModelSettings({ changed, locked = false, activeModelIds }: { cha
   return <section className="model-settings" aria-label="模型设置">
     <div className="model-catalog" inert={editorOpen || !!deleting}>
       <header className="model-catalog-heading"><div><strong className="ui-icon-heading"><AccentIcon icon="bot" tone="violet" size={17}/>模型配置<Badge tone="neutral">{profiles.length + issues.length}</Badge></strong></div>
-        <div className="model-catalog-actions"><button type="button" className="outlined-button model-refresh" aria-label="刷新模型配置" disabled={disabled} onClick={() => void reload()}><Icon name="refresh" size={15}/></button><button type="button" className="model-create primary-button" disabled={disabled} onClick={() => select(null)}><Icon name="plus" size={15}/>新建配置</button></div>
+        <div className="model-catalog-actions"><button type="button" className="outlined-button model-refresh" aria-label="刷新模型配置" disabled={disabled || togglingIds.size > 0} onClick={() => void reload()}><Icon name="refresh" size={15}/></button><button type="button" className="model-create primary-button" disabled={disabled} onClick={() => select(null)}><Icon name="plus" size={15}/>新建配置</button></div>
       </header>
       {profiles.length > 0 && !loadError && <div className="model-catalog-filters" role="search" aria-label="筛选模型配置">
         <div className="model-catalog-filter-controls">
@@ -173,20 +197,21 @@ export function ModelSettings({ changed, locked = false, activeModelIds }: { cha
             const protocol = modelProtocols[profile.config.provider];
             const pinned = pinnedIds.includes(profile.id);
             const enabled=profile.enabled!==false;
+            const channelDisabled=disabled||togglingIds.has(profile.id);
             return <article className="model-profile-card" data-pinned={pinned || undefined} data-enabled={enabled} key={profile.id} aria-label={profile.displayName ?? profile.id}>
-              <div className="model-profile-heading"><span className="model-supplier-avatar"><ModelSupplierIcon supplier={modelSupplier(profile.config)} size={22}/></span><div><h3 title={profile.displayName ?? profile.id}>{profile.displayName ?? profile.id}</h3><p title={profile.models?.map(item=>item.model).join('、')??profile.config.model}>{profile.models?.length?`${profile.models.length} 个模型 · ${profile.models.map(item=>item.model).join('、')}`:profile.config.model}</p></div><div className="model-profile-availability"><span className={`model-profile-state ${!enabled?'is-disabled':profile.ready?'ready':''}`}><i aria-hidden="true"/>{!enabled?'已禁用':profile.ready?'已配置':'需要密钥'}</span><span className="model-channel-toggle" title="关闭后从对话和补全列表隐藏，配置与历史保留。"><Toggle label={`启用渠道 ${profile.displayName??profile.id}`} value={enabled} disabled={disabled} onChange={value=>void toggleEnabled(profile,value)}/></span></div></div>
+              <div className="model-profile-heading"><span className="model-supplier-avatar"><ModelSupplierIcon supplier={modelSupplier(profile.config)} size={22}/></span><div><h3 title={profile.displayName ?? profile.id}>{profile.displayName ?? profile.id}</h3><p title={profile.models?.map(item=>item.model).join('、')??profile.config.model}>{profile.models?.length?`${profile.models.length} 个模型 · ${profile.models.map(item=>item.model).join('、')}`:profile.config.model}</p></div><div className="model-profile-availability"><span className={`model-profile-state ${!enabled?'is-disabled':profile.ready?'ready':''}`}><i aria-hidden="true"/>{!enabled?'已禁用':profile.ready?'已配置':'需要密钥'}</span><span className="model-channel-toggle" aria-busy={togglingIds.has(profile.id)} title="关闭后从对话和补全列表隐藏，配置与历史保留。"><Toggle label={`启用渠道 ${profile.displayName??profile.id}`} value={enabled} disabled={channelDisabled} onChange={value=>void toggleEnabled(profile,value)}/></span></div></div>
               <div className="model-profile-tags">
                 <Badge tone="blue">{protocol.name}</Badge>
                 <Badge tone="violet" className="model-profile-budget" title={`${profile.config.contextWindow.toLocaleString()} tokens`}>{`${tokenCountFormat.format(profile.config.contextWindow)} tokens`}</Badge>
               </div>
               <div className="model-profile-connection"><Badge tone="neutral" icon="network" className="model-profile-endpoint" title={profile.config.baseUrl}><span>{profile.config.baseUrl}</span></Badge></div>
-              <footer><button type="button" className="model-pin" aria-pressed={pinned} aria-label={`${pinned ? '取消置顶' : '置顶'} ${profile.displayName ?? profile.id}`} disabled={busy || loading} onClick={() => togglePin(profile.id)}><Icon name="pin" size={14}/>{pinned ? '取消置顶' : '置顶'}</button><button type="button" className="model-edit outlined-button" aria-label={`编辑 ${profile.displayName ?? profile.id}`} disabled={disabled} onClick={() => select(profile)}><Icon name="edit" size={14}/>编辑</button><button type="button" className="model-card-delete" aria-label={`删除 ${profile.displayName ?? profile.id}`} title={activeChannel(profile)?'此配置正在运行任务，可编辑；结束后可删除。':undefined} disabled={disabled||activeChannel(profile)} onClick={() => requestDelete(profile)}><Icon name="trash" size={14}/>删除</button></footer>
+              <footer><button type="button" className="model-pin" aria-pressed={pinned} aria-label={`${pinned ? '取消置顶' : '置顶'} ${profile.displayName ?? profile.id}`} disabled={busy || loading} onClick={() => togglePin(profile.id)}><Icon name="pin" size={14}/>{pinned ? '取消置顶' : '置顶'}</button><button type="button" className="model-copy outlined-button" aria-label={`复制 ${profile.displayName ?? profile.id}`} title="以此配置创建草稿，保存时复制模型、参数、密钥及启用状态" disabled={channelDisabled} onClick={()=>void duplicate(profile)}><Icon name="copy" size={14}/>复制</button><button type="button" className="model-edit outlined-button" aria-label={`编辑 ${profile.displayName ?? profile.id}`} disabled={channelDisabled} onClick={() => select(profile)}><Icon name="edit" size={14}/>编辑</button><button type="button" className="model-card-delete" aria-label={`删除 ${profile.displayName ?? profile.id}`} title={activeChannel(profile)?'此配置正在运行任务，可编辑；结束后可删除。':undefined} disabled={channelDisabled||activeChannel(profile)} onClick={() => requestDelete(profile)}><Icon name="trash" size={14}/>删除</button></footer>
             </article>;
           })}</div>}
       </div>
     </div>
     {(editorOpen || deleting) && createPortal(<div className="settings-page model-settings-overlay">
-      {editorOpen && <Modal title={editing ? '编辑模型配置' : '新建模型配置'} icon="bot" iconTone="violet" className="model-config-dialog" active={!deleting} dismissDisabled={busy} onClose={closeEditor}>
+      {editorOpen && <Modal title={copyDraft?'复制模型配置':editing ? '编辑模型配置' : '新建模型配置'} icon="bot" iconTone="violet" className="model-config-dialog" active={!deleting} dismissDisabled={busy} onClose={closeEditor}>
         <form className="model-editor" autoComplete="off" onSubmit={event => { event.preventDefault(); if (!disabled) void save(); }}>
           <div className="model-editor-scroll">
             {locked && <div className="model-feedback" role="status"><Icon name="history" size={16}/><span>正在保存推理设置或整理上下文，请稍后修改配置。</span></div>}
@@ -204,7 +229,7 @@ export function ModelSettings({ changed, locked = false, activeModelIds }: { cha
                 <ModelField id="model-url" label="API 基础地址" wide badge="BASE URL" icon="network" tone="cyan" hint="留空使用默认地址，也可填写中转地址。"><ModelEndpointInput id="model-url" value={config.baseUrl} onChange={value => field('baseUrl', value)} placeholder={modelBasePlaceholder(config)} savedAddresses={profiles.map(profile => profile.config.baseUrl)} disabled={disabled}/></ModelField>
               <ModelField id="model-api-key" label="API Key" wide hint="密钥加密保存；关闭后不发送，已存密钥保留。">
                 <div className="model-key-input-row">
-                  <input id="model-api-key" className="settings-control settings-control-mono" type="password" autoComplete="new-password" spellCheck={false} value={key} onChange={e => setKey(e.target.value)} placeholder={editing?.apiKeyConfigured?'已配置，留空表示不修改':'未配置，请输入 API Key'}/>
+                  <input id="model-api-key" className="settings-control settings-control-mono" type="password" autoComplete="new-password" spellCheck={false} value={key} onChange={e => setKey(e.target.value)} placeholder={editing?.apiKeyConfigured?(copyDraft?'已配置，留空继承原配置密钥':'已配置，留空表示不修改'):'未配置，请输入 API Key'}/>
                   <div className="model-key-toggle"><span>使用 API Key</span><Toggle label="此服务需要 API Key" value={config.requireApiKey} disabled={disabled} onChange={value=>field('requireApiKey',value)}/></div>
                 </div>
               </ModelField>
@@ -238,8 +263,8 @@ export function ModelSettings({ changed, locked = false, activeModelIds }: { cha
           </fieldset>
           </div>
           <footer className="model-editor-footer">
-            {editing && <button type="button" className="model-delete-button" disabled={disabled} onClick={() => requestDelete(editing)}><Icon name="trash" size={15}/>删除</button>}
-            <span className="model-save-hint">保存后用于后续对话</span><button type="button" className="outlined-button model-cancel" disabled={busy} onClick={closeEditor}>取消</button><button className="model-save-button primary-button" type="submit" disabled={disabled}><Icon name={busy ? 'refresh' : 'check'} size={16}/>{busy ? '保存中…' : '保存配置'}</button>
+            {editing && !copyDraft && <button type="button" className="model-delete-button" disabled={disabled} onClick={() => requestDelete(editing)}><Icon name="trash" size={15}/>删除</button>}
+            <span className="model-save-hint">{copyDraft?'保存后创建独立副本；取消不新增配置':'保存后用于后续对话'}</span><button type="button" className="outlined-button model-cancel" disabled={busy} onClick={closeEditor}>取消</button><button className="model-save-button primary-button" type="submit" disabled={disabled}><Icon name={busy ? 'refresh' : 'check'} size={16}/>{busy ? '保存中…' : '保存配置'}</button>
           </footer>
         </form>
       </Modal>}

@@ -55,6 +55,7 @@ import type { AgentComposerHandle } from './components/AgentPanel';
 import { AddCommandDialog } from './components/Dialogs';
 import { SessionFiles } from './components/Sidebar';
 import { TerminalFileSidebar } from './components/TerminalFileSidebar';
+import { TerminalUploadConfirm } from './components/TerminalUploadConfirm';
 import { terminalFileTarget } from './state/terminalFileTarget';
 import type { TerminalFileTarget } from './state/terminalFileTarget';
 import { AttachmentPreviews, ChatAttachmentDraft, attachmentReferences, validateChatContent } from './state/chatAttachments';
@@ -89,7 +90,7 @@ import './components/AgentComposer.css';
 import './components/AgentTranscript.css';
 import './components/CompactWorkspace.css';
 import './components/WorkspaceSettings.css';
-import { Icon, Modal } from './components/Ui';
+import { Icon } from './components/Ui';
 import { createTerminalUpload, terminalUploadMatches } from './state/terminalUpload';
 import type { TerminalTransferRequest, TerminalUploadRequest } from './state/terminalUpload';
 import './components/TerminalUpload.css';
@@ -1945,13 +1946,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
       }} />
     </>
     {fileWindows.map(item => <SessionFiles key={item.id} connectionId={item.connectionId} title={item.title} target={item.target} uploadRequest={item.uploadRequests?.[0]} validateUpload={request => terminalUploadMatches(terminalClients.current.get(item.id), request)} uploadHandled={id => setFileWindows(previous => previous.map(window => window.id === item.id ? { ...window, uploadRequests: window.uploadRequests?.filter(request => request.id !== id) } : window))} visible={!backendSettingsOpen && visibleFiles === item.id} minimize={() => setVisibleFiles('')} copy={copy} notify={notify} registerAppCloseCleanup={registerAppCloseCleanup} />)}
-    {terminalUpload && <Modal title="确认上传到终端" icon="upload" onClose={() => setTerminalUpload(null)} className="terminal-upload-confirm">
-      <div className="terminal-upload-confirm-content"><p>是否上传到以下目录？</p><dl><dt>服务器</dt><dd>{terminalUpload.title}</dd><dt>目标目录</dt><dd className="terminal-upload-destination">{terminalUpload.target.path}</dd></dl>
-        <p>共 {terminalUpload.paths.length} 个文件或文件夹</p><ul>{terminalUpload.paths.map(path => <li key={path} title={path}>{path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || path}</li>)}</ul>
-        <p className="terminal-upload-note">同名文件默认停止上传，保留服务器原文件。上传进度和结果会显示在文件管理的“传输队列”。</p>
-        <footer><button type="button" className="outlined-button" onClick={() => setTerminalUpload(null)}>取消</button><button type="button" className="primary-button" onClick={confirmTerminalUpload}>确认上传</button></footer>
-      </div>
-    </Modal>}
+    {terminalUpload && <TerminalUploadConfirm request={terminalUpload} onClose={()=>setTerminalUpload(null)} onConfirm={confirmTerminalUpload}/>}
     {dialog === 'command' && <AddCommandDialog close={closeDialog} categories={[...new Set(commands.map(command => command.category))]} save={async command => {
       const next = [...commands, command];
       await saveClientCommands(next);

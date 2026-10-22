@@ -3,7 +3,8 @@ import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
-import { createSidebarTransfer } from '../src/state/terminalUpload.ts';
+import { createSidebarTransfer,createSidebarUpload,terminalUploadMatches } from '../src/state/terminalUpload.ts';
+import {handleTerminalFileDrop} from '../src/state/terminalFileDrop.ts';
 import { fileOperationJobs, fileSelection } from '../src/state/terminalFileOperations.ts';
 
 const source = path => readFileSync(new URL(`../src/${path}`, import.meta.url), 'utf8');
@@ -11,15 +12,18 @@ const compile = input => ts.transpileModule(input, { compilerOptions: { module: 
 const flush = async () => { for (let i = 0; i < 8; i++) await Promise.resolve(); };
 const listing = (path, names = ['folder', '.hidden', '中文.txt']) => ({ path, truncated: false,
   entries: names.map((name, i) => ({ name, directory: i === 0, symlink: false, size: 12 })) });
-function harness() {
+function harness({native=false}={}) {
   const transfers = [], choices = [], notices = [], operations = [];
   const slots = [], effects = [], jobs = new Map(), events = new Map(), requests = [], saved = new Map(), copies = [];
   let cursor = 0, timerId = 0, tree, managerOpens = 0;
+  const dragListeners=new Set(),hitCoordinates=[];
+  let stoppedDragListeners=0,hit;
+  const surface={contains:node=>node===surface};hit=surface;
   let cwd = { path: '/home', revision: 1 };
   const runtime = { sessionId: 'one', directorySnapshot: () => cwd, subscribeDirectory: () => () => {},
     directoryList: (path, signal) => new Promise((resolve, reject) => requests.push({ path, signal, resolve, reject })) };
   let props = { runtime, terminalId: 'tab-one', transfer: request => transfers.push(request), title: '测试服务器', local: false, connected: true, visible: true, openFiles: () => managerOpens++, copy: async path => copies.push(path) };
-  const document = { hidden: false, addEventListener: (name, fn) => events.set(name, fn), removeEventListener: name => events.delete(name) };
+  const document = { hidden: false,body:{},elementFromPoint:(x,y)=>{hitCoordinates.push([x,y]);return hit;}, addEventListener: (name, fn) => events.set(name, fn), removeEventListener: name => events.delete(name) };
   const react = {
     useState(initial) { const i = cursor++; if (!(i in slots)) slots[i] = typeof initial === 'function' ? initial() : initial;
       return [slots[i], value => { slots[i] = typeof value === 'function' ? value(slots[i]) : value; }]; },
@@ -31,14 +35,19 @@ function harness() {
       }
     },
   };
-  const context = vm.createContext({ exports: {}, AbortController, document,
+  const context = vm.createContext({ exports: {}, AbortController, document,window:{devicePixelRatio:1.5},
     localStorage: { getItem: key => saved.get(key) ?? null, setItem: (key, value) => saved.set(key, value) },
     setTimeout: (fn, delay) => { jobs.set(++timerId, { fn, delay }); return timerId; }, clearTimeout: id => jobs.delete(id),
     require: name => {
       if (name === 'react') return react;
+      if (name === 'react-dom') return {createPortal:node=>node};
+      if (name === '@tauri-apps/api/webview') return {getCurrentWebview:()=>({onDragDropEvent:async listener=>{dragListeners.add(listener);return()=>{dragListeners.delete(listener);stoppedDragListeners++;};}})};
+      if (name.endsWith('state/runtime')) return {isTauriRuntime:()=>native};
+      if (name.endsWith('terminalFileDrop')) return {handleTerminalFileDrop};
       if (name.endsWith('api/sftp')) return { sftpApi: { pickLocal: directory => new Promise(resolve => choices.push({ directory, resolve })) } };
       if (name.endsWith('notifications')) return { notify: (...args) => notices.push(args) };
-      if (name.endsWith('terminalUpload')) return { createSidebarTransfer };
+      if (name.endsWith('terminalUpload')) return { createSidebarTransfer,createSidebarUpload,terminalUploadMatches };
+      if (name === './TerminalUploadConfirm') return {TerminalUploadConfirm:'upload-confirm'};
       if (name.endsWith('terminalFileOperations')) return {fileOperationJobs,fileSelection,runSidebarFileOperation:async(owner,operation,valid)=>{
         if(!valid())throw new Error('访问身份已变化');operations.push({owner,operation});return operation.names.length;
       }};
@@ -55,13 +64,15 @@ function harness() {
   vm.runInContext(compile(source('state/terminalDirectory.ts')), context); const directory = context.exports; context.exports = {};
   vm.runInContext(compile(source('components/TerminalFileSidebar.tsx')), context);
   const all = value => Array.isArray(value) ? value.flatMap(all) : value?.props ? [value, ...all(value.props.children)] : [];
-  const render = (patch = {}) => { props = { ...props, ...patch }; cursor = 0; tree = context.exports.TerminalFileSidebar(props); while (effects.length) effects.shift()(); return tree; };
+  const render = (patch = {}) => { props = { ...props, ...patch }; cursor = 0; tree = context.exports.TerminalFileSidebar(props);tree.props.ref.current=surface; while (effects.length) effects.shift()(); return tree; };
   render();
   return { requests, copies, saved, events, render, runtime, transfers, choices, notices, operations, nodes: () => all(tree), managerOpens: () => managerOpens,
     find: predicate => all(tree).find(predicate),
     async tick() { const pending = [...jobs]; jobs.clear(); for (const [, job] of pending) job.fn(); await flush(); render(); },
     cwd(path, access = {}) { cwd = { ...cwd, ...access, path, revision: cwd.revision + 1 }; render(); },
     visibility(hidden) { document.hidden = hidden; events.get('visibilitychange')?.(); render(); },
+    nativeDrop(payload,inside=true){hit=inside?surface:{};for(const listener of dragListeners)listener({payload});render();},
+    hitCoordinates,dragListeners,stoppedDragListeners:()=>stoppedDragListeners,
     stop() { slots.forEach(slot => slot?.cleanup?.()); },
   };
 }
@@ -223,4 +234,52 @@ test('右键未选项改为单选，重命名校验及过期确认不执行文�
   dialog=ui.find(node=>node.type==='file-dialog');assert.ok(dialog.props.error);
   ui.cwd('/root',{access:'root',accessKey:'root-new'});dialog.props.confirm('new.txt');await flush();ui.render();
   assert.equal(ui.operations.length,0);ui.stop();
+});
+
+const nativeDropEvent=(type='drop')=>({type,position:{x:300,y:150},paths:['C:\\a.txt','D:\\folder']});
+test('侧栏原生拖入显示目标提示，松开先确认，确认只创建一次现有队列请求',async()=>{
+  const ui=harness({native:true});await ui.tick();ui.requests[0].resolve(listing('/home'));await flush();ui.render();
+  ui.nativeDrop(nativeDropEvent('enter'));assert.ok(ui.find(node=>node.props.className==='terminal-file-drop-hint'));
+  assert.deepEqual(ui.hitCoordinates.at(-1),[200,100]);
+  ui.nativeDrop(nativeDropEvent());const confirm=ui.find(node=>node.type==='upload-confirm');
+  assert.ok(confirm);assert.equal(confirm.props.request.target.path,'/home');assert.equal(ui.transfers.length,0);
+  assert.deepEqual(confirm.props.request.paths,['C:\\a.txt','D:\\folder']);
+  confirm.props.onConfirm();confirm.props.onConfirm();ui.render();
+  assert.equal(ui.transfers.length,1);assert.equal(ui.transfers[0].terminalId,'tab-one');assert.equal(ui.transfers[0].target.terminalSessionId,'one');
+  assert.equal(ui.managerOpens(),0,'queue does not open the full file manager');ui.stop();assert.equal(ui.dragListeners.size,0);
+});
+
+test('侧栏自由浏览使用显示目录，命令运行和轮询不将拖入目标改成 Shell cwd',async()=>{
+  const ui=harness({native:true});await ui.tick();ui.requests[0].resolve(listing('/home'));await flush();ui.render();
+  ui.find(node=>node.props.title==='folder').props.onClick();ui.render();await ui.tick();ui.requests.at(-1).resolve(listing('/home/folder'));await flush();ui.render();
+  ui.cwd('/different-shell-cwd',{running:true});
+  await ui.tick(); // Keep an ordinary polling request in flight while dropping.
+  ui.nativeDrop(nativeDropEvent());let confirm=ui.find(node=>node.type==='upload-confirm');
+  assert.ok(confirm);assert.equal(confirm.props.request.target.path,'/home/folder');
+  confirm.props.onConfirm();ui.render();assert.equal(ui.transfers.length,1);assert.equal(ui.transfers[0].target.path,'/home/folder');ui.stop();
+});
+
+test('拖入确认可以取消；确认期间切换目录、身份、终端或隐藏侧栏不上传',async()=>{
+  for(const change of [ui=>ui.cwd('/other'),ui=>ui.cwd('/home',{accessKey:'new-root'}),ui=>ui.render({runtime:{...ui.runtime,sessionId:'replacement'}}),ui=>ui.render({visible:false}),ui=>ui.render({connected:false}),ui=>ui.stop()]){
+    const ui=harness({native:true});await ui.tick();ui.requests[0].resolve(listing('/home'));await flush();ui.render();
+    ui.nativeDrop(nativeDropEvent());const confirm=ui.find(node=>node.type==='upload-confirm');assert.ok(confirm);
+    change(ui);confirm.props.onConfirm();ui.render();assert.equal(ui.transfers.length,0);ui.stop();
+  }
+  const ui=harness({native:true});await ui.tick();ui.requests[0].resolve(listing('/home'));await flush();ui.render();
+  ui.nativeDrop(nativeDropEvent());ui.find(node=>node.type==='upload-confirm').props.onClose();ui.render();assert.equal(ui.transfers.length,0);assert.ok(!ui.find(node=>node.type==='upload-confirm'));ui.stop();
+});
+
+test('其他窗格或浮层上的拖放、目录未就绪、本地终端和隐藏侧栏不会接收文件',async()=>{
+  const ui=harness({native:true});ui.nativeDrop(nativeDropEvent());assert.ok(!ui.find(node=>node.type==='upload-confirm'));
+  await ui.tick();ui.requests[0].resolve(listing('/home'));await flush();ui.render();
+  ui.nativeDrop(nativeDropEvent('enter'));ui.nativeDrop(nativeDropEvent('over'),false);assert.ok(!ui.find(node=>node.props.className==='terminal-file-drop-hint'));
+  ui.nativeDrop(nativeDropEvent(),false);assert.ok(!ui.find(node=>node.type==='upload-confirm'));
+  ui.nativeDrop({type:'leave'});ui.render({visible:false});assert.equal(ui.dragListeners.size,0);
+  ui.nativeDrop(nativeDropEvent());assert.equal(ui.transfers.length,0);ui.stop();
+  const local=harness({native:true});local.render({local:true});await flush();assert.equal(local.dragListeners.size,0);local.stop();
+});
+
+test('关闭发生在原生监听注册完成之前，也会释放迟到的监听',async()=>{
+  const ui=harness({native:true});assert.equal(ui.dragListeners.size,1);ui.stop();await flush();
+  assert.equal(ui.dragListeners.size,0);assert.equal(ui.stoppedDragListeners(),1);
 });

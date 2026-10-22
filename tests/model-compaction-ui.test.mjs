@@ -64,11 +64,12 @@ function settings(legacyVision, options={}) {
   const pinStorage=options.pinStorage??{getItem:key=>pinData.get(key)??null,setItem:(key,value)=>pinData.set(key,value)};
   const profile={id:'stable-profile',displayName:'日常模型',revision:7,config:{...newModelConfig(),baseUrl:'https://example.test/v1/',model:'text'},apiKeyConfigured:true,ready:true};
   if(legacyVision!==undefined)profile.config.capabilities.vision=legacyVision;
-  const slots=[],effects=[],saved=[],deleted=[],notices=[],toggled=[];let cursor=0,tree,autoOpened=false,changed=0;
+  const slots=[],effects=[],saved=[],deleted=[],notices=[],toggled=[],copied=[];let cursor=0,tree,autoOpened=false,changed=0;
   const props={changed(){changed++;},locked:false};
   const hooks={
     useState(initial){const index=cursor++;if(!(index in slots))slots[index]=typeof initial==='function'?initial():initial;
       return [slots[index],value=>{slots[index]=typeof value==='function'?value(slots[index]):value;}];},
+    useRef(initial){const index=cursor++;return slots[index]??={current:initial};},
     useEffect(effect,deps){const index=cursor++;if(!slots[index]||deps.some((value,i)=>value!==slots[index][i])){slots[index]=deps;effects.push(effect);}},
   };
   const api={list:async()=>options.items??[profile],save:async(...args)=>{saved.push(args);return {...profile,id:args[0],displayName:args[4],config:args[2],revision:args[1]+1};},delete:async(...args)=>{deleted.push(args);return true;},...options.api};
@@ -77,6 +78,10 @@ function settings(legacyVision, options={}) {
   api.saveChannel=async(...args)=>({...await api.save(...args),models:args[5].map((model,i)=>({id:i?`member-${i}`:args[0],model}))});
   api.deleteChannel=(...args)=>api.delete(...args);
   api.setChannelEnabled??=async(id,revision,enabled)=>{toggled.push([id,revision,enabled]);const target=(options.items??[profile]).find(item=>item.id===id);Object.assign(target,{revision:revision+1,enabled,ready:enabled&&(!target.config.requireApiKey||target.apiKeyConfigured)});return {...target};};
+  api.copyChannel??=async(sourceId,revision,id,draft)=>{
+    copied.push([sourceId,revision,id,draft]);const target=(options.items??[profile]).find(item=>item.id===sourceId);
+    return {...structuredClone(target),id,revision:1,displayName:draft.displayName,config:draft.changes?.update.config??target.config,models:(draft.changes?.modelIds.map(model=>({model}))??target.models??[{model:target.config.model}]).map((model,i)=>({id:i?`${id}-${i}`:id,model:model.model}))};
+  };
   const source=readFileSync(new URL('../src/components/ModelSettings.tsx',import.meta.url),'utf8');
   const output=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText;
   const leaf=()=>null;
@@ -110,7 +115,7 @@ function settings(legacyVision, options={}) {
   }
   function openEdit(){find(node=>node.props.className?.split(' ').includes('model-edit')).props.onClick();render();}
   function text(node){if(arguments.length===0)node=tree;if(Array.isArray(node))return node.map(text).join(' ');if(typeof node==='string'||typeof node==='number')return String(node);return node?.props?text(node.props.children):'';}
-  return {props,api,saved,deleted,notices,toggled,render,find,text,openEdit,get changed(){return changed;},async settle(){await new Promise(resolve=>setImmediate(resolve));render();
+  return {props,api,saved,deleted,notices,toggled,copied,render,find,text,openEdit,get changed(){return changed;},async settle(){await new Promise(resolve=>setImmediate(resolve));render();
     if(options.autoOpen!==false&&!autoOpened&&find(node=>node.props.className?.split(' ').includes('model-edit'))){autoOpened=true;openEdit();}
   }};
 }
@@ -126,6 +131,26 @@ test('渠道卡片默认启用，切换后保存稳定 ID 和新版本并刷新�
 test('启停保存失败不翻转开关、不清除配置并提示错误',async()=>{
  const ui=settings(undefined,{autoOpen:false,api:{setChannelEnabled:async()=>{throw Error('配置已变化，请刷新');}}});ui.render();await ui.settle();
  ui.find(n=>n.props.label==='启用渠道 日常模型').props.onChange(false);await ui.settle();assert.equal(ui.find(n=>n.props.label==='启用渠道 日常模型').props.value,true);assert.equal(ui.changed,0);assert.match(ui.notices.at(-1)[0],/配置已变化/);assert.ok(ui.find(n=>n.props['aria-label']==='编辑 日常模型'));
+});
+
+test('启停只更新当前渠道，不重载列表、不清空筛选、不让其他卡片一起闪烁',async()=>{
+ let reads=0,resolve;
+ const config={...newModelConfig(),model:'text'};
+ const items=[{id:'first',displayName:'渠道一',revision:1,config,ready:true},{id:'second',displayName:'渠道二',revision:1,config,ready:true}];
+ const calls=[];
+ const ui=settings(undefined,{items,autoOpen:false,api:{list:async()=>{reads++;return items;},setChannelEnabled:(...args)=>{calls.push(args);return new Promise(done=>{resolve=done;});}}});
+ ui.render();await ui.settle();
+ ui.find(n=>n.props['aria-label']==='搜索供应商 / 渠道名称').props.onChange({target:{value:'渠道'}});ui.render();
+ const toggle=ui.find(n=>n.props.label==='启用渠道 渠道一');toggle.props.onChange(false);toggle.props.onChange(false);ui.render();
+ assert.equal(calls.length,1);assert.equal(ui.find(n=>n.props.label==='启用渠道 渠道一').props.disabled,true);
+ assert.equal(ui.find(n=>n.props.label==='启用渠道 渠道二').props.disabled,false);
+ assert.equal(ui.find(n=>n.props['aria-label']==='编辑 渠道二').props.disabled,false);
+ assert.equal(ui.find(n=>n.props['aria-label']==='搜索供应商 / 渠道名称').props.disabled,false);
+ assert.equal(ui.find(n=>n.props.className==='model-loading'),undefined);
+ resolve({...items[0],revision:2,enabled:false,ready:false});await ui.settle();
+ assert.equal(reads,1);assert.equal(ui.changed,1);
+ assert.equal(ui.find(n=>n.props['aria-label']==='搜索供应商 / 渠道名称').props.value,'渠道');
+ assert.deepEqual(Array.from(ui.find(n=>n.props.className==='model-profile-grid').props.children,n=>n.props['aria-label']),['渠道一','渠道二']);
 });
 
 test('运行中的渠道允许停用，锁定和保存中禁用开关，重复回调不发起请求',async()=>{
@@ -636,4 +661,58 @@ test('Ollama 多模型渠道恢复、供应商与名称并且过滤及免密钥�
  ui.find(n=>n.props.id==='model-effort'&&n.props.options).props.onChange('high');ui.render();ui.find(n=>n.type==='form').props.onSubmit({preventDefault(){}});await ui.settle();
  const saved=ui.saved[0];assert.equal(saved[2].supplier,'ollama');assert.equal(saved[2].baseUrl,config.baseUrl);assert.equal(saved[2].requireApiKey,false);assert.equal(saved[2].reasoningEffort,'high');
  assert.deepEqual(Array.from(saved[5]),['deepseek-r1:14b','qwen3:8b']);assert.equal(saved[3].action,'keep');
+});
+
+test('复制只打开草稿，保存才创建副本且未改参数时完整继承模型与密钥',async()=>{
+ const config={...newModelConfig(),baseUrl:'https://proxy.example/custom/v1/',model:'one'};
+ const source={id:'source',displayName:'我的渠道',revision:9,enabled:false,ready:false,apiKeyConfigured:true,config,models:[{id:'source',model:'one'},{id:'source-two',model:'two'}]};
+ const before=structuredClone(source),ui=settings(undefined,{autoOpen:false,items:[source]});ui.render();await ui.settle();
+ ui.find(n=>n.props['aria-label']==='复制 我的渠道').props.onClick();await ui.settle();
+ assert.equal(ui.copied.length,0);assert.equal(ui.saved.length,0);assert.equal(ui.changed,0);
+ assert.equal(ui.find(n=>n.props['aria-label']==='模型配置列表').props.children.length,1);assert.deepEqual(source,before);
+ assert.equal(ui.find(n=>n.props.title==='复制模型配置').props.title,'复制模型配置');
+ assert.equal(ui.find(n=>n.type==='input'&&n.props.id==='model-name').props.value,'我的渠道（副本）');
+ const input=ui.find(n=>n.type==='input'&&n.props.id==='model-api-key');assert.equal(input.props.value,'');assert.match(input.props.placeholder,/继承原配置密钥/);
+ assert.equal(ui.find(n=>n.props.className==='model-delete-button'),undefined,'草稿不能删除原渠道');
+ ui.find(n=>n.type==='form').props.onSubmit({preventDefault(){}});await ui.settle();
+ assert.equal(ui.copied.length,1);assert.equal(ui.saved.length,0);assert.equal(ui.changed,1);
+ const [id,revision,newId,draft]=ui.copied[0];assert.equal(id,'source');assert.equal(revision,9);assert.notEqual(newId,'source');
+ assert.equal(draft.displayName,'我的渠道（副本）');assert.equal(draft.changes,undefined,'未改配置时保留每个成员的完整原始参数和密钥');
+ assert.equal(ui.find(n=>n.props['aria-label']==='模型配置列表').props.children.length,2);assert.equal(ui.find(n=>n.type==='form'),undefined);assert.deepEqual(source,before);
+});
+
+test('取消或关闭复制草稿不新增配置，不保存草稿密钥；再次新建不继承复制来源',async()=>{
+ const ui=settings(undefined,{autoOpen:false});ui.render();await ui.settle();
+ for(const close of ['cancel','close']){
+  ui.find(n=>n.props['aria-label']==='复制 日常模型').props.onClick();ui.render();
+  ui.find(n=>n.props.id==='model-api-key'&&n.type==='input').props.onChange({target:{value:'draft-only-secret'}});ui.render();
+  if(close==='cancel')ui.find(n=>n.type==='button'&&ui.text(n)==='取消').props.onClick();else ui.find(n=>n.props.title==='复制模型配置').props.onClose();
+  await ui.settle();assert.equal(ui.copied.length,0);assert.equal(ui.saved.length,0);assert.equal(ui.changed,0);assert.equal(ui.find(n=>n.type==='form'),undefined);
+ }
+ ui.find(n=>n.type==='button'&&n.props.className==='model-create primary-button').props.onClick();ui.render();
+ assert.equal(ui.find(n=>n.props.id==='model-api-key'&&n.type==='input').props.value,'');assert.ok(ui.find(n=>n.props.title==='新建模型配置'));
+});
+
+test('复制草稿修改名称、参数、模型和密钥后只在保存时一次提交，连续保存不重复创建',async()=>{
+ const ui=settings(undefined,{autoOpen:false});ui.render();await ui.settle();
+ ui.find(n=>n.props['aria-label']==='复制 日常模型').props.onClick();ui.render();
+ ui.find(n=>n.props.id==='model-name'&&n.type==='input').props.onChange({target:{value:'独立配置'}});
+ ui.find(n=>n.props.id==='model-api-key'&&n.type==='input').props.onChange({target:{value:'new-test-key'}});
+ ui.find(n=>n.props.id==='model-id'&&n.type==='textarea').props.onChange({target:{value:'two\nthree'}});
+ ui.find(n=>n.props.id==='model-timeout'&&n.props.kind==='timeout').props.onChange(240);ui.render();
+ assert.equal(ui.copied.length,0);
+ const submit=ui.find(n=>n.type==='form').props.onSubmit;submit({preventDefault(){}});submit({preventDefault(){}});await ui.settle();
+ assert.equal(ui.copied.length,1);assert.equal(ui.saved.length,0);
+ const draft=ui.copied[0][3];assert.equal(draft.displayName,'独立配置');assert.deepEqual(Array.from(draft.changes.modelIds),['two','three']);
+ assert.equal(draft.changes.update.config.timeoutSeconds,240);assert.equal(draft.changes.update.apiKey.action,'set');assert.equal(draft.changes.update.apiKey.value,'new-test-key');
+});
+
+test('复制保存失败保留草稿供重试；运行中的配置可复制，锁定期间不可复制',async()=>{
+ const calls=[];const ui=settings(undefined,{autoOpen:false,api:{copyChannel:async(...args)=>{calls.push(args);throw new Error('配置已变化，请刷新');}}});ui.render();await ui.settle();
+ ui.props.activeModelIds=new Set(['stable-profile']);ui.render();
+ ui.find(n=>n.props['aria-label']==='复制 日常模型').props.onClick();ui.render();
+ for(let i=0;i<2;i++){ui.find(n=>n.type==='form').props.onSubmit({preventDefault(){}});await ui.settle();}
+ assert.equal(calls.length,2);assert.equal(calls[0][2],calls[1][2]);assert.ok(ui.find(n=>n.type==='form'));assert.equal(ui.find(n=>n.props['aria-label']==='模型配置列表').props.children.length,1);assert.equal(ui.changed,0);
+ assert.ok(ui.notices.some(([message])=>message==='配置已变化，请刷新'));
+ ui.find(n=>n.props.title==='复制模型配置').props.onClose();ui.props.locked=true;ui.render();assert.equal(ui.find(n=>n.props['aria-label']==='复制 日常模型').props.disabled,true);
 });

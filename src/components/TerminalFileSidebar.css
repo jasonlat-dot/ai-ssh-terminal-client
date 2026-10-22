@@ -72,3 +72,10 @@
 .terminal-file-operation-dialog small { color: var(--theme-text-muted); line-height: 1.6; }
 .terminal-file-operation-dialog :is(.terminal-file-delete-warning, .terminal-file-operation-error) { color: var(--accent-danger-ink); }
 .terminal-file-operation-dialog footer { display: flex; justify-content: flex-end; gap: 8px; padding-top: 4px; }
+.terminal-file-sidebar { position: relative; }
+.terminal-file-sidebar.drop-target { border-color: var(--ui-accent); }
+.terminal-file-drop-hint { position: absolute; z-index: 15; inset: 5px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 20px; border: 2px dashed var(--ui-accent); border-radius: 8px; background: color-mix(in srgb, var(--theme-panel) 92%, transparent); color: var(--theme-text-strong); pointer-events: none; text-align: center; }
+.terminal-file-drop-hint > svg { color: var(--theme-accent-text); }
+.terminal-file-drop-hint > strong { font-size: 12px; }
+.terminal-file-drop-hint > span { width: 100%; font: 11px/1.6 var(--mono); overflow-wrap: anywhere; }
+.terminal-file-drop-hint > small { color: var(--theme-text-muted); font-size: 10px; }

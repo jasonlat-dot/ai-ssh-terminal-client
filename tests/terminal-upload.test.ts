@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createTerminalUpload, createSidebarTransfer, terminalUploadMatches, runTerminalUpload, runTerminalTransfer } from '../src/state/terminalUpload';
+import { createTerminalUpload, createSidebarTransfer,createSidebarUpload, terminalUploadMatches, runTerminalUpload, runTerminalTransfer } from '../src/state/terminalUpload';
 import { handleTerminalFileDrop } from '../src/state/terminalFileDrop';
 import type { TerminalRuntime } from '../src/state/terminalRuntime';
 import type { DragDropEvent } from '@tauri-apps/api/webview';
@@ -104,4 +104,15 @@ test('batch sidebar download creates one queue job per selected file or director
   const stopped=await runTerminalTransfer(request,{valid:()=>terminalUploadMatches(f.runtime,request),connect:async()=>true,transfer:async()=>{f.directory.accessKey='changed';return true;}});
   assert.deepEqual(stopped,{submitted:1,total:2});
   assert.throws(()=>createSidebarTransfer(f.runtime,'tab','WSL','/srv',['D:\\out'],[]));
+});
+
+test('sidebar drops validate native local paths and use the browsed directory even when Shell cwd is unknown or busy',()=>{
+  const f=fixture();f.directory.path='';f.directory.running=true;
+  const request=createSidebarUpload(f.runtime,'tab','WSL','/srv/browsed',['C:\\a.txt','D:\\folder','C:\\a.txt','relative','C:\\bad\nfile']);
+  assert.equal(request.target.path,'/srv/browsed');assert.equal(request.target.accessKey,'root-one');
+  assert.deepEqual(request.paths,['C:\\a.txt','D:\\folder']);assert.equal(request.direction,'UPLOAD');
+  assert.equal(terminalUploadMatches(f.runtime,request),true);
+  assert.throws(()=>createSidebarUpload(f.runtime,'tab','WSL','/srv',['relative']));
+  assert.throws(()=>createSidebarUpload(f.runtime,'tab','WSL','relative',['C:\\a.txt']));
+  f.directory.access='unavailable';assert.throws(()=>createSidebarUpload(f.runtime,'tab','WSL','/srv',['C:\\a.txt']));
 });
