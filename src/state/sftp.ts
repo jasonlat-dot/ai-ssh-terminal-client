@@ -22,6 +22,7 @@ export function transferPercent(progress: SftpProgress): number | null {
   return Math.min(100, Math.max(0, Math.floor(progress.transferredBytes / progress.totalBytes * 100)));
 }
 export const transferStatus: Record<string, string> = {
+  PENDING: '等待传输',
   AWAITING_CONTENT: '等待传输', RUNNING: '正在传输', AWAITING_CONFIRMATION: '等待本地保存确认',
   COMPLETED: '已完成', FAILED: '传输失败', CANCELLED: '已取消',
 };

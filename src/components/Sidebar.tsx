@@ -3,15 +3,16 @@ import type { RefObject } from 'react';
 import { beginFilePointerDrag } from '../state/filePointerDrag';
 import { handleTerminalFileDrop } from '../state/terminalFileDrop';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
-import type { SftpAccessMode, SftpEntry, SftpTransfer } from '../api/sftp';
+import type { SftpAccessMode, SftpEntry } from '../api/sftp';
 import { sftpApi } from '../api/sftp';
 import { useSftp } from '../state/useSftp';
 import { runTerminalTransfer } from '../state/terminalUpload';
 import type { TerminalTransferRequest } from '../state/terminalUpload';
 import { isTauriRuntime } from '../state/runtime';
-import { formatBytes, remoteParent, transferPercent, transferStatus } from '../state/sftp';
+import { formatBytes, remoteParent } from '../state/sftp';
 import { AccentIcon, Badge, Icon, IconButton, Modal, fileTone } from './Ui';
 import { Select } from './Select';
+import { SftpTransferTask } from './SftpTransferTask';
 import './SftpFileManager.css';
 
 /**
@@ -22,23 +23,6 @@ import './SftpFileManager.css';
  * 回调会在组件卸载时自动反注册，调用方拿到的是 async 函数。
  */
 export type SftpCloseHandler = () => Promise<void>;
-
-function transferIdentity(task: SftpTransfer) {
-  const rootItem = task.items.reduce<SftpTransfer['items'][number] | undefined>((root, item) => {
-    if (!root) return item;
-    const depth = item.relativePath.split('/').length;
-    const rootDepth = root.relativePath.split('/').length;
-    return depth < rootDepth ? item : root;
-  }, undefined);
-  const fileCount = task.items.filter(item => item.kind === 'FILE').length;
-  const relativePath = rootItem?.relativePath || '正在准备文件清单';
-  const name = relativePath.split('/').filter(Boolean).pop() || relativePath;
-  return {
-    name: rootItem?.kind === 'DIRECTORY' ? `${name} · ${fileCount} 个文件` : name,
-    relativePath,
-    location: task.direction === 'UPLOAD' ? `上传到 ${task.remotePath}` : `来自 ${task.remotePath}`,
-  };
-}
 
 function FileSource({ side, title, path, parent, roots = [], entries, loading, enabled, selected, select, browse, create, requestDelete, copy, dragStart, dropSurface, dropActive }: {
   side: 'local' | 'remote'; title: string; path: string; parent: string | null; roots?: string[]; entries: SftpEntry[];
@@ -400,29 +384,8 @@ export function SessionFiles({ connectionId, title, target, uploadRequest, valid
         <section className="sftp-transfers" aria-label="SFTP 传输任务">
           {files.scanning && <p className="sftp-empty" role="status">{files.scanning}</p>}
           {!files.scanning && !files.tasks.length && <p className="sftp-empty">暂无传输<br /><small>选择文件后点击箭头，或拖到另一侧目录</small></p>}
-          {files.tasks.map(task => {
-            const progress = task.progress;
-            const percent = transferPercent(progress);
-            const finished = ['COMPLETED', 'CANCELLED'].includes(progress.status);
-            const failed = task.items.filter(item => item.status === 'FAILED');
-            const received = Object.values(files.localBytes[task.transferId] ?? {}).reduce((sum, bytes) => sum + bytes, 0);
-            const identity = transferIdentity(task);
-            return <article className={`sftp-task ${progress.status.toLowerCase()}`} key={task.transferId}>
-              <div className="sftp-task-title">
-                <span className="sftp-task-direction"><Icon name={task.direction === 'UPLOAD' ? 'upload' : 'down'} size={14} /><strong>{task.direction === 'UPLOAD' ? '上传' : '下载'}</strong></span>
-                <span className="sftp-task-file"><strong title={identity.relativePath}>{identity.name}</strong><small title={task.remotePath}>{identity.location}</small></span>
-                <Badge className="sftp-task-status"
-                  tone={progress.status === 'COMPLETED' ? 'success' : progress.status === 'FAILED' ? 'danger' : progress.status === 'RUNNING' ? 'blue' : progress.status === 'CANCELLED' ? 'neutral' : 'amber'}
-                  icon={progress.status === 'COMPLETED' ? 'check' : progress.status === 'FAILED' ? 'alert' : progress.status === 'RUNNING' ? 'refresh' : progress.status === 'CANCELLED' ? 'stop' : 'history'}>
-                  {transferStatus[progress.status] ?? progress.status}
-                </Badge>
-              </div>
-              <div className="sftp-task-progress">{percent !== null && <progress max={100} value={percent} aria-label={`${task.direction === 'UPLOAD' ? '上传' : '下载'}字节进度`} />}<span>{percent === null ? `${progress.completedItems} / ${progress.totalItems} 项` : `${percent}% · ${formatBytes(progress.transferredBytes)} / ${formatBytes(progress.totalBytes)}`}</span></div>
-              <footer><small>完成 {progress.completedItems}/{progress.totalItems} 项{progress.failedItems > 0 && ` · 失败 ${progress.failedItems} 项`}{progress.awaitingConfirmation > 0 && ` · 待保存确认 ${progress.awaitingConfirmation} 项`}{task.direction === 'DOWNLOAD' && received > 0 && ` · 本机已接收 ${formatBytes(received)}`}{percent === 100 && !finished && ' · 正在提交或等待确认'}</small><div className="inline-actions">{!finished && <><button className="file-mini-action" disabled={!ready || files.working} onClick={() => void files.retry(task.transferId)}>重查并重试</button><button className="file-mini-action" disabled={!ready || files.cancelling.includes(task.transferId)} onClick={() => void files.cancel(task.transferId)}>{files.cancelling.includes(task.transferId) ? '取消中…' : '取消'}</button></>}</div></footer>
-              {files.taskErrors[task.transferId] && !finished && <p className="sftp-task-error">{files.taskErrors[task.transferId]}</p>}
-              {failed.length > 0 && <details><summary>查看 {failed.length} 个失败条目</summary>{failed.map(item => <p key={item.itemId}>{item.relativePath}：{item.message || item.errorCode || '传输失败'}</p>)}</details>}
-            </article>;
-          })}
+          {files.tasks.map(task => <SftpTransferTask key={task.transferId} task={task} localBytes={files.localBytes[task.transferId]} error={files.taskErrors[task.transferId]}
+            ready={ready} working={files.working} cancelling={files.cancelling.includes(task.transferId)} retry={()=>void files.retry(task.transferId)} cancel={()=>void files.cancel(task.transferId)}/>)}
         </section>
       </aside></>}
       {deleteTarget && <div className="sftp-delete-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget && !deleting) setDeleteTarget(null); }}>
