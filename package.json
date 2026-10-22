@@ -2,7 +2,7 @@
   "name": "ai-ssh-terminal-client",
   "displayName": "ShellPilot",
   "private": true,
-  "version": "0.2.4",
+  "version": "0.2.5",
   "type": "module",
   "scripts": {
     "prepare:icons": "node scripts/prepare-app-icons.mjs",

@@ -33,3 +33,4 @@ dist-ssr
 /release/
 /docs/releases/v0.2.1-commit-notes.md
 /docs/client-updates.md
+/.codex-tmp/proxy-check/
