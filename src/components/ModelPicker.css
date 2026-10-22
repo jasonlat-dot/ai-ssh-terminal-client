@@ -1,5 +1,5 @@
-.model-picker-menu { position:fixed; z-index:var(--ui-popover-layer); display:flex; gap:8px; font-family:var(--font-ui); color:var(--theme-text-strong); }
-.model-picker-panel { display:flex; flex-direction:column; min-width:0; height:100%; box-sizing:border-box; padding:4px; border:1px solid var(--line); border-radius:12px; background:var(--theme-panel); box-shadow:var(--ui-menu-shadow); }
+.model-picker-menu { position:fixed; z-index:var(--ui-popover-layer); display:flex; gap:8px; pointer-events:none; font-family:var(--font-ui); color:var(--theme-text-strong); }
+.model-picker-panel { display:flex; flex-direction:column; min-width:0; max-height:100%; box-sizing:border-box; padding:4px; border:1px solid var(--line); border-radius:12px; background:var(--theme-panel); box-shadow:var(--ui-menu-shadow); pointer-events:auto; }
 .model-picker-groups { width:42%; flex:none; }
 .model-picker-models { flex:1; }
 .model-picker-heading { display:flex; align-items:center; gap:6px; flex:none; height:36px; box-sizing:border-box; padding:4px 8px; font-size:12px; color:var(--theme-text-muted); }

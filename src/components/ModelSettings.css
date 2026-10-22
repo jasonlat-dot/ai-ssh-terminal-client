@@ -47,6 +47,15 @@
 .model-profile-state { display:inline-flex; align-items:center; gap:6px; flex-shrink:0; padding:4px 8px; border-radius:6px; color:var(--accent-amber-ink,#94651c); background:var(--accent-amber-soft,#fff7e6); font-size:12px; font-weight:500; line-height:1.5; white-space:nowrap; }
 .model-profile-state i { width:7px; height:7px; flex-shrink:0; border-radius:50%; background:currentColor; }
 .model-profile-state.ready { color:var(--mint); background:var(--mint-soft); }
+.model-profile-heading > .model-profile-availability { flex:0 0 auto; display:flex; align-items:center; gap:8px; }
+.model-profile-availability .model-profile-state { padding:3px 6px; font-size:11px; }
+.model-profile-state.is-disabled { color:var(--settings-text-muted); background:var(--settings-panel-soft); border:1px solid var(--settings-border); }
+.model-channel-toggle { display:inline-flex; align-items:center; flex-shrink:0; }
+.settings-page .model-channel-toggle .toggle.on { background:var(--mint); border-color:var(--mint); }
+.settings-page .model-channel-toggle .toggle.on span { background:var(--theme-panel); }
+.settings-page .model-channel-toggle .toggle.on:hover:not(:disabled) { background:color-mix(in srgb,var(--mint) 88%,var(--theme-text-strong)); border-color:var(--mint); }
+.model-profile-card[data-enabled='false'] { background:var(--settings-panel-soft); border-style:dashed; }
+.model-profile-card[data-enabled='false'] .model-profile-heading h3 { color:var(--settings-text-muted); }
 .model-profile-tags { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:12px 0 7px; }
 .model-profile-card .ui-badge { box-sizing:border-box; max-width:100%; font-size:11px; padding:3px 7px; }
 .model-profile-card .ui-badge.model-profile-budget { font-variant-numeric:tabular-nums; white-space:normal; overflow-wrap:anywhere; }

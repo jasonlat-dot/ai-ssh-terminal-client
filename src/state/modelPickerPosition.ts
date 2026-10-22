@@ -17,6 +17,6 @@ export function modelPickerPosition({trigger,panel,composer,viewport,groupRows,m
   const above=trigger.top-14,below=viewport.height-trigger.bottom-14;
   const up=below<desired&&above>below;
   const height=Math.max(44,Math.min(desired,up?above:below));
-  return {compact,width,height,left:Math.max(leftEdge,Math.min(preferredLeft,rightEdge-width)),
+  return {compact,width,height,alignItems:up?'flex-end' as const:'flex-start' as const,left:Math.max(leftEdge,Math.min(preferredLeft,rightEdge-width)),
     top:Math.max(8,Math.min(up?trigger.top-6-height:trigger.bottom+6,viewport.height-height-8))};
 }

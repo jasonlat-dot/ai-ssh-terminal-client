@@ -20,3 +20,21 @@ test('窗口缩小、放大或触发器靠近顶部时重新计算宽度和上�
  assert.equal(narrow.compact,true);assert.ok(narrow.left>=8);assert.ok(narrow.left+narrow.width<=312);assert.ok(narrow.top>=78);assert.ok(narrow.top+narrow.height<=292);
  const wide=modelPickerPosition({...base,panel:undefined,composer:undefined,viewport:{width:1600,height:900}});assert.equal(wide.compact,false);
 });
+
+test('向上展开时两列底部对齐，切换长模型列表不移动供应商列的底部锚点',()=>{
+ const short=modelPickerPosition({...base,modelRows:1});
+ const long=modelPickerPosition({...base,modelRows:20});
+ assert.equal(short.alignItems,'flex-end');assert.equal(long.alignItems,'flex-end');
+ assert.ok(long.height>short.height);
+ assert.equal(short.top+short.height,long.top+long.height);
+ assert.equal(long.top+long.height,base.trigger.top-6);
+});
+
+test('向下展开时两列顶部对齐，长列表仍受视口高度约束',()=>{
+ const input={...base,trigger:{left:500,right:660,top:20,bottom:52},viewport:{width:1400,height:280}};
+ const short=modelPickerPosition({...input,modelRows:1});
+ const long=modelPickerPosition({...input,modelRows:20});
+ assert.equal(short.alignItems,'flex-start');assert.equal(long.alignItems,'flex-start');
+ assert.equal(short.top,long.top);assert.equal(long.top,input.trigger.bottom+6);
+ assert.ok(long.top+long.height<=input.viewport.height-8);
+});

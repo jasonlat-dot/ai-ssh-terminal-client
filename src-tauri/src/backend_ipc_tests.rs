@@ -8,6 +8,23 @@ mod directory_protocol;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 #[tokio::test]
+async fn model_channel_enabled_ipc_filters_chat_choices_and_keeps_configuration() {
+    let (_dir,services)=services().await;save_test_model(&services,"http://127.0.0.1:1/v1/".into());
+    let listed=dispatch(services.clone(),"agent/model_channels","GET",Value::Null,json!({"userId":"default"})).await.unwrap();
+    let profile=listed.as_array().unwrap().iter().find(|item|item["id"]=="model").unwrap();assert_eq!(profile["enabled"],true);
+    let request=json!({"id":"model","userId":"default","revision":profile["revision"],"enabled":false});
+    let saved=dispatch(services.clone(),"agent/model_channel_enabled","POST",request.clone(),Value::Null).await.unwrap();assert_eq!(saved["enabled"],false);assert_eq!(saved["ready"],false);
+    let choices=dispatch(services.clone(),"agent/query_ai_agent_config_list","GET",Value::Null,json!({"userId":"default"})).await.unwrap();assert!(choices.as_array().unwrap().iter().all(|item|item["agentId"]!="model"));
+    let list=dispatch(services.clone(),"agent/model_channel_report","GET",Value::Null,json!({"userId":"default"})).await.unwrap();assert!(list["items"].as_array().unwrap().iter().any(|item|item["id"]=="model"&&item["enabled"]==false));
+    let stale=dispatch(services.clone(),"agent/model_channel_enabled","POST",request.clone(),Value::Null).await.unwrap_err();assert_eq!(stale.code,"MODEL_CONFIG_CHANGED");
+    let invalid=dispatch(services.clone(),"agent/model_channel_enabled","POST",json!({"id":"model","userId":"default","revision":saved["revision"],"enabled":"false"}),Value::Null).await.unwrap_err();assert_eq!(invalid.status,400);
+    let forbidden=dispatch(services.clone(),"agent/model_channel_enabled","POST",json!({"id":"model","userId":"other","revision":saved["revision"],"enabled":true}),Value::Null).await.unwrap_err();assert_eq!(forbidden.status,404);
+    dispatch(services.clone(),"agent/model_channel_enabled","POST",json!({"id":"model","userId":"default","revision":saved["revision"],"enabled":true}),Value::Null).await.unwrap();
+    let choices=dispatch(services.clone(),"agent/query_ai_agent_config_list","GET",Value::Null,json!({"userId":"default"})).await.unwrap();assert!(choices.as_array().unwrap().iter().any(|item|item["agentId"]=="model"));
+    services.shutdown().await;
+}
+
+#[tokio::test]
 async fn network_settings_ipc_persists_separate_routes_without_exposing_proxy_passwords() {
     let (_dir,services)=services().await;
     let initial=dispatch(services.clone(),"client/network","GET",Value::Null,Value::Null).await.unwrap();

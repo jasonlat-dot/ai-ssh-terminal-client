@@ -64,7 +64,7 @@ function settings(legacyVision, options={}) {
   const pinStorage=options.pinStorage??{getItem:key=>pinData.get(key)??null,setItem:(key,value)=>pinData.set(key,value)};
   const profile={id:'stable-profile',displayName:'日常模型',revision:7,config:{...newModelConfig(),baseUrl:'https://example.test/v1/',model:'text'},apiKeyConfigured:true,ready:true};
   if(legacyVision!==undefined)profile.config.capabilities.vision=legacyVision;
-  const slots=[],effects=[],saved=[],deleted=[],notices=[];let cursor=0,tree,autoOpened=false,changed=0;
+  const slots=[],effects=[],saved=[],deleted=[],notices=[],toggled=[];let cursor=0,tree,autoOpened=false,changed=0;
   const props={changed(){changed++;},locked:false};
   const hooks={
     useState(initial){const index=cursor++;if(!(index in slots))slots[index]=typeof initial==='function'?initial():initial;
@@ -76,6 +76,7 @@ function settings(legacyVision, options={}) {
   api.channelReport=async()=>({items:await api.channels(),issues:options.issues??[]});
   api.saveChannel=async(...args)=>({...await api.save(...args),models:args[5].map((model,i)=>({id:i?`member-${i}`:args[0],model}))});
   api.deleteChannel=(...args)=>api.delete(...args);
+  api.setChannelEnabled??=async(id,revision,enabled)=>{toggled.push([id,revision,enabled]);const target=(options.items??[profile]).find(item=>item.id===id);Object.assign(target,{revision:revision+1,enabled,ready:enabled&&(!target.config.requireApiKey||target.apiKeyConfigured)});return {...target};};
   const source=readFileSync(new URL('../src/components/ModelSettings.tsx',import.meta.url),'utf8');
   const output=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText;
   const leaf=()=>null;
@@ -109,10 +110,29 @@ function settings(legacyVision, options={}) {
   }
   function openEdit(){find(node=>node.props.className?.split(' ').includes('model-edit')).props.onClick();render();}
   function text(node){if(arguments.length===0)node=tree;if(Array.isArray(node))return node.map(text).join(' ');if(typeof node==='string'||typeof node==='number')return String(node);return node?.props?text(node.props.children):'';}
-  return {props,api,saved,deleted,notices,render,find,text,openEdit,get changed(){return changed;},async settle(){await new Promise(resolve=>setImmediate(resolve));render();
+  return {props,api,saved,deleted,notices,toggled,render,find,text,openEdit,get changed(){return changed;},async settle(){await new Promise(resolve=>setImmediate(resolve));render();
     if(options.autoOpen!==false&&!autoOpened&&find(node=>node.props.className?.split(' ').includes('model-edit'))){autoOpened=true;openEdit();}
   }};
 }
+
+test('渠道卡片默认启用，切换后保存稳定 ID 和新版本并刷新可选模型；禁用仍可编辑',async()=>{
+ const ui=settings(undefined,{autoOpen:false});ui.render();await ui.settle();
+ const toggle=()=>ui.find(n=>n.props.label==='启用渠道 日常模型');assert.equal(toggle().props.value,true);
+ toggle().props.onChange(false);ui.render();assert.equal(toggle().props.disabled,true);await ui.settle();
+ assert.deepEqual(ui.toggled,[['stable-profile',7,false]]);assert.equal(toggle().props.value,false);assert.equal(toggle().props.disabled,false);assert.match(ui.text(),/已禁用/);assert.equal(ui.changed,1);assert.ok(ui.find(n=>n.props['aria-label']==='编辑 日常模型'&&!n.props.disabled));
+ toggle().props.onChange(true);await ui.settle();assert.deepEqual(ui.toggled[1],['stable-profile',8,true]);assert.equal(toggle().props.value,true);assert.match(ui.text(),/已配置/);assert.equal(ui.changed,2);
+});
+
+test('启停保存失败不翻转开关、不清除配置并提示错误',async()=>{
+ const ui=settings(undefined,{autoOpen:false,api:{setChannelEnabled:async()=>{throw Error('配置已变化，请刷新');}}});ui.render();await ui.settle();
+ ui.find(n=>n.props.label==='启用渠道 日常模型').props.onChange(false);await ui.settle();assert.equal(ui.find(n=>n.props.label==='启用渠道 日常模型').props.value,true);assert.equal(ui.changed,0);assert.match(ui.notices.at(-1)[0],/配置已变化/);assert.ok(ui.find(n=>n.props['aria-label']==='编辑 日常模型'));
+});
+
+test('运行中的渠道允许停用，锁定和保存中禁用开关，重复回调不发起请求',async()=>{
+ const ui=settings(undefined,{autoOpen:false});ui.props.activeModelIds=new Set(['stable-profile']);ui.render();await ui.settle();assert.equal(ui.find(n=>n.props.label==='启用渠道 日常模型').props.disabled,false);
+ ui.props.locked=true;ui.render();const toggle=ui.find(n=>n.props.label==='启用渠道 日常模型');assert.equal(toggle.props.disabled,true);toggle.props.onChange(false);await ui.settle();assert.equal(ui.toggled.length,0);
+ assert.match(chatErrorGuidance('MODEL_DISABLED'),/禁用.*重新启用/);
+});
 
 test('直接展示的自动整理比例支持常用档位并保存，保持配置 ID、名称和密钥保留动作',async()=>{
   const ui=settings();ui.render();await ui.settle();

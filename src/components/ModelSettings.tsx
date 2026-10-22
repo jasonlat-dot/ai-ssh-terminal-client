@@ -102,9 +102,20 @@ export function ModelSettings({ changed, locked = false, activeModelIds }: { cha
         ? items.map(profile => profile.id === saved.id ? saved : profile)
         : [...items, saved]);
       setEditorOpen(false); setKey(''); setError('');
-      notify(saved.ready ? '模型配置已保存，后续请求生效；运行中的任务继续使用原配置。' : '模型配置已保存；配置 API Key 后即可对话。', 'success'); changed?.();
+      notify(saved.enabled===false ? '模型配置已保存，当前渠道仍为禁用状态。' : saved.ready ? '模型配置已保存，后续请求生效；运行中的任务继续使用原配置。' : '模型配置已保存；配置 API Key 后即可对话。', 'success'); changed?.();
     } catch (cause) { setError(cause instanceof Error ? cause.message : '保存失败'); }
     finally { setBusy(false); }
+  };
+  const toggleEnabled = async (profile:ModelChannel,enabled:boolean) => {
+    if (disabled) return;
+    setBusy(true);setError('');
+    try {
+      const saved=await modelApi.setChannelEnabled(profile.id,profile.revision,enabled);
+      setProfiles(items=>items.map(item=>item.id===saved.id?saved:item));
+      notify(enabled?'渠道已启用，可在对话和补全中选择。':'渠道已禁用，后续对话和补全不再使用；配置与历史保留。','success');
+      changed?.();
+    } catch(cause) {setError(cause instanceof Error?cause.message:'渠道状态保存失败，请重试。');}
+    finally {setBusy(false);}
   };
   const activeChannel=(profile:ModelChannel)=>!!activeModelIds&&(profile.models?.some(model=>activeModelIds.has(model.id))||activeModelIds.has(profile.id));
   const requestDelete = (profile: ModelChannel) => {
@@ -161,8 +172,9 @@ export function ModelSettings({ changed, locked = false, activeModelIds }: { cha
           : <div className="model-profile-grid" aria-label="模型配置列表">{filteredProfiles.map(profile => {
             const protocol = modelProtocols[profile.config.provider];
             const pinned = pinnedIds.includes(profile.id);
-            return <article className="model-profile-card" data-pinned={pinned || undefined} key={profile.id} aria-label={profile.displayName ?? profile.id}>
-              <div className="model-profile-heading"><span className="model-supplier-avatar"><ModelSupplierIcon supplier={modelSupplier(profile.config)} size={22}/></span><div><h3 title={profile.displayName ?? profile.id}>{profile.displayName ?? profile.id}</h3><p title={profile.models?.map(item=>item.model).join('、')??profile.config.model}>{profile.models?.length?`${profile.models.length} 个模型 · ${profile.models.map(item=>item.model).join('、')}`:profile.config.model}</p></div><span className={`model-profile-state ${profile.ready ? 'ready' : ''}`}><i aria-hidden="true"/>{profile.ready ? '已配置' : '需要密钥'}</span></div>
+            const enabled=profile.enabled!==false;
+            return <article className="model-profile-card" data-pinned={pinned || undefined} data-enabled={enabled} key={profile.id} aria-label={profile.displayName ?? profile.id}>
+              <div className="model-profile-heading"><span className="model-supplier-avatar"><ModelSupplierIcon supplier={modelSupplier(profile.config)} size={22}/></span><div><h3 title={profile.displayName ?? profile.id}>{profile.displayName ?? profile.id}</h3><p title={profile.models?.map(item=>item.model).join('、')??profile.config.model}>{profile.models?.length?`${profile.models.length} 个模型 · ${profile.models.map(item=>item.model).join('、')}`:profile.config.model}</p></div><div className="model-profile-availability"><span className={`model-profile-state ${!enabled?'is-disabled':profile.ready?'ready':''}`}><i aria-hidden="true"/>{!enabled?'已禁用':profile.ready?'已配置':'需要密钥'}</span><span className="model-channel-toggle" title="关闭后从对话和补全列表隐藏，配置与历史保留。"><Toggle label={`启用渠道 ${profile.displayName??profile.id}`} value={enabled} disabled={disabled} onChange={value=>void toggleEnabled(profile,value)}/></span></div></div>
               <div className="model-profile-tags">
                 <Badge tone="blue">{protocol.name}</Badge>
                 <Badge tone="violet" className="model-profile-budget" title={`${profile.config.contextWindow.toLocaleString()} tokens`}>{`${tokenCountFormat.format(profile.config.contextWindow)} tokens`}</Badge>

@@ -118,6 +118,7 @@ async fn models<T: Send + 'static>(
             let (status, code) = match e {
                 ModelError::Invalid(_) => (400, "MODEL_CONFIG_INVALID"),
                 ModelError::Stale => (409, "MODEL_CONFIG_CHANGED"),
+                ModelError::Disabled => (409, "MODEL_DISABLED"),
                 ModelError::NotFound => (404, "MODEL_CONFIG_NOT_FOUND"),
                 ModelError::Credentials => (500, "MODEL_CREDENTIALS"),
                 _ => (500, "MODEL_CONFIG_FAILED"),
@@ -217,6 +218,13 @@ pub async fn dispatch(
             let update=serde_json::from_value(body["update"].clone()).map_err(|_|Error::invalid("渠道配置无效"))?;
             let ids:Vec<String>=serde_json::from_value(body["modelIds"].clone()).map_err(|_|Error::invalid("模型 ID 列表无效"))?;
             value(models(&services,move|r|r.save_channel(&id,&user,revision,update,&name,ids)).await?)
+        }
+        ("POST", "agent/model_channel_enabled") => {
+            let user=text(&body,"userId")?.to_owned();
+            let id=text(&body,"id")?.to_owned();
+            let revision=body["revision"].as_u64().ok_or_else(||Error::invalid("渠道版本无效"))?;
+            let enabled=body["enabled"].as_bool().ok_or_else(||Error::invalid("渠道启用状态无效"))?;
+            value(models(&services,move|r|r.set_channel_enabled(&id,&user,revision,enabled)).await?)
         }
         ("DELETE", "agent/model_channels") => {
             let user=text(&body,"userId")?.to_owned();

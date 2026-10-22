@@ -518,7 +518,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
         const available = Array.isArray(items) ? items.filter(item => typeof item?.agentId === 'string' && item.agentId.trim()) : [];
         setAgentModels(available);
         setSelectedAgent(previous => available.find(item => item.agentId === previous?.agentId) ?? (chatSessionId.current ? previous : available[0] ?? null));
-        if (!available.length) setAgentLoadError('请在模型设置中添加可用配置。');
+        if (!available.length) setAgentLoadError('请在模型设置中启用或添加可用配置。');
       })
       .catch(error => {
         if (!cancelled && !controller.signal.aborted) setAgentLoadError(error instanceof Error ? error.message : '加载智能体失败，请重试。');

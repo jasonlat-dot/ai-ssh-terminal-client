@@ -11,7 +11,7 @@ export type ModelConfig = {
   temperature: number | null; reasoningEffort: 'none'|'enabled'|'minimal'|'low'|'medium'|'high'|'xhigh'|'max'|null;
   timeoutSeconds: number; maxResponseBytes: number; requireApiKey: boolean;
 };
-export type ModelProfile = { id: string; displayName?: string; revision: number; config: ModelConfig; apiKeyConfigured: boolean; ready: boolean };
+export type ModelProfile = { id: string; displayName?: string; revision: number; config: ModelConfig; apiKeyConfigured: boolean; ready: boolean; enabled?: boolean };
 export type ModelChannel = ModelProfile & { models: {id:string;model:string}[] };
 export type ModelChannelIssue = {id: string; displayName: string; message: string};
 export type ModelChannelReport = {items: ModelChannel[]; issues: ModelChannelIssue[]};
@@ -34,6 +34,7 @@ export const modelApi = {
   saveChannel: (id:string, revision:number, config:ModelConfig, apiKey:KeyChange, displayName:string, modelIds:string[]) =>
     builtinRequest<ModelChannel>('agent/model_channels','POST',{id,revision,userId:sshUserId,displayName,modelIds,update:{config,apiKey}},{}),
   deleteChannel: (id:string,revision:number) => builtinRequest<boolean>('agent/model_channels','DELETE',{id,revision,userId:sshUserId},{}),
+  setChannelEnabled: (id:string,revision:number,enabled:boolean) => builtinRequest<ModelChannel>('agent/model_channel_enabled','POST',{id,revision,userId:sshUserId,enabled},{}),
   list: () => builtinRequest<ModelProfile[]>('agent/models', 'GET', undefined, { userId: sshUserId }),
   save: (id: string, revision: number, config: ModelConfig, apiKey: KeyChange, displayName?: string) =>
     builtinRequest<ModelProfile>('agent/models', 'POST', { id, revision, userId: sshUserId, update: { config, apiKey }, ...(displayName === undefined ? {} : { displayName }) }, {}),

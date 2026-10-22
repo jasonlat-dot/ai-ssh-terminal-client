@@ -14,6 +14,7 @@ export function chatErrorGuidance(code?: string): string {
     case 'MODEL_CONTEXT_BINDING_CHANGED': return '保存的供应商上下文与当前配置不一致，请检查模型配置，或在当前对话中切换模型后继续。';
     case 'MODEL_RESPONSES_UNSUPPORTED': return '供应商不支持所需的 Responses 输入计数或远端整理接口，请检查协议和供应商能力。';
     case 'MODEL_CREDENTIALS': return '请打开模型设置，配置或重新保存 API Key。';
+    case 'MODEL_DISABLED': return '当前模型渠道已禁用，请在模型设置中重新启用，或为此对话选择其他模型。';
     case 'MODEL_CONTEXT_LIMIT':
     case 'AGENT_HISTORY_LIMIT': return '当前输入与保留上下文超过模型容量，请缩短输入、新建会话或检查模型窗口设置。';
     case 'AGENT_COMPACTION_FAILED': return '对话整理失败，原始历史仍保留；请检查模型是否支持非流式 JSON 摘要，再手动重试。';
