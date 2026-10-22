@@ -149,6 +149,11 @@ pub async fn dispatch(
         };
     }
     match (method, endpoint) {
+        ("GET", "client/network") => value(db(&services, shellpilot_server::network::view).await?),
+        ("POST", "client/network") => {
+            let update = serde_json::from_value(body).map_err(|_|Error::invalid("代理设置参数无效"))?;
+            value(db(&services, move |store|shellpilot_server::network::save(store, update)).await?)
+        },
         ("GET", "agent/extensions_settings") => value(services.agent.extension_settings(text(&params,"userId")?,None).map_err(|e|Error::invalid(e.to_string()))?),
         ("POST", "agent/extensions_settings") => {
             let settings=serde_json::from_value(json!({"revision":body["revision"],"config":body["config"]})).map_err(|_|Error::invalid("扩展设置无效"))?;
@@ -649,6 +654,11 @@ pub async fn dispatch(
             run!(services.terminals.connect_with_completion(serde_json::from_value(body).map_err(|_|Error::invalid("连接参数无效"))?,integration).await)
         },
         ("GET", "ssh/terminal/completion_entries") => run!(services.terminals.completion_entries(text(&params,"sessionId")?,text(&params,"userId")?,text(&params,"path")?).await),
+        ("GET", "ssh/terminal/directory") => {
+            let path = params["path"].as_str().ok_or_else(|| Error::invalid("目录路径无效"))?;
+            run!(services.terminals.directory_list(text(&params,"sessionId")?,text(&params,"userId")?,path).await)
+        },
+        ("POST", "ssh/terminal/directory_integration") => run!(services.terminals.directory_integration(text(&body,"sessionId")?,text(&body,"userId")?,text(&body,"nonce")?)),
         ("POST", "ssh/terminal/cancel_connect") => run!(services
             .terminals
             .cancel(text(&params, "connectionId")?, text(&params, "requestId")?)),

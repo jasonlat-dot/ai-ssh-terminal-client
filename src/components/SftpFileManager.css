@@ -30,7 +30,12 @@
 .sftp-modal input:disabled { color: var(--theme-text-muted); opacity: 1; -webkit-text-fill-color: var(--theme-text-muted); }
 .sftp-modal .dual-file-explorer { display: grid; grid-template-columns: minmax(0, 1fr) 40px minmax(0, 1fr); gap: 8px; min-height: 230px; flex: 1 1 auto; overflow: hidden; }
 .sftp-modal .file-source-card { display: flex; position: relative; flex-direction: column; min-width: 0; min-height: 0; border: 1px solid var(--line); background: var(--raised); border-radius: 10px; padding: 9px; transition: border-color .18s ease, background .18s ease, box-shadow .18s ease; }
-.sftp-modal .file-source-card.remote.drop-target { border-color: var(--blue); background: color-mix(in srgb, var(--theme-selected) 55%, var(--raised)); box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--blue) 14%, transparent); }
+.sftp-modal .file-source-card.drop-target { border-color: var(--blue); background: color-mix(in srgb, var(--theme-selected) 55%, var(--raised)); box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--blue) 14%, transparent); }
+.sftp-modal .file-source-card.local.drop-target { border-color: var(--mint); }
+.sftp-pane-drop { position: absolute; z-index: 4; inset: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 20px; pointer-events: none; border: 2px dashed var(--theme-accent-text); border-radius: 8px; color: var(--theme-accent-text); background: color-mix(in srgb, var(--panel) 85%, transparent); backdrop-filter: blur(3px); }
+.sftp-pane-drop strong { text-align: center; font-size: 14px; }
+.sftp-pane-drop small { max-width: 100%; overflow: hidden; color: var(--muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.file-source-card.local .sftp-pane-drop { border-color: var(--mint); }
 .sftp-modal .file-source-heading { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
 .sftp-modal .file-source-heading > span:nth-child(2) { display: flex; flex-direction: column; }
 .sftp-modal .file-source-heading strong { font-size: 12px; font-weight: 700; }
@@ -66,13 +71,21 @@
 .sftp-modal .file-mini-action { padding: 4px 7px; border: 1px solid var(--line); color: var(--text); font-size: 11px; font-weight: var(--weight-title); white-space: nowrap; }
 .sftp-modal .file-source-actions .file-mini-action { display: inline-flex; align-items: center; gap: 4px; }
 .sftp-modal .file-source-actions .icon-button { width: 26px; height: 26px; }
-.sftp-modal .file-mini-action.danger, .sftp-modal .file-context-menu button.danger { color: #b23f38; }
+.sftp-modal .file-mini-action.danger, .sftp-modal .file-context-menu button.danger { color: var(--accent-danger-ink, #b23f38); }
+.sftp-modal .file-mini-action.danger { margin-left: auto; border-color: color-mix(in srgb, var(--accent-danger-ink, #b23f38) 28%, var(--line)); background: color-mix(in srgb, var(--accent-danger-ink, #b23f38) 9%, transparent); }
+.sftp-modal .file-mini-action.danger:hover:not(:disabled) { border-color: var(--accent-danger-ink, #b23f38); background: color-mix(in srgb, var(--accent-danger-ink, #b23f38) 17%, transparent); }
+.sftp-modal .file-source-actions > .icon-button:last-child { margin-left: auto; }
+.sftp-modal .file-source-actions > .danger + .icon-button:last-child { margin-left: 0; }
 .sftp-modal .file-list-heading { display: flex; justify-content: space-between; border-bottom: 1px solid var(--line); padding: 6px; color: var(--muted); font-size: 11px; font-weight: var(--weight-title); }
-.sftp-modal .file-tree-scroll { flex: 1; min-height: 0; overflow: auto; }
+.sftp-modal .file-source-card .file-tree-scroll { flex: 1; min-height: 0; overflow-x: hidden; overflow-y: auto; scrollbar-gutter: stable; }
 .sftp-entry-list { list-style: none; padding: 0; margin: 4px 0; }
 .sftp-modal .file-row { display: flex; width: 100%; padding: 6px; gap: 8px; text-align: left; color: var(--text); font-size: 11.5px; font-weight: 600; }
-.sftp-modal .file-source-card.local .file-row[draggable='true'] { cursor: grab; }
-.sftp-modal .file-source-card.local .file-row[draggable='true']:active { cursor: grabbing; }
+/* Moving a full-width row creates horizontal overflow and a hover/scrollbar loop. */
+.sftp-modal .file-source-card .file-row { transform: none; transition: color .16s ease, background-color .16s ease, border-color .16s ease, box-shadow .16s ease; }
+.sftp-modal .file-source-card .file-row:hover,
+.sftp-modal .file-source-card .file-row:active { transform: none; }
+.sftp-modal .file-source-card .file-row:not(:disabled) { cursor: grab; user-select: none; }
+.file-pointer-dragging, .file-pointer-dragging * { cursor: grabbing !important; user-select: none !important; }
 .sftp-modal .file-row.selected { background: var(--surface-active); }
 .sftp-modal .file-context-backdrop { position: fixed; z-index: 20; inset: 0; cursor: default; background: transparent; }
 .sftp-modal .file-context-menu { position: fixed; z-index: 21; display: flex; width: 166px; flex-direction: column; padding: 4px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); box-shadow: 0 12px 32px #1227432b; }
@@ -144,10 +157,5 @@
 .sftp-task-error, .sftp-task details { color: #c34c42; font-size: 11px; overflow-wrap: anywhere; margin-top: 5px; }
 .sftp-empty { padding: 20px 10px; color: var(--theme-text-muted); text-align: center; font-size: 12px; font-weight: 600; line-height: 1.65; }
 .sftp-modal .file-source-card > .file-tree-scroll > .sftp-empty { display: grid; min-height: 110px; place-items: center; align-content: center; }
-.sftp-native-drop { position: absolute; z-index: 4; inset: 54px 14px 14px; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 7px; pointer-events: none; opacity: 0; transform: scale(.985); border: 2px dashed color-mix(in srgb, var(--blue) 65%, var(--line)); border-radius: 12px; color: var(--theme-accent-text); background: color-mix(in srgb, var(--theme-panel) 90%, transparent); backdrop-filter: blur(5px); transition: opacity .15s ease, transform .15s ease; }
-.sftp-native-drop.visible { opacity: 1; transform: scale(1); }
-.sftp-native-drop > span { display: grid; width: 52px; height: 52px; place-items: center; border-radius: 14px; background: var(--theme-selected); }
-.sftp-native-drop strong { max-width: 80%; overflow: hidden; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
-.sftp-native-drop small { color: var(--theme-text-muted); font-size: 11px; }
 @media (max-width: 760px) { .sftp-modal-backdrop { padding: 8px; } .modal.sftp-modal { width: calc(100vw - 16px); height: calc(100dvh - 16px); } .sftp-modal .dual-file-explorer { grid-template-columns: minmax(0, 1fr); overflow: auto; } .sftp-modal .file-source-card { min-height: 230px; } .sftp-modal .file-transfer-rail { flex-direction: row; } .sftp-modal .transfer-direction { transform: rotate(90deg); } .sftp-entry-meta time { display: none; } .sftp-drag-hint { display: none; } .sftp-transfer-options { flex-wrap: wrap; } .sftp-queue-button { margin-left: auto; } .sftp-transfer-drawer { inset: 6px; width: auto; } }
 @media (prefers-reduced-motion: reduce) { .sftp-transfer-drawer, .sftp-delete-dialog { animation: none; } }

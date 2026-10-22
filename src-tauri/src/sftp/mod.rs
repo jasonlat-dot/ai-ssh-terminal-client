@@ -16,7 +16,7 @@ use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
 
 pub type Result<T> = std::result::Result<T, Error>;
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct Error {
     pub message: String,
     pub code: String,
@@ -101,6 +101,7 @@ pub struct Session {
     services: Arc<shellpilot_server::services::Services>,
     emit: Arc<dyn Fn(Value) + Send + Sync>,
     stop: CancellationToken,
+    closed_error: Mutex<Option<Error>>,
     slots: Semaphore,
     metadata: tokio::sync::Mutex<()>,
     jobs: Mutex<HashMap<String, Arc<transfer::Job>>>,
@@ -111,7 +112,7 @@ impl Session {
     }
     async fn json(&self, method: Method, route: &str, body: Option<Value>) -> Result<Value> {
         tokio::select! {
-            _ = self.stop.cancelled() => Err(Error::cancelled()),
+            _ = self.stop.cancelled() => Err(self.closed_error.lock().unwrap().clone().unwrap_or_else(Error::cancelled)),
             result = self.request_raw(method, route, body) => result,
         }
     }
@@ -255,7 +256,7 @@ impl State {
             .cloned()
             .ok_or_else(Error::session_expired)?;
         if session.stop.is_cancelled() {
-            return Err(Error::session_expired());
+            return Err(session.closed_error.lock().unwrap().clone().unwrap_or_else(Error::session_expired));
         }
         Ok(session)
     }
@@ -265,17 +266,27 @@ impl State {
         request: shellpilot_server::sftp::model::OpenRequest,
         emit: Arc<dyn Fn(Value) + Send + Sync>,
     ) -> Result<Value> {
-        let opened = services
-            .sftp
-            .open(request)
-            .await
-            .map_err(from_service)?;
+        self.open_terminal_local(services, request, None, emit).await
+    }
+    pub async fn open_terminal_local(
+        &self,
+        services: Arc<shellpilot_server::services::Services>,
+        request: shellpilot_server::sftp::model::OpenRequest,
+        terminal: Option<&str>,
+        emit: Arc<dyn Fn(Value) + Send + Sync>,
+    ) -> Result<Value> {
+        let opened = if let Some(terminal) = terminal {
+            let access = services.terminals.file_access(terminal, &request.connection_id, "default")
+                .map_err(|e| Error::local(e.to_string()))?;
+            services.sftp.open_terminal(request, access).await
+        } else { services.sftp.open(request).await }.map_err(from_service)?;
         let data = serde_json::to_value(&opened)?;
         let session = Arc::new(Session {
             id: opened.sftp_session_id.clone(),
             services,
             emit,
             stop: CancellationToken::new(),
+            closed_error: Mutex::new(None),
             slots: Semaphore::new(2),
             metadata: tokio::sync::Mutex::new(()),
             jobs: Mutex::new(HashMap::new()),

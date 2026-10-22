@@ -4,7 +4,7 @@ import type { CompletionEntry } from './terminalCompletionLocal';
 import { TerminalCompletionController } from './terminalCompletion';
 import { COMPLETION_SETTINGS_EVENT, readCompletionPreferences } from './terminalCompletionPreferences';
 /** Uses public xterm APIs; ghost text never enters its buffer, selection or SSH output. */
-export function attachTerminalCompletion(terminal:Terminal,write:(input:string)=>Promise<void>,eligible:()=>boolean,status:(text:string)=>void,request=requestTerminalCompletion,options:{nonce?:string;entries?:(path:string,signal:AbortSignal)=>Promise<CompletionEntry[]>}={}){
+export function attachTerminalCompletion(terminal:Terminal,write:(input:string)=>Promise<void>,eligible:()=>boolean,status:(text:string,announce?:boolean)=>void,request=requestTerminalCompletion,options:{nonce?:string;nonceChanged?:(nonce:string)=>void|Promise<void>;entries?:(path:string,signal:AbortSignal)=>Promise<CompletionEntry[]>}={}){
   let composing=false,buffering=false,finishing=false,disposed=false;
   let releaseTimer:ReturnType<typeof setTimeout>|undefined,limitTimer:ReturnType<typeof setTimeout>|undefined;
   const release=()=>{clearTimeout(releaseTimer);clearTimeout(limitTimer);finishing=false;if(buffering){buffering=false;terminal.write('\x1b[?2026l');}};
@@ -24,7 +24,7 @@ export function attachTerminalCompletion(terminal:Terminal,write:(input:string)=
     return {key:[buffer.baseY,buffer.cursorX,buffer.cursorY,terminal.cols,terminal.rows,box.left,box.top,box.width,box.height].join(':'),
       left:box.left+buffer.cursorX*width,top:box.top+buffer.cursorY*height,width:box.width-buffer.cursorX*width,height};
   };
-  const controller=new TerminalCompletionController({write,request,entries:options.entries,captureState,anchor:position,status,
+  const controller=new TerminalCompletionController({write,request,entries:options.entries,nonceChanged:options.nonceChanged,captureState,anchor:position,status,
     line:()=>{const buffer=terminal.buffer.active;return buffer.getLine(buffer.baseY+buffer.cursorY)?.translateToString(true,0,buffer.cursorX)??'';},
     display(value){
       const box=position();

@@ -7,6 +7,8 @@ import { SshRequestError } from '../api/ssh';
 import type { TerminalDisconnectReason } from '../types';
 import type { TerminalRuntime } from './terminalRuntime';
 import { requireBackendUrl } from '../config/backend';
+import { TerminalDirectoryTracker } from './terminalDirectory';
+import type { DirectoryListing } from './terminalDirectory';
 
 const READ_RETRY_DELAYS = [1_000, 3_000, 5_000, 10_000] as const;
 
@@ -54,13 +56,27 @@ export class RemoteTerminal implements TerminalRuntime {
   private lastSize = '';
   private readFailureCount = 0;
   private nativeStop?: () => void;
+  private readonly directory: TerminalDirectoryTracker;
+  directorySnapshot = () => this.directory.getSnapshot();
+  subscribeDirectory = (listener: () => void) => this.directory.subscribe(listener);
+  async adoptDirectoryNonce(nonce: string) {
+    await builtinRequest('ssh/terminal/directory_integration', 'POST',
+      { sessionId: this.sessionId, userId: sshUserId, nonce }, null, undefined, this.backendUrl);
+    this.directory.adopt(nonce);
+  }
+  directoryList(path: string, signal: AbortSignal) {
+    return builtinRequest<DirectoryListing>('ssh/terminal/directory', 'GET', null,
+      { sessionId: this.sessionId, userId: sshUserId, path }, signal, this.backendUrl);
+  }
 
   constructor(opened: TerminalOpen, startPaused = false, backendUrl = requireBackendUrl()) {
     this.sessionId = opened.sessionId;
     this.connectionId = opened.connectionId;
     this.completionNonce = opened.completionNonce;
+    this.directory = new TerminalDirectoryTracker(opened.completionNonce);
     this.backendUrl = backendUrl;
     this.backlog = opened.initialOutput || '';
+    this.directory.feed(this.backlog);
     this.paused = startPaused;
     if (this.isDisconnectOutput(this.backlog)) {
       this.disconnected = true;
@@ -112,6 +128,7 @@ export class RemoteTerminal implements TerminalRuntime {
 
   private emit(data: string) {
     if (!data) return;
+    this.directory.feed(data);
     const rendered = this.output ? this.output(data) : undefined;
     if (!this.output) this.backlog += data;
     // Compatibility guard for older backends; it never opts into automatic reconnect.

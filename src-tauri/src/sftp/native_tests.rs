@@ -82,9 +82,88 @@ async fn native_bridge_preserves_explicit_root_access_identity_and_secret() {
     state.close(&login_id).await.unwrap();
     backend.shutdown().await;
 }
+
+#[tokio::test]
+async fn native_bridge_uses_bound_terminal_root_auth_and_current_directory_without_second_password() {
+    use shellpilot_server::terminal::{completion::ShellIntegration, OpenRequest};
+    let fixture = protocol::Fixture::new().await;
+    fixture.file("/root/current/private.txt", b"native-root-test");
+    let (store, connection) = fixture.saved(false);
+    let services = shellpilot_server::services::Services::native(store, Default::default(), uuid::Uuid::new_v4());
+    let terminal = services.terminals.connect_with_completion(OpenRequest {
+        connection_id: connection.connection_id.clone(), request_id: uuid::Uuid::new_v4().to_string(), cols: None, rows: None,
+    }, Some(ShellIntegration { nonce: "f".repeat(32), script: "true".into() })).await.unwrap();
+    services.terminals.write(&terminal.session_id, "TEST_ROOT".into()).await.unwrap();
+    let _ = services.terminals.read(&terminal.session_id).await;
+    let state = State::default();
+    let events = Arc::new(Mutex::new(Vec::<Value>::new()));
+    let received = events.clone();
+    let opened = state.open_terminal_local(services.clone(), shellpilot_server::sftp::model::OpenRequest {
+        connection_id: connection.connection_id, root_path: Some("/".into()), ..Default::default()
+    }, Some(&terminal.session_id), Arc::new(move |event| received.lock().unwrap().push(event))).await.unwrap();
+    let id = opened["sftpSessionId"].as_str().unwrap();
+    assert_eq!(opened["accessUsername"], "root");
+    let entries = state.entries(id, "/root/current").await.unwrap();
+    assert_eq!(entries[0]["name"], "private.txt");
+    assert_eq!(fixture.stats.password_prompts.load(std::sync::atomic::Ordering::SeqCst), 0);
+    assert_eq!(fixture.stats.connections.load(std::sync::atomic::Ordering::SeqCst), 1);
+    services.terminals.write(&terminal.session_id, "TEST_LOGIN".into()).await.unwrap();
+    let _ = services.terminals.read(&terminal.session_id).await;
+    protocol::eventually(|| events.lock().unwrap().iter().any(|event| event["type"] == "session-closed")).await;
+    let closed = events.lock().unwrap().iter().find(|event| event["type"] == "session-closed").unwrap().clone();
+    assert_eq!(closed["data"]["code"], "SFTP_IDENTITY_CHANGED");
+    assert_eq!(state.entries(id, "/root/current").await.unwrap_err().code, "SFTP_IDENTITY_CHANGED");
+    state.close(id).await.unwrap();
+    assert!(services.terminals.connected(&terminal.session_id).connected);
+    services.shutdown().await;
+}
 #[tokio::test]
 async fn native_direct_services_round_trip_without_an_http_listener() {
     round_trip(LiveBackend::native().await).await;
+}
+
+#[tokio::test]
+async fn native_bridge_closing_two_tabs_releases_only_their_own_files_without_missing_errors() {
+    use shellpilot_server::terminal::OpenRequest;
+    let fixture = protocol::Fixture::new().await;
+    let (store, connection) = fixture.saved(false);
+    let services = shellpilot_server::services::Services::native(
+        store, shellpilot_server::files::Settings::default(), uuid::Uuid::new_v4(),
+    );
+    let state = State::default();
+    let mut tabs = Vec::new();
+    for _ in 0..2 {
+        let terminal = services.terminals.connect(OpenRequest {
+            connection_id: connection.connection_id.clone(), request_id: uuid::Uuid::new_v4().to_string(), cols: None, rows: None,
+        }).await.unwrap();
+        let events = Arc::new(Mutex::new(Vec::<Value>::new()));
+        let received = events.clone();
+        let opened = state.open_terminal_local(services.clone(), shellpilot_server::sftp::model::OpenRequest {
+            connection_id: connection.connection_id.clone(), root_path: Some("/home".into()), ..Default::default()
+        }, Some(&terminal.session_id), Arc::new(move |event| received.lock().unwrap().push(event))).await.unwrap();
+        let id = opened["sftpSessionId"].as_str().unwrap().to_owned();
+        let cached = state.get(&id).unwrap();
+        tabs.push((terminal.session_id, id, events, cached));
+    }
+    assert_eq!(fixture.stats.connections.load(std::sync::atomic::Ordering::SeqCst), 1);
+    services.terminals.close(&tabs[0].0);
+    assert_eq!(state.entries(&tabs[0].1, "/home").await.unwrap_err().code, "SFTP_TERMINAL_CLOSED");
+    assert!(services.terminals.connected(&tabs[1].0).connected);
+    state.entries(&tabs[1].1, "/home").await.unwrap();
+    services.terminals.close(&tabs[1].0);
+    for (terminal, files, events, cached) in &tabs {
+        assert!(!services.terminals.connected(terminal).connected);
+        protocol::eventually(|| events.lock().unwrap().iter().any(|event| event["type"] == "session-closed")).await;
+        let closed = events.lock().unwrap().iter().find(|event| event["type"] == "session-closed").unwrap().clone();
+        assert_eq!(closed["data"]["code"], "SFTP_TERMINAL_CLOSED");
+        assert_eq!(state.entries(files, "/home").await.unwrap_err().code, "SFTP_TERMINAL_CLOSED");
+        for _ in 0..4 {
+            assert_eq!(cached.json(Method::GET, &format!("sessions/{files}/transfers"), None).await.unwrap_err().code, "SFTP_TERMINAL_CLOSED", "cancelled in-flight requests preserve the normal-close reason");
+        }
+        state.close(files).await.unwrap();
+        state.close(files).await.unwrap();
+    }
+    services.shutdown().await;
 }
 async fn round_trip(backend: LiveBackend) {
     let state = State::default();

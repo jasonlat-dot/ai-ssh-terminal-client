@@ -33,11 +33,11 @@ async function native<T>(command: string, args: Record<string, unknown> = {}): P
   catch (error) { throw new SftpError(error); }
 }
 export const sftpApi = {
-  async open(connectionId: string, rootPath: string, onEvent: (event: SftpEvent) => void, accessMode: SftpAccessMode = 'login', sudoPassword?: string) {
+  async open(connectionId: string, rootPath: string, onEvent: (event: SftpEvent) => void, accessMode: SftpAccessMode = 'login', sudoPassword?: string, terminalSessionId?: string) {
     if (!isTauriRuntime()) return Promise.reject(new Error('请在桌面客户端打开文件管理，本地文件传输需要 Tauri。'));
     const channel = new Channel<SftpEvent>();
     channel.onmessage = onEvent;
-    return native<SftpSession>('sftp_open', { backendUrl: requireBackendUrl(), connectionId, rootPath: rootPath.trim() || null, accessMode, sudoPassword: sudoPassword || null, onEvent: channel });
+    return native<SftpSession>('sftp_open', { backendUrl: requireBackendUrl(), connectionId, rootPath: rootPath.trim() || null, accessMode, sudoPassword: sudoPassword || null, terminalSessionId: terminalSessionId || null, onEvent: channel });
   },
   close: (sessionId: string) => native<void>('sftp_close', { sessionId }),
   entries: (sessionId: string, path: string) => native<SftpEntry[]>('sftp_entries', { sessionId, path }),

@@ -11,7 +11,7 @@ import { APP_VERSION } from '../config/appRuntime';
 import { isTauriRuntime } from '../state/runtime';
 import { AppearanceSettings } from './AppearanceSettings';
 import { ModelSettings } from './ModelSettings';
-import { TerminalCompletionSettings } from './TerminalCompletionSettings';
+import { OtherSettings } from './OtherSettings';
 import { AgentExtensionSettings } from './AgentExtensionSettings';
 import { ClientUpdateSettings } from './ClientUpdateSettings';
 import { Select } from './Select';
@@ -133,7 +133,8 @@ export function RustBackendSettingsDialog({required=false,onClose,onSave,beforeC
         {tab==='appearance'&&<AppearanceSettings/>}
         {tab==='updates'&&<ClientUpdateSettings beforeInstall={beforeClientUpdate}/>}
         {tab==='extensions'&&<AgentExtensionSettings locked={extensionsLocked}/>}
-        {tab==='models'&&<div className="terminal-model-settings-page"><TerminalCompletionSettings/><ModelSettings changed={modelsChanged} locked={modelSettingsLocked} activeModelIds={activeModelIds}/></div>}
+        {tab==='other'&&<OtherSettings/>}
+        {tab==='models'&&<ModelSettings changed={modelsChanged} locked={modelSettingsLocked} activeModelIds={activeModelIds}/>}
         {tab==='general'&&<section className="workspace-preferences" aria-labelledby="workspace-preferences-title">
           <header className="workspace-preferences-heading">
             <div><IconHeading as="h2" id="workspace-preferences-title" icon="workspace" tone="blue">本地工作区</IconHeading><p>管理运行状态、数据目录与附件存储。</p></div>

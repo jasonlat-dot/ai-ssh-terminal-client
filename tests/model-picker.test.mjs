@@ -20,7 +20,7 @@ function harness(width=1000){
   if(name==='../state/modelChannels')return{groupModels};if(name==='../state/modelPickerPosition')return{modelPickerPosition};if(name==='../api/modelProtocols')return{modelProtocols,modelSupplier};if(name==='./ModelSupplierIcon')return{ModelSupplierIcon:leaf};if(name==='./Ui')return{Icon:leaf};if(name.endsWith('.css'))return{};throw new Error(name);
  }});
  vm.runInContext(ts.transpileModule(readFileSync(new URL('../src/components/ModelPicker.tsx',import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText,context);
- function all(node=tree){if(Array.isArray(node))return node.flatMap(all);return node?.props?[node,...all(node.props.children??[])]:[];}
+ function all(node=tree){if(Array.isArray(node))return node.flatMap(child=>all(child??null));return node?.props?[node,...all(node.props.children??[])]:[];}
  function render(){cursor=0;tree=context.exports.ModelPicker(props);for(const node of all())if(node.props.ref)node.props.ref.current=element;while(effects.length)effects.shift()();}
  return {props,selected,listeners,render,find:fn=>all().find(fn),all,get trigger(){return all().find(node=>node.props['aria-label']==='对话模型');},key(key){const event={key,preventDefault(){},stopPropagation(){}};const panel=all().find(node=>node.props.id==='picker');(panel??this.trigger).props.onKeyDown(event);render();render();}};
 }
@@ -33,6 +33,12 @@ test('两级选择按渠道显示数量并选中准确模型，切换只提交�
  assert.equal(ui.all().filter(node=>node.props.role==='menuitemradio').length,1);
  ui.find(node=>node.props.role==='menuitemradio').props.onClick();ui.render();
  assert.deepEqual(ui.selected,['b1']);assert.equal(ui.trigger.props['aria-expanded'],false);
+});
+
+test('补全复用选择器时使用独立标签和失效提示，仍按渠道选择原模型 ID',()=>{
+ const ui=harness();ui.props.label='补全模型';ui.props.placeholder='原补全模型暂不可用，请重新选择';ui.props.value='missing';ui.render();
+ const trigger=ui.find(n=>n.props['aria-label']==='补全模型');assert.equal(trigger.props.children[0].props.children[1].props.children,'原补全模型暂不可用，请重新选择');
+ trigger.props.onClick();ui.render();ui.render();ui.find(n=>n.props['data-group-index']===1).props.onClick();ui.render();ui.render();ui.find(n=>n.props.role==='menuitemradio').props.onClick();assert.deepEqual(ui.selected,['b1']);
 });
 test('键盘左右进入和返回分组，方向键切换模型，Escape 与外部点击关闭，锁定时不选择',()=>{
  const ui=harness();ui.render();ui.key('ArrowDown');ui.key('ArrowLeft');ui.key('End');ui.key('ArrowRight');ui.key('Enter');assert.deepEqual(ui.selected,['b1']);

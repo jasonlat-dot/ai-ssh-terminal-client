@@ -2,7 +2,47 @@ use super::*;
 #[path = "../../../ai-ssh-terminal-server-rust/tests/support/mod.rs"]
 #[allow(dead_code)]
 mod protocol;
+#[path = "../../../ai-ssh-terminal-server-rust/tests/sftp_support/mod.rs"]
+#[allow(dead_code)]
+mod directory_protocol;
 use std::sync::atomic::{AtomicU64, Ordering};
+
+#[tokio::test]
+async fn network_settings_ipc_persists_separate_routes_without_exposing_proxy_passwords() {
+    let (_dir,services)=services().await;
+    let initial=dispatch(services.clone(),"client/network","GET",Value::Null,Value::Null).await.unwrap();
+    assert_eq!(initial["ai"]["mode"],"system");assert_eq!(initial["ssh"]["mode"],"direct");
+    let request=json!({"ai":{"mode":"custom","protocol":"socks5","host":"127.0.0.1","port":1080,"username":"proxy-user","password":"proxy-test-secret","bypass":[" API.Example.com:443 ","192.168.1.10"]},"ssh":{"mode":"system","protocol":"http","host":"","port":0,"bypass":["ssh.example.com:22"]}});
+    let saved=dispatch(services.clone(),"client/network","POST",request,Value::Null).await.unwrap();
+    assert_eq!(saved["ai"]["passwordConfigured"],true);assert!(!saved.to_string().contains("proxy-test-secret"));
+    assert_eq!(saved["ai"]["bypass"],json!(["api.example.com:443","192.168.1.10"]));assert_eq!(saved["ssh"]["bypass"],json!(["ssh.example.com:22"]));
+    let read=dispatch(services.clone(),"client/network","GET",Value::Null,Value::Null).await.unwrap();assert_eq!(read["ai"],saved["ai"]);assert_eq!(read["ssh"]["mode"],"system");
+    assert!(dispatch(services.clone(),"client/network","POST",json!({"password":"must-not-be-echoed"}),Value::Null).await.is_err());
+    services.shutdown().await;
+}
+
+#[tokio::test]
+async fn terminal_directory_ipc_accepts_home_and_returns_only_bound_sftp_metadata() {
+    let fixture = directory_protocol::Fixture::new().await;
+    fixture.file("/home/readme.txt", b"NOT_FILE_CONTENT");
+    let (store, connection) = fixture.saved(false);
+    let services = Services::native(store, Default::default(), uuid::Uuid::new_v4());
+    let terminal = services.terminals.connect(protocol::open(&connection.connection_id)).await.unwrap();
+    let result = dispatch(services.clone(), "ssh/terminal/directory", "GET", Value::Null,
+        json!({"sessionId":terminal.session_id,"userId":connection.user_id,"path":""})).await.unwrap();
+    assert_eq!(result["path"], "/home");
+    assert!(result["entries"].as_array().unwrap().iter().any(|entry| entry["name"] == "readme.txt"));
+    assert!(!result.to_string().contains("NOT_FILE_CONTENT"));
+    assert_eq!(fixture.stats.connections.load(Ordering::SeqCst), 1);
+    let nonce = "d".repeat(32);
+    dispatch(services.clone(), "ssh/terminal/directory_integration", "POST",
+        json!({"sessionId":terminal.session_id,"userId":connection.user_id,"nonce":nonce}), Value::Null).await.unwrap();
+    assert!(dispatch(services.clone(), "ssh/terminal/directory_integration", "POST",
+        json!({"sessionId":terminal.session_id,"userId":"other-user","nonce":nonce}), Value::Null).await.is_err());
+    assert!(dispatch(services.clone(), "ssh/terminal/directory_integration", "POST",
+        json!({"sessionId":terminal.session_id,"userId":connection.user_id,"nonce":"invalid"}), Value::Null).await.is_err());
+    services.shutdown().await;
+}
 
 #[tokio::test]
 async fn resource_monitor_dispatch_uses_the_existing_terminal_and_returns_unknown_initial_rates() {
@@ -3121,5 +3161,7 @@ async fn terminal_completion_ipc_connect_installs_once_and_validates_before_auth
     let mut invalid=body;invalid["requestId"]=json!(uuid::Uuid::new_v4().to_string());invalid["shellIntegration"]["nonce"]=json!("invalid");
     assert!(dispatch(services.clone(),"ssh/terminal/connect","POST",invalid,Value::Null).await.is_err());assert_eq!(fixture.stats.connections.load(Ordering::SeqCst),1);
     let error=dispatch(services.clone(),"ssh/terminal/completion_entries","GET",Value::Null,json!({"sessionId":result["sessionId"],"userId":"other-user","path":"/home"})).await.unwrap_err();
+    assert_eq!(error.code,"S0003");
+    let error=dispatch(services.clone(),"ssh/terminal/directory","GET",Value::Null,json!({"sessionId":result["sessionId"],"userId":"other-user","path":""})).await.unwrap_err();
     assert_eq!(error.code,"S0003");services.shutdown().await;
 }

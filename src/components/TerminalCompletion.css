@@ -1,18 +1,31 @@
-.terminal-completion-settings { margin: 0 0 18px; padding: 16px 18px; border: 1px solid var(--line); border-radius: 12px; background: var(--theme-panel); }
-.terminal-completion-settings > header { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px; }
-.terminal-completion-settings strong { display:flex; align-items:center; gap:8px; font-size:14px; }
-.terminal-completion-fields { display:grid; grid-template-columns:minmax(0,2fr) minmax(130px,1fr); gap:12px; }
-.terminal-completion-fields label { display:grid; gap:6px; font-size:12px; color:var(--theme-text-muted); }
-.terminal-completion-settings p,.terminal-completion-setup p { font-size:12px; line-height:1.7; color:var(--theme-text-muted); }
-.terminal-completion-setup { padding:18px 22px; }
-.terminal-completion-setup footer { display:flex; justify-content:flex-end; gap:8px; margin-top:18px; }
-.terminal-completion-ghost { position:fixed; pointer-events:none; z-index:15; color:var(--theme-text-muted); opacity:.7; white-space:pre; overflow:hidden; text-overflow:clip; user-select:none; }
-@media(max-width:560px) { .terminal-completion-fields { grid-template-columns:1fr; } }
-
-.terminal-completion-setting-actions { display:flex; align-items:center; gap:12px; }
-
-.settings-page .settings-content > .terminal-model-settings-page { display:flex; flex-direction:column; align-items:stretch; justify-content:flex-start; min-width:0; min-height:0; height:100%; overflow:auto; gap:18px; }
-.terminal-model-settings-page > .terminal-completion-settings { flex:none; margin-bottom:0; }
-.terminal-model-settings-page > .model-settings { flex:1; height:auto; min-height:260px; }
-
-.terminal-completion-privacy { display:flex; flex-wrap:wrap; align-items:center; gap:12px 24px; margin-top:14px; }
+.terminal-completion-settings { margin: 0 0 18px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--theme-panel); }
+.terminal-completion-settings > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 5px; }
+.terminal-completion-settings strong { display: flex; align-items: center; gap: 7px; font-size: 13px; }
+.terminal-completion-setting-actions { display: flex; align-items: center; gap: 12px; }
+.terminal-completion-settings .terminal-completion-setting-actions .outlined-button { min-height: 28px; padding: 4px 8px; font-size: 11px; }
+.terminal-completion-master-label { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; white-space: nowrap; color: var(--theme-text-strong); }
+.terminal-completion-settings p, .terminal-completion-setup p { margin: 0; font-size: 12px; line-height: 1.6; color: var(--theme-text-muted); }
+.terminal-completion-settings .terminal-completion-state { margin: 0 0 10px; font-size: 11px; }
+.terminal-completion-fields { display: grid; grid-template-columns: minmax(0, 2fr) minmax(130px, 1fr); gap: 12px; }
+.terminal-completion-fields label { display: grid; gap: 4px; font-size: 11px; color: var(--theme-text-muted); }
+.terminal-completion-settings .terminal-completion-fields .ui-select-trigger { min-height: 32px; padding: 6px 10px; font-size: 12px; }
+.terminal-completion-privacy { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 24px; margin-top: 12px; }
+.terminal-completion-option { display: inline-flex; align-items: center; gap: 10px; min-width: 0; }
+.terminal-completion-option strong { font-size: 12px; font-weight: var(--weight-label); color: var(--theme-text-strong); }
+.terminal-completion-option .toggle { flex-shrink: 0; }
+.terminal-completion-shortcut { margin-left: auto; color: var(--theme-text-muted); font-size: 11px; }
+.terminal-completion-help { margin-top: 10px; border-top: 1px solid var(--line); }
+.terminal-completion-help > summary { display: flex; align-items: center; gap: 6px; padding: 8px 0 0; cursor: pointer; color: var(--theme-accent-text); font-size: 11px; list-style: none; }
+.terminal-completion-help > summary::-webkit-details-marker { display: none; }
+.terminal-completion-help > summary::before { content: '›'; font-size: 16px; line-height: 1; transition: transform .15s ease; }
+.terminal-completion-help[open] > summary::before { transform: rotate(90deg); }
+.terminal-completion-help > summary:focus-visible { outline: 2px solid var(--theme-accent-text); outline-offset: 3px; border-radius: 3px; }
+.terminal-completion-help > summary > span { margin-left: auto; color: var(--theme-text-muted); font-size: 10px; }
+.terminal-completion-help > div { display: grid; gap: 6px; margin-top: 8px; }
+.terminal-completion-help p { font-size: 11px; }
+.terminal-completion-setup { padding: 18px 22px; }
+.terminal-completion-setup footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+.terminal-completion-ghost { position: fixed; pointer-events: none; z-index: 15; color: var(--theme-text-muted); opacity: .7; white-space: pre; overflow: hidden; text-overflow: clip; user-select: none; }
+@media (max-width: 640px) { .terminal-completion-settings > header { flex-wrap: wrap; } .terminal-completion-setting-actions { flex-wrap: wrap; } .terminal-completion-shortcut { margin-left: 0; } }
+@media (max-width: 560px) { .terminal-completion-fields { grid-template-columns: 1fr; } }
+@media (prefers-reduced-motion: reduce) { .terminal-completion-help > summary::before { transition: none; } }

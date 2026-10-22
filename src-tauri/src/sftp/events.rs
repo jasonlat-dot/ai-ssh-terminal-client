@@ -26,7 +26,8 @@ pub(super) async fn subscribe(session: Arc<Session>) {
                 }
             }
             Err(error) => {
-                session.event("session-closed", json!({"message":error.message}));
+                *session.closed_error.lock().unwrap() = Some(error.clone());
+                session.event("session-closed", json!({"code":error.code,"message":error.message}));
                 session.stop.cancel();
                 break;
             }

@@ -13,15 +13,20 @@ pub async fn sftp_open(
     root_path: Option<String>,
     access_mode: Option<shellpilot_server::sftp::model::AccessMode>,
     sudo_password: Option<String>,
+    terminal_session_id: Option<String>,
     on_event: Channel<Value>,
 ) -> Result<Value> {
     let services = crate::backend_ipc::services_for_url(&app, &backend_url)
         .map_err(|error| sftp::Error { message: error.message, code: error.code, status: error.status })?;
-    state.open_local(services, shellpilot_server::sftp::model::OpenRequest {
+    let request = shellpilot_server::sftp::model::OpenRequest {
         connection_id, root_path, access_mode: access_mode.unwrap_or_default(), sudo_password,
-    }, Arc::new(move |event| {
+    };
+    let emit = Arc::new(move |event| {
         let _ = on_event.send(event);
-    })).await
+    });
+    if let Some(terminal) = terminal_session_id {
+        state.open_terminal_local(services, request, Some(&terminal), emit).await
+    } else { state.open_local(services, request, emit).await }
 }
 #[tauri::command]
 pub async fn sftp_close(state: State<'_, sftp::State>, session_id: String) -> Result<()> {

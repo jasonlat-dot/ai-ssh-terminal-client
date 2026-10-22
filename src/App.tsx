@@ -54,6 +54,9 @@ import { AgentPanel } from './components/AgentPanel';
 import type { AgentComposerHandle } from './components/AgentPanel';
 import { AddCommandDialog } from './components/Dialogs';
 import { SessionFiles } from './components/Sidebar';
+import { TerminalFileSidebar } from './components/TerminalFileSidebar';
+import { terminalFileTarget } from './state/terminalFileTarget';
+import type { TerminalFileTarget } from './state/terminalFileTarget';
 import { AttachmentPreviews, ChatAttachmentDraft, attachmentReferences, validateChatContent } from './state/chatAttachments';
 import { ChatRequestError } from './api/chatErrors';
 import { ActivityBar, AppHeader } from './components/Shell';
@@ -86,7 +89,10 @@ import './components/AgentComposer.css';
 import './components/AgentTranscript.css';
 import './components/CompactWorkspace.css';
 import './components/WorkspaceSettings.css';
-import { Icon } from './components/Ui';
+import { Icon, Modal } from './components/Ui';
+import { createTerminalUpload, terminalUploadMatches } from './state/terminalUpload';
+import type { TerminalUploadRequest } from './state/terminalUpload';
+import './components/TerminalUpload.css';
 
 const RemoteTerminalView = lazy(() => import('./components/RemoteTerminalView').then(module => ({ default: module.RemoteTerminalView })));
 
@@ -110,6 +116,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
   const [commandWidth, setCommandWidth] = useState(260);
   const [connectionSidebarWidth, setConnectionSidebarWidth] = useState(() => window.innerWidth <= 1280 ? 240 : 280);
   const [sshSectionCollapsed, setSshSectionCollapsed] = useState(false);
+  const [sidebarView, setSidebarView] = useState<'sessions' | 'files'>('sessions');
   const [terminalDockCollapsed, setTerminalDockCollapsed] = useState(false);
   const [navCollapsed, setNavCollapsed] = useState(true);
   const [compactWindow, setCompactWindow] = useState(() => window.innerWidth <= 760);
@@ -118,7 +125,8 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     () => localStorage.getItem(CONNECTION_SIDEBAR_COLLAPSED_KEY) === 'true',
   );
   const toggleSshConnections = () => {
-    if (connectionSidebarCollapsed) {
+    setSidebarView('sessions');
+    if (connectionSidebarCollapsed || sidebarView === 'files') {
       setConnectionSidebarCollapsed(false); setSshSectionCollapsed(false);
     } else setSshSectionCollapsed(value => !value);
   };
@@ -223,11 +231,38 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
       ...chatRuns.active.flatMap(run=>run.messages.flatMap(message=>message.attachments?.map(file=>file.previewUrl)??[])),
     ]);
   }, [draftAttachments, messages, chatDraft, attachmentPreviews, chatRuns, runRevision]);
-  const [fileWindows, setFileWindows] = useState<{ connectionId: string; title: string }[]>([]);
+  const [fileWindows, setFileWindows] = useState<{ id: string; connectionId: string; title: string; target: TerminalFileTarget; uploadRequests?: TerminalUploadRequest[] }[]>([]);
+  const [terminalUpload, setTerminalUpload] = useState<TerminalUploadRequest | null>(null);
   const [visibleFiles, setVisibleFiles] = useState('');
-  const openFiles = (connectionId: string, title: string) => {
-    setFileWindows(previous => previous.some(item => item.connectionId === connectionId) ? previous : [...previous, { connectionId, title }]);
-    setVisibleFiles(connectionId);
+  const fileOpenRevision = useRef(0);
+  const openFiles = (terminal: TerminalSession) => {
+    const runtime = terminalClients.current.get(terminal.id);
+    if (terminal.kind !== 'ssh' || !runtime || runtime.disconnected || runtime.closed) {
+      notify('请先连接当前 SSH 终端，再打开文件管理。', 'error'); return;
+    }
+    const item = { id: terminal.id, connectionId: terminal.connectionId, title: terminal.title, target: terminalFileTarget(runtime, ++fileOpenRevision.current) };
+    setFileWindows(previous => previous.some(window => window.id === item.id) ? previous.map(window => window.id === item.id ? { ...window, ...item } : window) : [...previous, item]);
+    setVisibleFiles(item.id);
+  };
+  const requestTerminalUpload = (terminal: TerminalSession, paths: string[]) => {
+    const runtime = terminalClients.current.get(terminal.id);
+    if (terminal.kind !== 'ssh' || !runtime) return;
+    try { setTerminalUpload(createTerminalUpload(runtime, terminal.id, terminal.title, paths)); }
+    catch (error) { notify(error instanceof Error ? error.message : '无法读取终端上传目录。', 'error'); }
+  };
+  const confirmTerminalUpload = () => {
+    if (!terminalUpload) return;
+    const request = terminalUpload;
+    const runtime = terminalClients.current.get(request.terminalId);
+    setTerminalUpload(null);
+    if (!terminalUploadMatches(runtime, request, true)) {
+      notify('终端目录、访问身份或连接已变化，请重新拖入文件确认上传位置。', 'error'); return;
+    }
+    const item = { id: request.terminalId, connectionId: runtime!.connectionId, title: request.title,
+      target: { ...request.target, revision: ++fileOpenRevision.current } };
+    setFileWindows(previous => previous.some(window => window.id === item.id)
+      ? previous.map(window => window.id === item.id ? { ...window, ...item, uploadRequests: [...(window.uploadRequests ?? []), request] } : window) : [...previous, { ...item, uploadRequests: [request] }]);
+    setVisibleFiles(item.id);
   };
   const [commandCollapsed, setCommandCollapsed] = useState(true);
   const [agentCollapsed, setAgentCollapsed] = useState(false);
@@ -597,7 +632,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     openingConnections.current.set(id, pending);
     setConnectingHostIds(current => new Set(current).add(id));
     opening.current.add(tabId);
-    const closeConnectingNotice = beginNotice(`正在连接 ${nextHost.name} 并打开远程终端，请稍候…`);
+    const closeConnectingNotice = beginNotice(`正在连接 ${nextHost.name} 并打开远程终端，请稍候…`, { key: `ssh-connect:${id}` });
     try {
       const runtime = await openTerminalRuntime(attempt, () => openingConnections.current.get(id) === pending, nextHost.connectTimeout);
       if (attempt.signal.aborted || openingConnections.current.get(id) !== pending) {
@@ -628,11 +663,11 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
       };
       setSessions(previous => [...previous,openedSession]);
       setActiveId(tabId); setNavigation('命令');
-      notify('远程终端已打开，可以开始操作。', 'success');
+      closeConnectingNotice.finish('远程终端已打开，可以开始操作。', 'success');
       return openedSession;
     } catch (error) {
       if (!(error instanceof DOMException && error.name === 'AbortError')) {
-        notify(`连接 ${nextHost.name} 失败：${error instanceof Error ? error.message : '打开终端失败'}`, 'error', 8000);
+        closeConnectingNotice.finish(`连接 ${nextHost.name} 失败：${error instanceof Error ? error.message : '打开终端失败'}`, 'error', 8000);
       }
       attempt.cancel();
     }
@@ -770,18 +805,19 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
       reconnectAttempts: options?.attempt ?? item.reconnectAttempts,
       manuallyClosed: false,
     } : item));
+    const reconnectNotice = beginNotice(options?.automatic
+      ? `SSH 已断开，正在进行第 ${options.attempt ?? 1}/${options.totalAttempts ?? 1} 次自动重连…`
+      : '正在重新连接服务器并创建终端会话…', { key: `ssh-reconnect:${sessionId}` });
     if (options?.automatic) {
       console.info(`SSH 自动重连请求 connectionId=${session.connectionId} oldTerminalSessionId=${previousRuntime?.sessionId} attempt=${options.attempt ?? 1}`);
-      notify(`SSH 已断开，正在进行第 ${options.attempt ?? 1}/${options.totalAttempts ?? 1} 次自动重连…`);
-    } else {
-      notify('正在重新连接服务器并创建终端会话…');
     }
-    const stillWanted = () => {
+    const stillCurrent = () => {
       const current = sessionsRef.current.find(item => item.id === sessionId);
-      return !attempt.signal.aborted && reconnectingAttempts.current.get(sessionId) === attempt
+      return reconnectingAttempts.current.get(sessionId) === attempt
         && !!current && !current.manuallyClosed && !previousRuntime?.manuallyClosed
         && terminalClients.current.get(sessionId) === previousRuntime;
     };
+    const stillWanted = () => !attempt.signal.aborted && stillCurrent();
     try {
       // 重连要关闭旧后端 Channel，但不能把旧运行时标记为“用户主动关闭”，否则 stillWanted 会取消本次重连。
       if (previousRuntime?.sessionId) await terminalApi.close(previousRuntime.sessionId, attempt.signal, attempt.backendUrl)
@@ -810,22 +846,23 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
         manuallyClosed: false,
         busy: false,
       } : item));
-      notify(options?.automatic ? `SSH 自动重连成功（第 ${options.attempt ?? 1} 次）。` : '已重新连接，可以继续操作。', 'success');
+      reconnectNotice.finish(options?.automatic ? `SSH 自动重连成功（第 ${options.attempt ?? 1} 次）。` : '已重新连接，可以继续操作。', 'success');
       return true;
     } catch (error) {
-      if (!stillWanted()) return false;
+      if (!stillCurrent() || (attempt.signal.aborted && attempt.signal.reason?.name !== 'TimeoutError')) return false;
       setSessions(previous => previous.map(item => item.id === sessionId ? {
         ...item, connected: false, connectionStatus: 'disconnected', reconnecting: false, busy: false,
       } : item));
-      if (!options?.automatic) notify(error instanceof Error ? error.message : '重新连接失败', 'error');
+      if (!options?.automatic) reconnectNotice.finish(error instanceof Error ? error.message : '重新连接失败', 'error');
       else {
         const reason = error instanceof Error ? error.message : '重新连接失败';
         console.info(`SSH 自动重连请求失败 connectionId=${session.connectionId} attempt=${options.attempt ?? 1} reason=${reason}`);
-        notify(`第 ${options.attempt ?? 1}/${options.totalAttempts ?? 1} 次自动重连失败：${reason}`, 'error');
+        reconnectNotice.finish(`第 ${options.attempt ?? 1}/${options.totalAttempts ?? 1} 次自动重连失败：${reason}`, 'error');
       }
       attempt.cancel();
       return false;
     } finally {
+      reconnectNotice();
       if (reconnectingAttempts.current.get(sessionId) === attempt) {
         reconnectingAttempts.current.delete(sessionId);
         opening.current.delete(sessionId);
@@ -843,7 +880,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
       reconnecting: false,
       busy: false,
     } : session));
-    notify(`SSH 自动重连已连续失败 ${attempts} 次，请检查网络、账号或密码后手动重新连接。`, 'error');
+    notify(`SSH 自动重连已连续失败 ${attempts} 次，请检查网络、账号或密码后手动重新连接。`, 'error', undefined, `ssh-reconnect:${tabId}`);
   };
   const closeTerminalSession = async (tabId: string) => {
     const session = sessionsRef.current.find(item => item.id === tabId);
@@ -1708,8 +1745,15 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
       showUpdates={updateSettingsRequested}
       beforeClientUpdate={prepareForClientUpdate}
       onSave={onBackendChange} />}
-    <aside className="workspace-sidebar" id="workspace-sidebar-content" aria-label="会话与 SSH 工作区">
+    <aside className="workspace-sidebar" id="workspace-sidebar-content" aria-label="会话、SSH 与文件工作区" data-sidebar-view={sidebarView}>
       <header className="workspace-sidebar-heading"><span><Icon name="sidebar" size={16}/><strong>工作区</strong></span><button type="button" className="workspace-sidebar-toggle" aria-label={connectionSidebarCollapsed ? '展开工作区侧栏' : '收起工作区侧栏'} aria-expanded={!connectionSidebarCollapsed} onClick={() => setConnectionSidebarCollapsed(value => !value)}><Icon name={connectionSidebarCollapsed ? 'right' : 'left'} size={16}/></button></header>
+      <div className="workspace-sidebar-switch" role="group" aria-label="工作区侧栏内容">
+        <button type="button" aria-pressed={sidebarView === 'sessions'} onClick={() => setSidebarView('sessions')}><Icon name="chat" size={14} />会话</button>
+        <button type="button" aria-pressed={sidebarView === 'files'} onClick={() => setSidebarView('files')}><Icon name="folder" size={14} />文件</button>
+      </div>
+      {sidebarView === 'files' && <TerminalFileSidebar key={activeClient?.sessionId || activeId || 'empty'} runtime={activeClient} title={active?.title} local={active?.kind === 'local'}
+        connected={!!active && isSessionConnected(active)} visible={!connectionSidebarCollapsed && !backendSettingsOpen}
+        openFiles={() => { if (active?.kind === 'ssh') openFiles(active); }} copy={copy} />}
       <section className="workspace-conversations" aria-label="Agent 会话">
         <header className="workspace-section-heading workspace-history-heading"><h2>对话</h2><button type="button" className="workspace-guide-button" onClick={openConnectionGuide}><Icon name="book" size={13}/>连接指引</button></header>
         <ProjectChatHistory hosts={hosts} project={activeProject} sessionId={activeChatSessionId} approvalState={approvalState?.sessionId===activeChatSessionId?approvalState:undefined} activeRunning={chatBusy||chatStopping||recoveredRunning}
@@ -1724,7 +1768,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
           removed={project=>{setChatProjects(old=>old.filter(item=>item.id!==project.id));if(activeProject?.id===project.id){setActiveProject(null);setProjectTerminalId('');}setProjectRevision(value=>value+1);notify(`已移除项目“${project.name}”，聊天记录已保留`,'success');}}
           locked={projectLocked} navigationLocked={historySwitchLocked} unreadResults={chatRuns.unreadResults} runningSessions={new Set(chatRuns.active.map(run=>run.sessionId).filter(Boolean))} revision={String(projectRevision)+':'+activeChatSessionId+':'+String(chatBusy)+':'+runRevision}
           newChat={p=>{if(compactWindow)showCompactPane('chat');newProjectChat(p);}} openChat={(chat,p)=>{if(compactWindow)showCompactPane('chat');void openProjectChat(chat,p);}}
-          servers={()=>{setSshSectionCollapsed(false);setConnectionSidebarCollapsed(false);setBackendSettingsOpen(false);}}/>
+          servers={()=>{setSidebarView('sessions');setSshSectionCollapsed(false);setConnectionSidebarCollapsed(false);setBackendSettingsOpen(false);}}/>
       </section>
       <ConnectionSidebar connections={{ ...connections, remove: removeHost }} sessions={sessions} connectingHostIds={connectingHostIds} activeHostId={active?.kind === 'ssh' ? active.connectionId : undefined} activeSessionId={activeId} terminal={id => {setTerminalDockCollapsed(false);if(compactWindow)showCompactPane('terminal');selectHost(id);}} cancelConnection={cancelHostConnection} activate={id => {setTerminalDockCollapsed(false);if(compactWindow)showCompactPane('terminal');activateTerminalFromSidebar(id);}} create={openNewConnection} collapsed={sshSectionCollapsed} toggleCollapsed={toggleSshConnections} embedded />
     </aside>
@@ -1771,7 +1815,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
               <button type="button" title="只显示此终端" onClick={() => { selectTerminalTab(session.id); setTerminalLayout('single'); }}>单窗口</button>
             </div>
             <Suspense fallback={visible ? <p>正在加载终端…</p> : null}>
-            <RemoteTerminalView title={session.title} key={runtime?.sessionId ?? `${session.id}:disconnected`} runtime={runtime} visible={visible && navigation === '命令'} focused={session.id === activeId}
+            <RemoteTerminalView title={session.title} key={runtime?.sessionId ?? `${session.id}:disconnected`} runtime={runtime} visible={visible && navigation === '命令'} focused={session.id === activeId} uploadFiles={session.kind === 'ssh' ? paths => requestTerminalUpload(session, paths) : undefined}
               local={session.kind === 'local'}
               canAddToAgent={!chatBusy && !chatStopping && !historyLoadingId && !recoveredRunning}
               addToAgent={text => {
@@ -1820,8 +1864,8 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
         }}
         copy={copy}
         filesAvailable agentAvailable
-        filesOpen={active?.kind === 'ssh' && visibleFiles === active.connectionId}
-        toggleFiles={() => { if (active?.kind === 'ssh') { if (visibleFiles === active.connectionId) setVisibleFiles(''); else openFiles(active.connectionId, active.title); } }}
+        filesOpen={active?.kind === 'ssh' && visibleFiles === active.id}
+        toggleFiles={() => { if (active?.kind === 'ssh') { if (visibleFiles === active.id) setVisibleFiles(''); else openFiles(active); } }}
         commandCollapsed={commandCollapsed}
         toggleCommands={() => setCommandCollapsed(value => !value)}
         agentCollapsed={agentCollapsed}
@@ -1882,14 +1926,22 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
         sessions: chatSessions, activeSessionId: activeChatSessionId, open: !connectionSidebarCollapsed,
         loading: historyLoading, loadingSessionId: historyLoadingId, error: historyError,
         toggle: () => {
-          setConnectionSidebarCollapsed(value => !value);
+          setSidebarView('sessions');
+          setConnectionSidebarCollapsed(value => sidebarView === 'files' ? false : !value);
         },
         refresh: () => {setProjectRevision(v=>v+1);if (selectedAgent) void refreshChatSessions(selectedAgent.agentId);},
         select: sessionId => { void selectChatSession(sessionId); },
         more: historyMore ? () => { if (selectedAgent) void refreshChatSessions(selectedAgent.agentId, historyMore); } : undefined,
       }} />
     </>
-    {fileWindows.map(item => <SessionFiles key={item.connectionId} connectionId={item.connectionId} title={item.title} visible={!backendSettingsOpen && visibleFiles === item.connectionId} minimize={() => setVisibleFiles('')} remove={() => { setFileWindows(previous => previous.filter(window => window.connectionId !== item.connectionId)); setVisibleFiles(current => current === item.connectionId ? '' : current); }} copy={copy} notify={notify} registerAppCloseCleanup={registerAppCloseCleanup} />)}
+    {fileWindows.map(item => <SessionFiles key={item.id} connectionId={item.connectionId} title={item.title} target={item.target} uploadRequest={item.uploadRequests?.[0]} validateUpload={request => terminalUploadMatches(terminalClients.current.get(item.id), request)} uploadHandled={id => setFileWindows(previous => previous.map(window => window.id === item.id ? { ...window, uploadRequests: window.uploadRequests?.filter(request => request.id !== id) } : window))} visible={!backendSettingsOpen && visibleFiles === item.id} minimize={() => setVisibleFiles('')} copy={copy} notify={notify} registerAppCloseCleanup={registerAppCloseCleanup} />)}
+    {terminalUpload && <Modal title="确认上传到终端" icon="upload" onClose={() => setTerminalUpload(null)} className="terminal-upload-confirm">
+      <div className="terminal-upload-confirm-content"><p>是否上传到以下目录？</p><dl><dt>服务器</dt><dd>{terminalUpload.title}</dd><dt>目标目录</dt><dd className="terminal-upload-destination">{terminalUpload.target.path}</dd></dl>
+        <p>共 {terminalUpload.paths.length} 个文件或文件夹</p><ul>{terminalUpload.paths.map(path => <li key={path} title={path}>{path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || path}</li>)}</ul>
+        <p className="terminal-upload-note">同名文件默认停止上传，保留服务器原文件。上传进度和结果会显示在文件管理的“传输队列”。</p>
+        <footer><button type="button" className="outlined-button" onClick={() => setTerminalUpload(null)}>取消</button><button type="button" className="primary-button" onClick={confirmTerminalUpload}>确认上传</button></footer>
+      </div>
+    </Modal>}
     {dialog === 'command' && <AddCommandDialog close={closeDialog} categories={[...new Set(commands.map(command => command.category))]} save={async command => {
       const next = [...commands, command];
       await saveClientCommands(next);

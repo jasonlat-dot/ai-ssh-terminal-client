@@ -83,14 +83,32 @@ test('补全目录和 AI 请求绑定原工作区，重新初始化后不切换�
  assert.deepEqual(endpoints,['ssh/terminal/completion_entries','agent/terminal_completion']);
 });
 
-test('开启终端补全后新连接携带会话脚本，关闭时不携带',async()=>{
+test('目录跟随和补全任一开启就携带 Bash 集成，全部关闭才使用普通连接',async()=>{
  const bodies:Arguments[]=[];
  harness((_command,args)=>{bodies.push(args.body);return Promise.resolve({sessionId:'new',connectionId:'connection',initialOutput:''});});
  const storage=globalThis.localStorage;const original=storage.getItem;
  storage.getItem=(key:string)=>key==='shellpilot:terminal-completion:v1'?JSON.stringify({enabled:true,aiEnabled:false}):original(key);
  await terminalApi.connect('connection','enabled',new AbortController().signal,builtinEndpoint);
  assert.match(bodies[0].shellIntegration.nonce,/^[a-f0-9]{32}$/);assert.ok(bodies[0].shellIntegration.script.includes('__spc_snapshot'));
- storage.getItem=original;
+ storage.getItem=(key:string)=>key==='shellpilot:terminal-directory-follow:v1'?'false':original(key);
  await terminalApi.connect('connection','disabled',new AbortController().signal,builtinEndpoint);
  assert.equal(bodies[1].shellIntegration,undefined);
+ storage.getItem=original;
+ await terminalApi.connect('connection','directory-only',new AbortController().signal,builtinEndpoint);
+ assert.match(bodies[2].shellIntegration.script,/D;\$REPLY/);
+});
+
+test('左侧文件列表固定原终端与工作区身份，目录报告独立于输出视图订阅', async () => {
+ const calls:Arguments[]=[];
+ const context=harness((_command,args)=>{calls.push(args);return Promise.resolve({path:'/opt',entries:[],truncated:false});});
+ const nonce='b'.repeat(32),report=`\x1b]777;spc;${nonce};D;${Buffer.from('/opt').toString('hex')}\x07`;
+ const runtime=new RemoteTerminal({sessionId:'original',connectionId:'host',initialOutput:report,completionNonce:nonce},true,builtinEndpoint);
+ assert.equal(runtime.directorySnapshot().path,'/opt');
+ context.restart(); await runtime.directoryList('/opt',new AbortController().signal);
+ assert.equal(calls[0].backendUrl,builtinEndpoint); assert.equal(calls[0].endpoint,'ssh/terminal/directory');
+ assert.equal(calls[0].params.sessionId,'original'); assert.equal(calls[0].params.path,'/opt');
+ await runtime.adoptDirectoryNonce('c'.repeat(32));
+ assert.equal(calls[1].backendUrl,builtinEndpoint);
+ assert.equal(calls[1].endpoint,'ssh/terminal/directory_integration');
+ assert.equal(calls[1].body.sessionId,'original');
 });

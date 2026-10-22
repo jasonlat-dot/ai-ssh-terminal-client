@@ -9,10 +9,11 @@ type Bridge = {
   request:(modelId:string,context:{prefix:string;cwd:string},signal:AbortSignal)=>Promise<{suffix:string}>;
   entries?:(path:string,signal:AbortSignal)=>Promise<CompletionEntry[]>;
   captureState?:(active:boolean)=>void;
+  nonceChanged?:(nonce:string)=>void|Promise<void>;
   line?:()=>string;
   anchor:()=>CompletionAnchor|null;
   display:(value:InlineSuggestion|null)=>void;
-  status:(text:string)=>void;
+  status:(text:string,announce?:boolean)=>void;
 };
 const SNAPSHOT_KEY='\x1b[99~';
 export function safeCompletionSuffix(value:unknown):value is string {
@@ -37,7 +38,7 @@ export class TerminalCompletionController {
   configure(prefs:CompletionPreferences){this.prefs=prefs;this.invalidate();}
   adopt(nonce:string){
     if(!/^[a-f0-9]{32}$/.test(nonce)||this.disposed)return;
-    this.nonce=nonce;this.ready=true;this.prompt=0;this.seq=0;this.bridge.status('已连接 Bash · → 接受 · Esc 隐藏');
+    this.nonce=nonce;this.ready=true;this.prompt=0;this.seq=0;this.bridge.status('已连接 Bash · → 接受 · Esc 隐藏',false);
   }
   private invalidate(preserve=false){
     this.revision++;clearTimeout(this.timer);this.request?.abort();this.request=null;this.suggestion=null;
@@ -49,9 +50,14 @@ export class TerminalCompletionController {
     if(this.disposed||this.initializing||!this.prefs.enabled)return;
     this.invalidate();this.ready=false;this.prompt=0;this.seq=0;this.pending=null;clearTimeout(this.deadline);
     this.initializing='reading';this.nonce=crypto.randomUUID().replace(/-/g,'');this.bridge.status('正在初始化…');
+    const nonce=this.nonce;
     this.deadline=setTimeout(()=>{this.initializing=null;this.ready=false;this.bridge.status('未收到 Bash 确认，请回到空提示符后重试');},12000);
-    try{await this.bridge.write(bashCompletionBootstrap(this.nonce)+'\r');}
-    catch{this.initializing=null;clearTimeout(this.deadline);this.bridge.status('初始化失败，请检查连接');}
+    try{
+      await this.bridge.nonceChanged?.(nonce);
+      if(this.disposed||this.initializing!=='reading'||this.nonce!==nonce)return;
+      await this.bridge.write(bashCompletionBootstrap(nonce)+'\r');
+    }
+    catch{if(this.nonce!==nonce)return;this.initializing=null;clearTimeout(this.deadline);this.bridge.status('初始化失败，请检查连接');}
   }
   /** Returns true only while initialization is consuming its private payload. */
   input(data:string){
@@ -112,7 +118,14 @@ export class TerminalCompletionController {
       this.manualCommand=false;return true;
     }
     if(kind==='B'){this.invalidate();this.ready=false;this.prompt=0;this.pending=null;clearTimeout(this.deadline);this.bridge.captureState?.(false);return true;}
-    if(kind==='P'){this.invalidate();this.manualCommand=false;this.prompt=Number(parts[1])||0;this.ready=true;this.pending=null;clearTimeout(this.deadline);this.bridge.captureState?.(false);return true;}
+    if(kind==='P'){
+      this.invalidate();this.manualCommand=false;this.prompt=Number(parts[1])||0;
+      // A nested sudo shell has its own snapshot counter; exiting restores the
+      // parent's counter. Older integrations omit this optional field.
+      const sequence=Number(parts[2]);
+      if(parts[2]!==undefined&&Number.isSafeInteger(sequence)&&sequence>=0)this.seq=sequence;
+      this.ready=true;this.pending=null;clearTimeout(this.deadline);this.bridge.captureState?.(false);return true;
+    }
     if(kind!=='S')return true;
     const pending=this.pending;if(!pending||Number(parts[1])!==pending.seq)return true;
     this.pending=null;clearTimeout(this.deadline);this.bridge.captureState?.(false);

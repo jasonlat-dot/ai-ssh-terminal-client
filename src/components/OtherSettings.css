@@ -1,0 +1,37 @@
+.other-settings { width: min(100%, 1050px); margin-inline: auto; display: flex; flex-direction: column; gap: 18px; padding-bottom: 18px; }
+.other-settings-heading h2 { margin: 0 0 5px; font-size: 20px; }
+.other-settings-heading p { margin: 0; color: var(--theme-text-muted); font-size: 12px; }
+.other-settings > .terminal-completion-settings { margin: 0; }
+.network-settings { padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--settings-panel, var(--theme-panel)); }
+.network-settings > header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.network-settings > header strong { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; }
+.network-settings > header .outlined-button { padding: 4px 8px; min-height: 28px; font-size: 11px; }
+.network-settings .network-system-status { margin: 8px 0 12px; font-size: 11px; color: var(--theme-text-muted); overflow-wrap: anywhere; }
+.network-proxy-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.network-proxy-editor { min-width: 0; margin: 0; padding: 10px 12px 12px; border: 1px solid var(--line); border-radius: 8px; }
+.network-proxy-editor legend { padding: 0 5px; font-size: 12px; color: var(--theme-text-strong); font-weight: var(--weight-title); }
+.network-proxy-editor p, .network-proxy-editor > small { display: block; margin: 7px 0 0; color: var(--theme-text-muted); font-size: 11px; line-height: 1.6; }
+.network-proxy-address { display: grid; grid-template-columns: minmax(110px, 1fr) minmax(90px, 1fr) 72px; gap: 8px; margin-top: 12px; }
+.network-proxy-editor label { display: grid; gap: 5px; min-width: 0; color: var(--theme-text-muted); font-size: 11px; }
+.network-proxy-editor input:not([type='checkbox']) { width: 100%; min-width: 0; min-height: 32px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; color: var(--theme-text-strong); background: var(--settings-panel-soft, var(--theme-control)); font-size: 12px; }
+.network-proxy-editor .ui-select-trigger { min-height: 32px; padding: 6px 8px; font-size: 12px; }
+.network-proxy-auth { margin-top: 10px; }
+.network-proxy-auth summary { cursor: pointer; font-size: 11px; color: var(--theme-text-muted); }
+.network-proxy-auth summary > span { margin-left: 8px; color: var(--theme-accent-text); font-size: 10px; }
+.network-proxy-auth-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+.network-proxy-editor .network-proxy-clear { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+.network-settings form > footer { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-top: 14px; }
+.network-settings form > footer p { margin: 0; max-width: 650px; font-size: 11px; line-height: 1.6; color: var(--theme-text-muted); }
+.network-settings form > footer .primary-button { flex-shrink: 0; }
+.network-proxy-bypass { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+.network-bypass-heading, .network-bypass-heading > span { display: flex; align-items: center; gap: 6px; }
+.network-bypass-heading { justify-content: space-between; margin-bottom: 3px; color: var(--theme-text-strong); font-size: 12px; font-weight: var(--weight-label); }
+.network-bypass-heading > small { padding: 2px 6px; border-radius: 5px; background: var(--theme-hover); color: var(--theme-text-muted); font-size: 10px; font-weight: normal; }
+.network-proxy-bypass textarea { box-sizing: border-box; width: 100%; min-height: 78px; max-height: 220px; resize: vertical; padding: 8px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--settings-panel-soft, var(--theme-control)); color: var(--theme-text-strong); font-family: var(--font-mono, monospace); font-size: 12px; line-height: 1.65; }
+.network-proxy-bypass textarea::placeholder { color: var(--theme-text-muted); opacity: .65; }
+.network-proxy-bypass textarea:focus-visible { outline: 2px solid var(--theme-accent-text); outline-offset: 2px; }
+.network-proxy-bypass > small { display: block; margin-top: 6px; font-size: 10px; color: var(--theme-text-muted); }
+.network-bypass-examples { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
+.network-bypass-examples code { padding: 2px 5px; border: 1px solid var(--line); border-radius: 4px; color: var(--theme-text-muted); font-size: 10px; background: var(--settings-panel-soft, transparent); }
+@media (max-width: 850px) { .network-proxy-grid { grid-template-columns: 1fr; } }
+@media (max-width: 560px) { .network-proxy-address { grid-template-columns: 1fr 72px; } .network-proxy-address > label:first-child { grid-column: 1 / -1; } .network-settings form > footer { flex-direction: column; align-items: stretch; } }

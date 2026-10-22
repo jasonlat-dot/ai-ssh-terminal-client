@@ -10,8 +10,8 @@ const compile=source=>ts.transpileModule(source,{compilerOptions:{module:ts.Modu
 const attemptCode=compile(read('state/sshConnectAttempt.ts'));
 const app=ts.createSourceFile('App.tsx',read('App.tsx'),ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX);
 const expressions=new Map();
-function visit(node){if(ts.isVariableDeclaration(node)&&['selectHost','openTerminalRuntime','cancelHostConnection'].includes(node.name.getText(app)))expressions.set(node.name.getText(app),node.initializer.getText(app));ts.forEachChild(node,visit);}
-visit(app);assert.equal(expressions.size,3);
+function visit(node){if(ts.isVariableDeclaration(node)&&['selectHost','openTerminalRuntime','cancelHostConnection','reconnectTerminal','cancelTerminalReconnect','handleReconnectExhausted'].includes(node.name.getText(app)))expressions.set(node.name.getText(app),node.initializer.getText(app));ts.forEachChild(node,visit);}
+visit(app);assert.equal(expressions.size,6);
 const appCode=compile([...expressions].map(([name,value])=>`export const ${name}=${value};`).join('\n'));
 const pendingNotices=()=>notices.readNotices().filter(notice=>notice.durationMs===0);
 beforeEach(()=>{for(const notice of notices.readNotices())notices.dismissNotice(notice.id);});
@@ -24,9 +24,9 @@ function harness(hosts=[{id:'host',name:'凯平哥',connectTimeout:2}]){
  const attemptModule=vm.createContext({exports:{},crypto,AbortController,DOMException,Error,Promise,console,setTimeout:time.setTimeout,clearTimeout:time.clearTimeout,require(name){if(name==='../api/terminal')return{terminalApi:api};throw new Error(name);}});
  vm.runInContext(attemptCode,attemptModule);
  let connecting=new Set();
- class Runtime{constructor(opened){this.sessionId=opened.sessionId;this.disconnected=false;this.readLoopGeneration=1;}markManuallyClosed(){this.manuallyClosed=true;}}
+ class Runtime{constructor(opened){this.sessionId=opened.sessionId;this.disconnected=false;this.readLoopGeneration=1;}markManuallyClosed(){this.manuallyClosed=true;}prepareReconnect(){this.manuallyClosed=false;}}
  const globals={exports:{},crypto,Error,DOMException,hosts,backendUrl:'ipc://original',...notices,SshConnectAttempt:attemptModule.exports.SshConnectAttempt,RemoteTerminal:Runtime,terminalApi:api,openingConnections,opening,
-  terminalClients:{current:new Map()},tabLastUsedAt:{current:new Map()},setSessions(update){sessions.splice(0,sessions.length,...update(sessions));},setActiveId(){},setNavigation(){},createSessionFileState(){return{};},setConnectingHostIds(update){connecting=update(connecting);}};
+  terminalClients:{current:new Map()},sessionsRef:{current:sessions},reconnectingAttempts:{current:new Map()},tabLastUsedAt:{current:new Map()},setSessions(update){sessions.splice(0,sessions.length,...update(sessions));},setActiveId(){},setNavigation(){},createSessionFileState(){return{};},setConnectingHostIds(update){connecting=update(connecting);}};
  const context=vm.createContext(globals);vm.runInContext(appCode,context);
  return {...context.exports,time,calls,cancelled,closed,sessions,openingConnections,opening,get connecting(){return connecting;}};
 }
@@ -99,4 +99,41 @@ test('重复点击同一服务器复用在途状态，不产生另一条延时�
  assert.equal(h.calls.length,1);assert.equal(notices.readNotices().length,1);
  h.calls[0].resolve({sessionId:'single'});await first;
  assert.equal(pendingNotices().length,0);assert.ok(notices.readNotices().every(n=>n.type==='success'));
+});
+
+async function connected(){
+ const h=harness();const task=h.selectHost('host');h.calls[0].resolve({sessionId:'original'});const session=await task;
+ for(const notice of notices.readNotices())notices.dismissNotice(notice.id);
+ return {h,session};
+}
+test('重连成功原位更新进行中提示，不同时保留两条状态',async()=>{
+ const {h,session}=await connected();const task=h.reconnectTerminal(session.id);await flush();
+ const id=pendingNotices()[0].id;assert.equal(notices.readNotices().length,1);
+ h.calls[1].resolve({sessionId:'reconnected'});assert.equal(await task,true);
+ assert.equal(notices.readNotices().length,1);assert.equal(notices.readNotices()[0].id,id);
+ assert.equal(notices.readNotices()[0].message,'已重新连接，可以继续操作。');assert.equal(pendingNotices().length,0);
+});
+test('重连失败和超时保留唯一错误结果，取消后迟到成功不能复活提示',async()=>{
+ for(const outcome of ['failure','timeout','cancel']){
+  const {h,session}=await connected();const task=h.reconnectTerminal(session.id);await flush();
+  if(outcome==='failure')h.calls[1].reject(new Error('认证失败'));
+  else if(outcome==='timeout')h.time.advance(2000);
+  else h.cancelTerminalReconnect(session.id);
+  assert.equal(await task,false);assert.equal(pendingNotices().length,0);
+  assert.equal(notices.readNotices().length,1);
+  assert.equal(notices.readNotices()[0].type,outcome==='cancel'?'info':'error');
+  h.calls[1].resolve({sessionId:'late'});await flush();assert.equal(pendingNotices().length,0);
+  assert.equal(notices.readNotices().length,1);assert.notEqual(notices.readNotices()[0].type,'success');
+  for(const notice of notices.readNotices())notices.dismissNotice(notice.id);
+ }
+});
+test('自动重试耗尽替换最后一次失败，保持单个终端只有一条重连结果',async()=>{
+ const {h,session}=await connected();
+ h.sessions[0].reconnectAllowed=true;
+ const task=h.reconnectTerminal(session.id,{automatic:true,attempt:2,totalAttempts:2});await flush();
+ h.calls[1].reject(new Error('网络不可用'));await task;
+ const id=notices.readNotices()[0].id;
+ h.handleReconnectExhausted(session.id,2);
+ assert.equal(notices.readNotices().length,1);assert.equal(notices.readNotices()[0].id,id);
+ assert.match(notices.readNotices()[0].message,/连续失败 2 次/);
 });

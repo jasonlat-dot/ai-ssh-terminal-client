@@ -349,3 +349,19 @@
 :root[data-wallpaper='true'][data-theme] .app-shell .markdown-message .markdown-code-toolbar {
   background: color-mix(in srgb, var(--theme-panel-soft) var(--client-code-toolbar-opacity), transparent);
 }
+
+/* These inline settings and illustrative panels share the root wallpaper tint.
+   Only surfaces change: text, particles, typing and scene timing remain intact. */
+:root[data-wallpaper='true'][data-theme] .settings-page .terminal-completion-settings {
+  background: transparent;
+}
+:root[data-wallpaper='true'][data-theme][data-theme-preference] .app-shell .terminal-demo-scene {
+  --demo-terminal-bg: transparent;
+  --demo-toolbar: transparent;
+  --demo-tool-bg: transparent;
+  --demo-card: transparent;
+  --demo-check-bg: transparent;
+  --demo-user-bg: color-mix(in srgb, var(--theme-selected) var(--client-panel-opacity, 75%), transparent);
+  --demo-avatar-bg: color-mix(in srgb, var(--accent-violet-soft, var(--theme-selected)) var(--client-panel-opacity, 75%), transparent);
+  --demo-hover: color-mix(in srgb, var(--theme-hover) var(--client-panel-opacity, 75%), transparent);
+}

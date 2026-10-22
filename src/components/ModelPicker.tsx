@@ -11,7 +11,7 @@ import './Select.css';
 import './ModelPicker.css';
 
 /** Two-level channel/model chooser; values remain the native model profile IDs. */
-export function ModelPicker({models,value,disabled,onChange}:{models:AgentConfig[];value:string;disabled:boolean;onChange:(id:string)=>void}) {
+export function ModelPicker({models,value,disabled,onChange,label='对话模型',placeholder}:{models:AgentConfig[];value:string;disabled:boolean;onChange:(id:string)=>void;label?:string;placeholder?:string}) {
   const groups=groupModels(models);
   const selected=models.find(model=>model.agentId===value);
   const trigger=useRef<HTMLButtonElement>(null);
@@ -85,8 +85,8 @@ export function ModelPicker({models,value,disabled,onChange}:{models:AgentConfig
   };
   const {compact,...style}=position??{compact:false};
   return <>
-    <button ref={trigger} type="button" className="ui-select-trigger model-picker-trigger" aria-label="对话模型" aria-haspopup="menu" aria-expanded={open} aria-controls={open?id:undefined} disabled={disabled||!models.length} onClick={()=>open?close():show()} onKeyDown={onKeyDown}>
-      <span className="ui-select-label-with-icon" title={selected?`${selected.agentName} · ${selected.modelName??selected.agentId}`:undefined}>{selected&&<span className="model-channel-avatar" aria-hidden="true">{selected.provider?<ModelSupplierIcon supplier={modelSupplier({provider:selected.provider,supplier:selected.supplier})} size={18}/>:<Icon name="network" size={18}/>}</span>}<span>{selected?(selected.modelName??selected.agentId):models.length?'请选择模型':'请先添加模型'}</span></span><Icon name="down" size={15}/>
+    <button ref={trigger} type="button" className="ui-select-trigger model-picker-trigger" aria-label={label} aria-haspopup="menu" aria-expanded={open} aria-controls={open?id:undefined} disabled={disabled||!models.length} onClick={()=>open?close():show()} onKeyDown={onKeyDown}>
+      <span className="ui-select-label-with-icon" title={selected?`${selected.agentName} · ${selected.modelName??selected.agentId}`:undefined}>{selected&&<span className="model-channel-avatar" aria-hidden="true">{selected.provider?<ModelSupplierIcon supplier={modelSupplier({provider:selected.provider,supplier:selected.supplier})} size={18}/>:<Icon name="network" size={18}/>}</span>}<span>{selected?(selected.modelName??selected.agentId):placeholder??(models.length?'请选择模型':'请先添加模型')}</span></span><Icon name="down" size={15}/>
     </button>
     {open&&group&&createPortal(<div ref={menu} id={id} className={`model-picker-menu${compact?' is-compact':''}`} style={position?style:{visibility:'hidden'}} onKeyDown={onKeyDown}>
       {(!compact||level==='group')&&<div className="model-picker-panel model-picker-groups" role="menu" aria-label="供应商渠道">

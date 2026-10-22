@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { sftpApi, SftpError } from '../api/sftp';
 import type { LocalDirectory, SftpAccessMode, SftpEntry, SftpEvent, SftpSession, SftpTransfer } from '../api/sftp';
-import { mergeTask, remoteChild } from './sftp';
+import { mergeTask, remoteChild, remoteInitialPath } from './sftp';
 
 export function useSftp(connectionId: string) {
   const [session, setSession] = useState<SftpSession | null>(null);
@@ -29,7 +29,7 @@ export function useSftp(connectionId: string) {
   const refreshPending = useRef(false);
   const refreshAgain = useRef(false);
 
-  const expireSession = useCallback((message: string) => {
+  const expireSession = useCallback((message: string, expectedClosure = false) => {
     const expired = sessionRef.current;
     sessionRef.current = null;
     generation.current++;
@@ -37,14 +37,15 @@ export function useSftp(connectionId: string) {
     refreshAgain.current = false;
     setSession(null);
     setPhase('closed');
-    setConnection('文件管理会话已失效');
+    setConnection(expectedClosure ? message : '文件管理会话已失效');
+    setRemotePath('');
     setEntries([]);
     setTasks([]);
     setTaskErrors({});
     setScanning('');
     setWorking(false);
     setRemoteLoading(false);
-    setError(message);
+    setError(expectedClosure ? '' : message);
 
     // 同步释放 Tauri 保存的旧会话和 SSE 重连任务；后端 404 不影响本地清理。
     if (expired) void sftpApi.close(expired.sftpSessionId).catch(() => undefined);
@@ -52,6 +53,10 @@ export function useSftp(connectionId: string) {
   const fail = useCallback((e: unknown) => {
     if (!mounted.current) return;
     const message = e instanceof Error ? e.message : String(e);
+    if (e instanceof SftpError && (e.code === 'SFTP_IDENTITY_CHANGED' || e.code === 'SFTP_TERMINAL_CLOSED')) {
+      expireSession(message, true);
+      return;
+    }
     const expired = e instanceof SftpError && (
       e.code === 'SFTP_SESSION_EXPIRED'
       || e.code === 'SFTP_BACKEND_UNAVAILABLE'
@@ -82,24 +87,26 @@ export function useSftp(connectionId: string) {
         setEntries(result.sort((a, b) => Number(b.kind === 'DIRECTORY') - Number(a.kind === 'DIRECTORY') || a.name.localeCompare(b.name)));
         setRemotePath(path);
       }
-    } catch (e) { if (version === remoteVersion.current) fail(e); }
+    } catch (e) { if (version === remoteVersion.current && current === sessionRef.current) fail(e); }
     finally { if (version === remoteVersion.current && mounted.current) setRemoteLoading(false); }
   }, [fail]);
 
   const refreshTasks = useCallback(async () => {
     if (refreshPending.current) { refreshAgain.current = true; return; }
     refreshPending.current = true;
+    let requested: SftpSession | null = null;
     try {
       do {
         refreshAgain.current = false;
         const current = sessionRef.current;
         if (!current) break;
+        requested = current;
         const result = await sftpApi.tasks(current.sftpSessionId);
         if (mounted.current && current === sessionRef.current) {
           setTasks(previous => result.reduce(mergeTask, previous.filter(task => result.some(next => next.transferId === task.transferId))));
         }
       } while (refreshAgain.current);
-    } catch (e) { fail(e); }
+    } catch (e) { if (requested === sessionRef.current) fail(e); }
     finally { refreshPending.current = false; }
   }, [fail]);
   const receive = useCallback((event: SftpEvent) => {
@@ -126,7 +133,9 @@ export function useSftp(connectionId: string) {
       const message = event.data && typeof event.data === 'object' && 'message' in event.data
         ? String(event.data.message)
         : '文件管理会话已结束，请重新连接';
-      expireSession(message);
+      const expectedClosure = !!event.data && typeof event.data === 'object' && 'code' in event.data
+        && (event.data.code === 'SFTP_IDENTITY_CHANGED' || event.data.code === 'SFTP_TERMINAL_CLOSED');
+      expireSession(message, expectedClosure);
     } else if (event.type === 'error') {
       setTaskErrors(previous => ({ ...previous, [event.data.transferId]: event.data.message }));
     }
@@ -136,14 +145,20 @@ export function useSftp(connectionId: string) {
     mounted.current = true;
     void loadLocal();
     return () => {
-      mounted.current = false; generation.current++;
-      const current = sessionRef.current;
-      sessionRef.current = null;
-      if (current) void sftpApi.close(current.sftpSessionId).catch(console.warn);
+      mounted.current = false;
+      // StrictMode immediately replays setup on the same hook instance. Keep its
+      // pending automatic open; only a real unmount invalidates and releases it.
+      queueMicrotask(() => {
+        if (mounted.current) return;
+        generation.current++;
+        const current = sessionRef.current;
+        sessionRef.current = null;
+        if (current) void sftpApi.close(current.sftpSessionId).catch(console.warn);
+      });
     };
   }, [loadLocal]);
 
-  const open = async (root: string, accessMode: SftpAccessMode = 'login', sudoPassword?: string) => {
+  const open = async (root: string, accessMode: SftpAccessMode = 'login', sudoPassword?: string, terminalSessionId?: string, initialPath?: string) => {
     if (phase === 'opening' || phase === 'closing') return false;
     const version = ++generation.current;
     setPhase('opening'); setError('');
@@ -153,11 +168,12 @@ export function useSftp(connectionId: string) {
       sessionRef.current = null;
       setSession(null); setRemotePath('');
       setTasks([]); setTaskErrors({}); setLocalBytes({}); setEntries([]);
-      const current = await sftpApi.open(connectionId, root, event => { if (version === generation.current) receive(event); }, accessMode, sudoPassword);
+      const current = await sftpApi.open(connectionId, root, event => { if (version === generation.current) receive(event); }, accessMode, sudoPassword, terminalSessionId);
       if (!mounted.current || version !== generation.current) { await sftpApi.close(current.sftpSessionId); return false; }
       sessionRef.current = current;
       setSession(current); setPhase('ready');
-      await loadRemote(current.rootPath, current);
+      await loadRemote(remoteInitialPath(current.rootPath, initialPath), current);
+      if (!mounted.current || version !== generation.current || current !== sessionRef.current) return false;
       void refreshTasks();
       return true;
     } catch (e) { fail(e); if (mounted.current) setPhase('closed'); return false; }

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { formatBytes, mergeTask, remoteChild, remoteParent, transferPercent } from '../src/state/sftp.ts';
+import { formatBytes, mergeTask, remoteChild, remoteInitialPath, remoteParent, transferPercent } from '../src/state/sftp.ts';
 import type { SftpProgress, SftpTransfer } from '../src/api/sftp.ts';
 
 test('remote navigation stays inside the session root and uses POSIX separators', () => {
@@ -11,6 +11,15 @@ test('remote navigation stays inside the session root and uses POSIX separators'
   assert.equal(remoteParent('/', '/'), null);
   assert.equal(remoteChild('/', '目录'), '/目录');
   for (const name of ['..', '.', '', 'a/b', 'a\\b', 'a*', 'a?', 'a\n']) assert.throws(() => remoteChild('/opt', name));
+});
+
+test('terminal initial directory respects a manually restricted canonical session root', () => {
+  assert.equal(remoteInitialPath('/', '/root/project'), '/root/project');
+  assert.equal(remoteInitialPath('/root/project', '/root/project/docs'), '/root/project/docs');
+  assert.equal(remoteInitialPath('/root/project', '/root/project'), '/root/project');
+  for (const path of [undefined, '', '/root', '/root/project-other', '/root/project/../private', '/root/project/./docs', '/root/project/\n']) {
+    assert.equal(remoteInitialPath('/root/project', path), '/root/project');
+  }
 });
 test('zero-byte transfers use item status; reaching 100% bytes is not completion', () => {
   const progress = { status: 'AWAITING_CONFIRMATION', totalBytes: 0, transferredBytes: 0 } as SftpProgress;

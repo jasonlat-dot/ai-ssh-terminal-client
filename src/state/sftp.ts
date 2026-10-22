@@ -1,5 +1,11 @@
 import type { SftpProgress, SftpTransfer } from '../api/sftp.ts';
 
+/** Initial location respects the canonical root returned by the server. */
+export function remoteInitialPath(root: string, path?: string): string {
+  if (!path?.startsWith('/') || /[\x00-\x1f\x7f-\x9f]/u.test(path) || path.split('/').some(part => part === '.' || part === '..')) return root;
+  return root === '/' || path === root || path.startsWith(`${root}/`) ? path : root;
+}
+
 export function remoteParent(path: string, root: string): string | null {
   const clean = path.replace(/\/+$/, '') || '/';
   if (clean === root || clean === '/') return null;

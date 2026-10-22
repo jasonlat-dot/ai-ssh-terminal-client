@@ -1,4 +1,5 @@
 import { readCompletionPreferences } from '../state/terminalCompletionPreferences';
+import { readDirectoryFollow } from '../state/terminalDirectory';
 import { bashCompletionSetup } from '../state/terminalCompletionBash';
 import { subscribeBuiltinTerminal } from './builtin';
 import { apiRequest } from './client';
@@ -37,7 +38,7 @@ function bound<T>(endpoint: string, method: string, body: object | undefined, pa
 }
 export const terminalApi = {
   async connect(connectionId: string, requestId: string, signal: AbortSignal, baseUrl: string) {
-    const nonce=readCompletionPreferences().enabled?crypto.randomUUID().replace(/-/g,''):null;
+    const nonce=readCompletionPreferences().enabled || readDirectoryFollow()?crypto.randomUUID().replace(/-/g,''):null;
     const opened = await apiRequest<TerminalOpen>('ssh/terminal/connect', {
       method: 'POST', body: { connectionId, requestId, cols: 120, rows: 24, ...(nonce?{shellIntegration:{nonce,script:bashCompletionSetup(nonce)}}:{}) }, signal, baseUrl, service: 'SSH 服务',
     });

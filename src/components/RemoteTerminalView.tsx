@@ -9,6 +9,8 @@ import type { TerminalRuntime } from '../state/terminalRuntime';
 import type { TerminalDisconnectReason } from '../types';
 import { copyText, readClipboardText } from '../state/clipboard';
 import { isTauriRuntime } from '../state/runtime';
+import { getCurrentWebview } from '@tauri-apps/api/webview';
+import { handleTerminalFileDrop } from '../state/terminalFileDrop';
 import { ClipboardFeedback, useClipboardFeedback } from './ClipboardFeedback';
 import { Icon, IconButton, Modal } from './Ui';
 import { notify } from '../state/notifications';
@@ -43,6 +45,7 @@ type Props = {
   disconnect: () => void;
   addToAgent: (text: string) => boolean;
   canAddToAgent: boolean;
+  uploadFiles?: (paths: string[]) => void;
 };
 
 const AUTO_RECONNECT_DELAYS = [1_000, 3_000, 5_000, 10_000] as const;
@@ -97,9 +100,25 @@ function currentTerminalTypography() {
 
 export function RemoteTerminalView({
   title, runtime, local = false, visible, focused = true, connected, transportAvailable, disconnectReason, reconnectAllowed, reconnectAttempts,
-  reconnecting, manuallyClosed, onDisconnected, onTransportChange, onReconnectExhausted, reconnect, cancelReconnect, disconnect, addToAgent, canAddToAgent,
+  reconnecting, manuallyClosed, onDisconnected, onTransportChange, onReconnectExhausted, reconnect, cancelReconnect, disconnect, addToAgent, canAddToAgent, uploadFiles,
 }: Props) {
   const element = useRef<HTMLDivElement>(null);
+  const [fileDragActive, setFileDragActive] = useState(false);
+  const uploadFilesRef = useRef(uploadFiles);
+  uploadFilesRef.current = uploadFiles;
+  useEffect(() => {
+    if (!isTauriRuntime() || local || !visible || !connected || !transportAvailable || !runtime || !uploadFilesRef.current) return;
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void getCurrentWebview().onDragDropEvent(event => {
+      if (disposed || !element.current) return;
+      handleTerminalFileDrop(event.payload, element.current, {
+        hit: (x, y) => document.elementFromPoint(x, y), scale: window.devicePixelRatio,
+        hover: setFileDragActive, drop: paths => uploadFilesRef.current?.(paths),
+      });
+    }).then(stop => { if (disposed) stop(); else unlisten = stop; }).catch(() => { if (!disposed) setFileDragActive(false); });
+    return () => { disposed = true; unlisten?.(); setFileDragActive(false); };
+  }, [runtime, local, visible, connected, transportAvailable]);
   const term = useRef<Terminal | null>(null);
   const [error, setError] = useState('');
   const [localReconnecting, setLocalReconnecting] = useState(false);
@@ -274,11 +293,12 @@ export function RemoteTerminalView({
       terminalElement.addEventListener('wheel', zoomWithWheel, { capture: true, passive: false });
       if(!local&&runtime){
         completion.current=attachTerminalCompletion(terminal,input=>runtime.write(input),
-          ()=>activeRuntime.current===runtime&&allowInput.current&&visibleRef.current&&focusedRef.current,text=>{
+          ()=>activeRuntime.current===runtime&&allowInput.current&&visibleRef.current&&focusedRef.current,(text,announce)=>{
             setCompletionStatus(text);
+            if(announce===false)return;
             if(text.startsWith('已连接 Bash'))notify('Bash 智能补全已初始化','success');
             else if(/^(初始化失败|未收到 Bash|初始化已取消)/.test(text))notify(text,'error');
-          },runtime.completionRequest?((model,context,signal)=>runtime.completionRequest!(model,context,signal)):undefined,{nonce:runtime.completionNonce,entries:runtime.completionEntries?((path,signal)=>runtime.completionEntries!(path,signal)):undefined});
+          },runtime.completionRequest?((model,context,signal)=>runtime.completionRequest!(model,context,signal)):undefined,{nonce:runtime.completionNonce,nonceChanged:nonce=>runtime.adoptDirectoryNonce?.(nonce),entries:runtime.completionEntries?((path,signal)=>runtime.completionEntries!(path,signal)):undefined});
       }
       terminal.attachCustomKeyEventHandler(event => {
         if(completion.current?.controller.key(event)){event.preventDefault();return false;}
@@ -484,7 +504,7 @@ export function RemoteTerminalView({
         run: () => { addSelectionToAgent(); term.current?.focus(); } },
       ...(!local ? [{id:'completion',label:'重新接入 Bash 补全',group:'completion' as const,disabled:unavailable||!completionPrefs.enabled,
         shortcut:completionStatus==='未初始化'?'未初始化':completionStatus==='正在初始化…'?'连接中':/失败|不可用|未收到|失去同步|已取消|不支持/.test(completionStatus)?'需检查':'已连接',
-        reason:unavailable?'终端连接后可初始化':'请先在模型设置中开启终端补全；已有会话可重连接入',run:()=>setCompletionSetup(true)}] : []),
+        reason:unavailable?'终端连接后可初始化':'请先在其他设置中开启终端补全；已有会话可重连接入',run:()=>setCompletionSetup(true)}] : []),
       ...(!local ? [{ id: canCancelConnection ? 'cancel' : 'reconnect', label: canCancelConnection ? '取消连接' : isReconnecting ? '正在重连…' : '重新连接',
         group: 'connection' as const, disabled: !canCancelConnection && isReconnecting, run: canCancelConnection ? cancelReconnect : reconnectNow }] : []),
       { id: 'disconnect', label: local ? '关闭终端' : sessionUnavailable ? '关闭页签' : '断开连接', group: 'connection', danger: true, run: disconnect },
@@ -492,6 +512,7 @@ export function RemoteTerminalView({
   });
 
   return <div className="remote-terminal-view" hidden={!visible} onKeyDownCapture={handleTerminalKeyDown}>
+    {fileDragActive && <div className="terminal-upload-drop-hint" aria-hidden="true"><Icon name="upload" size={26}/><strong>释放文件，上传到此终端目录</strong><span>上传前会确认服务器和目标目录</span></div>}
     {completionSetup&&createPortal(<Modal title="初始化 Bash 智能补全" icon="bot" onClose={()=>setCompletionSetup(false)}>
       <div className="terminal-completion-setup"><p>请先确认当前终端位于 Bash 4.4+ 的空命令提示符，并使用 emacs 行编辑模式。此操作通过一条短命令静默加载集成脚本，等待最多 10 秒，仅在当前 Shell 会话生效，不修改远端启动配置或写入脚本文件。</p>
         <p>开启后，新建或重连 SSH 会话会自动接入；此入口用于已有会话或手动重试。路径和本次手动命令历史只在应用内匹配；仅在开启 AI 续写时发送当前输入，目录按独立设置决定。按 → 填入，Esc 隐藏，Tab 保留远端补全，仍需手动回车。状态：{completionStatus}</p>

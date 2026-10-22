@@ -1,11 +1,16 @@
 import type { ResourceSnapshot, TerminalConnectionState } from '../api/terminal';
 import type { TerminalDisconnectEvent } from './remoteTerminal';
+import type { DirectoryListing, TerminalDirectory } from './terminalDirectory';
 
 /** xterm 视图所依赖的统一运行时接口，由远程 SSH 和本地 CMD 共同实现。 */
 export interface TerminalRuntime {
   readonly sessionId: string;
   readonly connectionId: string;
   readonly completionNonce?: string;
+  directorySnapshot?: () => TerminalDirectory;
+  subscribeDirectory?: (listener: () => void) => () => void;
+  directoryList?(path: string, signal: AbortSignal): Promise<DirectoryListing>;
+  adoptDirectoryNonce?(nonce: string): void | Promise<void>;
   completionRequest?(modelId:string,context:{prefix:string;cwd:string},signal:AbortSignal):Promise<{suffix:string}>;
   completionEntries?(path:string,signal:AbortSignal):Promise<{name:string;directory:boolean}[]>;
   readonly readLoopGeneration: number;

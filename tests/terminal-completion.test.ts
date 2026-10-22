@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {spawnSync} from 'node:child_process';
+import {testBash} from './helpers/bash.mjs';
 import {TerminalCompletionController,safeCompletionSuffix} from '../src/state/terminalCompletion';
 import {bashCompletionSetup} from '../src/state/terminalCompletionBash';
 import {readCompletionPreferences,saveCompletionPreferences} from '../src/state/terminalCompletionPreferences';
@@ -50,6 +51,20 @@ test('再次输入取消旧请求，迟到结果不出现；运行、隐藏、�
   ui.controller.configure({enabled:false,aiEnabled:false,sendDirectory:false,modelId:'other',delayMs:500});assert.equal(ui.shown.at(-1),null);
 });
 
+test('切换 sudo 子 Shell 与退出后按各自快照计数接续补全，不接受其他 Shell 的旧快照',async t=>{
+  const ui=await harness(t,async()=>({suffix:' --help'}));
+  for(const [prompt,sequence,cwd] of [[8,5,'/home/test'],[1,0,'/root'],[9,6,'/home/test']] as const){
+    ui.osc('B');ui.osc(`P;${prompt};${sequence}`);
+    ui.controller.input('x');t.mock.timers.tick(500);
+    const before=ui.calls.length;
+    ui.osc(`S;${sequence+2};${prompt};6;${hex('docker')};${hex(cwd)}`);t.mock.timers.tick(0);await flush();
+    assert.equal(ui.calls.length,before);
+    ui.osc(`S;${sequence+1};${prompt};6;${hex('docker')};${hex(cwd)}`);t.mock.timers.tick(0);await flush();
+    assert.equal(ui.calls.length,before+1);
+    assert.equal(ui.calls.at(-1)[1].cwd,cwd);
+  }
+});
+
 test('光标在中间、敏感命令、多行和错误 nonce 不调用模型',async t=>{
   const ui=await harness(t);assert.equal(ui.controller.osc('spc;wrong;P;1'),false);
   for(const [prefix,point] of [['docker compose',2],['curl token=secret',17],['echo\nhello',10]] as const){
@@ -81,11 +96,12 @@ test('模型超时取消，模型异常和恶意输出不插入终端',async t=>
 test('Bash 集成使用真实内置函数编码并保留提示钩子；重装不重复挂接',()=>{
   const nonce='a'.repeat(32),script=bashCompletionSetup(nonce);
   assert.throws(()=>bashCompletionSetup("x';whoami"));
-  const command=`PROMPT_COMMAND=':'; PS0='original'; ${script}; __spc_prompt; READLINE_LINE='docker compose'; READLINE_POINT=14; __spc_snapshot; ${script}; history -s 'docker logs api'; __spc_begin; [[ $PROMPT_COMMAND == ':; __spc_prompt' ]] || exit 20; [[ $PS0 == '$(__spc_begin)original' ]] || exit 21`;
-  const result=spawnSync('C:/Program Files/Git/bin/bash.exe',['--noprofile','--norc','-ic',command],{encoding:'utf8',timeout:10000});
+  const quotedScript="'"+script.replace(/'/g,"'\\''")+"'";
+  const command=`PROMPT_COMMAND=':'; PS0='original'; setup=${quotedScript}; eval "$setup"; __spc_prompt; READLINE_LINE='docker compose'; READLINE_POINT=14; __spc_snapshot; eval "$setup"; history -s 'docker logs api'; __spc_begin; [[ $PROMPT_COMMAND == ':; __spc_prompt' ]] || exit 20; [[ $PS0 == '$(__spc_begin)original' ]] || exit 21`;
+  const result=spawnSync(testBash(),['--noprofile','--norc','-ic',command],{encoding:'utf8',timeout:10000});
   assert.equal(result.status,0,result.stderr);assert.ok(result.stdout.includes(`\x1b]777;spc;${nonce};I\x07`));
   assert.ok(result.stdout.includes(`S;1;1;14;${hex('docker compose')};`));assert.ok(result.stdout.includes(`;H;${hex('docker logs api')}`));
-  const array=spawnSync('C:/Program Files/Git/bin/bash.exe',['--noprofile','--norc','-ic',`PROMPT_COMMAND=(:); ${script}; [[ \${#PROMPT_COMMAND[@]} == 2 ]]`],{encoding:'utf8',timeout:10000});
+  const array=spawnSync(testBash(),['--noprofile','--norc','-ic',`PROMPT_COMMAND=(:); ${script}; [[ \${#PROMPT_COMMAND[@]} == 2 ]]`],{encoding:'utf8',timeout:10000});
   assert.equal(array.status,0,array.stderr);
 });
 
@@ -99,6 +115,23 @@ test('初始化只发送短加载命令，确认静默读取就绪后才发送�
   ui.osc('R');await flush();assert.equal(ui.writes.length,2);assert.match(ui.writes[1],/__spc_snapshot/);
   assert.ok(ui.writes[1].endsWith('\r'));ui.osc('R');assert.equal(ui.writes.length,2);
   ui.osc('I');assert.match(ui.status.at(-1)!,/已连接 Bash/);assert.equal(ui.controller.input('x'),false);
+});
+
+test('手动接入先绑定原生目录标识，失败或取消时不向 Shell 发送迟到载荷', async () => {
+  for (const cancelled of [false, true]) {
+    const writes: string[] = []; let release!: () => void;
+    const wait = new Promise<void>(resolve => { release = resolve; });
+    const controller = new TerminalCompletionController({ nonceChanged: () => wait,
+      write: async value => { writes.push(value); }, request: async () => ({ suffix: '' }),
+      anchor: () => null, display: () => {}, status: () => {} });
+    controller.configure({ enabled: true, aiEnabled: false, sendDirectory: false, modelId: '', delayMs: 500 });
+    const initialized = controller.initialize();
+    assert.equal(writes.length, 0);
+    if (cancelled) controller.input('\x03');
+    release(); await initialized;
+    assert.equal(writes.length, cancelled ? 0 : 1);
+    controller.dispose();
+  }
 });
 
 test('初始化超时、取消与销毁后不发送迟到脚本，允许恢复正常终端输入',async t=>{
@@ -148,6 +181,22 @@ test('采用新连接已安装的 nonce，无需再注入脚本；关闭时不�
   controller.configure({enabled:false,aiEnabled:false,sendDirectory:false,modelId:'',delayMs:500});controller.adopt('a'.repeat(32));
   controller.osc('spc;'+'a'.repeat(32)+';P;1');controller.input('docker');t.mock.timers.tick(1000);
   assert.equal(writes.length,0);assert.equal(calls.length,0);controller.dispose();
+});
+
+test('自动接入只更新补全状态，用户手动初始化仍提供成功反馈', async () => {
+  const writes: string[] = [], statuses: { text: string; announce?: boolean }[] = [];
+  const controller = new TerminalCompletionController({ write: async value => { writes.push(value); },
+    request: async () => ({ suffix: '' }), anchor: () => null, display: () => {},
+    status: (text, announce) => { statuses.push({ text, announce }); } });
+  controller.adopt('a'.repeat(32));
+  assert.equal(statuses.at(-1)?.announce, false);
+  controller.configure({ enabled: true, aiEnabled: false, sendDirectory: false, modelId: '', delayMs: 500 });
+  await controller.initialize();
+  const nonce = writes[0].match(/spc;([a-f0-9]{32});R/)![1];
+  controller.osc(`spc;${nonce};R`); await flush(); controller.osc(`spc;${nonce};I`);
+  assert.match(statuses.at(-1)!.text, /已连接 Bash/);
+  assert.notEqual(statuses.at(-1)?.announce, false);
+  controller.dispose();
 });
 
 
