@@ -1,4 +1,8 @@
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { sftpApi } from '../api/sftp';
+import { notify } from '../state/notifications';
+import { createSidebarTransfer } from '../state/terminalUpload';
+import type { TerminalTransferRequest } from '../state/terminalUpload';
 import type { TerminalRuntime } from '../state/terminalRuntime';
 import type { DirectoryListing, TerminalDirectory } from '../state/terminalDirectory';
 import { directoryChild, directoryParent, readDirectoryFollow, saveDirectoryFollow } from '../state/terminalDirectory';
@@ -11,8 +15,9 @@ const noSubscribe = () => () => {};
 const noDirectory = () => emptyDirectory;
 
 /** A terminal owns its directory signal. The browser never writes commands into its shell. */
-export function TerminalFileSidebar({ runtime, title, local, connected, visible, openFiles, copy }: {
-  runtime?: TerminalRuntime; title?: string; local: boolean; connected: boolean; visible: boolean;
+export function TerminalFileSidebar({ runtime, terminalId, title, local, connected, visible, openFiles, transfer, copy }: {
+  runtime?: TerminalRuntime; terminalId: string; title?: string; local: boolean; connected: boolean; visible: boolean;
+  transfer: (request: TerminalTransferRequest) => void;
   openFiles: () => void; copy: (path: string) => Promise<void>;
 }) {
   const directory = useSyncExternalStore(runtime?.subscribeDirectory ?? noSubscribe, runtime?.directorySnapshot ?? noDirectory);
@@ -28,6 +33,11 @@ export function TerminalFileSidebar({ runtime, title, local, connected, visible,
   const path = follow ? directory.path : manualPath;
   const promptRevision = follow ? directory.revision : 0;
   const scope = directory.accessKey || '';
+  const [choosing, setChoosing] = useState(false);
+  const alive = useRef(false), choosingLock = useRef(false);
+  const transferState = useRef({ runtime, path, scope, selected, enabled });
+  transferState.current = { runtime, path, scope, selected, enabled };
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
 
   useEffect(() => {
     const update = () => setPageVisible(!document.hidden);
@@ -72,9 +82,34 @@ export function TerminalFileSidebar({ runtime, title, local, connected, visible,
   };
   const entries = page.listing?.entries.filter(entry => showHidden || !entry.name.startsWith('.')) ?? [];
   const unavailable = !runtime || local;
+  const selectedEntry = page.listing?.entries.find(entry => entry.name === selected && !entry.directory && !entry.symlink);
+  const canTransfer = enabled && !page.loading && !page.error && !!page.listing && page.scope === scope
+    && directory.access !== 'unavailable' && !choosing;
+  const chooseTransfer = async (download: boolean) => {
+    if (!canTransfer || !runtime || !page.listing || choosingLock.current || (download && !selectedEntry)) return;
+    choosingLock.current = true; setChoosing(true);
+    const source = transferState.current, owner = runtime, destination = page.listing.path;
+    const remoteName = download ? selectedEntry!.name : undefined;
+    const snapshot = owner.directorySnapshot?.();
+    try {
+      const paths = await sftpApi.pickLocal(download);
+      if (!paths.length || !alive.current) return;
+      const current = transferState.current;
+      if (current.runtime !== owner || !current.enabled || current.scope !== source.scope || current.path !== source.path
+        || (download && current.selected !== source.selected) || owner.directorySnapshot?.().accessKey !== snapshot?.accessKey) {
+        notify('目录、选中文件或终端身份已变化，请重新选择后传输。', 'error'); return;
+      }
+      transfer(createSidebarTransfer(owner, terminalId, title || '终端文件', destination, paths, remoteName));
+    } catch (error) { if (alive.current) notify(error instanceof Error ? error.message : '无法开始文件传输。', 'error'); }
+    finally { choosingLock.current = false; if (alive.current) setChoosing(false); }
+  };
   return <section className="terminal-file-sidebar" aria-label="当前终端文件" hidden={!visible}>
     <header className="terminal-file-heading"><span><Icon name="server" size={14} /><strong title={title}>{title || '终端文件'}</strong></span>
-      <IconButton icon="refresh" label="刷新文件列表" disabled={!enabled || page.loading} onClick={() => refresh(value => value + 1)} />
+      <div className="terminal-file-actions" aria-label="文件传输操作" aria-busy={choosing}>
+        <IconButton icon="upload" className="terminal-file-transfer upload" label="上传文件到当前目录" disabled={!canTransfer} onClick={() => void chooseTransfer(false)} />
+        <IconButton icon="download" className="terminal-file-transfer download" label="下载选中文件" title={selectedEntry ? `下载 ${selectedEntry.name}` : '先在列表中选择要下载的文件'} disabled={!canTransfer || !selectedEntry} onClick={() => void chooseTransfer(true)} />
+        <IconButton icon="refresh" label="刷新文件列表" disabled={!enabled || page.loading} onClick={() => refresh(value => value + 1)} />
+      </div>
     </header>
     {unavailable ? <div className="terminal-file-empty"><Icon name="folder" size={30} /><strong>{local ? '当前是本地终端' : '尚未选择 SSH 终端'}</strong><p>连接并激活一个 SSH 终端后，在这里浏览服务器文件。</p></div> : <>
       <form className="terminal-file-path" onSubmit={event => { event.preventDefault(); browse(input.trim()); }}>

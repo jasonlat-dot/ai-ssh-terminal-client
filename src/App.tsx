@@ -91,7 +91,7 @@ import './components/CompactWorkspace.css';
 import './components/WorkspaceSettings.css';
 import { Icon, Modal } from './components/Ui';
 import { createTerminalUpload, terminalUploadMatches } from './state/terminalUpload';
-import type { TerminalUploadRequest } from './state/terminalUpload';
+import type { TerminalTransferRequest, TerminalUploadRequest } from './state/terminalUpload';
 import './components/TerminalUpload.css';
 
 const RemoteTerminalView = lazy(() => import('./components/RemoteTerminalView').then(module => ({ default: module.RemoteTerminalView })));
@@ -231,7 +231,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
       ...chatRuns.active.flatMap(run=>run.messages.flatMap(message=>message.attachments?.map(file=>file.previewUrl)??[])),
     ]);
   }, [draftAttachments, messages, chatDraft, attachmentPreviews, chatRuns, runRevision]);
-  const [fileWindows, setFileWindows] = useState<{ id: string; connectionId: string; title: string; target: TerminalFileTarget; uploadRequests?: TerminalUploadRequest[] }[]>([]);
+  const [fileWindows, setFileWindows] = useState<{ id: string; connectionId: string; title: string; target: TerminalFileTarget; uploadRequests?: TerminalTransferRequest[] }[]>([]);
   const [terminalUpload, setTerminalUpload] = useState<TerminalUploadRequest | null>(null);
   const [visibleFiles, setVisibleFiles] = useState('');
   const fileOpenRevision = useRef(0);
@@ -243,6 +243,17 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
     const item = { id: terminal.id, connectionId: terminal.connectionId, title: terminal.title, target: terminalFileTarget(runtime, ++fileOpenRevision.current) };
     setFileWindows(previous => previous.some(window => window.id === item.id) ? previous.map(window => window.id === item.id ? { ...window, ...item } : window) : [...previous, item]);
     setVisibleFiles(item.id);
+  };
+  const queueSidebarTransfer = (request: TerminalTransferRequest) => {
+    const runtime = terminalClients.current.get(request.terminalId);
+    if (!runtime || !terminalUploadMatches(runtime, request)) {
+      notify('终端连接或访问身份已变化，请重新选择后传输。', 'error'); return;
+    }
+    const item = { id: request.terminalId, connectionId: runtime.connectionId, title: request.title,
+      target: { ...request.target, revision: ++fileOpenRevision.current } };
+    setFileWindows(previous => previous.some(window => window.id === item.id)
+      ? previous.map(window => window.id === item.id ? { ...window, ...item, uploadRequests: [...(window.uploadRequests ?? []), request] } : window)
+      : [...previous, { ...item, uploadRequests: [request] }]);
   };
   const requestTerminalUpload = (terminal: TerminalSession, paths: string[]) => {
     const runtime = terminalClients.current.get(terminal.id);
@@ -262,7 +273,6 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
       target: { ...request.target, revision: ++fileOpenRevision.current } };
     setFileWindows(previous => previous.some(window => window.id === item.id)
       ? previous.map(window => window.id === item.id ? { ...window, ...item, uploadRequests: [...(window.uploadRequests ?? []), request] } : window) : [...previous, { ...item, uploadRequests: [request] }]);
-    setVisibleFiles(item.id);
   };
   const [commandCollapsed, setCommandCollapsed] = useState(true);
   const [agentCollapsed, setAgentCollapsed] = useState(false);
@@ -1751,7 +1761,7 @@ function AppContent({ backendUrl, onBackendChange, theme, setTheme, updateSettin
         <button type="button" aria-pressed={sidebarView === 'sessions'} onClick={() => setSidebarView('sessions')}><Icon name="chat" size={14} />会话</button>
         <button type="button" aria-pressed={sidebarView === 'files'} onClick={() => setSidebarView('files')}><Icon name="folder" size={14} />文件</button>
       </div>
-      {sidebarView === 'files' && <TerminalFileSidebar key={activeClient?.sessionId || activeId || 'empty'} runtime={activeClient} title={active?.title} local={active?.kind === 'local'}
+      {sidebarView === 'files' && <TerminalFileSidebar terminalId={activeId} transfer={queueSidebarTransfer} key={activeClient?.sessionId || activeId || 'empty'} runtime={activeClient} title={active?.title} local={active?.kind === 'local'}
         connected={!!active && isSessionConnected(active)} visible={!connectionSidebarCollapsed && !backendSettingsOpen}
         openFiles={() => { if (active?.kind === 'ssh') openFiles(active); }} copy={copy} />}
       <section className="workspace-conversations" aria-label="Agent 会话">

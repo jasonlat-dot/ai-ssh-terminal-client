@@ -54,7 +54,8 @@ test('actual file-manager handlers route both directions to their current destin
   const download = harness(); download.begin('remote', '/srv/report.txt'); download.move(download.localChild);
   assert.equal(download.hover.at(-1), 'local'); download.drop(); await download.flush();
   assert.deepEqual(download.transfers, [['DOWNLOAD', 'C:\\Downloads', '/srv/report.txt', 'FAIL']]);
-  assert.equal(download.hover.at(-1), null); assert.equal(download.queues.at(-1), true);
+  assert.equal(download.hover.at(-1), null); assert.deepEqual(download.queues, []); assert.deepEqual(upload.queues, []);
+  assert.equal(upload.notices.length, 1); assert.match(upload.notices[0][0], /可在传输队列查看进度/);
 });
 
 test('same-side drops, covered targets, cancellation and unavailable sessions cannot transfer', async () => {
@@ -91,4 +92,12 @@ test('both rendered file lists expose pointer drags and directional drop feedbac
     assert.deepEqual(calls, [[path, 'pointer', 'row']]);
     assert.ok(find(tree, node => node.props.role === 'status'));
   }
+});
+
+
+test('传输失败仍只通知，不弹出队列；手动队列入口保留', async () => {
+  const ui = harness(); ui.context.files.transfer = async () => false;
+  await ui.context.exports.uploadPaths(['C:\\a.txt']);
+  assert.deepEqual(ui.queues, []); assert.equal(ui.notices.length, 1); assert.equal(ui.notices[0][1], 'error');
+  assert.match(readFileSync(new URL('../src/components/Sidebar.tsx', import.meta.url),'utf8'), /onClick=\{\(\) => setTransfersOpen\(true\)\}/);
 });

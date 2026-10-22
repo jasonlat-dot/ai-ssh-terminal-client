@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createTerminalUpload, terminalUploadMatches, runTerminalUpload } from '../src/state/terminalUpload';
+import { createTerminalUpload, createSidebarTransfer, terminalUploadMatches, runTerminalUpload, runTerminalTransfer } from '../src/state/terminalUpload';
 import { handleTerminalFileDrop } from '../src/state/terminalFileDrop';
 import type { TerminalRuntime } from '../src/state/terminalRuntime';
 import type { DragDropEvent } from '@tauri-apps/api/webview';
@@ -75,4 +75,21 @@ test('physical DPI positions route a drop to its actual pane and ignore modal ov
   hit = overlay; handleTerminalFileDrop(event, surface, options);
   assert.equal(drops.length, 1, 'another pane or overlay cannot receive this drop');
   handleTerminalFileDrop({ type: 'leave' }, surface, options); assert.equal(hover.at(-1), false);
+});
+
+
+test('sidebar transfers pin the browsed directory and download source independently of Shell cwd', async () => {
+  const f = fixture();
+  const request = createSidebarTransfer(f.runtime, 'tab-one', 'WSL', '/srv/files', ['D:\\downloads'], '中文.txt');
+  assert.equal(request.target.path, '/srv/files'); assert.equal(request.direction, 'DOWNLOAD');
+  assert.equal(terminalUploadMatches(f.runtime, request), true);
+  const submitted: unknown[][] = [];
+  const result = await runTerminalTransfer(request, {valid: () => terminalUploadMatches(f.runtime, request),
+    connect: async () => true, transfer: async (...args) => { submitted.push(args); return true; }});
+  assert.deepEqual(result, {submitted:1,total:1});
+  assert.deepEqual(submitted, [['DOWNLOAD','D:\\downloads','/srv/files/中文.txt']]);
+  f.directory.accessKey = 'changed'; let connections = 0;
+  await runTerminalTransfer(request, {valid: () => terminalUploadMatches(f.runtime, request),connect: async () => {connections++;return true;},transfer: async () => true});
+  assert.equal(connections, 0);
+  for (const name of ['..','folder/file','bad\n']) assert.throws(() => createSidebarTransfer(f.runtime,'tab','WSL','/srv', ['D:\\out'],name));
 });

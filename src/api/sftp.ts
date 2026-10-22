@@ -33,6 +33,7 @@ async function native<T>(command: string, args: Record<string, unknown> = {}): P
   catch (error) { throw new SftpError(error); }
 }
 export const sftpApi = {
+  pickLocal: (directory: boolean) => native<string[]>('sftp_pick_local', { directory }),
   async open(connectionId: string, rootPath: string, onEvent: (event: SftpEvent) => void, accessMode: SftpAccessMode = 'login', sudoPassword?: string, terminalSessionId?: string) {
     if (!isTauriRuntime()) return Promise.reject(new Error('请在桌面客户端打开文件管理，本地文件传输需要 Tauri。'));
     const channel = new Channel<SftpEvent>();

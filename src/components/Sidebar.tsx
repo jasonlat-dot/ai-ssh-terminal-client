@@ -6,8 +6,8 @@ import { getCurrentWebview } from '@tauri-apps/api/webview';
 import type { SftpAccessMode, SftpEntry, SftpTransfer } from '../api/sftp';
 import { sftpApi } from '../api/sftp';
 import { useSftp } from '../state/useSftp';
-import { runTerminalUpload } from '../state/terminalUpload';
-import type { TerminalUploadRequest } from '../state/terminalUpload';
+import { runTerminalTransfer } from '../state/terminalUpload';
+import type { TerminalTransferRequest } from '../state/terminalUpload';
 import { isTauriRuntime } from '../state/runtime';
 import { formatBytes, remoteParent, transferPercent, transferStatus } from '../state/sftp';
 import { AccentIcon, Badge, Icon, IconButton, Modal, fileTone } from './Ui';
@@ -164,8 +164,8 @@ function FileSource({ side, title, path, parent, roots = [], entries, loading, e
 }
 
 export function SessionFiles({ connectionId, title, target, uploadRequest, validateUpload, uploadHandled, visible, minimize, copy, notify, registerAppCloseCleanup }: {
-  uploadRequest?: TerminalUploadRequest;
-  validateUpload?: (request: TerminalUploadRequest) => boolean;
+  uploadRequest?: TerminalTransferRequest;
+  validateUpload?: (request: TerminalTransferRequest) => boolean;
   uploadHandled?: (id: string) => void;
   target?: import('../state/terminalFileTarget').TerminalFileTarget;
   connectionId: string; title: string; visible: boolean; minimize: () => void;
@@ -180,6 +180,7 @@ export function SessionFiles({ connectionId, title, target, uploadRequest, valid
   const openedTarget = useRef<import('../state/terminalFileTarget').TerminalFileTarget | undefined>(undefined);
   const handledTarget = useRef(0);
   const claimedUpload = useRef('');
+  const waitingTransfer = useRef('');
   const uploadMounted = useRef(true);
   const uploadCallbacks = useRef({ validateUpload, uploadHandled, notify });
   uploadCallbacks.current = { validateUpload, uploadHandled, notify };
@@ -228,25 +229,32 @@ export function SessionFiles({ connectionId, title, target, uploadRequest, valid
     const reuse = ready && previous?.terminalSessionId === destination.terminalSessionId && previous.accessKey === destination.accessKey
       && !!root && (root === '/' || destination.path === root || destination.path.startsWith(`${root}/`));
     // Never replace a busy independent identity just to start a terminal upload.
-    if (activeTransfers > 0 && !reuse) { setTransfersOpen(true); return; }
+    if (activeTransfers > 0 && !reuse) {
+      if (waitingTransfer.current !== uploadRequest.id) {
+        waitingTransfer.current = uploadRequest.id;
+        uploadCallbacks.current.notify('已等待当前文件操作结束，可在传输队列查看进度。');
+      }
+      return;
+    }
     claimedUpload.current = uploadRequest.id;
     if (target) handledTarget.current = target.revision;
-    setTransfersOpen(true); setAccessEditing(false); setTerminalAccess(true); setRoot('/'); setSudoPassword(''); setConflict('FAIL');
+    setAccessEditing(false); setTerminalAccess(true); setRoot('/'); setSudoPassword(''); setConflict('FAIL');
     const valid = () => uploadMounted.current && uploadCallbacks.current.validateUpload?.(uploadRequest) === true;
-    void runTerminalUpload(uploadRequest, {
+    void runTerminalTransfer(uploadRequest, {
       valid,
       connect: async () => {
         if (reuse) { await files.loadRemote(destination.path); return true; }
         openedTarget.current = destination;
         return files.open('/', 'login', undefined, destination.terminalSessionId, destination.path);
       },
-      upload: (path, remote) => files.transfer('UPLOAD', path, remote, 'FAIL'),
+      transfer: (direction, path, remote) => files.transfer(direction, path, remote, 'FAIL'),
     }).then(({ submitted, total }) => {
       if (!uploadMounted.current) return;
-      if (submitted === total) uploadCallbacks.current.notify(`已创建 ${submitted} 个上传任务，可在传输队列查看进度。`, 'success');
-      else if (!valid()) uploadCallbacks.current.notify('终端连接或访问身份已变化，未提交的文件已停止上传，请重新拖入确认。', 'error');
-      else uploadCallbacks.current.notify(`已创建 ${submitted}/${total} 个上传任务，请检查连接或传输队列中的错误。`, 'error');
-    }).catch(error => { if (uploadMounted.current) uploadCallbacks.current.notify(error instanceof Error ? error.message : '无法开始终端上传。', 'error'); })
+      const action = uploadRequest.direction === 'DOWNLOAD' ? '下载' : '上传';
+      if (submitted === total) uploadCallbacks.current.notify(`已创建 ${submitted} 个${action}任务，可在传输队列查看进度。`, 'success');
+      else if (!valid()) uploadCallbacks.current.notify(`终端连接或访问身份已变化，未提交的文件已停止${action}，请重新选择。`, 'error');
+      else uploadCallbacks.current.notify(`已创建 ${submitted}/${total} 个${action}任务，请检查连接或传输队列中的错误。`, 'error');
+    }).catch(error => { if (uploadMounted.current) uploadCallbacks.current.notify(error instanceof Error ? error.message : '无法开始终端传输。', 'error'); })
       .finally(() => uploadCallbacks.current.uploadHandled?.(uploadRequest.id));
   }, [uploadRequest, files.phase, files.working, activeTransfers]);
   useEffect(() => {
@@ -291,7 +299,6 @@ export function SessionFiles({ connectionId, title, target, uploadRequest, valid
     const uniquePaths = [...new Set(paths.filter(Boolean))];
     if (!ready) { notify('请先连接文件管理，再拖入文件。', 'error'); return; }
     if (!uniquePaths.length) return;
-    notify(`正在准备上传 ${uniquePaths.length} 项到 ${files.remotePath}`);
     let succeeded = 0;
     for (const localPath of uniquePaths) {
       if (await files.transfer('UPLOAD', localPath, files.remotePath, conflict)) succeeded++;
@@ -302,7 +309,6 @@ export function SessionFiles({ connectionId, title, target, uploadRequest, valid
         : `已创建 ${succeeded}/${uniquePaths.length} 个上传任务，请打开传输队列查看详情。`,
       succeeded === uniquePaths.length ? 'success' : 'error',
     );
-    if (succeeded !== uniquePaths.length) setTransfersOpen(true);
   };
   const uploadPathsRef = useRef(uploadPaths);
   uploadPathsRef.current = uploadPaths;
@@ -315,7 +321,6 @@ export function SessionFiles({ connectionId, title, target, uploadRequest, valid
     }
     if (succeeded) {
       notify(`已创建 ${succeeded} 个下载任务，可在传输队列查看进度。`, 'success');
-      setTransfersOpen(true);
     }
   };
   const downloadPathsRef = useRef(downloadPaths);
@@ -391,7 +396,7 @@ export function SessionFiles({ connectionId, title, target, uploadRequest, valid
       </footer>
       {transfersOpen && <><button type="button" className="sftp-transfer-drawer-backdrop" aria-label="关闭传输队列" onClick={() => setTransfersOpen(false)} /><aside className="sftp-transfer-drawer" role="dialog" aria-modal="true" aria-label="传输队列">
         <header><span><strong>传输队列</strong><small>{activeTransfers > 0 ? `${activeTransfers} 个处理中` : `${files.tasks.length} 条记录`}</small></span><div className="inline-actions"><IconButton icon="refresh" label="查询传输状态" disabled={!ready} onClick={() => void files.refreshTasks()} /><IconButton icon="close" label="关闭传输队列" onClick={() => setTransfersOpen(false)} /></div></header>
-        {uploadRequest && claimedUpload.current !== uploadRequest.id && <p className="sftp-terminal-upload-pending" role="status">等待当前文件操作结束后，上传到 {uploadRequest.target.path}</p>}
+        {uploadRequest && claimedUpload.current !== uploadRequest.id && <p className="sftp-terminal-upload-pending" role="status">等待当前文件操作结束后，{uploadRequest.direction === 'DOWNLOAD' ? '下载到 ' + uploadRequest.paths[0] : '上传到 ' + uploadRequest.target.path}</p>}
         <section className="sftp-transfers" aria-label="SFTP 传输任务">
           {files.scanning && <p className="sftp-empty" role="status">{files.scanning}</p>}
           {!files.scanning && !files.tasks.length && <p className="sftp-empty">暂无传输<br /><small>选择文件后点击箭头，或拖到另一侧目录</small></p>}

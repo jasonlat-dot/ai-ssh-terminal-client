@@ -88,6 +88,7 @@ pub fn run() {
             sftp_retry,
             sftp_cancel,
             sftp_local_entries,
+            sftp_pick_local,
             sftp_local_mkdir,
             sftp_local_create_file,
             sftp_local_delete,

@@ -3,6 +3,7 @@ import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
+import { createSidebarTransfer } from '../src/state/terminalUpload.ts';
 
 const source = path => readFileSync(new URL(`../src/${path}`, import.meta.url), 'utf8');
 const compile = input => ts.transpileModule(input, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } }).outputText;
@@ -10,12 +11,13 @@ const flush = async () => { for (let i = 0; i < 8; i++) await Promise.resolve();
 const listing = (path, names = ['folder', '.hidden', '中文.txt']) => ({ path, truncated: false,
   entries: names.map((name, i) => ({ name, directory: i === 0, symlink: false, size: 12 })) });
 function harness() {
+  const transfers = [], choices = [], notices = [];
   const slots = [], effects = [], jobs = new Map(), events = new Map(), requests = [], saved = new Map(), copies = [];
   let cursor = 0, timerId = 0, tree, managerOpens = 0;
   let cwd = { path: '/home', revision: 1 };
   const runtime = { sessionId: 'one', directorySnapshot: () => cwd, subscribeDirectory: () => () => {},
     directoryList: (path, signal) => new Promise((resolve, reject) => requests.push({ path, signal, resolve, reject })) };
-  let props = { runtime, title: '测试服务器', local: false, connected: true, visible: true, openFiles: () => managerOpens++, copy: async path => copies.push(path) };
+  let props = { runtime, terminalId: 'tab-one', transfer: request => transfers.push(request), title: '测试服务器', local: false, connected: true, visible: true, openFiles: () => managerOpens++, copy: async path => copies.push(path) };
   const document = { hidden: false, addEventListener: (name, fn) => events.set(name, fn), removeEventListener: name => events.delete(name) };
   const react = {
     useState(initial) { const i = cursor++; if (!(i in slots)) slots[i] = typeof initial === 'function' ? initial() : initial;
@@ -33,6 +35,10 @@ function harness() {
     setTimeout: (fn, delay) => { jobs.set(++timerId, { fn, delay }); return timerId; }, clearTimeout: id => jobs.delete(id),
     require: name => {
       if (name === 'react') return react;
+      if (name.endsWith('api/sftp')) return { sftpApi: { pickLocal: directory => new Promise(resolve => choices.push({ directory, resolve })) } };
+      if (name.endsWith('notifications')) return { notify: (...args) => notices.push(args) };
+      if (name.endsWith('terminalUpload')) return { createSidebarTransfer };
+
       if (name === 'react/jsx-runtime') return { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) };
       if (name.endsWith('terminalDirectory')) return directory;
       if (name.endsWith('terminalResources')) return { resourceBytes: value => `${value} B` };
@@ -46,7 +52,7 @@ function harness() {
   const all = value => Array.isArray(value) ? value.flatMap(all) : value?.props ? [value, ...all(value.props.children)] : [];
   const render = (patch = {}) => { props = { ...props, ...patch }; cursor = 0; tree = context.exports.TerminalFileSidebar(props); while (effects.length) effects.shift()(); return tree; };
   render();
-  return { requests, copies, saved, events, render, runtime, nodes: () => all(tree), managerOpens: () => managerOpens,
+  return { requests, copies, saved, events, render, runtime, transfers, choices, notices, nodes: () => all(tree), managerOpens: () => managerOpens,
     find: predicate => all(tree).find(predicate),
     async tick() { const pending = [...jobs]; jobs.clear(); for (const [, job] of pending) job.fn(); await flush(); render(); },
     cwd(path, access = {}) { cwd = { ...cwd, ...access, path, revision: cwd.revision + 1 }; render(); },
@@ -120,4 +126,40 @@ test('自由浏览也随退出 root 撤销读取，立即清除旧身份文件�
   assert.ok(!ui.find(node => node.props.title === 'late-private-file'));
   await ui.tick(); assert.equal(ui.requests.at(-1).path, '/root');
   ui.stop();
+});
+
+
+test('快捷按钮按目录与选中文件启用，上传使用自由浏览位置并抑制重复选择', async () => {
+  const ui = harness(), upload = () => ui.find(n => n.props.label === '上传文件到当前目录');
+  assert.equal(upload().props.disabled, true); await ui.tick();
+  ui.requests[0].resolve(listing('/home')); await flush(); ui.render();
+  assert.equal(upload().props.disabled, false);
+  assert.equal(ui.find(n => n.props.label === '下载选中文件').props.disabled, true);
+  ui.find(n => n.props.title === 'folder').props.onClick(); ui.render(); await ui.tick();
+  ui.requests.at(-1).resolve(listing('/home/folder')); await flush(); ui.render();
+  upload().props.onClick(); upload().props.onClick(); ui.render(); assert.equal(ui.choices.length, 1);
+  assert.equal(ui.choices[0].directory, false); ui.choices[0].resolve(['C:\\a.txt','D:\\b.txt']); await flush(); ui.render();
+  assert.equal(ui.transfers.length, 1); assert.equal(ui.transfers[0].target.path, '/home/folder');
+  assert.equal(ui.transfers[0].terminalId, 'tab-one'); assert.equal(ui.transfers[0].target.terminalSessionId, 'one');
+  assert.equal(upload().props.disabled, false); ui.stop();
+});
+
+test('下载选中文件并选择本地目录，取消选择不创建传输任务', async () => {
+  const ui = harness(); await ui.tick(); ui.requests[0].resolve(listing('/home')); await flush(); ui.render();
+  ui.find(n => n.props.title === '中文.txt').props.onClick(); ui.render();
+  const download = () => ui.find(n => n.props.label === '下载选中文件');
+  assert.equal(download().props.disabled, false); download().props.onClick(); ui.choices[0].resolve([]); await flush(); ui.render();
+  assert.equal(ui.transfers.length, 0); assert.equal(ui.notices.length, 0);
+  download().props.onClick(); assert.equal(ui.choices[1].directory, true); ui.choices[1].resolve(['D:\\downloads']); await flush();
+  assert.equal(ui.transfers[0].direction, 'DOWNLOAD'); assert.equal(ui.transfers[0].remotePath, '/home/中文.txt');
+  assert.deepEqual(ui.transfers[0].paths, ['D:\\downloads']); ui.stop();
+});
+
+test('文件选择期间换目录、身份、终端或关闭侧栏不向原目标提交', async () => {
+  for (const change of [ui => ui.cwd('/other'), ui => ui.cwd('/home',{accessKey:'new-root'}),
+    ui => ui.render({runtime:{...ui.runtime,sessionId:'new'}}), ui => ui.render({visible:false}), ui => ui.stop()]) {
+    const ui = harness(); await ui.tick(); ui.requests[0].resolve(listing('/home')); await flush(); ui.render();
+    ui.find(n => n.props.label === '上传文件到当前目录').props.onClick(); change(ui);
+    ui.choices[0].resolve(['C:\\a.txt']); await flush(); assert.equal(ui.transfers.length, 0); ui.stop();
+  }
 });

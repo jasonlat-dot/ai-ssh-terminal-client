@@ -121,3 +121,27 @@ pub async fn sftp_local_delete(path: String) -> Result<()> {
         .await
         .map_err(|e| sftp::Error::local(e.to_string()))?
 }
+
+/// Returns selected paths only; file bytes stay in the existing transfer worker.
+#[tauri::command]
+pub async fn sftp_pick_local(directory: bool) -> Result<Vec<String>> {
+    let dialog = rfd::AsyncFileDialog::new().set_title(if directory {
+        "选择下载保存目录"
+    } else {
+        "选择要上传的文件"
+    });
+    let paths = if directory {
+        dialog.pick_folder().await.into_iter().collect::<Vec<_>>()
+    } else {
+        dialog.pick_files().await.unwrap_or_default()
+    };
+    paths
+        .into_iter()
+        .map(|file| {
+            file.path()
+                .to_str()
+                .map(str::to_owned)
+                .ok_or_else(|| sftp::Error::local("所选路径不是有效的 Unicode 路径"))
+        })
+        .collect()
+}

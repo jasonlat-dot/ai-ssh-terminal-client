@@ -49,3 +49,10 @@
   .terminal-file-sidebar { gap: 6px; padding: 8px; }
   .terminal-file-note { max-height: 3.2em; overflow: auto; }
 }
+
+.terminal-file-heading > span { flex: 1; }
+.terminal-file-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 4px; }
+.terminal-file-actions .terminal-file-transfer { width: 27px; height: 27px; padding: 5px; border: 1px solid var(--ui-highlight-border); border-radius: 7px; background: var(--ui-highlight-bg); color: var(--ui-highlight-text); }
+.terminal-file-actions .terminal-file-transfer.download { color: var(--accent-cyan-ink); border-color: var(--accent-cyan-line); background: var(--accent-cyan-soft); }
+.terminal-file-actions .terminal-file-transfer:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
+.terminal-file-actions .terminal-file-transfer:hover:not(:disabled) { border-color: var(--ui-accent); background: var(--theme-hover); }

@@ -50,6 +50,7 @@ const paths = {
   search: 'M16 10a6 6 0 1 1-12 0 6 6 0 0 1 12 0 M15 15l6 6',
   refresh: 'M20 9a8 8 0 0 0-14-4L3 8 M3 3v5h5 M4 15a8 8 0 0 0 14 4l3-3 M16 16h5v5',
   upload: 'M12 16V3 M7 8l5-5 5 5 M4 15v6h16v-6',
+  download: 'M12 3v13 M7 11l5 5 5-5 M4 15v6h16v-6',
   image: 'M4 3h16a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1 M3 16l5-5 5 5 3-3 5 5 M17 7a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0',
   copy: 'M8 8h12v13H8z M16 8V3H3v14h5',
   paste: 'M9 5H5v16h14V5h-4 M9 3h6v4H9z M8 12h8 M8 16h6',
